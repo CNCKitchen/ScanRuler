@@ -1,6 +1,6 @@
 // End-to-end smoke test: drives the real app in headless Chrome — loads
-// ballbar.stl through the file input, clicks both spheres in the 3D
-// viewport, and checks the measured center distance in the sidebar.
+// ballbar.stl through the file input, runs the "Create fitting sphere" pick-preview-create
+// flow on both balls, and checks the measured center distance in the sidebar.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-smoke.mjs
@@ -48,37 +48,61 @@ const rect = await page.$eval('.viewport canvas', (el) => {
   return { x: r.x, y: r.y, w: r.width, h: r.height }
 })
 
-const state = () =>
-  page.evaluate(() => ({
-    rows: [...document.querySelectorAll('.element-row')].map((e) =>
-      e.textContent.replace(/\s+/g, ' ').trim(),
-    ),
-  }))
-const doneCount = async () => (await state()).rows.filter((t) => t.includes('Ø')).length
+const rowTexts = () =>
+  page.$$eval('.element-row', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()))
+const doneCount = async () => (await rowTexts()).filter((t) => t.includes('Ø')).length
 
-// The model is auto-framed with its long axis horizontal, so the ball-bar
-// spheres sit at the two ends: sweep inward from each end until one fits.
-async function sweepEnd(fromLeft, want) {
-  for (const fx of [0.05, 0.09, 0.13, 0.17, 0.22]) {
-    for (const fy of [0.5, 0.42, 0.58, 0.34, 0.66]) {
-      const x = rect.x + rect.w * (fromLeft ? fx : 1 - fx)
-      const y = rect.y + rect.h * fy
-      await page.mouse.click(x, y)
-      await sleep(400)
-      for (let i = 0; i < 100; i++) {
-        if (!(await state()).rows.some((t) => t.includes('Fitting'))) break
-        await sleep(250)
-      }
-      if ((await doneCount()) >= want) return true
-    }
+const click = async (sel) => {
+  await page.waitForSelector(sel, { timeout: 10_000 })
+  await page.click(sel)
+}
+const draftStatus = () => page.$eval('[data-test="draft-status"]', (e) => e.className)
+const previewReady = async () => {
+  for (let i = 0; i < 120; i++) {
+    if (await page.$('[data-test="create-sphere"]:not([disabled])')) return true
+    const status = await draftStatus()
+    // "empty" means the click missed the mesh entirely — no fit is coming.
+    if (status.includes('failed') || status.includes('empty')) return false
+    await sleep(250)
   }
   return false
 }
 
-if (!(await sweepEnd(true, 1))) console.log('WARN: left sphere not fitted')
-if (!(await sweepEnd(false, 2))) console.log('WARN: right sphere not fitted')
+// The part is framed broadside with world-up on screen, so the ball bar runs
+// along whichever screen axis its long axis projects onto. Sweep inward from
+// both ends of the vertical axis first, then the horizontal one.
+function candidates(farEnd) {
+  const out = []
+  for (const near of [0.06, 0.1, 0.14, 0.18, 0.23]) {
+    const f = farEnd ? 1 - near : near
+    for (const off of [0.5, 0.44, 0.56, 0.38, 0.62]) {
+      out.push([rect.x + rect.w * off, rect.y + rect.h * f]) // bar vertical
+      out.push([rect.x + rect.w * f, rect.y + rect.h * off]) // bar horizontal
+    }
+  }
+  return out
+}
 
-const rows = (await state()).rows
+// One ball: start a draft, sweep for a point that previews a sphere, create it.
+async function fitBall(farEnd, want) {
+  for (const [x, y] of candidates(farEnd)) {
+    await click('[data-test="fit-sphere"]')
+    await page.mouse.click(x, y)
+    await sleep(300)
+    if (await previewReady()) {
+      await click('[data-test="create-sphere"]')
+      await sleep(200)
+      if ((await doneCount()) >= want) return true
+    }
+    await click('[data-test="cancel-draft"]').catch(() => {})
+  }
+  return false
+}
+
+if (!(await fitBall(false, 1))) console.log('WARN: first sphere not fitted')
+if (!(await fitBall(true, 2))) console.log('WARN: second sphere not fitted')
+
+const rows = await rowTexts()
 console.log('spheres:', JSON.stringify(rows))
 const distances = await page.$$eval('.distance-row .value', (els) =>
   els.map((e) => e.textContent.trim()),

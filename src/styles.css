@@ -84,18 +84,71 @@ body {
 }
 
 .viewport-label {
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 9px;
+  border-radius: 7px;
   background: rgba(31, 33, 39, 0.9);
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
   white-space: nowrap;
 }
 
-.distance-label {
-  color: var(--accent);
+.viewport-label .label-title {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.viewport-label .label-value {
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.distance-label .label-value {
+  color: var(--accent);
+}
+
+/* Fits run off the main thread; the spinner is the only sign work is
+   happening between a pick and its result. */
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 2px solid rgba(231, 233, 238, 0.22);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+.busy-chip {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 15px;
+  background: rgba(31, 33, 39, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 5;
 }
 
 .sidebar {
@@ -163,6 +216,12 @@ button.primary {
 
 button.primary:hover {
   filter: brightness(1.08);
+}
+
+button.block {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
 }
 
 button.icon {
@@ -249,6 +308,14 @@ button.icon:hover {
   font-weight: 600;
 }
 
+.element-row .value.fitting {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
 .actions {
   display: flex;
   gap: 8px;
@@ -256,8 +323,61 @@ button.icon:hover {
   padding-top: 14px;
 }
 
+.actions.plain {
+  border-top: none;
+  padding-top: 8px;
+}
+
 .actions button {
   flex: 1;
+}
+
+/* The draft carries the colour its element will get, set inline. */
+.draft h2 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.draft h2 .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.draft-fields {
+  margin-top: 12px;
+}
+
+.draft-status {
+  margin: 10px 0 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.draft-status.fitting {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-dim);
+}
+
+.draft-status.ready {
+  font-weight: 600;
+}
+
+.draft-status.failed {
+  border-color: #6b3a3a;
+  color: #ff9d9d;
+}
+
+.draft-detail {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  padding: 0 2px 4px;
 }
 
 .toggle {

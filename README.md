@@ -1,9 +1,9 @@
 # 3D Scan Evaluator
 
 Evaluate the accuracy of your 3D scanner with a **ball bar** — entirely in your
-browser. Load a scan (STL, PLY, or OBJ), click each sphere once, and get
-automatically fitted sphere diameters and center-to-center distances, the same
-way metrology software like GOM Inspect does it.
+browser. Load a scan (STL, PLY, or OBJ), pick each sphere, and get automatically
+fitted sphere diameters and center-to-center distances, the same way metrology
+software like GOM Inspect does it.
 
 **Everything runs locally.** Your scan files are processed in your browser and
 never leave your computer.
@@ -12,13 +12,25 @@ never leave your computer.
 
 1. **Open** your scan (STL, PLY, or OBJ — meshes only, units assumed mm), or
    drag & drop it anywhere in the window.
-2. **Click once on each sphere** in the 3D view. The tool automatically selects
-   the spherical surface around your click (it will not leak onto the
-   connecting rod or stand) and fits a sphere to it. The selected region is
-   tinted so you can verify what was used.
-3. Read off the **sphere diameters** and the **center distance(s)** in the
-   sidebar, and compare the distance against your ball bar's calibrated length.
-   *Copy summary* puts the results on your clipboard.
+2. Press **Create fitting sphere**, then **click a point on a sphere** in the 3D
+   view. The tool automatically selects the spherical surface around your click
+   (it will not leak onto the connecting rod or stand) and marks it in the
+   colour the sphere will get, with the fit itself shown as a neutral grey
+   ghost sphere. If the scan of that ball is broken into unconnected patches,
+   click a point on each one — every pick feeds the same fit. Press **Create
+   sphere** when the preview looks right (*Undo point* drops the last pick,
+   *Cancel* or `Esc` discards). The finished sphere stays on screen in its own
+   colour.
+3. Repeat for the second ball, then read off the **sphere diameters** and the
+   **center distance(s)** in the sidebar, and compare the distance against your
+   ball bar's calibrated length. *Copy summary* puts the results on your
+   clipboard.
+
+The viewport uses a **parallel (orthographic) projection** so nothing is
+foreshortened, and rotates freely around the model's bounding-box center with
+no fixed up-axis — you can turn the part all the way over without hitting a
+pole. Left-drag to rotate, right-drag to pan, scroll to zoom; the **XYZ gizmo**
+in the bottom-right corner shows the current orientation.
 
 Fitting uses a **Gaussian best-fit** (orthogonal least squares) with GOM-style
 *used points* presets (all / 3σ / 2σ / 1σ, default 3σ). The initial estimate is

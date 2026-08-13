@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useStore } from '../state/store'
+import { elementColor, useStore } from '../state/store'
 import { pairDistances, SIGMA_LABELS, type DoneElement } from '../core/summary'
 import type { SigmaPreset } from '../core/types'
 
@@ -7,18 +7,29 @@ const REPO_URL = 'https://github.com/cnckitchen/3DScanEvaluator'
 
 export function Sidebar({
   onOpenFile,
+  onStartDraft,
+  onUndoPick,
+  onCancelDraft,
+  onConfirmDraft,
   onDelete,
   onClearAll,
   onCopy,
 }: {
   onOpenFile: (file: File) => void
+  onStartDraft: () => void
+  onUndoPick: () => void
+  onCancelDraft: () => void
+  onConfirmDraft: () => void
   onDelete: (id: number) => void
   onClearAll: () => void
   onCopy: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
+  const busy = useStore((s) => s.busy)
   const triangleCount = useStore((s) => s.triangleCount)
   const elements = useStore((s) => s.elements)
+  const draft = useStore((s) => s.draft)
+  const draftColor = elementColor(useStore((s) => s.nextNumber))
   const settings = useStore((s) => s.settings)
   const showOverlays = useStore((s) => s.showOverlays)
   const setSigma = useStore((s) => s.setSigma)
@@ -30,6 +41,13 @@ export function Sidebar({
   const done = elements.filter((e) => e.status === 'done' && e.center) as (typeof elements[number] &
     DoneElement)[]
   const pairs = pairDistances(done)
+
+  const draftHint =
+    draft === null
+      ? ''
+      : draft.picks.length === 0
+        ? 'Click a point on the sphere in the 3D view.'
+        : 'Add more points if the sphere is split across unconnected patches, then create it.'
 
   return (
     <aside className="sidebar">
@@ -59,39 +77,91 @@ export function Sidebar({
         </div>
       )}
 
-      <section>
-        <h2>Fitting</h2>
-        <label className="field">
-          <span>Element type</span>
-          <select value="sphere" disabled>
-            <option value="sphere">Sphere</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Method</span>
-          <select value={settings.method} disabled>
-            <option value="gaussian">Gaussian best-fit</option>
-          </select>
-        </label>
-        <label className="field">
-          <span>Used points</span>
-          <select
-            value={settings.sigma}
-            onChange={(e) => setSigma(Number(e.target.value) as SigmaPreset)}
+      {draft === null && (
+        <section>
+          <h2>Fitting</h2>
+          <button
+            className="primary block"
+            data-test="fit-sphere"
+            disabled={!fileName || busy}
+            onClick={onStartDraft}
           >
-            {([3, 2, 1, 0] as SigmaPreset[]).map((k) => (
-              <option key={k} value={k}>
-                {SIGMA_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </label>
-        {fileName && (
-          <p className="hint">
-            Click each sphere in the 3D view to fit it. Click a fitted sphere again to re-fit.
-          </p>
-        )}
-      </section>
+            Create fitting sphere
+          </button>
+          {fileName && (
+            <p className="hint">Pick points on a sphere, check the preview, then create it.</p>
+          )}
+        </section>
+      )}
+
+      {draft !== null && (
+        <section className="draft" style={{ borderTopColor: draftColor }}>
+          <h2 style={{ color: draftColor }}>
+            <span className="dot" style={{ background: draftColor }} />
+            New fitting sphere
+          </h2>
+          <p className="hint">{draftHint}</p>
+          <div className="draft-fields">
+            <label className="field">
+              <span>Method</span>
+              <select value={settings.method} disabled>
+                <option value="gaussian">Gaussian best-fit</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Used points</span>
+              <select
+                value={settings.sigma}
+                onChange={(e) => setSigma(Number(e.target.value) as SigmaPreset)}
+              >
+                {([3, 2, 1, 0] as SigmaPreset[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SIGMA_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div
+            className={`draft-status ${draft.status}`}
+            data-test="draft-status"
+            style={draft.status === 'ready' ? { borderColor: draftColor, color: draftColor } : undefined}
+          >
+            {draft.status === 'empty' && 'No points picked yet'}
+            {draft.status === 'fitting' && (
+              <>
+                <span className="spinner" />
+                Fitting…
+              </>
+            )}
+            {draft.status === 'failed' && (draft.message ?? 'Fit failed')}
+            {draft.status === 'ready' && `Preview · Ø ${draft.diameter!.toFixed(3)} mm`}
+          </div>
+          {draft.status === 'ready' && (
+            <div className="draft-detail">
+              σ {draft.sigma!.toFixed(4)} mm · {draft.usedPoints!.toLocaleString('en-US')} of{' '}
+              {draft.regionSize!.toLocaleString('en-US')} points · {draft.picks.length} pick
+              {draft.picks.length === 1 ? '' : 's'}
+            </div>
+          )}
+          <button
+            className="primary block"
+            data-test="create-sphere"
+            disabled={draft.status !== 'ready'}
+            onClick={onConfirmDraft}
+          >
+            Create sphere
+          </button>
+          <div className="actions plain">
+            <button disabled={draft.picks.length === 0} onClick={onUndoPick}>
+              Undo point
+            </button>
+            <button data-test="cancel-draft" onClick={onCancelDraft}>
+              Cancel
+            </button>
+          </div>
+        </section>
+      )}
 
       {elements.length > 0 && (
         <section>
@@ -100,8 +170,15 @@ export function Sidebar({
             <div className="element-row" key={el.id}>
               <span className="dot" style={{ background: el.color }} />
               <span className="name">{el.name}</span>
-              <span className="value">
-                {el.status === 'fitting' ? 'Fitting…' : `Ø ${el.diameter!.toFixed(3)} mm`}
+              <span className={`value ${el.status}`}>
+                {el.status === 'fitting' ? (
+                  <>
+                    <span className="spinner" />
+                    Fitting…
+                  </>
+                ) : (
+                  `Ø ${el.diameter!.toFixed(3)} mm`
+                )}
               </span>
               <button className="icon" title={`Delete ${el.name}`} onClick={() => onDelete(el.id)}>
                 ✕
@@ -136,7 +213,7 @@ export function Sidebar({
         >
           {copied ? 'Copied ✓' : 'Copy summary'}
         </button>
-        <button disabled={elements.length === 0} onClick={onClearAll}>
+        <button disabled={elements.length === 0 && draft === null} onClick={onClearAll}>
           Clear all
         </button>
       </div>
@@ -147,7 +224,7 @@ export function Sidebar({
           checked={showOverlays}
           onChange={(e) => setShowOverlays(e.target.checked)}
         />
-        Show markers &amp; distance lines
+        Show fitted spheres &amp; distances
       </label>
 
       <footer>
