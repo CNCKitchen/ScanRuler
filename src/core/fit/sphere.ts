@@ -1,48 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Sphere } from '../types'
-
-/** Gaussian elimination with partial pivoting; a is n×n row-major, mutated. */
-export function solveLinear(n: number, a: Float64Array, b: Float64Array): Float64Array | null {
-  let maxAbs = 0
-  for (let i = 0; i < n * n; i++) maxAbs = Math.max(maxAbs, Math.abs(a[i]))
-  const tiny = Math.max(maxAbs, 1) * 1e-13
-
-  const x = b.slice()
-  for (let col = 0; col < n; col++) {
-    let pivotRow = col
-    let best = Math.abs(a[col * n + col])
-    for (let r = col + 1; r < n; r++) {
-      const v = Math.abs(a[r * n + col])
-      if (v > best) {
-        best = v
-        pivotRow = r
-      }
-    }
-    if (best < tiny) return null
-    if (pivotRow !== col) {
-      for (let c = col; c < n; c++) {
-        const t = a[col * n + c]
-        a[col * n + c] = a[pivotRow * n + c]
-        a[pivotRow * n + c] = t
-      }
-      const t = x[col]
-      x[col] = x[pivotRow]
-      x[pivotRow] = t
-    }
-    const piv = a[col * n + col]
-    for (let r = col + 1; r < n; r++) {
-      const f = a[r * n + col] / piv
-      if (f === 0) continue
-      for (let c = col; c < n; c++) a[r * n + c] -= f * a[col * n + c]
-      x[r] -= f * x[col]
-    }
-  }
-  for (let row = n - 1; row >= 0; row--) {
-    let s = x[row]
-    for (let c = row + 1; c < n; c++) s -= a[row * n + c] * x[c]
-    x[row] = s / a[row * n + row]
-  }
-  return x
-}
+import { solveLinear } from './linalg'
 
 /** Linear (algebraic) sphere fit after Coope: with q = p − centroid, solve
  *  2q·a + t = |q|² in least squares for center offset a and t = r² − |a|².

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /** Area-weighted per-vertex normals (unnormalized cross products summed,
  *  then normalized). Orientation follows the triangle winding; the fitting
  *  code only uses |dot|, so inverted meshes still work. */

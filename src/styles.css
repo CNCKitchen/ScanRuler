@@ -1,122 +1,982 @@
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* "Werkbank" theme — software as a measuring instrument. Warm-gray chassis,
+   recessed input wells, CNC-Kitchen-blue accent, DRO-style readouts. Shared
+   with filaSim so the two tools read as one bench.
+   Type: Barlow (DIN heritage) for UI, Barlow Semi Condensed for small caps
+   labels, B612 Mono (the Airbus cockpit face) for all data. All three are
+   SIL OFL 1.1, self-hosted from /fonts (licenses alongside the files). */
+
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/barlow-400.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/barlow-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/barlow-600.woff2") format("woff2"); }
+@font-face { font-family: "Barlow"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/barlow-700.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/barlow-semi-condensed-500.woff2") format("woff2"); }
+@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/barlow-semi-condensed-600.woff2") format("woff2"); }
+@font-face { font-family: "B612 Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/b612-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "B612 Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/b612-mono-700.woff2") format("woff2"); }
 
 :root {
-  --bg: #17181c;
-  --panel: #1f2127;
-  --panel-2: #262931;
-  --border: #33363f;
-  --text: #e7e9ee;
-  --text-dim: #9aa0ab;
-  --accent: #57b6f2;
+  --chassis: #e7e6e1; /* instrument housing */
+  --panel: #fcfcfa; /* faceplates */
+  --well: #efeee9; /* recessed inputs */
+  --well-deep: #e2e1db;
+  --line: #cfcec7; /* panel seams */
+  --line-strong: #b5b4ad;
+  --ink: #26282a;
+  --dim: #75787b;
+  --faint: #9a9d9f;
+  --accent: #1877c0; /* CNC Kitchen brand blue */
+  --accent-d: #12629f;
+  --accent-soft: #d9e8f5;
+  --green: #2e7d46; /* status lamp */
+  --red: #b3361c;
+  --amber: #c97b10;
+  --strip: #26282a; /* machine status strip */
+  --ui: "Barlow", "Segoe UI", system-ui, sans-serif;
+  --cond: "Barlow Semi Condensed", var(--ui);
+  --mono: "B612 Mono", Consolas, "Cascadia Mono", monospace;
+  --r: 3px;
+  --inset: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
 body,
 #root {
   height: 100%;
+  margin: 0;
 }
 
 body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-family: var(--ui);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--chassis);
   overflow: hidden;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .app {
   display: flex;
+  flex-direction: column;
   height: 100%;
+  /* A floor, not a design width: below it the window scrolls rather than
+     crushing the panel into the stage. */
+  min-width: 640px;
 }
 
-.viewport-wrap {
-  position: relative;
+.mid {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.grow {
+  flex: 1;
+}
+
+.dim {
+  color: var(--dim);
+}
+
+/* ---------------- top bar ---------------- */
+
+.top {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  background: var(--chassis);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+.brandmark {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r);
+  background: var(--accent);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--cond);
+  flex: none;
+}
+
+.brand {
+  line-height: 1.12;
+  white-space: nowrap;
+}
+
+.brand b {
+  font-size: 14.5px;
+  font-weight: 700;
+  display: block;
+}
+
+.brand span {
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  font-family: var(--cond);
+}
+
+/* The loaded part, named on the chassis the way a machine names its job. */
+.partchip {
+  margin-left: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 5px 12px 6px;
+  box-shadow: var(--inset);
+  min-width: 0;
+}
+
+.partchip b {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.partchip span {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* ---------------- controls ---------------- */
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 6px 11px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-d);
+  border-color: var(--accent-d);
+}
+
+button.ghost {
+  background: var(--panel);
+}
+
+button.block {
+  display: block;
+  width: 100%;
+}
+
+/* icon-only link styled as a ghost button (GitHub mark in the top bar) */
+a.iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 6px 9px;
+  cursor: pointer;
+}
+
+a.iconbtn:hover {
+  border-color: var(--line-strong);
+}
+
+button.x {
+  flex: none;
+  padding: 0 7px;
+  border: none;
+  background: none;
+  border-radius: var(--r);
+  line-height: 18px;
+  color: var(--faint);
+}
+
+button.x:hover:not(:disabled) {
+  color: var(--red);
+  background: var(--well-deep);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+select {
+  font-family: var(--ui);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 5px 7px;
+  box-shadow: var(--inset);
+}
+
+select:disabled {
+  color: var(--dim);
+}
+
+/* ---------------- left panel ---------------- */
+
+.panel {
+  width: 336px;
+  min-width: 336px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 15px 15px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Small-caps rule between sections — the panel's only headings. */
+.g-label {
+  font-family: var(--cond);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.g-label > span:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.g-label b {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink);
+  letter-spacing: 0;
+  font-weight: 400;
+  text-transform: none;
+}
+
+.sec-head {
+  font-family: var(--cond);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hint {
+  font-size: 11.5px;
+  color: var(--dim);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.divider {
+  border-top: 1px solid var(--line);
+  margin: 2px 0;
+}
+
+.field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field > span {
+  font-size: 12px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.field select {
+  width: 172px;
+  flex: none;
+}
+
+.toolrow {
+  display: flex;
+  gap: 6px;
+}
+
+.toolrow button {
+  flex: 1;
+  white-space: nowrap;
+  padding: 6px 8px;
+}
+
+.checkrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.checkrow input {
+  flex: none;
+}
+
+/* One key per element type — the whole flow starts with this choice, so they
+   sit on the faceplate as physical keys rather than flat white rectangles. */
+.kindrow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.kindrow button {
+  padding: 8px 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--well);
+  box-shadow: var(--inset);
+}
+
+.kindrow button:hover:not(:disabled) {
+  color: var(--accent-d);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* ---------------- readouts ---------------- */
+
+/* The measured number, in its window. Everything the tool exists to report
+   lands in one of these. */
+.dro {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 9px 11px 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.dro-label {
+  font-size: 11.5px;
+  color: var(--dim);
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.dro-window {
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 5px 10px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dro-window b {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.dro-window span {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  color: var(--dim);
+  letter-spacing: 0.06em;
+  text-align: right;
+}
+
+.dro.hero .dro-window b {
+  color: var(--accent-d);
+}
+
+/* A fit that could not be solved is an alarm lamp, not a quieter number. */
+.dro-window.alarm {
+  background: #f8ece8;
+  border-color: #ddb4a8;
+  box-shadow: inset 0 1px 3px rgba(140, 47, 24, 0.14);
+}
+
+.dro-window.alarm b,
+.dro.hero .dro-window.alarm b {
+  color: var(--red);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.dro-window.working b {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
+/* Caveat under a measurement — worth reading, not an alarm. */
+.warnnote {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--amber);
+}
+
+/* A dimension row carries its own hide/delete keys, inline with the title so
+   nothing overlaps it. */
+.dro-tools {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+.dro-tools .dro-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 2px;
+}
+
+button.x.eye {
+  font-size: 10px;
+  padding: 0 5px;
+}
+
+button.x.eye:hover:not(:disabled) {
+  color: var(--accent-d);
+}
+
+.kv b.warn {
+  color: var(--amber);
+}
+
+/* Referenced by the dimension or construction being built — mirrors the
+   element's selection glow in the viewport. */
+.kv.sel {
+  background: var(--well);
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 3px;
+  padding-left: 6px;
+  padding-right: 4px;
+}
+
+.kv.sel .name {
+  font-weight: 600;
+}
+
+/* Hidden in the viewport — still measured, so the row stays, just quieter. */
+.kv.ghost .name {
+  color: var(--faint);
+}
+
+.kv.ghost .dot {
+  opacity: 0.35;
+}
+
+.dro-note {
+  margin-top: 6px;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--dim);
+}
+
+/* Key/value line — a measured element in the list, or a secondary figure. */
+.kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  padding: 3px 1px;
+  color: var(--dim);
+}
+
+.kv .name {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.kv b {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 400;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.kv b.working {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dim);
+}
+
+/* Colour swatch tying a list row to its element in the viewport. */
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.chip {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: var(--r);
+  background: var(--well);
+  border: 1px solid var(--line);
+  color: var(--dim);
+}
+
+/* The pending fit gets a bezel in its future colour — set inline. */
+.draftbox {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  box-shadow: var(--inset);
+}
+
+.draftbox .sec-head {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.draftbox .dro {
+  background: var(--panel);
+}
+
+/* ---------------- stage (viewport) ---------------- */
+
+.stage {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: #dedcd6;
 }
 
 .viewport {
   position: absolute;
   inset: 0;
-  overflow: hidden;
 }
 
 .viewport canvas {
   display: block;
 }
 
-.status-chip {
+/* Empty bench: the stage says what it is waiting for. */
+.stagehint {
   position: absolute;
-  left: 16px;
-  bottom: 16px;
-  max-width: 60%;
-  padding: 8px 14px;
-  background: rgba(31, 33, 39, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--text-dim);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--cond);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--faint);
   pointer-events: none;
 }
 
-.status-chip.error {
-  bottom: 60px;
-  color: #ff9d9d;
-  border-color: #6b3a3a;
+/* Instruction of the moment, pinned where the user is looking. */
+.hintchip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(252, 252, 250, 0.94);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.busychip {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 14px;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(252, 252, 250, 0.94);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.toast {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 7px 12px;
+  font-size: 12px;
+  color: #8c2f18;
+  background: #f6e7e3;
+  border: 1px solid #ddb4a8;
+  border-left: 3px solid #c0492b;
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  z-index: 6;
+}
+
+/* Support banner — bottom-centre pill, capped short of the scale on the right
+   edge of the stage. The chips that also live at the bottom centre step up out
+   of its way; keep these offsets in sync with the paddings below. */
+.supportbanner {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: min(560px, calc(100% - 260px));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 16px;
+  background: linear-gradient(180deg, var(--accent), var(--accent-d));
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(18, 98, 159, 0.35);
+}
+
+.supportbanner a {
+  color: #fff;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.supportbanner a:hover {
+  text-decoration: none;
+}
+
+.supportbanner .sb-x {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.supportbanner .sb-x:hover {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.supportbanner ~ .busychip,
+.supportbanner ~ .toast {
+  bottom: 56px;
+}
+
+/* Banner and busy chip both up: the toast clears the raised chip instead of
+   landing on it. */
+.supportbanner ~ .busychip ~ .toast {
+  bottom: 92px;
 }
 
 .drop-overlay {
   position: absolute;
-  inset: 12px;
+  inset: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 2px dashed var(--accent);
-  border-radius: 12px;
-  background: rgba(23, 24, 28, 0.75);
-  color: var(--accent);
-  font-size: 20px;
+  border-radius: var(--r);
+  background: rgba(252, 252, 250, 0.8);
+  color: var(--accent-d);
+  font-size: 18px;
+  font-weight: 600;
   pointer-events: none;
   z-index: 10;
 }
 
+/* Callouts drawn into the scene by the CSS2D renderer — same faceplate stock
+   as the panel, so a label on the model reads as part of the instrument. */
 .viewport-label {
-  padding: 3px 9px;
-  border-radius: 7px;
-  background: rgba(31, 33, 39, 0.9);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  background: rgba(252, 252, 250, 0.94);
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+  color: var(--ink);
+  font-size: 11px;
   line-height: 1.35;
   text-align: center;
   white-space: nowrap;
 }
 
 .viewport-label .label-title {
-  color: var(--text-dim);
-  font-size: 11px;
+  font-family: var(--cond);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
 .viewport-label .label-value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .distance-label .label-value {
-  color: var(--accent);
+  color: var(--accent-d);
+}
+
+/* ---------------- machine status strip ---------------- */
+
+.strip {
+  height: 30px;
+  background: var(--strip);
+  color: #b9bcbe;
+  display: flex;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  flex: none;
+  overflow: hidden;
+}
+
+.strip > div {
+  padding: 0 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  border-right: 1px solid #3a3c3e;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.strip > div.msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  line-height: 30px;
+}
+
+.strip b {
+  color: #eceeef;
+  font-weight: 400;
+}
+
+.strip .warn {
+  color: #f0a58a;
+  font-weight: 600;
+}
+
+.strip .grow {
+  border-right: none;
+}
+
+/* Sits after .grow, which drops its right border, so the separator has to come
+   from this side instead. */
+.strip > div.nav {
+  border-right: none;
+  border-left: 1px solid #3a3c3e;
+  gap: 8px;
+}
+
+.strip .nav select {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #eceeef;
+  background: #313335;
+  border: 1px solid #4a4c4e;
+  border-radius: 3px;
+  padding: 2px 4px;
+  box-shadow: none;
+  max-width: 150px;
+}
+
+.strip .nav select:hover {
+  border-color: #6a6c6e;
+}
+
+.strip .navhint {
+  color: #8e9294;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip button {
+  color: #b9bcbe;
+  background: none;
+  border: none;
+  border-left: 1px solid #3a3c3e;
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 10px;
+  height: 100%;
+  padding: 0 13px;
+  /* One row, same as the link above. */
+  white-space: nowrap;
+}
+
+.strip button:hover:not(:disabled) {
+  color: #fff;
+  background: #313335;
+}
+
+.strip button.on {
+  color: #fff;
+  background: #3a3c3e;
+}
+
+.strip a {
+  color: #b9bcbe;
+  text-decoration: none;
+  padding: 0 13px;
+  line-height: 30px;
+  border-left: 1px solid #3a3c3e;
+  /* The strip is one 30px row. Let this clip off the end rather than wrap and
+     shove everything else onto a second line nobody can see. */
+  white-space: nowrap;
+}
+
+.strip a:hover {
+  color: #fff;
+  background: #313335;
+}
+
+.lamp {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 5px rgba(46, 125, 70, 0.7);
+  flex: none;
+}
+
+.lamp.busy {
+  background: #e8a33d;
+  box-shadow: 0 0 5px rgba(232, 163, 61, 0.8);
+  animation: lampblink 1s ease-in-out infinite alternate;
+}
+
+.lamp.err {
+  background: #d9472b;
+  box-shadow: 0 0 5px rgba(217, 71, 43, 0.8);
+}
+
+@keyframes lampblink {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
 }
 
 /* Fits run off the main thread; the spinner is the only sign work is
    happening between a pick and its result. */
 .spinner {
   display: inline-block;
-  width: 13px;
-  height: 13px;
-  flex-shrink: 0;
-  border: 2px solid rgba(231, 233, 238, 0.22);
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid rgba(38, 40, 42, 0.18);
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -129,298 +989,784 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .lamp.busy {
+    animation: none;
+  }
+
   .spinner {
     animation-duration: 2.4s;
   }
 }
 
-.busy-chip {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
+/* ---------------- modals ---------------- */
+
+.modalback {
+  position: fixed;
+  inset: 0;
+  background: rgba(38, 40, 42, 0.45);
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 15px;
-  background: rgba(31, 33, 39, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text);
-  pointer-events: none;
-  z-index: 5;
+  justify-content: center;
+  z-index: 50;
 }
 
-.sidebar {
-  width: 340px;
-  flex-shrink: 0;
+.modal {
+  width: 560px;
+  max-width: 92vw;
+  max-height: 86vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px;
-  background: var(--panel);
-  border-left: 1px solid var(--border);
-  overflow-y: auto;
+  gap: 10px;
 }
 
-.sidebar h1 {
-  font-size: 20px;
-  font-weight: 650;
-}
-
-.tagline {
-  color: var(--text-dim);
-  font-size: 13px;
-  margin-top: 2px;
-}
-
-.sidebar h2 {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-dim);
-  margin-bottom: 8px;
-}
-
-.sidebar section {
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
-}
-
-button {
-  padding: 8px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #10151a;
-  font-weight: 600;
-}
-
-button.primary:hover {
-  filter: brightness(1.08);
-}
-
-button.block {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
-}
-
-button.icon {
-  padding: 2px 8px;
-  font-size: 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-}
-
-button.icon:hover {
-  color: #ff9d9d;
-}
-
-.hint {
-  color: var(--text-dim);
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-
-.file-info {
-  padding: 8px 12px;
-  background: var(--panel-2);
-  border-radius: 8px;
-  font-size: 13px;
-  color: var(--text-dim);
-  word-break: break-all;
-}
-
-.field {
+.modalhead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
 }
 
-.field span {
-  color: var(--text-dim);
-  font-size: 13px;
+.modal h2 {
+  margin: 0;
+  font-size: 16px;
 }
 
-.field select {
-  width: 170px;
-  padding: 6px 8px;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 13px;
+.modal h3 {
+  margin: 8px 0 0;
+  font-family: var(--cond);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
-.field select:disabled {
-  opacity: 0.6;
+.modal .x {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  flex: none;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  cursor: pointer;
 }
 
-.element-row,
-.distance-row {
+.modal .x:hover {
+  color: var(--ink);
+  background: var(--well);
+  border-color: var(--line);
+}
+
+/* ---------------- imprint & privacy ---------------- */
+
+.modal.imprint {
+  width: 620px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.modal.imprint p {
+  margin: 0;
+}
+
+.modal.imprint h3 {
+  margin: 6px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.modal.imprint ul {
+  margin: 0;
+  padding-left: 20px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 6px 0;
 }
 
-.element-row .dot {
-  width: 11px;
+.modal.imprint a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------------- responsive ---------------- */
+
+@media (max-width: 860px) {
+  .panel {
+    width: 282px;
+    min-width: 282px;
+    padding: 12px 12px 18px;
+  }
+
+  .brand span,
+  .partchip span {
+    display: none;
+  }
+
+  /* The strip is a fixed 30px row that never wraps. Labelled buttons give up
+     their word and keep their glyph — "§ IMPRINT" → "§" — with the title
+     attribute carrying the name. The imprint has to stay reachable, so it
+     shrinks rather than disappearing. */
+  .strip .btxt {
+    display: none;
+  }
+}
+
+/* The strip is a fixed 30px row that never wraps, so the navigation cell gives
+   up its words well before the window gets narrow: first the reminder of which
+   button does what, then the label. The dropdown is the control and stays. */
+@media (max-width: 1240px) {
+  .strip .navhint {
+    display: none;
+  }
+}
+
+@media (max-width: 1040px) {
+  .strip .nav label {
+    display: none;
+  }
+}
+
+/* ================= deviation workspace ================= */
+
+/* Workspace selector: two positions of one switch, not two buttons. The
+   depressed key is the workspace you are in. */
+.modeswitch {
+  display: flex;
+  margin-left: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--well-deep);
+  box-shadow: var(--inset);
+}
+
+.modeswitch button {
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-family: var(--cond);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 5px 13px;
+}
+
+.modeswitch button + button {
+  border-left: 1px solid var(--line-strong);
+}
+
+.modeswitch button:hover:not(:disabled):not(.on) {
+  color: var(--ink);
+}
+
+.modeswitch button.on {
+  background: var(--panel);
+  color: var(--accent);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
+}
+
+.viewslot {
+  position: absolute;
+  inset: 0;
+}
+
+.viewslot[hidden] {
+  display: none;
+}
+
+/* A failed or doubtful result speaks up in the panel rather than vanishing
+   into the status strip. */
+.alarmtext {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--red);
+  background: #fbeeea;
+  border-left: 2px solid var(--red);
+  padding: 6px 8px;
+  border-radius: 0 var(--r) var(--r) 0;
+}
+
+.field input[type="number"] {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 5px 7px;
+  box-shadow: var(--inset);
+  width: 172px;
+  flex: none;
+}
+
+.slider {
+  width: 100%;
+  accent-color: var(--accent);
+  margin: 2px 0 4px;
+}
+
+/* ---------------- the scale ---------------- */
+
+/* Pinned to the right edge of the stage, where a legend belongs and where it
+   covers the least of the part. */
+.devlegend {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: none;
+  font-family: var(--mono);
+}
+
+.devlegend-unit {
+  font-family: var(--cond);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding-right: 2px;
+}
+
+.devlegend-body {
+  flex: 1 1 auto;
+  min-height: 90px;
+  max-height: 460px;
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+}
+
+/* Distribution, sharing the ramp's vertical axis: a bar sits at exactly the
+   height of the colour it is counting. */
+.devhist {
+  width: 62px;
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
+  background: rgba(252, 252, 250, 0.86);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 3px;
+  gap: 0;
+}
+
+.devhist-row {
+  flex: 1 1 0;
+  display: flex;
+  justify-content: flex-end;
+  min-height: 0;
+}
+
+.devhist-row span {
+  background: var(--ink);
+  opacity: 0.62;
+  min-height: 1px;
+  align-self: stretch;
+}
+
+.devramp {
+  width: 17px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--inset);
+}
+
+/* Off-scale, but still measured. Distinct from the ramp's own ends so a
+   saturated reading is never mistaken for a merely large one. */
+.devramp-cap {
   height: 11px;
-  border-radius: 50%;
-  flex-shrink: 0;
+  flex: none;
 }
 
-.element-row .name,
-.distance-row .name {
-  flex: 1;
+.devramp-bar {
+  flex: 1 1 auto;
+}
+
+.devticks {
+  position: relative;
+  width: 54px;
+  font-size: 10.5px;
+  color: var(--ink);
+}
+
+.devticks span {
+  position: absolute;
+  left: 0;
+  transform: translateY(50%);
+  padding: 0 2px;
+  background: rgba(252, 252, 250, 0.82);
+  border-radius: 2px;
+  line-height: 1.25;
+}
+
+.devticks span.zero {
+  font-weight: 700;
+  color: var(--green);
+}
+
+.devstats {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 1px 12px;
+  background: rgba(252, 252, 250, 0.92);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 7px 9px;
+  font-size: 11px;
+}
+
+.devstats > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.devstats > div.wide {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 3px;
+  margin-top: 2px;
+}
+
+.devstats span {
+  font-family: var(--cond);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.devstats b {
+  font-weight: 500;
+}
+
+/* ---------------- split-screen point picker ---------------- */
+
+.splitpicker {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--chassis);
+  z-index: 5;
+}
+
+.splitbody {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.splithalf {
+  flex: 1 1 0;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line-strong);
+}
+
+.splithalf:last-child {
+  border-right: none;
+}
+
+.splithead {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 11px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.splithead b {
+  font-family: var(--cond);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.splithead span {
+  font-size: 11px;
+  color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.element-row .value,
-.distance-row .value {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
+/* Which side the next click belongs on — the whole flow is an alternation, so
+   the view being waited on is lit. */
+.splithalf.active .splithead {
+  background: var(--accent-soft);
 }
 
-.element-row .value.fitting {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-weight: 400;
-  color: var(--text-dim);
+.splithalf.active .splithead b {
+  color: var(--accent-d);
 }
 
-.actions {
-  display: flex;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
+.splitview {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
 }
 
-.actions.plain {
-  border-top: none;
-  padding-top: 8px;
+.splitview canvas {
+  display: block;
 }
 
-.actions button {
-  flex: 1;
-}
-
-/* The draft carries the colour its element will get, set inline. */
-.draft h2 {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.draft h2 .dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
-
-.draft-fields {
-  margin-top: 12px;
-}
-
-.draft-status {
-  margin: 10px 0 2px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel-2);
-  font-variant-numeric: tabular-nums;
-}
-
-.draft-status.fitting {
+.splitbar {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 9px;
-  color: var(--text-dim);
+  padding: 9px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
 }
 
-.draft-status.ready {
-  font-weight: 600;
+.splitstep {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
-.draft-status.failed {
-  border-color: #6b3a3a;
-  color: #ff9d9d;
-}
-
-.draft-detail {
-  color: var(--text-dim);
+.splitstep b {
   font-size: 12.5px;
-  padding: 0 2px 4px;
+  color: var(--ink);
 }
 
-.toggle {
+.splitstep span {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.splitpins {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  max-width: 240px;
+}
+
+.pinchip {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #fff;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Half a pair: placed on the scan, still waiting for its counterpart. */
+.pinchip.half {
+  background: none !important;
+  color: var(--dim);
+  border: 1px dashed currentColor;
+}
+
+.splitwarn {
+  font-size: 11.5px;
+  color: var(--red);
+  max-width: 300px;
+}
+
+/* How far the picked pairs are from agreeing with each other once a rigid
+   transform is fitted through them — a rough gauge of the clicking, not of the
+   final alignment, which ICP still has to do. */
+.splitfit {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* Number riding on a picked point, in the pair's own colour — the only thing
+   tying a point on the scan to its counterpart on the reference. */
+.pick-pin {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  padding: 1px 5px;
+  border-radius: 8px;
+  transform: translate(10px, -10px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---------------- model slots & units ---------------- */
+
+.slot {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-dim);
-  font-size: 13px;
-  cursor: pointer;
 }
 
-.sidebar footer {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-  color: var(--text-dim);
+.slot .dot {
+  border: 1px solid;
+  flex: none;
+}
+
+.slotname {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.slotname b {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot:has(.starttile) b,
+.slotname b:only-child {
+  color: var(--ink);
+}
+
+.slotname span {
+  font-size: 10.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slot button {
+  flex: none;
+  padding: 4px 9px;
+  font-size: 11.5px;
+}
+
+/* The unit belongs to the number, not to the label — a field that does not say
+   what it is measured in is the reason to have this at all. */
+.unitfield {
+  position: relative;
+  flex: none;
+  width: 172px;
+}
+
+.unitfield input[type="number"] {
+  width: 100%;
+  padding-right: 30px;
+}
+
+.unitfield i {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-style: normal;
+  font-family: var(--cond);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--faint);
+  pointer-events: none;
+}
+
+.probeno {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #fff;
+  background: var(--ink);
+  min-width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+/* ---------------- empty-state stage ---------------- */
+
+.startpane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px;
+  background: var(--chassis);
+}
+
+.starthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-align: center;
+  max-width: 520px;
+}
+
+.starthead b {
+  font-family: var(--cond);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.starthead span {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.starttiles {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* A dashed well says "put something in me" without needing a label to say it. */
+.starttile {
+  width: 236px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 20px 16px 16px;
+  background: var(--panel);
+  border: 1px dashed var(--line-strong);
+  border-radius: 5px;
+  transition: border-color 120ms, background 120ms;
+}
+
+.starttile.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.starttile.filled {
+  border-style: solid;
+}
+
+.starttile-role {
+  font-family: var(--cond);
   font-size: 12px;
-  line-height: 1.6;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 
-.sidebar footer a {
-  color: var(--accent);
-  text-decoration: none;
+.starttile-what {
+  font-size: 11.5px;
+  color: var(--faint);
 }
 
-.sidebar footer a:hover {
-  text-decoration: underline;
+.starttile-drop {
+  font-size: 11.5px;
+  color: var(--dim);
+  margin: 7px 0 4px;
 }
 
-@media (max-width: 760px) {
-  .app {
-    flex-direction: column;
-  }
+.starttile-name {
+  font-size: 11.5px;
+  color: var(--green);
+  margin: 7px 0 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-  .viewport-wrap {
-    flex: 1;
-    min-height: 45%;
-  }
+.startfoot {
+  font-size: 11.5px;
+  color: var(--faint);
+}
 
-  .sidebar {
-    width: 100%;
-    max-height: 55%;
-    border-left: none;
-    border-top: 1px solid var(--border);
-  }
+/* ---------------- hover reading ---------------- */
+
+/* Fixed, because it tracks the cursor in viewport coordinates and must not be
+   clipped by the stage it floats over. */
+.hoverdev {
+  position: fixed;
+  z-index: 6;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(38, 40, 42, 0.92);
+  padding: 3px 8px;
+  border-radius: var(--r);
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.hoverdev.unmatched {
+  background: rgba(117, 120, 123, 0.92);
+  font-weight: 400;
+}
+
+/* A pinned reading, in the same pin style the element workspace uses. */
+.viewport-label.probe {
+  border-color: var(--line-strong);
+}
+
+/* Once one model is in, the prompt gets out of the way of it. */
+.startpane.compact {
+  inset: auto 0 0 0;
+  flex-direction: row;
+  gap: 20px;
+  padding: 14px 18px 16px;
+  background: linear-gradient(to top, var(--chassis) 72%, rgba(231, 230, 225, 0));
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.startpane.compact .starthead {
+  align-items: flex-start;
+  text-align: left;
+  max-width: 260px;
+  padding-bottom: 10px;
+}
+
+.startpane.compact .starthead b {
+  font-size: 12.5px;
+}
+
+.startpane.compact .starttile {
+  width: 210px;
+  padding: 12px 14px 12px;
+}
+
+.startpane.compact .startfoot {
+  display: none;
 }

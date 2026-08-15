@@ -1,9 +1,11 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { FitSettings, MeshGraph, SphereFitOutput } from '../types'
+import { FitError } from './errors'
 import { collectPatch, growSphereRegion } from './regionGrow'
 import { ransacSphere } from './ransac'
 import { fitSphereClipped } from './sphere'
 
-export class FitError extends Error {}
+export { FitError }
 
 /** Full auto-fit pipeline from a single user click:
  *  1. BFS a local patch around the seed,
@@ -38,6 +40,7 @@ export function fitSphereFromSeed(
     if (fin.sigma > 0.03 * sphere.r) continue
 
     return {
+      kind: 'sphere',
       center: [sphere.cx, sphere.cy, sphere.cz],
       radius: sphere.r,
       sigma: fin.sigma,

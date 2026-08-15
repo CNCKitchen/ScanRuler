@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /** Merge duplicated vertices of an STL triangle soup into an indexed mesh.
  *  Vertices are matched on exact float bit patterns via an open-addressing
  *  hash table (binary STL repeats vertices bit-identically). */

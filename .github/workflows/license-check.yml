@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>
+#
+# Enforces the dependency license policy from CONTRIBUTING.md §2 on every PR
+# and push: the dual-licensing model (AGPL + commercial exceptions) requires
+# that no third-party copyleft code ever lands in the app.
+#
+# The full tree is checked, dev dependencies included — a bundler-time or
+# test-time package is still code we ship or distribute alongside what we
+# ship. CC-BY-4.0 is data-only (caniuse-lite's browser tables) and BlueOak-1.0.0
+# is OSI-approved permissive; the private root package is excluded because
+# license-checker reports `private: true` as UNLICENSED.
+name: License check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  npm-licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: npm license allowlist
+        run: >-
+          npx --yes license-checker --excludePrivatePackages
+          --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
+          --summary

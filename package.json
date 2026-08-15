@@ -1,8 +1,14 @@
 {
-  "name": "3d-scan-evaluator",
+  "name": "scanruler",
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CNCKitchen/ScanRuler.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ParsedMesh } from '../types'
 
 /** Binary if the byte length matches the triangle count in the header;

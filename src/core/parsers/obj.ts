@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { ParsedMesh } from '../types'
 
 export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => void): ParsedMesh {

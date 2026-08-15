@@ -1,5 +1,7 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { Sphere } from '../types'
-import { fitSphereClipped, solveLinear } from './sphere'
+import { solveLinear } from './linalg'
+import { fitSphereClipped } from './sphere'
 
 /** Deterministic PRNG so fits are reproducible for identical input. */
 export function mulberry32(seed: number): () => number {

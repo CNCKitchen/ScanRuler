@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /** Vertex-to-vertex adjacency in CSR form (offsets + flat neighbor list).
  *  Neighbors may appear more than once (once per shared triangle); BFS
  *  visited-checks make that harmless and deduplication isn't worth a pass. */

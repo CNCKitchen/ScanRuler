@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 /** Reusable per-graph visited-stamp buffer so BFS never has to clear a
  *  multi-megabyte array between runs: a vertex is "visited" when its stamp
  *  equals the current generation. */

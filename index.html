@@ -1,17 +1,26 @@
 <!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>3D Scan Evaluator</title>
+    <title>ScanRuler</title>
     <meta
       name="description"
-      content="Evaluate 3D scanner accuracy with a ball bar — automatic sphere fitting and center distances, fully in your browser."
+      content="ScanRuler — analyze 3D scans in your browser: fit spheres, cylinders and planes, measure dimensions, map deviation from CAD and wall thickness. Everything stays local."
     />
     <link
       rel="icon"
       href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📐</text></svg>"
     />
+    <link rel="preload" href="/fonts/barlow-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/barlow-600.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/b612-mono-400.woff2" as="font" type="font/woff2" crossorigin />
+    <style>
+      /* pre-CSS paint: chassis gray instead of a white flash */
+      html { background: #e7e6e1; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

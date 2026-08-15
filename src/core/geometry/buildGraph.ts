@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-only
 import type { MeshGraph, ParsedMesh } from '../types'
 import { weldTriangleSoup, filterDegenerateTriangles } from './weld'
 import { buildAdjacency } from './adjacency'

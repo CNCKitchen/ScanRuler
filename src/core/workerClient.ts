@@ -1,4 +1,7 @@
-import type { FitSettings } from './types'
+// SPDX-License-Identifier: AGPL-3.0-only
+import type { AlignResult, PointPair } from './deviation/align'
+import type { Rigid } from './deviation/rigid'
+import type { ElementKind, FitOutput, FitSettings } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
@@ -9,14 +12,28 @@ export interface LoadedMesh {
   triangleCount: number
 }
 
-export interface FitResult {
-  center: [number, number, number]
-  radius: number
-  sigma: number
-  usedPoints: number
-  regionSize: number
-  region: Uint32Array
+export interface LoadedNominal extends LoadedMesh {
+  bboxDiagonal: number
 }
+
+export interface DeviationResult {
+  values: Float32Array
+  suggestedRange: number
+  suggestedMaxDistance: number
+}
+
+export interface ThicknessResult {
+  values: Float32Array
+  suggestedLow: number
+  suggestedHigh: number
+}
+
+/** Everything about a thickness measurement that the worker needs and the
+ *  panel sets — the request minus its bookkeeping. */
+export type ThicknessRequest = Omit<
+  Extract<WorkerRequest, { type: 'thickness' }>,
+  'type' | 'requestId'
+>
 
 /** Typed promise wrapper around the mesh worker. Requests are matched by id;
  *  the worker itself processes them sequentially. */
@@ -25,6 +42,10 @@ export class MeshWorkerClient {
   private nextId = 1
   private pending = new Map<number, { resolve: (v: never) => void; reject: (e: Error) => void }>()
   onProgress: ((text: string) => void) | null = null
+  /** Poses from part-way through an alignment. Not a request result — they
+   *  arrive while the request is still open, so they must not settle it. */
+  onAlignProgress: ((transform: Rigid, iteration: number, meanDistance: number) => void) | null =
+    null
 
   constructor() {
     this.worker = new Worker(new URL('./meshWorker.ts', import.meta.url), { type: 'module' })
@@ -32,6 +53,10 @@ export class MeshWorkerClient {
       const msg = ev.data
       if (msg.type === 'progress') {
         this.onProgress?.(msg.text)
+        return
+      }
+      if (msg.type === 'align-progress') {
+        this.onAlignProgress?.(msg.transform, msg.iteration, msg.meanDistance)
         return
       }
       const entry = this.pending.get(msg.requestId)
@@ -54,8 +79,47 @@ export class MeshWorkerClient {
     return this.request<LoadedMesh>({ type: 'load', requestId, name, buffer }, [buffer])
   }
 
-  async fit(elementType: string, seeds: number[], settings: FitSettings): Promise<FitResult> {
+  async fit(elementType: ElementKind, seeds: number[], settings: FitSettings): Promise<FitOutput> {
     const requestId = this.nextId++
-    return this.request<FitResult>({ type: 'fit', requestId, elementType, seeds, settings })
+    const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
+      type: 'fit',
+      requestId,
+      elementType,
+      seeds,
+      settings,
+    })
+    return res.result
+  }
+
+  async loadNominal(name: string, buffer: ArrayBuffer): Promise<LoadedNominal> {
+    const requestId = this.nextId++
+    return this.request<LoadedNominal>({ type: 'load-nominal', requestId, name, buffer }, [buffer])
+  }
+
+  async align(pairs: PointPair[] | null): Promise<AlignResult> {
+    const requestId = this.nextId++
+    const msg: WorkerRequest = pairs
+      ? { type: 'align', requestId, mode: 'points', pairs }
+      : { type: 'align', requestId, mode: 'auto' }
+    const res = await this.request<Extract<WorkerResponse, { type: 'align-ok' }>>(msg)
+    return res.result
+  }
+
+  async deviate(transform: Rigid): Promise<DeviationResult> {
+    const requestId = this.nextId++
+    return this.request<DeviationResult>({ type: 'deviate', requestId, transform })
+  }
+
+  /** Wall thickness at every scan vertex. Every setting here shapes the search
+   *  itself, so changing any of them means asking again. */
+  async thickness(settings: ThicknessRequest): Promise<ThicknessResult> {
+    const requestId = this.nextId++
+    return this.request<ThicknessResult>({ type: 'thickness', requestId, ...settings })
+  }
+
+  /** Bake a datum alignment into the worker's copy of the scan. */
+  async transform(transform: Rigid): Promise<void> {
+    const requestId = this.nextId++
+    await this.request({ type: 'transform', requestId, transform })
   }
 }
