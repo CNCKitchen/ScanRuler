@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Sphere } from '../types'
+import { clippedRefit } from './clip'
 import { solveLinear } from './linalg'
 
 /** Linear (algebraic) sphere fit after Coope: with q = p − centroid, solve
@@ -120,46 +121,27 @@ export interface ClippedFit {
   used: Uint32Array
 }
 
-/** Gaussian best-fit with GOM-style "used points" clipping: fit, discard
- *  residuals beyond k·sigma, refit, until the point set is stable.
- *  k = 0 means use all points. */
+/** Gaussian best-fit with GOM-style "used points" clipping (see
+ *  `clippedRefit`), each round an algebraic fit polished geometrically. */
 export function fitSphereClipped(
   positions: Float32Array,
   idx: Uint32Array | ArrayLike<number>,
   k: number,
 ): ClippedFit | null {
-  let used: Uint32Array = idx instanceof Uint32Array ? idx : Uint32Array.from(idx as ArrayLike<number>)
-  let result: ClippedFit | null = null
-
-  for (let iter = 0; iter < 12; iter++) {
-    const alg = fitSphereAlgebraic(positions, used)
-    if (!alg) return result
-    const s = refineSphereGeometric(positions, used, alg)
-
-    let sumSq = 0
-    const res = new Float64Array(used.length)
-    for (let i = 0; i < used.length; i++) {
-      const j = used[i] * 3
-      const dx = positions[j] - s.cx
-      const dy = positions[j + 1] - s.cy
-      const dz = positions[j + 2] - s.cz
-      const e = Math.sqrt(dx * dx + dy * dy + dz * dz) - s.r
-      res[i] = e
-      sumSq += e * e
-    }
-    const sigma = Math.sqrt(sumSq / used.length)
-    result = { sphere: s, sigma, used }
-
-    if (k <= 0 || sigma < 1e-9) return result
-    const thr = k * sigma
-    let keep = 0
-    for (let i = 0; i < used.length; i++) if (Math.abs(res[i]) <= thr) keep++
-    if (keep === used.length || keep < 10) return result
-
-    const next = new Uint32Array(keep)
-    let w = 0
-    for (let i = 0; i < used.length; i++) if (Math.abs(res[i]) <= thr) next[w++] = used[i]
-    used = next
-  }
-  return result
+  const r = clippedRefit<Sphere>(
+    positions,
+    idx,
+    k,
+    (used) => {
+      const alg = fitSphereAlgebraic(positions, used)
+      return alg && refineSphereGeometric(positions, used, alg)
+    },
+    (s, x, y, z) => {
+      const dx = x - s.cx
+      const dy = y - s.cy
+      const dz = z - s.cz
+      return Math.sqrt(dx * dx + dy * dy + dz * dz) - s.r
+    },
+  )
+  return r && { sphere: r.model, sigma: r.sigma, used: r.used }
 }

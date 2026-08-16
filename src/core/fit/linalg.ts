@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Vec3 } from '../types'
+import { cross } from '../vec'
+
+// The generic Vec3 helpers live in '../vec'; re-exported here so the fit code
+// can take its vectors and its matrices from a single import.
+export { cross, dot } from '../vec'
 
 /** Gaussian elimination with partial pivoting; a is n×n row-major, mutated. */
 export function solveLinear(n: number, a: Float64Array, b: Float64Array): Float64Array | null {
@@ -68,7 +73,9 @@ export function symmetricEigen3(input: ArrayLike<number>): Eigen3 {
   for (let sweep = 0; sweep < 32; sweep++) {
     const off = Math.abs(a[1]) + Math.abs(a[2]) + Math.abs(a[5])
     const diag = Math.abs(a[0]) + Math.abs(a[4]) + Math.abs(a[8])
-    if (off <= 1e-18 * diag || off === 0) break
+    // 1e-14 relative is as converged as float64 rotations get; a tighter gate
+    // would never fire and every call would burn all the sweeps.
+    if (off <= 1e-14 * diag || off === 0) break
     for (const [p, q] of pairs) {
       const apq = a[p * 3 + q]
       if (apq === 0) continue
@@ -129,7 +136,8 @@ export function symmetricEigenN(n: number, input: ArrayLike<number>): EigenN {
       diag += Math.abs(a[p * n + p])
       for (let q = p + 1; q < n; q++) off += Math.abs(a[p * n + q])
     }
-    if (off === 0 || off <= 1e-18 * diag) break
+    // Same convergence gate as symmetricEigen3: achievable in float64.
+    if (off === 0 || off <= 1e-14 * diag) break
     for (let p = 0; p < n; p++) {
       for (let q = p + 1; q < n; q++) {
         const apq = a[p * n + q]
@@ -180,22 +188,14 @@ export function symmetricEigenN(n: number, input: ArrayLike<number>): EigenN {
   }
 }
 
+/** Unit vector, falling back to +Z for a zero-length input. Deliberately not
+ *  the nullable `normalize` from '../vec': the fitting iterations need a
+ *  usable direction even when a degenerate step collapses a vector, and a
+ *  null contract would force a failure branch into every numeric loop. */
 export function normalize(v: Vec3): Vec3 {
   const len = Math.hypot(v[0], v[1], v[2])
   if (!(len > 1e-20)) return [0, 0, 1]
   return [v[0] / len, v[1] / len, v[2] / len]
-}
-
-export function cross(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ]
-}
-
-export function dot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 /** Any two unit vectors completing `n` into a right-handed frame. */

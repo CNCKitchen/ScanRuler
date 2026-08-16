@@ -12,15 +12,14 @@ export interface PrincipalFrame {
   spread: [number, number, number]
 }
 
-/** Centroid and principal axes of a point cloud (every `stride`-th point). */
-export function principalFrame(xyz: ArrayLike<number>, stride = 1): PrincipalFrame {
-  const total = Math.floor(xyz.length / 3)
-  let mx = 0, my = 0, mz = 0, n = 0
-  for (let v = 0; v < total; v += stride) {
+/** Centroid and principal axes of a point cloud. */
+export function principalFrame(xyz: ArrayLike<number>): PrincipalFrame {
+  const n = Math.floor(xyz.length / 3)
+  let mx = 0, my = 0, mz = 0
+  for (let v = 0; v < n; v++) {
     mx += xyz[v * 3]
     my += xyz[v * 3 + 1]
     mz += xyz[v * 3 + 2]
-    n++
   }
   if (n === 0) {
     return {
@@ -32,7 +31,7 @@ export function principalFrame(xyz: ArrayLike<number>, stride = 1): PrincipalFra
   mx /= n; my /= n; mz /= n
 
   const c = new Float64Array(9)
-  for (let v = 0; v < total; v += stride) {
+  for (let v = 0; v < n; v++) {
     const x = xyz[v * 3] - mx
     const y = xyz[v * 3 + 1] - my
     const z = xyz[v * 3 + 2] - mz

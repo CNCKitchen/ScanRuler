@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Cylinder, Vec3 } from '../types'
+import { clippedRefit } from './clip'
 import { cross, normalize, orthoBasis, solveLinear, symmetricEigen3 } from './linalg'
-import { mulberry32 } from './ransac'
+import { ransacConsensus } from './ransac'
 
 /** Distance of a point from the cylinder surface (positive outside), and the
  *  unit radial direction there. NaN on the axis, where the radial direction
@@ -258,52 +259,31 @@ export interface ClippedCylinderFit {
   used: Uint32Array
 }
 
-/** Gaussian best-fit with GOM-style "used points" clipping: fit, discard
- *  residuals beyond k·sigma, refit, until the point set is stable.
- *  k = 0 means use all points. */
+/** Gaussian best-fit with GOM-style "used points" clipping (see
+ *  `clippedRefit`). Each round re-fits the circle on the previous round's
+ *  axis and then refines geometrically, so the axis carries over between
+ *  clipping rounds instead of restarting from `init`. */
 export function fitCylinderClipped(
   positions: Float32Array,
   idx: Uint32Array | ArrayLike<number>,
   init: Cylinder,
   k: number,
 ): ClippedCylinderFit | null {
-  let used: Uint32Array = idx instanceof Uint32Array ? idx : Uint32Array.from(idx as ArrayLike<number>)
-  let result: ClippedCylinderFit | null = null
   let start = init
-
-  for (let iter = 0; iter < 12; iter++) {
-    const seeded = fitCylinderOnAxis(positions, used, [start.ax, start.ay, start.az]) ?? start
-    const c = refineCylinderGeometric(positions, used, seeded)
-    if (!(c.r > 0) || !Number.isFinite(c.r)) return result
-
-    let sumSq = 0
-    let m = 0
-    const res = new Float64Array(used.length)
-    for (let i = 0; i < used.length; i++) {
-      const j = used[i] * 3
-      const e = cylinderResidual(c, positions[j], positions[j + 1], positions[j + 2])
-      res[i] = e
-      if (!Number.isFinite(e)) continue
-      sumSq += e * e
-      m++
-    }
-    if (m === 0) return result
-    const sigma = Math.sqrt(sumSq / m)
-    result = { cylinder: c, sigma, used }
-    start = c
-
-    if (k <= 0 || sigma < 1e-9) return result
-    const thr = k * sigma
-    let keep = 0
-    for (let i = 0; i < used.length; i++) if (Math.abs(res[i]) <= thr) keep++
-    if (keep === used.length || keep < 10) return result
-
-    const next = new Uint32Array(keep)
-    let w = 0
-    for (let i = 0; i < used.length; i++) if (Math.abs(res[i]) <= thr) next[w++] = used[i]
-    used = next
-  }
-  return result
+  const r = clippedRefit<Cylinder>(
+    positions,
+    idx,
+    k,
+    (used) => {
+      const seeded = fitCylinderOnAxis(positions, used, [start.ax, start.ay, start.az]) ?? start
+      const c = refineCylinderGeometric(positions, used, seeded)
+      if (!(c.r > 0) || !Number.isFinite(c.r)) return null
+      start = c
+      return c
+    },
+    cylinderResidual,
+  )
+  return r && { cylinder: r.model, sigma: r.sigma, used: r.used }
 }
 
 export interface RansacCylinderResult {
@@ -377,95 +357,32 @@ export function ransacCylinder(
   patch: Uint32Array,
   opts: { iterations?: number; seed?: number } = {},
 ): RansacCylinderResult | null {
-  const n = patch.length
-  if (n < 30) return null
-  const iterations = opts.iterations ?? 256
-  const rand = mulberry32(opts.seed ?? 0x5eed)
-
-  let minX = Infinity, minY = Infinity, minZ = Infinity
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
-  for (let i = 0; i < n; i++) {
-    const j = patch[i] * 3
-    const x = positions[j], y = positions[j + 1], z = positions[j + 2]
-    if (x < minX) minX = x
-    if (x > maxX) maxX = x
-    if (y < minY) minY = y
-    if (y > maxY) maxY = y
-    if (z < minZ) minZ = z
-    if (z > maxZ) maxZ = z
-  }
-  const diag = Math.sqrt((maxX - minX) ** 2 + (maxY - minY) ** 2 + (maxZ - minZ) ** 2)
-  if (!(diag > 0)) return null
-
-  const scoreN = Math.min(n, 512)
-  const stride = n / scoreN
-  const subset = new Uint32Array(scoreN)
-  for (let i = 0; i < scoreN; i++) subset[i] = patch[Math.floor(i * stride)]
-
-  const resid = new Float64Array(scoreN)
-
-  /** Median absolute residual of a candidate over the scoring subset, or
-   *  Infinity for one wildly out of scale with the local patch — beyond that
-   *  range it is really a plane, never the cylinder the user clicked. */
-  const medianResidual = (c: Cylinder): number => {
-    if (!(c.r > diag * 0.01) || c.r > diag * 60) return Infinity
-    for (let i = 0; i < scoreN; i++) {
-      const j = subset[i] * 3
-      const e = cylinderResidual(c, positions[j], positions[j + 1], positions[j + 2])
-      resid[i] = Number.isFinite(e) ? Math.abs(e) : Infinity
+  const core = ransacConsensus<Cylinder>(positions, patch, opts, (diag, rand) => {
+    const n = patch.length
+    // A radius wildly out of scale with the local patch is really a plane,
+    // never the cylinder the user clicked.
+    const plausible = (c: Cylinder) => c.r > diag * 0.01 && c.r <= diag * 60
+    const normalAxis = axisFromNormals(normals, patch)
+    const fromNormals = normalAxis && fitCylinderOnAxis(positions, patch, normalAxis)
+    return {
+      initial: fromNormals && plausible(fromNormals) ? fromNormals : null,
+      generate: () => {
+        const i0 = patch[(rand() * n) | 0]
+        const i1 = patch[(rand() * n) | 0]
+        if (i0 === i1) return null
+        const c = cylinderFrom2(positions, normals, i0, i1)
+        return c && plausible(c) ? c : null
+      },
+      residual: cylinderResidual,
     }
-    const sorted = resid.slice().sort()
-    return sorted[scoreN >> 1]
-  }
+  })
+  if (!core) return null
 
-  let bestMedian = Infinity
-  let chosen: Cylinder | null = null
-
-  const normalAxis = axisFromNormals(normals, patch)
-  const fromNormals = normalAxis && fitCylinderOnAxis(positions, patch, normalAxis)
-  if (fromNormals) {
-    bestMedian = medianResidual(fromNormals)
-    if (bestMedian < Infinity) chosen = fromNormals
-  }
-
-  for (let it = 0; it < iterations; it++) {
-    const i0 = patch[(rand() * n) | 0]
-    const i1 = patch[(rand() * n) | 0]
-    if (i0 === i1) continue
-    const c = cylinderFrom2(positions, normals, i0, i1)
-    if (!c) continue
-    const med = medianResidual(c)
-    if (med < bestMedian) {
-      bestMedian = med
-      chosen = c
-    }
-  }
-
-  if (!chosen) return null
-  const sigmaEst = 1.4826 * bestMedian
-  const thr = Math.max(3 * sigmaEst, diag * 1e-5)
-
-  let count = 0
-  for (let i = 0; i < n; i++) {
-    const j = patch[i] * 3
-    const e = cylinderResidual(chosen, positions[j], positions[j + 1], positions[j + 2])
-    if (Number.isFinite(e) && Math.abs(e) <= thr) count++
-  }
-  if (count < 30) return null
-
-  const inliers = new Uint32Array(count)
-  let w = 0
-  for (let i = 0; i < n; i++) {
-    const j = patch[i] * 3
-    const e = cylinderResidual(chosen, positions[j], positions[j + 1], positions[j + 2])
-    if (Number.isFinite(e) && Math.abs(e) <= thr) inliers[w++] = patch[i]
-  }
-
-  const refined = fitCylinderClipped(positions, inliers, chosen, 3)
+  const refined = fitCylinderClipped(positions, core.inliers, core.model, 3)
   if (!refined) return null
   return {
     cylinder: refined.cylinder,
     inliers: refined.used,
-    sigma: Math.max(refined.sigma, sigmaEst, 1e-9),
+    sigma: Math.max(refined.sigma, core.sigmaEst, 1e-9),
   }
 }

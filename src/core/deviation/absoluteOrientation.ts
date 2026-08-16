@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { symmetricEigenN } from '../fit/linalg'
+import { symmetricEigen3, symmetricEigenN } from '../fit/linalg'
 import type { Vec3 } from '../types'
-import { identityRigid, rigidApply, rigidFromQuaternion, type Rigid } from './rigid'
+import { rigidApply, rigidFromQuaternion, type Rigid } from './rigid'
 
 export interface AbsoluteOrientation {
   transform: Rigid
@@ -89,25 +89,8 @@ export function absoluteOrientation(
       (p[0] - target[i][0]) ** 2 + (p[1] - target[i][1]) ** 2 + (p[2] - target[i][2]) ** 2
   }
 
-  const s = symmetricEigenN(3, scatter).values
+  const s = symmetricEigen3(scatter).values
   const conditioning = s[2] > 1e-12 ? s[1] / s[2] : 0
 
   return { transform, rms: Math.sqrt(sum / n), conditioning }
-}
-
-/** Absolute orientation of two flat arrays of xyz triples, used inside ICP
- *  where the correspondences are already packed. Falls back to the identity
- *  when the solve degenerates. */
-export function absoluteOrientationPacked(
-  source: Float64Array,
-  target: Float64Array,
-  count: number,
-): Rigid {
-  const a: Vec3[] = []
-  const b: Vec3[] = []
-  for (let i = 0; i < count; i++) {
-    a.push([source[i * 3], source[i * 3 + 1], source[i * 3 + 2]])
-    b.push([target[i * 3], target[i * 3 + 1], target[i * 3 + 2]])
-  }
-  return absoluteOrientation(a, b)?.transform ?? identityRigid()
 }

@@ -155,10 +155,6 @@ export function rigidRotationAngle(m: Rigid): number {
   return Math.atan2(sin, cos)
 }
 
-export function rigidTranslationLength(m: Rigid): number {
-  return Math.hypot(m.t[0], m.t[1], m.t[2])
-}
-
 /**
  * How far apart two transforms actually place a part, in millimetres: the
  * largest distance between `a(p)` and `b(p)` over a ball of `radius` about
