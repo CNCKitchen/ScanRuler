@@ -34,6 +34,7 @@ import {
   type AxisDir,
 } from '../core/alignment'
 import { rigidCompose, type Rigid } from '../core/deviation/rigid'
+import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import type { StepStyle } from '../core/exportStep'
 import type {
@@ -45,11 +46,6 @@ import type {
   SigmaPreset,
   Vec3,
 } from '../core/types'
-
-/** Saturated enough to hold against the warm-grey chassis and the aluminium
- *  tone of an unmeasured scan — pastels wash out on a light stage. Starts on
- *  the CNC Kitchen blue so the first element is always "the" brand colour. */
-const PALETTE = ['#1877c0', '#e8590c', '#2e7d46', '#b5179e', '#c99a0a', '#0f9b9b', '#b3361c', '#6d4bbd']
 
 /** Colour of the nth element (1-based). Used for the element itself and, while
  *  it is still a draft, for the surfaces picked for it. */
@@ -454,7 +450,6 @@ interface AppState {
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
   toggleElementVisible: (id: number) => void
-  clearElements: () => void
   startDraft: (kind: ElementKind) => void
   /** Re-open an existing element for editing. The caller puts its seeds or its
    *  marked surface back on the scan — see draftFromElement. */
@@ -686,18 +681,6 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => ({
       elements: s.elements.map((e) => (e.id === id ? { ...e, visible: !e.visible } : e)),
     })),
-
-  clearElements: () =>
-    set({
-      elements: [],
-      draft: null,
-      dimensions: [],
-      dimDraft: null,
-      alignDraft: null,
-      nextNumber: 1,
-      nextOfKind: freshCounters(),
-      nextOfDimGroup: { distance: 1, angle: 1 },
-    }),
 
   startDraft: (kind) =>
     set({ draft: freshDraft(kind, defaultMethod(kind)), alignDraft: null, errorText: null }),

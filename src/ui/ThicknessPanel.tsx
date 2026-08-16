@@ -5,12 +5,14 @@
 // as you turn it. Laid out like the deviation panel next door, because it is
 // the same instrument pointed at a different question.
 
-import { BAND_CHOICES } from '../state/deviationStore'
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
 import { useStore } from '../state/store'
+import { CopyButton } from './CopyButton'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
+import { ProbeList } from './ProbeList'
+import { ScaleControls } from './ScaleControls'
 
 export function ThicknessPanel({
   onOpenScan,
@@ -250,29 +252,13 @@ export function ThicknessPanel({
               onCommit={t.setHigh}
               hint="Wall thickness at the top of the scale — the blue end. Anything thicker is drawn in a dark blue cap."
             />
-            <label className="field">
-              <span>Bands</span>
-              <select
-                value={t.bands ?? 0}
-                onChange={(e) => t.setBands(Number(e.target.value) || null)}
-              >
-                <option value={0}>Continuous</option>
-                {BAND_CHOICES.map((b) => (
-                  <option key={b} value={b}>
-                    {b} bands
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="checkrow">
-              <input
-                type="checkbox"
-                data-test="toggle-thickness-histogram"
-                checked={t.showHistogram}
-                onChange={(e) => t.setShowHistogram(e.target.checked)}
-              />
-              <span>Histogram beside the scale</span>
-            </label>
+            <ScaleControls
+              bands={t.bands}
+              onBands={t.setBands}
+              showHistogram={t.showHistogram}
+              onShowHistogram={t.setShowHistogram}
+              histogramTestId="toggle-thickness-histogram"
+            />
           </div>
 
           <div className="group">
@@ -299,38 +285,16 @@ export function ThicknessPanel({
             />
           </div>
 
-          <div className="group">
-            <div className="g-label">
-              <span>Pinned readings</span>
-              <b>{t.probes.length}</b>
-            </div>
-            {t.probes.length === 0 ? (
-              <p className="hint">
-                Hover the part for a live reading; click to pin one where you need a number.
-              </p>
-            ) : (
-              <>
-                {t.probes.map((p, i) => (
-                  <div className="kv" data-test="thickness-probe-row" key={p.id}>
-                    <span className="probeno">{i + 1}</span>
-                    <span className="name">{p.point.map((v) => v.toFixed(1)).join(', ')}</span>
-                    <b>{p.value.toFixed(3)}</b>
-                    <button className="x" title="Remove" onClick={() => t.removeProbe(p.id)}>
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                <button className="block" onClick={t.clearProbes}>
-                  Clear pins
-                </button>
-              </>
-            )}
-          </div>
+          <ProbeList
+            probes={t.probes}
+            rowTestId="thickness-probe-row"
+            format={(v) => v.toFixed(3)}
+            onRemove={t.removeProbe}
+            onClear={t.clearProbes}
+          />
 
           <div className="divider" />
-          <button className="block" onClick={onCopy}>
-            Copy report
-          </button>
+          <CopyButton className="block" label="Copy report" onCopy={onCopy} />
         </>
       )}
     </aside>

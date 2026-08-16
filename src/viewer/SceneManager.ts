@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
+import type { PickMarker } from './PickScene'
 import {
   acceleratedRaycast,
   computeBoundsTree,
@@ -284,12 +285,9 @@ function facesCamera(
   return nx * view.x + ny * view.y + nz * view.z < 0
 }
 
-/** A point picked on the scan while setting up an alignment. */
-export interface PickMarker {
-  point: Vec3
-  label: string
-  color: string
-}
+/** A point picked on the scan while setting up an alignment — the same marker
+ *  the split picker's scenes place, so it is defined once, in PickScene. */
+export type { PickMarker }
 
 /** A pin in the 3D view: what it marks on top, the measured value under it, so
  *  the numbers can be read off the model without going back to the panel. An

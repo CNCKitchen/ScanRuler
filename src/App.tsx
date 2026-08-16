@@ -42,6 +42,7 @@ import { DeviationPanel } from './ui/DeviationPanel'
 import { ThicknessPanel } from './ui/ThicknessPanel'
 import { MapLegend, type LegendStat } from './ui/MapLegend'
 import { StartPane, type StartSlot } from './ui/StartPane'
+import { formatSigned } from './ui/format'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
 import { markChipText } from './ui/MarkTools'
@@ -60,6 +61,11 @@ import { buildStepFile } from './core/exportStep'
 import { buildBinaryStl } from './core/exportStl'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
+
+/** What the status strip says the moment the marking tools come out — the
+ *  same tools, and so the same instruction, whichever workspace offered them. */
+const PICK_MARK_TOOL_STATUS =
+  'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.'
 
 export default function App() {
   const clientRef = useRef<MeshWorkerClient | null>(null)
@@ -470,11 +476,7 @@ export default function App() {
     // user just picked it.
     useMark.getState().reset()
     useDeviation.getState().startMarking()
-    useStore
-      .getState()
-      .setStatus(
-        'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.',
-      )
+    useStore.getState().setStatus(PICK_MARK_TOOL_STATUS)
   }
 
   const handleStopMarking = () => {
@@ -602,9 +604,7 @@ export default function App() {
     const matched = Math.abs(value) <= useDeviation.getState().maxDistance
     return {
       ...at,
-      text: matched
-        ? `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(3)} mm`
-        : 'no reference in range',
+      text: matched ? `${formatSigned(value)} mm` : 'no reference in range',
       muted: !matched,
     }
   }
@@ -785,9 +785,7 @@ export default function App() {
     store.setSelectMode(mode)
     if (store.draft) store.setDraftPicks([])
     store.setStatus(
-      mode === 'paint'
-        ? 'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.'
-        : 'Click a point on the surface you want to measure.',
+      mode === 'paint' ? PICK_MARK_TOOL_STATUS : 'Click a point on the surface you want to measure.',
     )
   }
 
@@ -1114,7 +1112,7 @@ export default function App() {
   // How each map writes a number, wherever one is shown — on the scale, in the
   // hover label, on a pin. A deviation is signed against a zero that is the
   // whole point of it; a wall thickness is a plain positive length.
-  const mm = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(3)}`
+  const mm = formatSigned
   const wall = (v: number): string => v.toFixed(3)
   useEffect(() => {
     const scene = sceneRef.current
@@ -1207,10 +1205,7 @@ export default function App() {
   useEffect(() => {
     const shown =
       workspace === 'deviation'
-        ? probes.map((p) => ({
-            ...p,
-            label: `${p.value >= 0 ? '+' : '−'}${Math.abs(p.value).toFixed(3)} mm`,
-          }))
+        ? probes.map((p) => ({ ...p, label: `${formatSigned(p.value)} mm` }))
         : workspace === 'thickness'
           ? thickProbes.map((p) => ({ ...p, label: `${wall(p.value)} mm` }))
           : []

@@ -9,6 +9,7 @@ import { OrthoNavigator } from './orthoNav'
 const STAGE_BG = 0xd7d5cf
 const PART_COLOR = 0x848a92
 
+/** A point picked on the scan while setting up an alignment. */
 export interface PickMarker {
   point: Vec3
   label: string

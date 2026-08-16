@@ -6,13 +6,17 @@
 
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
-import { BAND_CHOICES, useDeviation } from '../state/deviationStore'
+import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
+import { CopyButton } from './CopyButton'
+import { formatSigned } from './format'
 import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
+import { ProbeList } from './ProbeList'
+import { ScaleControls } from './ScaleControls'
 
 /** How the fit in hand was arrived at, for the readout. */
 const SOURCE_LABEL = {
@@ -374,29 +378,13 @@ export function DeviationPanel({
               onCommit={d.setRange}
               hint="Half-width of the colour scale. Zero always sits at the centre, on green; anything past either end is drawn in a dark cap."
             />
-            <label className="field">
-              <span>Bands</span>
-              <select
-                value={d.bands ?? 0}
-                onChange={(e) => d.setBands(Number(e.target.value) || null)}
-              >
-                <option value={0}>Continuous</option>
-                {BAND_CHOICES.map((b) => (
-                  <option key={b} value={b}>
-                    {b} bands
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="checkrow">
-              <input
-                type="checkbox"
-                data-test="toggle-histogram"
-                checked={d.showHistogram}
-                onChange={(e) => d.setShowHistogram(e.target.checked)}
-              />
-              <span>Histogram beside the scale</span>
-            </label>
+            <ScaleControls
+              bands={d.bands}
+              onBands={d.setBands}
+              showHistogram={d.showHistogram}
+              onShowHistogram={d.setShowHistogram}
+              histogramTestId="toggle-histogram"
+            />
             <label className="checkrow">
               <input
                 type="checkbox"
@@ -461,33 +449,14 @@ export function DeviationPanel({
             />
           </div>
 
-          <div className={aside}>
-            <div className="g-label">
-              <span>Pinned readings</span>
-              <b>{d.probes.length}</b>
-            </div>
-            {d.probes.length === 0 ? (
-              <p className="hint">
-                Hover the part for a live reading; click to pin one where you need a number.
-              </p>
-            ) : (
-              <>
-                {d.probes.map((p, i) => (
-                  <div className="kv" data-test="probe-row" key={p.id}>
-                    <span className="probeno">{i + 1}</span>
-                    <span className="name">{p.point.map((v) => v.toFixed(1)).join(', ')}</span>
-                    <b>{(p.value >= 0 ? '+' : '−') + Math.abs(p.value).toFixed(3)}</b>
-                    <button className="x" title="Remove" onClick={() => d.removeProbe(p.id)}>
-                      ✕
-                    </button>
-                  </div>
-                ))}
-                <button className="block" onClick={d.clearProbes}>
-                  Clear pins
-                </button>
-              </>
-            )}
-          </div>
+          <ProbeList
+            className={aside}
+            probes={d.probes}
+            rowTestId="probe-row"
+            format={formatSigned}
+            onRemove={d.removeProbe}
+            onClear={d.clearProbes}
+          />
         </>
       )}
 
@@ -495,9 +464,7 @@ export function DeviationPanel({
         <div className={'tailrow' + (d.marking ? ' muted' : '')}>
           <div className="divider" />
           {d.mapStatus === 'ready' && (
-            <button className="block" onClick={onCopy}>
-              Copy report
-            </button>
+            <CopyButton className="block" label="Copy report" onCopy={onCopy} />
           )}
           <button
             className="block"

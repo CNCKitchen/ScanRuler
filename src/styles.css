@@ -244,10 +244,6 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent-d);
 }
 
-button.ghost {
-  background: var(--panel);
-}
-
 /* ---------------- the ⓘ key and its card ---------------- */
 
 /* Sits directly after the label it belongs to, at the weight of a punctuation
@@ -812,16 +808,6 @@ button.x:disabled {
   border: 1px solid rgba(0, 0, 0, 0.18);
 }
 
-.chip {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  padding: 3px 8px;
-  border-radius: var(--r);
-  background: var(--well);
-  border: 1px solid var(--line);
-  color: var(--dim);
-}
-
 /* The pending fit gets a bezel in its future colour — set inline. */
 .draftbox {
   display: flex;
@@ -936,22 +922,6 @@ button.x:disabled {
 .marquee polygon.erase {
   fill: rgba(18, 22, 26, 0.16);
   stroke: #fbfaf7;
-}
-
-/* Empty bench: the stage says what it is waiting for. */
-.stagehint {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--cond);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--faint);
-  pointer-events: none;
 }
 
 /* Instruction of the moment, pinned where the user is looking. */
@@ -1886,7 +1856,6 @@ button.x:disabled {
   white-space: nowrap;
 }
 
-.slot:has(.starttile) b,
 .slotname b:only-child {
   color: var(--ink);
 }

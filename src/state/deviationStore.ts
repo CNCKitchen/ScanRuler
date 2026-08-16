@@ -5,6 +5,10 @@ import type { DeviationStats } from '../core/deviation/deviation'
 import type { FieldHistogram } from '../core/field/stats'
 import type { StepInfo } from '../core/parsers/step'
 import type { Vec3 } from '../core/types'
+import { PALETTE } from './palette'
+import { probeSlice, type Probe, type ProbeSlice } from './probes'
+
+export type { Probe }
 
 /** The three things this tool does. They share the scan, the scene and the
  *  camera; only what is drawn on top of the part differs. */
@@ -13,12 +17,10 @@ export type Workspace = 'elements' | 'deviation' | 'thickness'
 export type AlignStatus = 'idle' | 'running' | 'done' | 'failed'
 export type MapStatus = 'idle' | 'running' | 'ready'
 
-/** Colours for the point pairs in the split view — the same pair gets the same
+/** Colour of a point pair in the split view — the same pair gets the same
  *  colour on both sides, which is the only thing tying them together visually. */
-const PAIR_COLORS = ['#1877c0', '#e8590c', '#2e7d46', '#b5179e', '#c99a0a', '#0f9b9b', '#b3361c', '#6d4bbd']
-
 export function pairColor(index: number): string {
-  return PAIR_COLORS[index % PAIR_COLORS.length]
+  return PALETTE[index % PALETTE.length]
 }
 
 export const BAND_CHOICES = [5, 7, 9, 11, 15, 21] as const
@@ -28,14 +30,7 @@ export const BAND_CHOICES = [5, 7, 9, 11, 15, 21] as const
  *  read as "chosen" on top of any of it. */
 export const MARK_COLOR = '#b5179e'
 
-/** A deviation reading pinned to a spot on the part. */
-export interface Probe {
-  id: number
-  point: Vec3
-  value: number
-}
-
-interface DeviationState {
+interface DeviationState extends ProbeSlice {
   workspace: Workspace
 
   nominalName: string | null
@@ -84,10 +79,6 @@ interface DeviationState {
   showNominal: boolean
   showScan: boolean
 
-  /** Readings pinned to the part by clicking it. */
-  probes: Probe[]
-  nextProbeId: number
-
   /** The split-screen point picker is open. */
   picking: boolean
   pairs: PointPair[]
@@ -123,9 +114,6 @@ interface DeviationState {
   setShowHistogram: (v: boolean) => void
   setShowNominal: (v: boolean) => void
   setShowScan: (v: boolean) => void
-  addProbe: (point: Vec3, value: number) => void
-  removeProbe: (id: number) => void
-  clearProbes: () => void
   startPicking: () => void
   stopPicking: () => void
   addPickPoint: (side: 'scan' | 'nominal', point: Vec3) => void
@@ -158,9 +146,10 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   nominalBusy: false,
   nominalStep: null,
 
+  // The pinned readings and their actions, shared with the thickness store.
+  ...probeSlice(set),
   ...CLEARED,
   mapVersion: 0,
-  nextProbeId: 1,
 
   // A millimetre: further than any residual a global fit leaves behind, closer
   // than the next feature on almost any part.
@@ -283,16 +272,6 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   setShowHistogram: (showHistogram) => set({ showHistogram }),
   setShowNominal: (showNominal) => set({ showNominal }),
   setShowScan: (showScan) => set({ showScan }),
-
-  addProbe: (point, value) =>
-    set((s) => ({
-      probes: [...s.probes, { id: s.nextProbeId, point, value }],
-      nextProbeId: s.nextProbeId + 1,
-    })),
-
-  removeProbe: (id) => set((s) => ({ probes: s.probes.filter((p) => p.id !== id) })),
-
-  clearProbes: () => set({ probes: [] }),
 
   startPicking: () => set({ picking: true, pendingScan: null }),
   stopPicking: () => set({ picking: false, pendingScan: null }),

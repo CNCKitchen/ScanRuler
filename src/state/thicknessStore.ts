@@ -17,8 +17,8 @@ import {
   type ThicknessMethod,
   type ThicknessStats,
 } from '../core/thickness/thickness'
-import type { Vec3 } from '../core/types'
-import type { MapStatus, Probe } from './deviationStore'
+import type { MapStatus } from './deviationStore'
+import { probeSlice, type Probe, type ProbeSlice } from './probes'
 
 /** How hard the ray method works at each vertex. A single ray down the normal
  *  is exact wherever the two faces of a wall are parallel and fast enough to
@@ -30,7 +30,7 @@ export const CONE_CHOICES = [
   { rays: 12, label: '12-ray cone — tightest' },
 ] as const
 
-interface ThicknessState {
+interface ThicknessState extends ProbeSlice {
   status: MapStatus
   message: string | null
   stats: ThicknessStats | null
@@ -61,9 +61,6 @@ interface ThicknessState {
   limit: number
   showHistogram: boolean
 
-  probes: Probe[]
-  nextProbeId: number
-
   begin: () => void
   resolve: (low: number, high: number) => void
   fail: (message: string) => void
@@ -81,9 +78,6 @@ interface ThicknessState {
   setBands: (bands: number | null) => void
   setLimit: (v: number) => void
   setShowHistogram: (v: boolean) => void
-  addProbe: (point: Vec3, value: number) => void
-  removeProbe: (id: number) => void
-  clearProbes: () => void
   /** A different scan has nothing to do with the map measured on the last one. */
   clear: () => void
 }
@@ -97,9 +91,10 @@ const CLEARED = {
 }
 
 export const useThickness = create<ThicknessState>()((set) => ({
+  // The pinned readings and their actions, shared with the deviation store.
+  ...probeSlice(set),
   ...CLEARED,
   mapVersion: 0,
-  nextProbeId: 1,
 
   method: 'ray' as ThicknessMethod,
   maxThickness: 10,
@@ -170,16 +165,6 @@ export const useThickness = create<ThicknessState>()((set) => ({
   setBands: (bands) => set({ bands }),
   setLimit: (limit) => set({ limit: Math.max(1e-4, limit) }),
   setShowHistogram: (showHistogram) => set({ showHistogram }),
-
-  addProbe: (point, value) =>
-    set((s) => ({
-      probes: [...s.probes, { id: s.nextProbeId, point, value }],
-      nextProbeId: s.nextProbeId + 1,
-    })),
-
-  removeProbe: (id) => set((s) => ({ probes: s.probes.filter((p) => p.id !== id) })),
-
-  clearProbes: () => set({ probes: [] }),
 
   clear: () => set({ ...CLEARED }),
 }))

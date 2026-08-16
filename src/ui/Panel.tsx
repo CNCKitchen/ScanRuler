@@ -2,7 +2,7 @@
 // The left faceplate: everything the operator sets, and every number the tool
 // reports. Controls at the top, readouts below, in the order the work happens.
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   alignmentPreview,
   alignSlotPicks,
@@ -37,6 +37,7 @@ import type { StepStyle } from '../core/exportStep'
 import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
 import type { ElementKind, FitData, SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
+import { CopyButton } from './CopyButton'
 import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
@@ -59,6 +60,33 @@ function splitValue(value: string): [string, string] {
   if (value.endsWith('°')) return [value.slice(0, -1), 'DEG']
   const cut = value.lastIndexOf(' ')
   return cut < 0 ? [value, ''] : [value.slice(0, cut), value.slice(cut + 1).toUpperCase()]
+}
+
+/** The digits and legend inside a DRO window — every window writes its
+ *  measurement this way, so the split lives in one place. */
+function DroValue({ value, color }: { value: string; color?: string }) {
+  const [num, unit] = splitValue(value)
+  return (
+    <>
+      <b style={color ? { color } : undefined}>{num}</b>
+      <span>{unit}</span>
+    </>
+  )
+}
+
+/** A DRO window carrying a dimension's value, or its alarm face when the
+ *  measurement has none. The dimension preview and the dimension rows read
+ *  identically by design, so they share it. */
+function ValueWindow({ value, testId }: { value: DimensionValue; testId: string }) {
+  return value.invalid ? (
+    <div className="dro-window alarm" data-test={testId}>
+      <b>no value</b>
+    </div>
+  ) : (
+    <div className="dro-window" data-test={testId}>
+      <DroValue value={value.value!} />
+    </div>
+  )
 }
 
 /** Elements that can fill a reference slot of one of the given roles, minus
@@ -286,7 +314,6 @@ export function Panel({
   const toggleDimensionVisible = useStore((s) => s.toggleDimensionVisible)
   const modelSize = useStore((s) => s.modelSize)
   const selectMode = useStore((s) => s.selectMode)
-  const setSelectMode = onSelectMode
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
   // The marking itself is the shared tool set (markStore / MarkTools); the
@@ -301,14 +328,15 @@ export function Panel({
   const beginAlignmentPick = useStore((s) => s.beginAlignmentPick)
   const undoAlignmentPick = useStore((s) => s.undoAlignmentPick)
 
-  const [copied, setCopied] = useState(false)
   // The manual move / rotate box: six typed-in numbers, NaN while a field is
   // empty. Purely local — it needs no viewport interaction.
   const [manual, setManual] = useState<number[] | null>(null)
   const manualNums = manual?.map((v) => (Number.isFinite(v) ? v : 0)) ?? null
   const manualIdentity = manualNums === null || manualNums.every((v) => v === 0)
 
-  const evaluated = evaluateDimensions(dimensions, elements)
+  // Every dimension re-reads its elements, so this is real work — memoised so
+  // an unrelated render (a checkbox, a hover) does not repeat it.
+  const evaluated = useMemo(() => evaluateDimensions(dimensions, elements), [dimensions, elements])
   const draftKind = draft && elementKindInfo(draft.kind)
   const method = draft && creationMethod(draft.kind, draft.method)
   const kindMethods = draft ? methodsForKind(draft.kind) : []
@@ -366,9 +394,15 @@ export function Panel({
 
   // The transform the alignment being set up would apply, or why it cannot be
   // computed yet — the same reading the viewport is previewing the part with.
-  const { preview: alignReady, error: alignError } = alignDraft
-    ? alignmentPreview(alignDraft, elements, modelSize)
-    : { preview: null, error: null }
+  // Memoised for the same reason as the dimensions above: it is a whole datum
+  // alignment, recomputed only when one of its inputs actually moves.
+  const { preview: alignReady, error: alignError } = useMemo(
+    () =>
+      alignDraft
+        ? alignmentPreview(alignDraft, elements, modelSize)
+        : { preview: null, error: null },
+    [alignDraft, elements, modelSize],
+  )
 
   return (
     <aside className="panel">
@@ -745,7 +779,7 @@ export function Panel({
               <select
                 data-test="draft-select-mode"
                 value={selectMode}
-                onChange={(e) => setSelectMode(e.target.value as SelectMode)}
+                onChange={(e) => onSelectMode(e.target.value as SelectMode)}
               >
                 <option value="auto">Found from a click</option>
                 <option value="paint">Marked by hand</option>
@@ -849,13 +883,7 @@ export function Panel({
                   if (draft.fit!.kind === 'point' || draft.fit!.kind === 'line' || primary === '') {
                     return <b style={{ color: draftColor }}>✓ {draftKind.label}</b>
                   }
-                  const [num, unit] = splitValue(primary)
-                  return (
-                    <>
-                      <b style={{ color: draftColor }}>{num}</b>
-                      <span>{unit}</span>
-                    </>
-                  )
+                  return <DroValue value={primary} color={draftColor} />
                 })()}
             </div>
             {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
@@ -1099,21 +1127,7 @@ export function Panel({
                   <div className="dro-label">
                     <span>{dimPreview.label}</span>
                   </div>
-                  {dimPreview.invalid ? (
-                    <div className="dro-window alarm" data-test="dim-preview">
-                      <b>no value</b>
-                    </div>
-                  ) : (
-                    (() => {
-                      const [num, unit] = splitValue(dimPreview!.value!)
-                      return (
-                        <div className="dro-window" data-test="dim-preview">
-                          <b>{num}</b>
-                          <span>{unit}</span>
-                        </div>
-                      )
-                    })()
-                  )}
+                  <ValueWindow value={dimPreview} testId="dim-preview" />
                   {(dimPreview.warning ?? dimPreview.invalid) && (
                     <WarningNote text={(dimPreview.warning ?? dimPreview.invalid)!} />
                   )}
@@ -1176,21 +1190,7 @@ export function Panel({
                 </button>
               </span>
             </div>
-            {value.invalid ? (
-              <div className="dro-window alarm" data-test="dimension-value">
-                <b>no value</b>
-              </div>
-            ) : (
-              (() => {
-                const [num, unit] = splitValue(value.value!)
-                return (
-                  <div className="dro-window" data-test="dimension-value">
-                    <b>{num}</b>
-                    <span>{unit}</span>
-                  </div>
-                )
-              })()
-            )}
+            <ValueWindow value={value} testId="dimension-value" />
             {value.detail && !value.invalid && <div className="dro-note">{value.detail}</div>}
             {(value.warning ?? value.invalid) && (
               <WarningNote text={(value.warning ?? value.invalid)!} />
@@ -1234,16 +1234,11 @@ export function Panel({
             </select>
           </label>
           <div className="toolrow">
-            <button
+            <CopyButton
+              label="Copy summary"
               disabled={elements.every((e) => !e.fit)}
-              onClick={() => {
-                onCopy()
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
-              }}
-            >
-              {copied ? 'Copied ✓' : 'Copy summary'}
-            </button>
+              onCopy={onCopy}
+            />
             <button
               data-test="export-step"
               disabled={elements.every((e) => !e.fit)}
