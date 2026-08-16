@@ -1,76 +1,38 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // STEP (ISO 10303-21, AP214) export of the measured elements as analytic
-// geometry: planes as trimmed planar patches, cylinders and spheres as trimmed
-// surfaces of revolution, lines as trimmed lines, points as points. The
-// geometry goes into one GEOMETRIC_SET — construction geometry, the way
-// metrology packages hand measured datums to CAD — so no B-rep topology is
-// needed and every consumer that reads AP214 sees exact analytic surfaces,
-// not tessellations. All coordinates are millimetres, angles radians.
+// geometry, in either of two forms.
+//
+// *Solids and faces* is what CAD wants: a plane comes over as a bounded planar
+// face with real edges, a cylinder and a sphere as closed solid bodies with
+// lids. Faces can be sketched on, offset and referenced; bodies can be cut
+// with and put in an assembly. Each element is a shape representation of its
+// own, carrying its name, tied to the part's shape the way the bodies of a
+// multi-body file are — see core/stepBrep for the topology itself.
+//
+// *Construction surfaces* is the older form and still the honest one for
+// handing over datums: every element is a trimmed analytic surface or curve in
+// a single GEOMETRIC_SET, the way metrology packages pass measured geometry
+// along. No topology, nothing to reject, and unmistakably reference geometry
+// rather than a part.
+//
+// All coordinates are millimetres, angles radians.
 
 import type { FitData, Vec3 } from './types'
 import { orthoBasis } from './fit/linalg'
 import { addScaled } from './vec'
+import { esc, num, placement, StepWriter, vec } from './stepWriter'
+import { writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
 
 export interface StepElement {
   name: string
   fit: FitData
 }
 
+/** Which of the two forms above the file is written in. */
+export type StepStyle = 'solids' | 'surfaces'
+
 const TWO_PI = 2 * Math.PI
 const HALF_PI = Math.PI / 2
-
-/** A STEP real: always carries a decimal point, exponent uppercased. */
-function num(v: number): string {
-  if (!Number.isFinite(v) || Object.is(v, -0)) v = 0
-  let s = v.toPrecision(12)
-  if (s.includes('e') || s.includes('E')) {
-    const [mantRaw, expRaw] = s.toLowerCase().split('e')
-    let mant = trimZeros(mantRaw)
-    if (!mant.includes('.')) mant += '.'
-    return `${mant}E${expRaw}`
-  }
-  s = trimZeros(s)
-  if (!s.includes('.')) s += '.'
-  return s
-}
-
-function trimZeros(s: string): string {
-  if (!s.includes('.')) return s
-  return s.replace(/0+$/, '')
-}
-
-function vec(v: Vec3): string {
-  return `${num(v[0])},${num(v[1])},${num(v[2])}`
-}
-
-/** STEP string literal payload: quotes doubled, non-ASCII replaced — element
- *  names are plain ASCII, this only guards pasted file names. */
-function esc(s: string): string {
-  return s
-    .replace(/'/g, "''")
-    .replace(/\\/g, '\\\\')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[^\x20-\x7e]/g, '?')
-}
-
-class StepWriter {
-  lines: string[] = []
-  private id = 0
-
-  add(entity: string): number {
-    const id = ++this.id
-    this.lines.push(`#${id}=${entity};`)
-    return id
-  }
-}
-
-/** Location + z axis + x reference direction. */
-function placement(w: StepWriter, origin: Vec3, z: Vec3, x: Vec3): number {
-  const o = w.add(`CARTESIAN_POINT('',(${vec(origin)}))`)
-  const az = w.add(`DIRECTION('',(${vec(z)}))`)
-  const ax = w.add(`DIRECTION('',(${vec(x)}))`)
-  return w.add(`AXIS2_PLACEMENT_3D('',#${o},#${az},#${ax})`)
-}
 
 /** The geometric-set item for one element, returning its entity id. */
 function writeElement(w: StepWriter, name: string, fit: FitData): number {
@@ -120,19 +82,9 @@ function writeElement(w: StepWriter, name: string, fit: FitData): number {
   }
 }
 
-/**
- * The complete STEP file for the given elements.
- *
- * `sourceName` is the scan the elements were measured on (recorded in the
- * product name), `timestamp` an ISO date-time for the header.
- */
-export function buildStepFile(
-  elements: StepElement[],
-  sourceName: string,
-  timestamp: string,
-): string {
-  const w = new StepWriter()
-
+/** Everything that is the same in both forms: the product, its definition and
+ *  the unit-carrying geometric context every coordinate is read in. */
+function writeContext(w: StepWriter, sourceName: string): { shape: number; geomCtx: number } {
   const appCtx = w.add(`APPLICATION_CONTEXT('automotive design')`)
   w.add(`APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2010,#${appCtx})`)
   const prodCtx = w.add(`PRODUCT_CONTEXT('',#${appCtx},'mechanical')`)
@@ -154,7 +106,11 @@ export function buildStepFile(
   const geomCtx = w.add(
     `(GEOMETRIC_REPRESENTATION_CONTEXT(3)GLOBAL_UNCERTAINTY_ASSIGNED_CONTEXT((#${uncertainty}))GLOBAL_UNIT_ASSIGNED_CONTEXT((#${lengthUnit},#${angleUnit},#${solidUnit}))REPRESENTATION_CONTEXT('','3D'))`,
   )
+  return { shape, geomCtx }
+}
 
+/** Trimmed surfaces and curves, all in one geometric set. */
+function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): void {
   const items = elements.map((el) => writeElement(w, el.name, el.fit))
   const hasSurface = elements.some((el) => ['plane', 'cylinder', 'sphere'].includes(el.fit.kind))
   const set = w.add(
@@ -168,6 +124,82 @@ export function buildStepFile(
     }('elements',(#${set}),#${geomCtx})`,
   )
   w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${rep})`)
+}
+
+/**
+ * Solid bodies, sheet faces and — for the points and lines, which are neither
+ * — one wireframe set.
+ *
+ * Each goes in a representation of its own, because the three kinds may not
+ * share one: a representation of solids is an ADVANCED_BREP_SHAPE_
+ * REPRESENTATION and nothing else may be in it. They hang off a plain root
+ * representation through SHAPE_REPRESENTATION_RELATIONSHIP, which is how a
+ * multi-body part is assembled in any file a CAD system writes, and it puts
+ * each element in the tree under its own name.
+ */
+function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): void {
+  const origin = placement(w, [0, 0, 0] as Vec3, [0, 0, 1] as Vec3, [1, 0, 0] as Vec3)
+  const root = w.add(`SHAPE_REPRESENTATION('elements',(#${origin}),#${geomCtx})`)
+  w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${root})`)
+
+  const relate = (rep: number) => w.add(`SHAPE_REPRESENTATION_RELATIONSHIP('','',#${root},#${rep})`)
+  const curves: number[] = []
+
+  for (const el of elements) {
+    const label = esc(el.name)
+    switch (el.fit.kind) {
+      case 'plane':
+        relate(
+          w.add(
+            `MANIFOLD_SURFACE_SHAPE_REPRESENTATION('${label}',(#${writePlaneShell(w, el.name, el.fit)}),#${geomCtx})`,
+          ),
+        )
+        break
+      case 'cylinder':
+        relate(
+          w.add(
+            `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeCylinderSolid(w, el.name, el.fit)}),#${geomCtx})`,
+          ),
+        )
+        break
+      case 'sphere':
+        relate(
+          w.add(
+            `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeSphereSolid(w, el.name, el.fit)}),#${geomCtx})`,
+          ),
+        )
+        break
+      default:
+        // A point is a point and a line is a line in either form — there is no
+        // body to make of them.
+        curves.push(writeElement(w, el.name, el.fit))
+    }
+  }
+
+  if (curves.length === 0) return
+  const set = w.add(`GEOMETRIC_CURVE_SET('elements',(${curves.map((i) => `#${i}`).join(',')}))`)
+  relate(
+    w.add(`GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('elements',(#${set}),#${geomCtx})`),
+  )
+}
+
+/**
+ * The complete STEP file for the given elements.
+ *
+ * `sourceName` is the scan the elements were measured on (recorded in the
+ * product name), `timestamp` an ISO date-time for the header, `style` which of
+ * the two forms above to write.
+ */
+export function buildStepFile(
+  elements: StepElement[],
+  sourceName: string,
+  timestamp: string,
+  style: StepStyle = 'solids',
+): string {
+  const w = new StepWriter()
+  const { shape, geomCtx } = writeContext(w, sourceName)
+  if (style === 'solids') writeSolidBody(w, elements, shape, geomCtx)
+  else writeSurfaceBody(w, elements, shape, geomCtx)
 
   return [
     'ISO-10303-21;',

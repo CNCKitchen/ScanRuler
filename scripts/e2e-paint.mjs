@@ -216,6 +216,7 @@ await stroke(hit[0], hit[1] + 120)
 check((await markedCount()) === markedBeforeOrbit, 'a plain drag marks nothing once it stands down')
 check((await view()) !== beforeIdle, 'and drives the camera instead')
 
+const markedAtCreate = await markedCount()
 await click('[data-test="create-element"]')
 await page.waitForSelector('[data-test="element-row"]', { timeout: 10_000 })
 const row = await page.$eval('[data-test="element-row"]', (e) =>
@@ -229,6 +230,47 @@ check(Math.abs(created - BALL_DIAMETER) < 0.4, `element created from the marked 
 check(
   (await page.$('[data-test="mark-gestures"]')) === null,
   'the marking tools are put away once the element is created',
+)
+
+// Re-opening a hand-marked element puts its surface back on the part, under
+// the same tools it was laid down with — so changing it is more marking, not a
+// fresh start.
+await click('[data-test="edit-element"]')
+await page.waitForSelector('[data-test="mark-gestures"]', { timeout: 10_000 })
+check(
+  (await page.$eval('[data-test="draft-select-mode"]', (e) => e.value)) === 'paint',
+  're-opening a marked element comes back in "Marked by hand"',
+)
+const reopened = await markedCount()
+check(
+  reopened === markedAtCreate,
+  `the marking comes back with it (${markedAtCreate} → ${reopened} points)`,
+)
+check(await previewReady(), 'and the fit stands on it without another stroke')
+// In Navigate, like every other way the tools come out: the marking is back on
+// the part, but the mouse is still the camera's until a tool is picked up.
+check(
+  await page.$eval('[data-test="mark-navigate"]', (e) => e.getAttribute('aria-pressed') === 'true'),
+  'the restored tools open in Navigate',
+)
+await click('[data-test="mark-brush"]')
+await stroke(hit[0] + 14, hit[1] + 10)
+check((await markedCount()) > reopened, 'a stroke adds to the restored marking')
+check(await previewReady(), 'and the fit follows it')
+await click('[data-test="create-element"]')
+await sleep(400)
+const editedRows = await page.$$eval('[data-test="element-row"]', (els) =>
+  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+)
+check(editedRows.length === 1, `saving the edit replaced the element (${editedRows.length} rows)`)
+const edited = parseFloat((editedRows[0].match(/(\d+\.\d+)/) ?? [])[1] ?? 'NaN')
+check(
+  Math.abs(edited - BALL_DIAMETER) < 0.4,
+  `the re-fitted element still reads the ball: ${edited} mm`,
+)
+check(
+  (await page.$('[data-test="mark-gestures"]')) === null,
+  'the marking tools are put away again once it is saved',
 )
 
 await click('[data-test="toggle-backfaces"]')

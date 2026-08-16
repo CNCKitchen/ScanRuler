@@ -13,9 +13,29 @@ import {
   resolveDimensionType,
 } from '../core/dimensions'
 import { roleOf } from '../core/elements/refs'
-import { ALIGN_PICK_COUNT, transformFit, type AlignSlot, type AxisDir } from '../core/alignment'
+import {
+  extensionOf,
+  isExtendable,
+  isExtended,
+  squareExtension,
+  withSide,
+  zeroExtension,
+  type ExtendSide,
+  type Extension,
+} from '../core/elements/extend'
+import {
+  ALIGN_PICK_COUNT,
+  AlignmentError,
+  computeDatumAlignment,
+  describeRigid,
+  fitFromAlignPicks,
+  transformFit,
+  type AlignSlot,
+  type AxisDir,
+} from '../core/alignment'
 import { rigidCompose, type Rigid } from '../core/deviation/rigid'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
+import type { StepStyle } from '../core/exportStep'
 import type {
   ElementKind,
   ElementSource,
@@ -50,6 +70,10 @@ export interface Element {
    *  overlay and surface tint go away. */
   visible: boolean
   fit?: FitData
+  /** How far past the measured surface a cylinder or a plane is drawn and
+   *  exported. Kept beside the fit rather than in it, so what is reported
+   *  stays what was measured — see core/elements/extend. */
+  extend?: Extension
   /** Why a constructed element currently has no geometry (a re-evaluated
    *  construction can go degenerate, e.g. planes turning parallel). */
   message?: string
@@ -71,7 +95,19 @@ export interface Draft {
   params: number[]
   status: 'empty' | 'fitting' | 'ready' | 'failed'
   fit?: FitData
+  /** The extension being set up with the geometry: a re-opened element brings
+   *  its own along, and a re-fit inside the draft leaves it standing, so
+   *  changing the outlier cut-off never quietly resizes what is on screen. */
+  extend?: Extension
   message?: string
+  /** Set when the draft re-opens an element that already exists: the id it
+   *  writes back to on confirm, instead of adding a new element. Everything
+   *  measured against it — dimensions, constructions — keeps pointing at the
+   *  same element and simply re-reads the new geometry. */
+  editId?: number
+  /** The element's name while it is open for editing, so it can be changed
+   *  along with the geometry. */
+  name?: string
 }
 
 /** How the surface a fit is measured on gets chosen: click a point and let the
@@ -103,6 +139,45 @@ export function alignSlotPicks(ad: AlignDraft, slot: AlignSlot): Vec3[] {
   return slot === 'primary' ? ad.primaryPicks : slot === 'secondary' ? ad.secondaryPicks : ad.originPicks
 }
 
+/** What an alignment draft would do to the part right now: the transform and
+ *  how far it moves, or why it cannot be computed yet. Read by the panel for
+ *  its preview numbers and by the viewport for the live preview, so the two
+ *  can never disagree. Null with no error means the levelling slot is still
+ *  empty — there is nothing to say yet. */
+export interface AlignPreview {
+  rigid: Rigid
+  rotationDeg: number
+  translation: number
+}
+
+export function alignmentPreview(
+  ad: AlignDraft,
+  elements: Element[],
+  modelSize: number,
+): { preview: AlignPreview | null; error: string | null } {
+  const slotFit = (slot: AlignSlot, ref: number | null): FitData | null => {
+    if (ref !== null) return elements.find((e) => e.id === ref)?.fit ?? null
+    return fitFromAlignPicks(slot, alignSlotPicks(ad, slot), modelSize)
+  }
+  try {
+    const primary = slotFit('primary', ad.primary)
+    if (!primary) return { preview: null, error: null }
+    const secondary = slotFit('secondary', ad.secondary)
+    const origin = slotFit('origin', ad.origin)
+    const rigid = computeDatumAlignment(
+      { fit: primary, axis: ad.primaryAxis },
+      secondary ? { fit: secondary, axis: ad.secondaryAxis } : null,
+      origin,
+    )
+    return { preview: { rigid, ...describeRigid(rigid) }, error: null }
+  } catch (e) {
+    return {
+      preview: null,
+      error: e instanceof AlignmentError ? e.message : 'Alignment failed.',
+    }
+  }
+}
+
 /** The slot with the given element reference and its picks discarded — the
  *  two ways of filling a slot are exclusive. */
 function withSlotRef(ad: AlignDraft, slot: AlignSlot, id: number | null): AlignDraft {
@@ -125,6 +200,10 @@ export interface DimensionDraft {
   refs: (number | null)[]
   anchor: SphereAnchor
   pickSlot: number | null
+  /** Set when an existing dimension was re-opened: the id it writes back to. */
+  editId?: number
+  /** Its name while it is open, so it can be changed with the rest of it. */
+  name?: string
 }
 
 /** The region is a large typed array only the scene needs, so it is stripped
@@ -134,7 +213,7 @@ function withoutRegion(r: FitOutput): FitData {
   return fit
 }
 
-function freshDraft(kind: ElementKind, method: string): Draft {
+function freshDraft(kind: ElementKind, method: string, edit?: Pick<Draft, 'editId' | 'name'>): Draft {
   const m = creationMethod(kind, method)
   return {
     kind,
@@ -143,7 +222,66 @@ function freshDraft(kind: ElementKind, method: string): Draft {
     refs: m.slots.map(() => null),
     params: m.params.map(() => NaN),
     status: 'empty',
+    ...edit,
   }
+}
+
+/** The creation method an existing element was made with — the one its draft
+ *  re-opens on. */
+function methodOf(el: Element): string {
+  if (el.source.type === 'constructed') return el.source.method
+  return el.source.type === 'picked' ? 'pick' : 'fit'
+}
+
+/** Re-open an element as a draft: everything it was built from, ready to be
+ *  changed. A fitted element comes back with the seeds or the hand-marked
+ *  surface it was measured on, so the caller can put both back on the scan;
+ *  a construction comes back with its references and numbers, re-evaluated so
+ *  the preview stands before anything is touched. */
+function draftFromElement(el: Element, elements: Element[], modelSize: number): Draft {
+  const base: Draft = {
+    kind: el.kind,
+    method: methodOf(el),
+    picks: [],
+    refs: [],
+    params: [],
+    status: el.fit ? 'ready' : 'empty',
+    fit: el.fit,
+    extend: el.extend,
+    editId: el.id,
+    name: el.name,
+  }
+  if (el.source.type === 'constructed') {
+    return evalConstructDraft(
+      { ...base, refs: [...el.source.refs], params: [...el.source.params] },
+      elements,
+      modelSize,
+    )
+  }
+  if (el.source.type === 'picked') return base
+  const { seeds, selection } = el.source
+  const picks: [number, number, number][] = []
+  for (let i = 0; i + 2 < seeds.length; i += 3) picks.push([seeds[i], seeds[i + 1], seeds[i + 2]])
+  return { ...base, picks, selection }
+}
+
+/** Elements an edited element must not be built on: itself, and everything
+ *  that already builds on it — either would close a loop. Empty for a draft
+ *  that is making a new element, which nothing can depend on yet. */
+export function blockedRefs(editId: number | undefined, elements: Element[]): Set<number> {
+  return editId === undefined ? new Set() : dependentsOf(editId, elements)
+}
+
+/** The colour the open draft is drawn in: an edited element keeps its own, a
+ *  new one takes the next in the palette. */
+export function draftColorOf(s: {
+  draft: Draft | null
+  elements: Element[]
+  nextNumber: number
+}): string {
+  const id = s.draft?.editId
+  const el = id === undefined ? undefined : s.elements.find((e) => e.id === id)
+  return el?.color ?? elementColor(s.nextNumber)
 }
 
 /** Default creation method per kind: the one that touches the scan. */
@@ -298,6 +436,11 @@ interface AppState {
    *  browser, because which buttons orbit is a habit from whichever CAD the
    *  user came from, not a property of the part on screen. */
   navScheme: string
+  /** Which form the STEP export is written in. Remembered per browser, like
+   *  the navigation scheme: whether measured elements should reach CAD as
+   *  bodies or as construction geometry is a property of how the user works,
+   *  not of the part on screen. */
+  stepStyle: StepStyle
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
@@ -313,6 +456,10 @@ interface AppState {
   toggleElementVisible: (id: number) => void
   clearElements: () => void
   startDraft: (kind: ElementKind) => void
+  /** Re-open an existing element for editing. The caller puts its seeds or its
+   *  marked surface back on the scan — see draftFromElement. */
+  editElement: (id: number) => void
+  setDraftName: (name: string) => void
   setDraftMethod: (method: string) => void
   setDraftPicks: (picks: [number, number, number][]) => void
   /** The hand-marked surface a draft's fit is running on, or null when the
@@ -320,6 +467,14 @@ interface AppState {
   setDraftSelection: (selection: Uint32Array | null) => void
   setDraftRef: (slot: number, id: number | null) => void
   setDraftParam: (index: number, value: number) => void
+  /** Extend the open draft's cylinder or plane by one side, in millimetres
+   *  past the measured surface. Driven by both the panel's fields and the
+   *  handles dragged in the viewport. */
+  setDraftExtend: (side: ExtendSide, value: number) => void
+  /** Grow the shorter axis of the open plane draft out to the longer one. */
+  squareDraftExtend: () => void
+  /** Back to exactly the measured surface. */
+  resetDraftExtend: () => void
   resolveDraft: (r: FitOutput) => void
   failDraft: (message: string) => void
   cancelDraft: () => void
@@ -344,6 +499,10 @@ interface AppState {
   applyAlignment: (m: Rigid) => void
   clearAppliedAlignment: () => void
   startDimension: (type: string) => void
+  /** Re-open an existing dimension — same slots, same preview, written back to
+   *  the row it came from. */
+  editDimension: (id: number) => void
+  setDimensionName: (name: string) => void
   setDimensionType: (type: string) => void
   setDimensionRef: (slot: number, id: number | null) => void
   /** A click on an element in the viewport while a dimension is being built:
@@ -361,10 +520,12 @@ interface AppState {
   setShowOverlays: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
   setNavScheme: (id: string) => void
+  setStepStyle: (style: StepStyle) => void
   openImprint: (v: boolean) => void
 }
 
 const NAV_SCHEME_KEY = 'scanruler.navscheme'
+const STEP_STYLE_KEY = 'scanruler.stepstyle'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -373,6 +534,14 @@ const storedNavScheme = (): string => {
     return schemeById(localStorage.getItem(NAV_SCHEME_KEY)).id
   } catch {
     return SCHEMES[0].id
+  }
+}
+
+const storedStepStyle = (): StepStyle => {
+  try {
+    return localStorage.getItem(STEP_STYLE_KEY) === 'surfaces' ? 'surfaces' : 'solids'
+  } catch {
+    return 'solids'
   }
 }
 
@@ -408,6 +577,7 @@ export const useStore = create<AppState>()((set, get) => ({
   showOverlays: true,
   showBackfaces: false,
   navScheme: storedNavScheme(),
+  stepStyle: storedStepStyle(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
@@ -497,8 +667,12 @@ export const useStore = create<AppState>()((set, get) => ({
               refs: s.dimDraft.refs.map((r) => (r !== null && doomed.has(r) ? null : r)),
             }
           : null,
+        // Deleting the element that is open for editing closes the editor —
+        // there is nothing left to write back to.
         draft:
-          s.draft && s.draft.refs.some((r) => r !== null && doomed.has(r))
+          s.draft?.editId !== undefined && doomed.has(s.draft.editId)
+            ? null
+            : s.draft && s.draft.refs.some((r) => r !== null && doomed.has(r))
             ? evalConstructDraft(
                 { ...s.draft, refs: s.draft.refs.map((r) => (r !== null && doomed.has(r) ? null : r)) },
                 s.elements.filter((e) => !doomed.has(e.id)),
@@ -528,10 +702,35 @@ export const useStore = create<AppState>()((set, get) => ({
   startDraft: (kind) =>
     set({ draft: freshDraft(kind, defaultMethod(kind)), alignDraft: null, errorText: null }),
 
+  // How the surface of a re-opened fit was chosen comes back with it: an
+  // element marked by hand opens with the marking tools out, one grown from a
+  // click opens ready to be clicked again.
+  editElement: (id) =>
+    set((s) => {
+      const el = s.elements.find((e) => e.id === id)
+      if (!el) return {}
+      const draft = draftFromElement(el, s.elements, s.modelSize)
+      return {
+        draft,
+        selectMode: el.source.type === 'fitted' ? (el.source.selection ? 'paint' : 'auto') : s.selectMode,
+        alignDraft: null,
+        errorText: null,
+      }
+    }),
+
+  setDraftName: (name) => set((s) => (s.draft ? { draft: { ...s.draft, name } } : {})),
+
   setDraftMethod: (method) =>
     set((s) => {
       if (!s.draft) return {}
-      return { draft: evalConstructDraft(freshDraft(s.draft.kind, method), s.elements, s.modelSize) }
+      const { editId, name } = s.draft
+      return {
+        draft: evalConstructDraft(
+          freshDraft(s.draft.kind, method, { editId, name }),
+          s.elements,
+          s.modelSize,
+        ),
+      }
     }),
 
   setDraftPicks: (picks) =>
@@ -567,6 +766,9 @@ export const useStore = create<AppState>()((set, get) => ({
   setDraftRef: (slot, id) =>
     set((s) => {
       if (!s.draft) return {}
+      // An element cannot be built on itself, nor on anything that is already
+      // built on it.
+      if (id !== null && blockedRefs(s.draft.editId, s.elements).has(id)) return {}
       const refs = s.draft.refs.map((r, i) => (i === slot ? id : r))
       return { draft: evalConstructDraft({ ...s.draft, refs }, s.elements, s.modelSize) }
     }),
@@ -576,6 +778,28 @@ export const useStore = create<AppState>()((set, get) => ({
       if (!s.draft) return {}
       const params = s.draft.params.map((p, i) => (i === index ? value : p))
       return { draft: evalConstructDraft({ ...s.draft, params }, s.elements, s.modelSize) }
+    }),
+
+  setDraftExtend: (side, value) =>
+    set((s) => {
+      const d = s.draft
+      if (!d || !isExtendable(d.fit)) return {}
+      const ext = extensionOf(d.fit, d.extend)
+      return { draft: { ...d, extend: withSide(d.fit, ext, side, value) } }
+    }),
+
+  squareDraftExtend: () =>
+    set((s) => {
+      const d = s.draft
+      if (!d || d.fit?.kind !== 'plane') return {}
+      return { draft: { ...d, extend: squareExtension(d.fit, d.extend) } }
+    }),
+
+  resetDraftExtend: () =>
+    set((s) => {
+      const d = s.draft
+      if (!d || !isExtendable(d.fit)) return {}
+      return { draft: { ...d, extend: zeroExtension(d.fit) } }
     }),
 
   resolveDraft: (r) =>
@@ -601,6 +825,13 @@ export const useStore = create<AppState>()((set, get) => ({
     const d = get().draft
     if (!d || d.status !== 'ready' || !d.fit) return null
     const m = creationMethod(d.kind, d.method)
+    // An extension only travels with geometry that can carry it: a draft that
+    // ended up producing something else drops whatever was set for the shape
+    // it used to be, and one that was never extended carries nothing at all.
+    const extend =
+      isExtendable(d.fit) && d.extend?.kind === d.fit.kind && isExtended(d.extend)
+        ? d.extend
+        : undefined
     const source: ElementSource =
       m.mode === 'fit'
         ? d.selection
@@ -609,6 +840,32 @@ export const useStore = create<AppState>()((set, get) => ({
         : m.mode === 'pick'
           ? { type: 'picked' }
           : { type: 'constructed', method: d.method, refs: d.refs as number[], params: d.params }
+    // An edited element is written back where it stands: same id, same colour,
+    // same place in the list, so every dimension and construction on it simply
+    // re-reads the new geometry.
+    if (d.editId !== undefined) {
+      const editId = d.editId
+      set((s) => ({
+        draft: null,
+        elements: reevaluateConstructions(
+          s.elements.map((e) =>
+            e.id === editId
+              ? {
+                  ...e,
+                  name: d.name?.trim() || e.name,
+                  source,
+                  status: 'done' as const,
+                  fit: d.fit,
+                  extend,
+                  message: undefined,
+                }
+              : e,
+          ),
+          s.modelSize,
+        ),
+      }))
+      return editId
+    }
     const id = get().nextId
     const num = get().nextNumber
     const ofKind = get().nextOfKind[d.kind]
@@ -628,6 +885,7 @@ export const useStore = create<AppState>()((set, get) => ({
           status: 'done' as const,
           visible: true,
           fit: d.fit,
+          extend,
         },
       ],
       // A point picked for a dimension slot drops straight into it.
@@ -764,6 +1022,25 @@ export const useStore = create<AppState>()((set, get) => ({
       alignDraft: null,
     }),
 
+  editDimension: (id) =>
+    set((s) => {
+      const d = s.dimensions.find((x) => x.id === id)
+      if (!d) return {}
+      return {
+        dimDraft: {
+          type: d.type,
+          refs: [...d.refs],
+          anchor: d.anchor ?? 'center',
+          pickSlot: null,
+          editId: d.id,
+          name: d.name,
+        },
+        alignDraft: null,
+      }
+    }),
+
+  setDimensionName: (name) => set((s) => (s.dimDraft ? { dimDraft: { ...s.dimDraft, name } } : {})),
+
   setDimensionType: (type) =>
     set((s) => {
       if (!s.dimDraft) return {}
@@ -773,11 +1050,11 @@ export const useStore = create<AppState>()((set, get) => ({
         slots.every((sl, i) => sl.role === dimensionTypeInfo(s.dimDraft!.type).slots[i].role)
       return {
         dimDraft: {
+          ...s.dimDraft,
           type,
           // Keep the picked references when the new type takes the same roles
           // (switching Axis–Axis distance → Axis–Axis angle, say).
           refs: sameRoles ? s.dimDraft.refs : slots.map(() => null),
-          anchor: s.dimDraft.anchor,
           pickSlot: null,
         },
       }
@@ -835,6 +1112,27 @@ export const useStore = create<AppState>()((set, get) => ({
       if (!dd || dd.refs.some((r) => r === null)) return {}
       const info = dimensionTypeInfo(dd.type)
       const n = s.nextOfDimGroup[info.group]
+      if (dd.editId !== undefined) {
+        const old = s.dimensions.find((d) => d.id === dd.editId)
+        const typed = dd.name?.trim()
+        // A distance turned into an angle is no longer "Distance 2": unless it
+        // was renamed by hand it takes the next name of the group it has
+        // become.
+        const renamed = Boolean(typed) && typed !== old?.name
+        const regroup = !renamed && old !== undefined && dimensionTypeInfo(old.type).group !== info.group
+        const name = regroup
+          ? `${info.group === 'distance' ? 'Distance' : 'Angle'} ${n}`
+          : typed || (old?.name ?? '')
+        return {
+          dimensions: s.dimensions.map((d) =>
+            d.id === dd.editId
+              ? { ...d, type: dd.type, refs: dd.refs as number[], anchor: dd.anchor, name }
+              : d,
+          ),
+          nextOfDimGroup: regroup ? { ...s.nextOfDimGroup, [info.group]: n + 1 } : s.nextOfDimGroup,
+          dimDraft: null,
+        }
+      }
       return {
         dimensions: [
           ...s.dimensions,
@@ -854,7 +1152,10 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
 
   removeDimension: (id) =>
-    set((s) => ({ dimensions: s.dimensions.filter((d) => d.id !== id) })),
+    set((s) => ({
+      dimensions: s.dimensions.filter((d) => d.id !== id),
+      dimDraft: s.dimDraft?.editId === id ? null : s.dimDraft,
+    })),
 
   toggleDimensionVisible: (id) =>
     set((s) => ({
@@ -874,6 +1175,14 @@ export const useStore = create<AppState>()((set, get) => ({
       // Not being able to remember the choice is no reason to refuse it.
     }
     set({ navScheme })
+  },
+  setStepStyle: (stepStyle) => {
+    try {
+      localStorage.setItem(STEP_STYLE_KEY, stepStyle)
+    } catch {
+      // Same as above: the export still goes out in the form that was asked for.
+    }
+    set({ stepStyle })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

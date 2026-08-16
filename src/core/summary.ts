@@ -2,6 +2,7 @@
 import type { ElementKind, ElementSource, FitData, FitSettings, SigmaPreset, Vec3 } from './types'
 import type { EvaluatedDimension } from './dimensions'
 import { describeConstruction } from './elements/construct'
+import { extendedSpans, isExtendable, isExtended, type Extension } from './elements/extend'
 
 export const SIGMA_LABELS: Record<SigmaPreset, string> = {
   0: 'All points',
@@ -78,6 +79,8 @@ export interface SummaryElement {
   kind: ElementKind
   source: ElementSource
   fit?: FitData
+  /** Only ever reported beside the measurement, never folded into it. */
+  extend?: Extension
   message?: string
 }
 
@@ -126,6 +129,16 @@ export function buildSummary(
     if (isFitted(f)) {
       lines.push(
         `  sigma: ${f.sigma.toFixed(4)} mm, used points: ${f.usedPoints} of ${f.regionSize}`,
+      )
+    }
+    // What is on screen and in the STEP file, when that is no longer the same
+    // as what was measured.
+    if (isExtendable(f) && isExtended(el.extend)) {
+      const spans = extendedSpans(f, el.extend)
+      lines.push(
+        f.kind === 'cylinder'
+          ? `  drawn: ${spans[0].toFixed(4)} mm long`
+          : `  drawn: ${spans[0].toFixed(2)} × ${spans[1].toFixed(2)} mm`,
       )
     }
   }

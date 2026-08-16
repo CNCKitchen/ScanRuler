@@ -5,10 +5,24 @@ import { buildSummary } from './core/summary'
 import { isMeshFile, isReferenceFile, isStepFile, REFERENCE_ACCEPT } from './core/formats'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
+import {
+  applyExtension,
+  extensionOf,
+  isExtendable,
+  sideValue,
+  type ExtendSide,
+} from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
 import type { ElementKind, FitData, PointFit } from './core/types'
-import { alignSlotPicks, elementColor, useStore, type SelectMode } from './state/store'
+import {
+  alignmentPreview,
+  alignSlotPicks,
+  blockedRefs,
+  draftColorOf,
+  useStore,
+  type SelectMode,
+} from './state/store'
 import type {
   SceneManager,
   OverlayAngle,
@@ -176,10 +190,7 @@ export default function App() {
       const result = await clientRef.current!.fit(kind, seeds, settings)
       if (seq !== draftSeq.current || !useStore.getState().draft) return
       draftRegion.current = result.region
-      sceneRef.current?.setPreviewRegion(
-        result.region,
-        elementColor(useStore.getState().nextNumber),
-      )
+      sceneRef.current?.setPreviewRegion(result.region, draftColorOf(useStore.getState()))
       useStore.getState().resolveDraft(result)
     } catch (e) {
       if (seq !== draftSeq.current || !useStore.getState().draft) return
@@ -252,7 +263,10 @@ export default function App() {
     // Let the status paint before the synchronous BVH rebuild.
     await new Promise((r) => setTimeout(r, 30))
     await clientRef.current!.transform(m)
+    // The real transform goes on and the preview of it comes off in the same
+    // breath: the pose is the same either way, so the part never flinches.
     sceneRef.current?.applyTransform(m)
+    sceneRef.current?.setAlignPreview(null)
     useStore.getState().applyAlignment(m)
     deviation.current = null
     deviationRgb.current = null
@@ -317,13 +331,19 @@ export default function App() {
     const els = store.elements.filter((e) => e.fit)
     if (els.length === 0) return
     const text = buildStepFile(
-      els.map((e) => ({ name: e.name, fit: e.fit! })),
+      // What is exported is what is on screen, extensions and all.
+      els.map((e) => ({ name: e.name, fit: applyExtension(e.fit!, e.extend) })),
       store.fileName ?? 'scan',
       new Date().toISOString().slice(0, 19),
+      store.stepStyle,
     )
     const name = `${exportStem()}-elements.step`
     saveFile(name, new Blob([text], { type: 'model/step' }))
-    store.setStatus(`${els.length} element${els.length === 1 ? '' : 's'} exported to ${name}.`)
+    store.setStatus(
+      `${els.length} element${els.length === 1 ? '' : 's'} exported to ${name} as ${
+        store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
+      }.`,
+    )
   }
 
   /** Hand the scan back as an STL in the pose it is being shown in.
@@ -666,6 +686,14 @@ export default function App() {
     if (store.draft) {
       const method = creationMethod(store.draft.kind, store.draft.method)
       if (method.mode !== 'construct') return
+      if (blockedRefs(store.draft.editId, store.elements).has(id)) {
+        store.setStatus(
+          id === store.draft.editId
+            ? `${el.name} cannot be built on itself.`
+            : `${el.name} is built on the element being edited — it cannot be a source of it.`,
+        )
+        return
+      }
       const usedSlot = store.draft.refs.indexOf(id)
       if (usedSlot >= 0) {
         store.setDraftRef(usedSlot, null)
@@ -697,6 +725,42 @@ export default function App() {
     const method = creationMethod(kind, draft.method)
     store.setStatus(
       method.mode === 'construct' ? 'Select the source elements in the panel.' : method.hint,
+    )
+  }
+
+  /** Re-open an element in the box it was created in. Everything it was made
+   *  from comes back with it — the seeds re-fit into a live preview, a
+   *  hand-marked surface goes back onto the part under the marking tools, a
+   *  construction's references and numbers into their fields — so changing it
+   *  is the same work as making it was. */
+  const handleEditElement = (id: number) => {
+    const store = useStore.getState()
+    const el = store.elements.find((e) => e.id === id)
+    if (!el) return
+    clearPreview()
+    clearPaint()
+    store.editElement(id)
+    const draft = useStore.getState().draft
+    if (!draft) return
+    const method = creationMethod(draft.kind, draft.method)
+    if (method.mode === 'fit') {
+      if (draft.selection) {
+        // Straight back onto the part, in the element's own colour: the brush
+        // arms itself around it on the next render.
+        sceneRef.current?.setPaintedVertices(draft.selection, el.color)
+        useMark.getState().setCount(draft.selection.length)
+      } else if (draft.picks.length > 0) {
+        void runDraftFit(draft.kind, draft.picks)
+      }
+    }
+    store.setStatus(
+      method.mode === 'construct'
+        ? `Editing ${el.name} — change its sources or numbers, then save.`
+        : draft.selection
+          ? `Editing ${el.name} — add to or rub out the marked surface, then save.`
+          : method.mode === 'pick'
+            ? `Editing ${el.name} — click the scan to move the point, then save.`
+            : `Editing ${el.name} — click the scan to re-pick the surface, then save.`,
     )
   }
 
@@ -744,6 +808,7 @@ export default function App() {
 
   const handleConfirmDraft = () => {
     const region = draftRegion.current
+    const editing = useStore.getState().draft?.editId !== undefined
     const id = useStore.getState().commitDraft()
     if (id === null) return
     clearPreview()
@@ -752,7 +817,10 @@ export default function App() {
     clearPaint()
     const el = useStore.getState().elements.find((e) => e.id === id)
     if (el && region) sceneRef.current?.applyRegion(id, el.color, region)
-    useStore.getState().setStatus(`${el?.name ?? 'Element'} created.`)
+    // An element that has stopped being fitted — re-made from coordinates or
+    // from other elements — leaves the surface it used to own behind.
+    else if (el && el.source.type !== 'fitted') sceneRef.current?.clearElement(id)
+    useStore.getState().setStatus(`${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`)
   }
 
   // Changing "Used points" re-fits every element with its stored seeds, and
@@ -767,6 +835,8 @@ export default function App() {
     const store = useStore.getState()
     for (const el of store.elements) {
       if (el.status !== 'done' || el.source.type !== 'fitted') continue
+      // The one being edited re-fits as the draft below, not twice over.
+      if (store.draft?.editId === el.id) continue
       const selection = el.source.selection
       store.markFitting(el.id, el.source.seeds, selection)
       void runFit(el.id, el.kind, el.source.seeds, selection)
@@ -782,12 +852,50 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sigma])
 
+  // The colour the open draft wears, on its ghost, its grips and whatever
+  // surface is marked for it: an edited element keeps its own, a new one takes
+  // the next in the palette.
+  const draftColor = useStore(draftColorOf)
+
   // The draft's ghost shape follows whatever the draft currently is — a fit
   // preview, a picked point, or a construction taking shape in the panel.
   const draftFit = useStore((s) => (s.draft?.status === 'ready' ? s.draft.fit : undefined))
+  const draftExtend = useStore((s) => s.draft?.extend)
+  // What the ghost is: the fit, carrying however far past its measured surface
+  // it has been extended. Recomputed rather than stored, so the fit under it
+  // stays the measurement.
+  const shownDraftFit = useMemo(
+    () => (draftFit ? applyExtension(draftFit, draftExtend) : null),
+    [draftFit, draftExtend],
+  )
   useEffect(() => {
-    sceneRef.current?.setPreview(draftFit ?? null)
-  }, [draftFit])
+    sceneRef.current?.setPreview(shownDraftFit)
+  }, [shownDraftFit])
+
+  // Grips on the ghost, for the two shapes with a size to give: the ends of a
+  // cylinder, the edges of a plane. They ride on the drawn shape, so they sit
+  // where the element currently reaches and follow every millimetre typed into
+  // the panel.
+  const gripFit = shownDraftFit && isExtendable(shownDraftFit) ? shownDraftFit : null
+  useEffect(() => {
+    sceneRef.current?.setExtendHandles(gripFit, draftColor)
+  }, [gripFit, draftColor])
+
+  // Where the side being dragged stood when the drag began. The viewport
+  // reports how far the grip has come rather than where it is, so every move
+  // is start + delta — which is what lets a drag run into the clamp and come
+  // back out again without losing anything on the way.
+  const extendStart = useRef(0)
+  const handleExtendDrag = (side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => {
+    const store = useStore.getState()
+    const fit = store.draft?.fit
+    if (!isExtendable(fit)) return
+    if (phase === 'start') {
+      extendStart.current = sideValue(extensionOf(fit, store.draft?.extend), side)
+    } else if (phase === 'move') {
+      store.setDraftExtend(side, extendStart.current + delta)
+    }
+  }
 
   // The marking layer is armed for exactly one of two sessions: a fit draft
   // collecting its surface by hand, or the deviation workspace's local fine
@@ -796,7 +904,6 @@ export default function App() {
   // so the only thing that differs is the colour the marking takes — the tint
   // the pending element will wear, or the fine fit's own. Re-arming on a change
   // of gesture, radius, colour or erase keeps whatever is already marked.
-  const draftColor = elementColor(useStore((s) => s.nextNumber))
   const painting = useStore(
     (s) =>
       s.selectMode === 'paint' &&
@@ -865,14 +972,26 @@ export default function App() {
     ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
   ].filter((r): r is number => r !== null)
   const highlightKey = highlightIds.join(',')
+  // What is open in an editor is drawn as the pending preview instead of as
+  // itself, so the old geometry does not sit inside the new one.
+  const editingElementId = draft?.editId
+  const editingDimensionId = dimDraft?.editId
   useEffect(() => {
     const items: OverlayElement[] = elements
-      .filter((e) => e.fit && e.visible)
-      .map((e) => ({ id: e.id, name: e.name, color: e.color, fit: e.fit! }))
+      .filter((e) => e.fit && e.visible && e.id !== editingElementId)
+      // Drawn at whatever length or size it was extended to — the fit itself
+      // stays the measured surface, and everything that reports a number goes
+      // on reading that.
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        color: e.color,
+        fit: applyExtension(e.fit!, e.extend),
+      }))
     // Distances draw as a line between their two anchor points, angles as an
     // arc at their hinge.
     const rows = evaluateDimensions(
-      dimensions.filter((d) => d.visible !== false),
+      dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
       elements,
     ).filter((r) => !r.value.invalid)
     const pairs: OverlayPair[] = rows
@@ -895,21 +1014,26 @@ export default function App() {
     // measure workspace that is every element, so the scan is bare underneath
     // whichever map is being read. Ownership stays recorded either way, so
     // this is a repaint on the way back, not a re-fit.
+    // The element being edited goes with them: its surface is about to be
+    // re-chosen, and its old tint underneath the new one would only be read as
+    // part of it.
     sceneRef.current?.setHiddenRegions(
-      (elementsWorkspace ? elements.filter((e) => !e.visible) : elements).map((e) => e.id),
+      (elementsWorkspace ? elements.filter((e) => !e.visible || e.id === editingElementId) : elements).map(
+        (e) => e.id,
+      ),
     )
     // Overlays were rebuilt, so the selection glow has to be re-applied.
     sceneRef.current?.setHighlightedElements(highlightIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elements, dimensions, showOverlays, elementsWorkspace])
+  }, [elements, dimensions, showOverlays, elementsWorkspace, editingElementId, editingDimensionId])
 
   useEffect(() => {
     sceneRef.current?.setHighlightedElements(highlightIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightKey])
 
-  // Points picked for the alignment stay marked on the part, labelled with
-  // the job they do.
+  // Points picked for the alignment stay marked on the part, numbered in the
+  // order they were clicked so the count is readable at a glance.
   useEffect(() => {
     sceneRef.current?.setPickMarkers(
       !alignDraft
@@ -917,7 +1041,7 @@ export default function App() {
         : [
             ...alignDraft.primaryPicks.map((p, i) => ({
               point: p,
-              label: `Level ${i + 1}`,
+              label: `Point ${i + 1}`,
               color: '#1877c0',
             })),
             ...alignDraft.secondaryPicks.map((p, i) => ({
@@ -933,6 +1057,21 @@ export default function App() {
           ],
     )
   }, [alignDraft])
+
+  // The alignment being set up is shown on the part, not just described in the
+  // panel: the moment a slot has what it needs the scan swings onto the axis
+  // it would land on, and it swings again on every further pick and every
+  // change of the axis it points along. So the choice is judged by looking at
+  // the part rather than by reading a number and pressing Apply to find out.
+  //
+  // Nothing is baked — this is a matrix on the scan's group, so it is free
+  // enough to follow the controls, and picking still reports scan coordinates
+  // underneath it. Applying (or cancelling) lifts it again.
+  const modelSize = useStore((s) => s.modelSize)
+  useEffect(() => {
+    const rigid = alignDraft ? alignmentPreview(alignDraft, elements, modelSize).preview : null
+    sceneRef.current?.setAlignPreview(rigid ? rigidToColumnMajor(rigid.rigid) : null)
+  }, [alignDraft, elements, modelSize])
 
   // A viewport click selects elements whenever a dimension is being assembled
   // or a construction has reference slots — but never while clicks are picking
@@ -1327,26 +1466,34 @@ export default function App() {
   // fit gets, since it is the same tool set: which gesture is live, what the
   // buttons do while it is, and the way back to the camera. Only where Escape
   // leads and how the element is finished differ.
+  // Editing an element runs the same gestures as making one; only what Enter
+  // and Escape land on is different — a change written back, or dropped.
+  const editingDraft = draft?.editId !== undefined
   const paintHint = !painting
     ? null
     : markChipText(markGesture, markCount, `the ${elementKindInfo(draft!.kind).noun}`, {
-        idle: 'Esc discards the element',
+        idle: editingDraft ? 'Esc discards the changes' : 'Esc discards the element',
         live: 'Esc to navigate, twice to discard',
-      }) + (draft!.status === 'ready' ? ' · Enter or middle-click creates it' : '')
+      }) +
+      (draft!.status === 'ready'
+        ? editingDraft
+          ? ' · Enter or middle-click saves it'
+          : ' · Enter or middle-click creates it'
+        : '')
   const stageHint = !draft
     ? openSlotHint
     : draftMode === 'construct'
       ? openSlotHint
       : painting
         ? paintHint
-        : draft.picks.length === 0
+        : draft.picks.length === 0 && draft.status !== 'ready'
           ? draftMode === 'pick'
             ? 'Click the point on the scan you want to measure to'
             : `Click a point on the ${elementKindInfo(draft.kind).noun} you want to measure`
           : draft.status === 'ready'
-            ? draftMode === 'pick'
-              ? 'Enter or middle-click to create · Esc to discard · click again to move the point'
-              : 'Enter or middle-click to create · Esc to discard · click again to add points'
+            ? `Enter or middle-click to ${editingDraft ? 'save' : 'create'} · Esc to discard · click again to ${
+                draftMode === 'pick' ? 'move the point' : 'add points'
+              }`
             : null
 
   const markHint = !marking
@@ -1475,6 +1622,7 @@ export default function App() {
             onConfirmDraft={handleConfirmDraft}
             onPickPoint={handleDimensionPick}
             onDelete={handleDelete}
+            onEditElement={handleEditElement}
             onCopy={handleCopy}
             onStartAlignment={handleStartAlignment}
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
@@ -1497,6 +1645,7 @@ export default function App() {
               onHover={handleHover}
               onElementPick={handleElementPick}
               onPaintChange={handlePaintChange}
+              onExtendDrag={handleExtendDrag}
             />
           </div>
           {picking && scanGeometry && nominalGeometry && (

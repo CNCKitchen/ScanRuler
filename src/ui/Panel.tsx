@@ -4,26 +4,24 @@
 
 import { useState } from 'react'
 import {
+  alignmentPreview,
   alignSlotPicks,
-  elementColor,
+  blockedRefs,
+  draftColorOf,
   useStore,
   type Element,
   type SelectMode,
 } from '../state/store'
 import { ELEMENT_KINDS, elementKindInfo } from '../core/elements/kinds'
 import { creationMethod, methodsForKind } from '../core/elements/construct'
+import { isExtendable } from '../core/elements/extend'
 import { providesRole, type RefRole } from '../core/elements/refs'
 import {
   ALIGN_PICK_COUNT,
-  AlignmentError,
   AXIS_DIRS,
   axisDirLabel,
   axisIndex,
-  computeDatumAlignment,
-  describeRigid,
-  fitFromAlignPicks,
   manualRigid,
-  type AlignSlot,
   type AxisDir,
 } from '../core/alignment'
 import type { Rigid } from '../core/deviation/rigid'
@@ -35,9 +33,11 @@ import {
   type DimensionValue,
   type SphereAnchor,
 } from '../core/dimensions'
+import type { StepStyle } from '../core/exportStep'
 import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
 import type { ElementKind, FitData, SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
+import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
 import { ModelSlot } from './ModelSlot'
@@ -61,9 +61,35 @@ function splitValue(value: string): [string, string] {
   return cut < 0 ? [value, ''] : [value.slice(0, cut), value.slice(cut + 1).toUpperCase()]
 }
 
-/** Elements that can fill a reference slot of one of the given roles. */
-function providersFor(roles: readonly RefRole[], elements: Element[]): Element[] {
-  return elements.filter((e) => e.fit && roles.some((role) => providesRole(e.kind, role)))
+/** Elements that can fill a reference slot of one of the given roles, minus
+ *  any that would close a loop (an edited element and its dependents). */
+function providersFor(
+  roles: readonly RefRole[],
+  elements: Element[],
+  blocked?: ReadonlySet<number>,
+): Element[] {
+  return elements.filter(
+    (e) => e.fit && !blocked?.has(e.id) && roles.some((role) => providesRole(e.kind, role)),
+  )
+}
+
+/** The name of the element or dimension being edited, changeable along with
+ *  the rest of it. */
+function NameField({
+  value,
+  testId,
+  onChange,
+}: {
+  value: string
+  testId: string
+  onChange: (name: string) => void
+}) {
+  return (
+    <label className="field">
+      <span>Name</span>
+      <input type="text" data-test={testId} value={value} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  )
 }
 
 /** One reference-slot dropdown, shared by constructions, dimensions and the
@@ -73,6 +99,7 @@ function RefSelect({
   roles,
   value,
   elements,
+  blocked,
   testId,
   picking,
   onChange,
@@ -82,6 +109,8 @@ function RefSelect({
   roles: readonly RefRole[]
   value: number | null
   elements: Element[]
+  /** Elements this slot must not offer — see providersFor. */
+  blocked?: ReadonlySet<number>
   testId?: string
   /** True while a pick on the scan is filling this slot. */
   picking?: boolean
@@ -89,7 +118,7 @@ function RefSelect({
   /** Offered on point slots: create the point by clicking the scan. */
   onPickNew?: () => void
 }) {
-  const options = providersFor(roles, elements)
+  const options = providersFor(roles, elements, blocked)
   return (
     <label className="field">
       <span>{label}</span>
@@ -195,6 +224,7 @@ export function Panel({
   onConfirmDraft,
   onPickPoint,
   onDelete,
+  onEditElement,
   onCopy,
   onStartAlignment,
   onApplyAlignment,
@@ -215,6 +245,9 @@ export function Panel({
   /** Fill dimension slot n by picking a new point on the scan. */
   onPickPoint: (slot: number) => void
   onDelete: (id: number) => void
+  /** Re-open an element: the same box it was created in, with its seeds or its
+   *  marked surface back on the scan. */
+  onEditElement: (id: number) => void
   onCopy: () => void
   onStartAlignment: () => void
   /** Bake the computed datum alignment into the part. */
@@ -231,15 +264,18 @@ export function Panel({
   const triangleCount = useStore((s) => s.triangleCount)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
-  const draftColor = elementColor(useStore((s) => s.nextNumber))
+  const draftColor = useStore(draftColorOf)
   const dimensions = useStore((s) => s.dimensions)
   const dimDraft = useStore((s) => s.dimDraft)
   const settings = useStore((s) => s.settings)
   const setSigma = useStore((s) => s.setSigma)
   const setDraftMethod = useStore((s) => s.setDraftMethod)
+  const setDraftName = useStore((s) => s.setDraftName)
   const setDraftRef = useStore((s) => s.setDraftRef)
   const setDraftParam = useStore((s) => s.setDraftParam)
   const startDimension = useStore((s) => s.startDimension)
+  const editDimension = useStore((s) => s.editDimension)
+  const setDimensionName = useStore((s) => s.setDimensionName)
   const setDimensionType = useStore((s) => s.setDimensionType)
   const setDimensionRef = useStore((s) => s.setDimensionRef)
   const setDimensionAnchor = useStore((s) => s.setDimensionAnchor)
@@ -251,6 +287,8 @@ export function Panel({
   const modelSize = useStore((s) => s.modelSize)
   const selectMode = useStore((s) => s.selectMode)
   const setSelectMode = onSelectMode
+  const stepStyle = useStore((s) => s.stepStyle)
+  const setStepStyle = useStore((s) => s.setStepStyle)
   // The marking itself is the shared tool set (markStore / MarkTools); the
   // panel only needs to know how much surface it has taken.
   const markGesture = useMark((s) => s.gesture)
@@ -274,6 +312,13 @@ export function Panel({
   const draftKind = draft && elementKindInfo(draft.kind)
   const method = draft && creationMethod(draft.kind, draft.method)
   const kindMethods = draft ? methodsForKind(draft.kind) : []
+  // The element the open draft writes back to, if it is an edit rather than a
+  // new element, and what such a draft must not be built on.
+  const edited = draft?.editId !== undefined ? elements.find((e) => e.id === draft.editId) : undefined
+  const blocked = blockedRefs(draft?.editId, elements)
+  // While anything is being assembled the row keys stand down: re-opening a
+  // second element or dimension would throw away what is already in the box.
+  const editorOpen = draft !== null || dimDraft !== null || alignDraft !== null
 
   // Marking the surface by hand replaces the click-and-grow flow, so it only
   // exists for the kinds that are fitted to the scan at all.
@@ -287,10 +332,10 @@ export function Panel({
           : paintCount === 0
             ? `Drag over the ${draftKind.noun} to mark it.`
             : 'Keep marking to add more; right-drag rubs out.'
-        : draft.picks.length === 0
+        : draft.picks.length === 0 && draft.status !== 'ready'
           ? method.hint
           : method.mode === 'pick'
-            ? 'Click again to move the point, or create it.'
+            ? `Click again to move the point, or ${edited ? 'save it' : 'create it'}.`
             : `Add more points if the ${draftKind.noun} is split across unconnected patches.`
 
   // Live preview of the dimension being built.
@@ -319,38 +364,11 @@ export function Panel({
     ].filter((r): r is number => r !== null),
   )
 
-  // Live preview of the alignment being set up: the transform it would apply,
-  // or why it cannot be computed yet. Each slot is an element or, in its
-  // place, points picked on the scan.
-  const fitOf = (id: number | null) =>
-    id === null ? undefined : elements.find((e) => e.id === id)?.fit
-  let alignReady: {
-    rigid: Rigid
-    rotationDeg: number
-    translation: number
-  } | null = null
-  let alignError: string | null = null
-  if (alignDraft) {
-    try {
-      const slotFit = (slot: AlignSlot, ref: number | null): FitData | null => {
-        if (ref !== null) return fitOf(ref) ?? null
-        return fitFromAlignPicks(slot, alignSlotPicks(alignDraft, slot), modelSize)
-      }
-      const primaryFit = slotFit('primary', alignDraft.primary)
-      const secondaryFit = slotFit('secondary', alignDraft.secondary)
-      const originFit = slotFit('origin', alignDraft.origin)
-      if (primaryFit) {
-        const rigid = computeDatumAlignment(
-          { fit: primaryFit, axis: alignDraft.primaryAxis },
-          secondaryFit ? { fit: secondaryFit, axis: alignDraft.secondaryAxis } : null,
-          originFit ?? null,
-        )
-        alignReady = { rigid, ...describeRigid(rigid) }
-      }
-    } catch (e) {
-      alignError = e instanceof AlignmentError ? e.message : 'Alignment failed.'
-    }
-  }
+  // The transform the alignment being set up would apply, or why it cannot be
+  // computed yet — the same reading the viewport is previewing the part with.
+  const { preview: alignReady, error: alignError } = alignDraft
+    ? alignmentPreview(alignDraft, elements, modelSize)
+    : { preview: null, error: null }
 
   return (
     <aside className="panel">
@@ -672,8 +690,16 @@ export function Panel({
         <div className="draftbox" style={{ borderLeftColor: draftColor }}>
           <div className="sec-head">
             <span className="dot" style={{ background: draftColor }} />
-            New {draftKind.noun}
+            {edited ? `Edit ${edited.name}` : `New ${draftKind.noun}`}
           </div>
+
+          {draft.editId !== undefined && (
+            <NameField
+              value={draft.name ?? ''}
+              testId="draft-name"
+              onChange={(name) => setDraftName(name)}
+            />
+          )}
 
           {kindMethods.length > 1 && (
             <label className="field">
@@ -745,6 +771,7 @@ export function Panel({
                   roles={[slot.role]}
                   value={draft.refs[i]}
                   elements={elements}
+                  blocked={blocked}
                   testId={`draft-ref-${i}`}
                   onChange={(id) => setDraftRef(i, id)}
                 />
@@ -834,13 +861,18 @@ export function Panel({
             {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
           </div>
 
+          {/* How much of the measured surface to draw, once there is one. A
+              cylinder and a plane are the two elements whose size on screen is
+              a drawing decision rather than the measurement itself. */}
+          {draft.status === 'ready' && isExtendable(draft.fit) && <ExtendFields fit={draft.fit} />}
+
           <button
             className="primary block"
             data-test="create-element"
             disabled={draft.status !== 'ready'}
             onClick={onConfirmDraft}
           >
-            Create {draftKind.noun}
+            {edited ? 'Save changes' : `Create ${draftKind.noun}`}
           </button>
           <div className="toolrow">
             {method.mode !== 'construct' && !paintingSurface && (
@@ -911,7 +943,9 @@ export function Panel({
           {elements.map((el) => (
             <div
               className={
-                'kv' + (el.visible ? '' : ' ghost') + (selectedIds.has(el.id) ? ' sel' : '')
+                'kv' +
+                (el.visible ? '' : ' ghost') +
+                (selectedIds.has(el.id) || draft?.editId === el.id ? ' sel' : '')
               }
               data-test="element-row"
               key={el.id}
@@ -930,6 +964,19 @@ export function Panel({
                   ⚠
                 </b>
               )}
+              <button
+                className="x edit"
+                data-test="edit-element"
+                disabled={editorOpen || el.status === 'fitting'}
+                title={
+                  editorOpen
+                    ? 'Finish what is open first'
+                    : `Edit ${el.name} — change what it is measured on or built from`
+                }
+                onClick={() => onEditElement(el.id)}
+              >
+                ✎
+              </button>
               <button
                 className="x eye"
                 title={el.visible ? `Hide ${el.name} in the viewport` : `Show ${el.name}`}
@@ -983,7 +1030,18 @@ export function Panel({
         ) : (
           dimInfo && (
             <div className="draftbox dimbox">
-              <div className="sec-head">New dimension</div>
+              <div className="sec-head">
+                {dimDraft.editId !== undefined
+                  ? `Edit ${dimensions.find((d) => d.id === dimDraft.editId)?.name ?? 'dimension'}`
+                  : 'New dimension'}
+              </div>
+              {dimDraft.editId !== undefined && (
+                <NameField
+                  value={dimDraft.name ?? ''}
+                  testId="dim-name"
+                  onChange={(name) => setDimensionName(name)}
+                />
+              )}
               <label className="field">
                 <span>Type</span>
                 <select
@@ -1068,7 +1126,7 @@ export function Panel({
                 disabled={!dimPreview || Boolean(dimPreview.invalid)}
                 onClick={commitDimension}
               >
-                Add dimension
+                {dimDraft.editId !== undefined ? 'Save changes' : 'Add dimension'}
               </button>
               <div className="toolrow">
                 <button data-test="cancel-dimension" onClick={cancelDimension}>
@@ -1087,6 +1145,19 @@ export function Panel({
               </span>
               <span className="dro-tools">
                 <span className="dro-title">{title}</span>
+                <button
+                  className="x edit"
+                  data-test="edit-dimension"
+                  disabled={editorOpen}
+                  title={
+                    editorOpen
+                      ? 'Finish what is open first'
+                      : `Edit ${dim.name} — change its type or what it measures between`
+                  }
+                  onClick={() => editDimension(dim.id)}
+                >
+                  ✎
+                </button>
                 <button
                   className="x eye"
                   title={
@@ -1131,6 +1202,37 @@ export function Panel({
       {fileName && (
         <>
           <div className="divider" />
+          <label className="field">
+            <span>
+              STEP as
+              <InfoDot title="What the STEP file contains">
+                <p>
+                  <b>Solids &amp; faces:</b> each element as geometry CAD can build on — a plane as a
+                  bounded planar face with real edges, a cylinder and a sphere as closed solid
+                  bodies, each its own named body in the tree. Sketch on them, offset them, cut with
+                  them.
+                </p>
+                <p>
+                  <b>Construction surfaces:</b> the same geometry as trimmed analytic surfaces and
+                  curves in one set, with no topology — the form metrology packages hand measured
+                  datums over in. Unmistakably reference geometry rather than a part, and the safer
+                  choice for an importer that chokes on bodies.
+                </p>
+                <p>
+                  Points and lines are points and lines either way. Whatever an element has been
+                  extended to is what gets written.
+                </p>
+              </InfoDot>
+            </span>
+            <select
+              data-test="step-style"
+              value={stepStyle}
+              onChange={(e) => setStepStyle(e.target.value as StepStyle)}
+            >
+              <option value="solids">Solids &amp; faces</option>
+              <option value="surfaces">Construction surfaces</option>
+            </select>
+          </label>
           <div className="toolrow">
             <button
               disabled={elements.every((e) => !e.fit)}

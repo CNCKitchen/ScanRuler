@@ -161,9 +161,13 @@ check(Boolean(stepFile), `STEP file downloaded (${stepFile ?? 'missing'})`)
 if (stepFile) {
   const text = readFileSync(join(OUT_DIR, stepFile), 'utf8')
   const entity = (id) => text.match(new RegExp(`^#${id}=(.*);$`, 'm'))?.[1]
-  /** Placement origin of the surface behind a named trimmed surface. */
+  /** Placement origin of the spherical surface a named element is written on —
+   *  under one of the hemisphere faces of a solid ball in the default form,
+   *  under a trimmed surface in the construction-surface one. */
   const centerOf = (name) => {
-    const surfId = text.match(new RegExp(`RECTANGULAR_TRIMMED_SURFACE\\('${name}',#(\\d+)`))?.[1]
+    const face = text.match(new RegExp(`ADVANCED_FACE\\('${name}',\\([^)]*\\),#(\\d+)`))?.[1]
+    const surfId =
+      face ?? text.match(new RegExp(`RECTANGULAR_TRIMMED_SURFACE\\('${name}',#(\\d+)`))?.[1]
     const plId = entity(surfId)?.match(/#(\d+)/)?.[1]
     const ptId = entity(plId)?.match(/#(\d+)/)?.[1]
     const coords = entity(ptId)?.match(/\(([^()]*)\)/)?.[1]
@@ -181,7 +185,11 @@ if (stepFile) {
     s2 && Math.abs(Math.abs(s2[2]) - BAR_LENGTH) < 0.05,
     `Sphere 2 at the bar length along Z (${s2 ? s2[2].toFixed(4) : '—'} mm)`,
   )
-  check(text.includes("SI_UNIT(.MILLI.,.METRE.)"), 'STEP declares millimetres')
+  check(text.includes('SI_UNIT(.MILLI.,.METRE.)'), 'STEP declares millimetres')
+  check(
+    (text.match(/MANIFOLD_SOLID_BREP/g) ?? []).length === 2,
+    'both spheres came over as solid bodies, the default form',
+  )
 }
 
 // Reset puts the part back where the scanner delivered it.

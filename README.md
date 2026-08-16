@@ -39,6 +39,9 @@ never leave your computer.
 3. Press **New dimension**, pick the measurement type, and select the two
    elements to measure between. The value previews live; **Add dimension**
    keeps it. *Copy summary* puts everything on your clipboard.
+4. Nothing is final: the **✎** key on any element or dimension row re-opens it
+   in the box it was made in — see [Changing what you have
+   made](#changing-what-you-have-made).
 
 Each fitted element reports its size and its **sigma** — the RMS deviation of
 the scan from the ideal geometry, i.e. how round, how cylindrical or how flat
@@ -96,7 +99,7 @@ choice of creation methods:
 
 | Element | Created by |
 | --- | --- |
-| **Point** | pick on the scan surface · typed-in coordinates · midpoint of two points |
+| **Point** | pick on the scan surface · typed-in coordinates · midpoint of two points · intersection of a line/axis with a plane |
 | **Line** | through two points · a cylinder's axis · intersection of two planes |
 | **Plane** | fit to the scan · through three points · offset from a plane · midplane of two planes · typed-in normal + point |
 | **Sphere, Cylinder** | fit to the scan |
@@ -133,6 +136,62 @@ whose closest approach lies beyond the fitted sections — says so with a
 warning, or refuses the value outright when it would be meaningless (planes
 more than 3° from parallel have no distance; use an angle dimension instead).
 
+### Extending a plane or a cylinder past what was measured
+
+A fit is only as big as the surface it found: a plane stops at the edge of the
+patch the scan covered, a cylinder at the ends of the band the fit rests on.
+That is the right answer for a measurement and the wrong one for a datum you
+are about to hand to CAD, where a face usually needs to reach past the part and
+a bore needs to run through it.
+
+While a cylinder or a plane is being created or edited, an **Extend** block
+appears under the preview: **two millimetre fields for a cylinder** (one per
+end) and **four for a plane** (one per edge, ±U and ±V — the patch's own two
+axes). The same sides carry **grips in the viewport** — arrows on the ends of a
+cylinder, bars along the edges of a plane — and dragging one types itself
+straight into its field. **Make square** grows the shorter axis of a plane out
+to the longer one, evenly on both sides so the patch keeps its middle; **Reset**
+puts everything back on the measured surface. Negative values pull an edge back
+in, as far as leaving the element a size at all.
+
+Grips are grabbed with a plain left-drag; the camera steps aside for them the
+way it does for the marking brush, and Shift-drag still orbits. While a marking
+tool is armed both plain drags belong to it, so choose **Navigate** to reach the
+grips.
+
+**Nothing measured changes.** The extension is carried beside the fit, not in
+it: the sigma, the reported patch size or fitted length, and the warning a
+dimension gives when it leaves the measured surface all go on describing the
+scan. What changes is the shape on screen and the shape in the STEP file — and
+the summary notes what an extended element is *drawn* at, beside what it was
+measured as.
+
+### Changing what you have made
+
+Every element and every dimension carries a **✎** key next to its hide and
+delete keys. It re-opens the thing in the same box it was created in, with
+everything it was built from already in place:
+
+| Re-opening a… | brings back |
+| --- | --- |
+| fitted element | the points that were clicked on it — the fit re-runs and previews at once, so more picks or *Undo point* change the surface it rests on |
+| hand-marked element | the marked surface itself, back on the part under the marking tools, ready to be added to or rubbed out |
+| picked point | the point, so a click on the scan moves it |
+| constructed element | its source elements and typed-in numbers, in their fields |
+| dimension | its type, its two references and the sphere anchor |
+
+The creation method can be changed on the way through — a plane fitted to the
+scan can be re-made from three points — and the **Name** field renames it. What
+comes out is the *same* element: same id, same colour, same place in the list.
+Everything measured against it — dimensions, and constructions built on it —
+re-reads the new geometry instead of being rebuilt, so correcting a bad fit
+costs one edit rather than a rebuild of everything downstream. A construction
+cannot be pointed at itself or at anything already built on it, so no loop can
+be created. *Cancel* or `Esc` leaves the original untouched.
+
+A dimension that changes group in the process — a distance turned into an angle
+— takes the next name of the group it has become, unless you named it yourself.
+
 ### Aligning the part (3-2-1)
 
 A scan arrives in whatever coordinates the scanner happened to use. **Align
@@ -152,8 +211,11 @@ points for the rotation, an existing point for zero all in one alignment.
 Whatever levels or rotates also sets its own zero: a levelling face ends up
 at height 0, a cylinder lands on the axis it points along, and the zero point
 covers whatever is left. Fill the slots by clicking elements in the 3D view
-or picking points on the scan (they stay marked and labelled while you work),
-with a live preview of how far the part would rotate and move. Measured
+or picking points on the scan (they stay marked as *Point 1, 2, 3* while you
+work). The part swings into the pose it would take as soon as a slot has what
+it needs, and again whenever you change the axis it points along, so the
+alignment is judged by looking at the part rather than by applying it to find
+out — with the panel reading how far it would rotate and move. Measured
 elements make the most accurate references — each one averages the thousands
 of scan points behind its fit, where a picked point is a single spot of scan
 noise.
@@ -175,13 +237,31 @@ takes one click.)
 ### STEP export
 
 **Export STEP** writes the created elements to a STEP file (ISO 10303-21,
-AP214) as **analytic geometry, not tessellation**: planes as trimmed planar
-patches at their measured extents, cylinders and spheres as trimmed analytic
-surfaces at their fitted radii, lines as trimmed lines, points as points —
-each carrying its element name. Coordinates are millimetres in the current
-frame, so aligning the part first hands CAD the elements in the datum system.
-The geometry is packaged as construction geometry (a `GEOMETRIC_SET`), the
-form CAD packages import as reference surfaces and curves for remodelling.
+AP214) as **analytic geometry, not tessellation**, in either of two forms —
+**STEP as** beside the button picks which, and the choice is remembered.
+
+**Solids & faces** (the default) hands CAD geometry it can build on:
+
+| Element | Written as |
+| --- | --- |
+| **Plane** | a bounded planar **face** — an `ADVANCED_FACE` with four real edges, in an open shell — so it can be sketched on, offset and referenced |
+| **Cylinder** | a **closed solid body**: the fitted wall, capped at both ends by flat lids |
+| **Sphere** | a **closed solid ball**, two hemispheres meeting at an equator |
+| **Line, Point** | a trimmed line and a point, as they always were |
+
+Each body is its own named shape representation, tied to the part the way the
+bodies of a multi-body file are, so the element names arrive in the CAD tree.
+
+**Construction surfaces** is the older form, and still the honest one for
+handing over datums: every element as a trimmed analytic surface or curve in a
+single `GEOMETRIC_SET`, with no topology at all — planes as planar patches at
+their extents, cylinders and spheres as trimmed surfaces at their fitted radii.
+It is unmistakably reference geometry rather than a part, and the safer choice
+for an importer that chokes on bodies.
+
+Either way the size written is the size on screen, extensions included, and
+coordinates are millimetres in the current frame — so aligning the part first
+hands CAD the elements in the datum system.
 
 The viewport uses a **parallel (orthographic) projection** so nothing is
 foreshortened, and rotates freely around the model's bounding-box center with
@@ -489,7 +569,7 @@ it — used by `tests/align.test.ts`. Both files are already aligned in GOM, so
 that test displaces the scan by random rigid transforms first; otherwise the
 automatic match would never be asked a real question.
 
-Seven end-to-end smoke tests drive the real app in headless Chrome against a
+Eight end-to-end smoke tests drive the real app in headless Chrome against a
 running dev server:
 
 ```bash
@@ -500,6 +580,7 @@ node scripts/e2e-local-fit.mjs  # window / brush / lasso marking + local fine fi
 node scripts/e2e-align.mjs      # 3-2-1 datum alignment + STEP export round-trip
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
+node scripts/e2e-extend.mjs     # extending an element by field and by grip
 ```
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is

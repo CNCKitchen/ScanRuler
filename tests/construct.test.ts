@@ -55,6 +55,36 @@ describe('point constructions', () => {
     ) as PointFit
     expect(p.center).toEqual([5, 2, -1])
   })
+
+  it('pierces a plane with a line', () => {
+    // A line along Z through (2, 3, ·) crosses the z = 7 plane at (2, 3, 7).
+    const line: LineFit = { kind: 'line', center: [2, 3, 0], dir: [0, 0, 1], length: 10, ...stats }
+    const plane = planeZ([0, 0, 7], [0, 0, 1], [1, 0, 0], [0, 1, 0])
+    const p = evaluateConstruction('point-line-plane', [line, plane], [], SIZE) as PointFit
+    expect(p.center[0]).toBeCloseTo(2, 9)
+    expect(p.center[1]).toBeCloseTo(3, 9)
+    expect(p.center[2]).toBeCloseTo(7, 9)
+  })
+
+  it('pierces a tilted plane with a cylinder axis, beyond the measured extents', () => {
+    // Axis along X from (0, 0, 0); plane through (0, 0, 0) tilted 45° about Y,
+    // i.e. normal (1, 0, 1)/√2 — met at the origin.
+    const axis = cylinder([0, 0, 0], [1, 0, 0], 10)
+    const s = Math.SQRT1_2
+    const plane = planeZ([20, 0, -20], [s, 0, s], [0, 1, 0], [-s, 0, s])
+    const p = evaluateConstruction('point-line-plane', [axis, plane], [], SIZE) as PointFit
+    expect(p.center[0]).toBeCloseTo(0, 9)
+    expect(p.center[1]).toBeCloseTo(0, 9)
+    expect(p.center[2]).toBeCloseTo(0, 9)
+  })
+
+  it('rejects a line parallel to the plane', () => {
+    const line: LineFit = { kind: 'line', center: [0, 0, 4], dir: [1, 0, 0], length: 10, ...stats }
+    const plane = planeZ([0, 0, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0])
+    expect(() => evaluateConstruction('point-line-plane', [line, plane], [], SIZE)).toThrow(
+      ConstructionError,
+    )
+  })
 })
 
 describe('line constructions', () => {

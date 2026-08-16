@@ -82,6 +82,18 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     ],
     params: [],
   },
+  {
+    id: 'point-line-plane',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Line–plane intersection',
+    hint: 'Where a line or cylinder axis pierces a plane.',
+    slots: [
+      { role: 'axis', label: 'Line or cylinder' },
+      { role: 'plane', label: 'Plane' },
+    ],
+    params: [],
+  },
   // ---- Line ----------------------------------------------------------------
   {
     id: 'line-two-points',
@@ -250,6 +262,21 @@ export function evaluateConstruction(
       return { kind: 'point', center: mid(a, b), ...NO_FIT_STATS } satisfies PointFit
     }
 
+    case 'point-line-plane': {
+      const axis = need(refAxis(refs[0]), 'a line or cylinder axis')
+      const pl = need(refPlane(refs[1]), 'the plane')
+      // Both are taken as unbounded, as everywhere else here — the pierce point
+      // is allowed to sit beyond the measured section of either.
+      if (90 - acuteAngle(axis.dir, pl.normal) < INTERSECT_MIN_ANGLE)
+        throw new ConstructionError('The line runs parallel to the plane — they never meet.')
+      const t = dot(sub(pl.center, axis.origin), pl.normal) / dot(axis.dir, pl.normal)
+      return {
+        kind: 'point',
+        center: addScaled(axis.origin, axis.dir, t),
+        ...NO_FIT_STATS,
+      } satisfies PointFit
+    }
+
     case 'line-two-points': {
       const a = pointOf(refs[0], 'point A')
       const b = pointOf(refs[1], 'point B')
@@ -408,6 +435,8 @@ export function describeConstruction(
       return `at (${params.map((v) => v.toFixed(3)).join(', ')})`
     case 'point-midpoint':
       return `midpoint of ${a} and ${b}`
+    case 'point-line-plane':
+      return `where ${a} meets ${b}`
     case 'line-two-points':
       return `through ${a} and ${b}`
     case 'line-axis':

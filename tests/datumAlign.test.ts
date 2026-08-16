@@ -8,6 +8,7 @@ import {
   manualRigid,
   transformFit,
 } from '../src/core/alignment'
+import { alignmentPreview, type AlignDraft } from '../src/state/store'
 import { rigidCompose, rigidInvert, rigidRotationAngle } from '../src/core/deviation/rigid'
 import { orthoBasis } from '../src/core/fit/linalg'
 import { normalize } from '../src/core/vec'
@@ -193,6 +194,62 @@ describe('computeDatumAlignment', () => {
     const zero = manualRigid([0, 0, 0], [0, 0, 0])
     expect(describeRigid(zero).rotationDeg).toBeCloseTo(0, 12)
     expect(describeRigid(zero).translation).toBeCloseTo(0, 12)
+  })
+
+  it('previews live from picked points, and follows the axis they point along', () => {
+    // A tilted triangle of points, the way three clicks on a face arrive.
+    const draft: AlignDraft = {
+      primary: null,
+      primaryPicks: [[0, 0, 4], [10, 0, 5], [0, 10, 4.5]],
+      primaryAxis: 'z+',
+      secondary: null,
+      secondaryPicks: [],
+      secondaryAxis: 'x+',
+      origin: null,
+      originPicks: [],
+      pickSlot: 'primary',
+    }
+    const shown = alignmentPreview(draft, [], 100)
+    expect(shown.error).toBeNull()
+    const levelled = transformFit(
+      fitFromAlignPicks('primary', draft.primaryPicks, 100)!,
+      shown.preview!.rigid,
+    )
+    expect(levelled.kind === 'plane' && levelled.normal[2]).toBeCloseTo(1, 9)
+    expect(shown.preview!.rotationDeg).toBeGreaterThan(0)
+
+    // The same picks pointing along −Y instead: the preview follows the choice.
+    const sideways = alignmentPreview({ ...draft, primaryAxis: 'y-' }, [], 100)
+    const turned = transformFit(
+      fitFromAlignPicks('primary', draft.primaryPicks, 100)!,
+      sideways.preview!.rigid,
+    )
+    expect(turned.kind === 'plane' && turned.normal[1]).toBeCloseTo(-1, 9)
+  })
+
+  it('preview stays quiet until the levelling slot is filled, and reports its own errors', () => {
+    const empty: AlignDraft = {
+      primary: null,
+      primaryPicks: [[0, 0, 0], [1, 0, 0]],
+      primaryAxis: 'z+',
+      secondary: null,
+      secondaryPicks: [],
+      secondaryAxis: 'x+',
+      origin: null,
+      originPicks: [],
+      pickSlot: 'primary',
+    }
+    // Two of three points: nothing to show yet, and nothing wrong either.
+    expect(alignmentPreview(empty, [], 100)).toEqual({ preview: null, error: null })
+
+    // Collinear picks are a message for the operator, not an exception.
+    const bad = alignmentPreview(
+      { ...empty, primaryPicks: [[0, 0, 0], [1, 1, 1], [2, 2, 2]] },
+      [],
+      100,
+    )
+    expect(bad.preview).toBeNull()
+    expect(bad.error).toMatch(/line/)
   })
 
   it('reset via the inverse composes to the identity', () => {
