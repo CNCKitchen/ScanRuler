@@ -5,15 +5,18 @@
 // one you are in — only the number of tiles differs.
 
 import { useRef, useState } from 'react'
+import { MESH_ACCEPT } from '../core/formats'
 
 export interface StartSlot {
   role: string
   what: string
   name: string | null
+  /** What this slot's file picker offers; the scan default when omitted. */
+  accept?: string
   onOpen: (file: File) => void
 }
 
-function Tile({ role, what, name, onOpen }: StartSlot) {
+function Tile({ role, what, name, accept = MESH_ACCEPT, onOpen }: StartSlot) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
 
@@ -38,7 +41,7 @@ function Tile({ role, what, name, onOpen }: StartSlot) {
       <input
         ref={inputRef}
         type="file"
-        accept=".stl,.ply,.obj"
+        accept={accept}
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0]

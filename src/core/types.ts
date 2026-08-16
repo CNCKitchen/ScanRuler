@@ -133,7 +133,10 @@ export type FitData = SphereFit | CylinderFit | PlaneFit | PointFit | LineFit
  *  points are fixed coordinates, constructions re-evaluate from their source
  *  elements. */
 export type ElementSource =
-  | { type: 'fitted'; seeds: number[] }
+  /** Fitted to the scan. `seeds` are the clicked vertices of an auto-fit;
+   *  `selection` is the surface a user painted by hand, which replaces the
+   *  search entirely — an element has one or the other, never both. */
+  | { type: 'fitted'; seeds: number[]; selection?: Uint32Array }
   | { type: 'picked' }
   | { type: 'constructed'; method: string; refs: number[]; params: number[] }
 

@@ -8,6 +8,7 @@
 import { BAND_CHOICES } from '../state/deviationStore'
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
 import { useStore } from '../state/store'
+import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
 
@@ -31,7 +32,17 @@ export function ThicknessPanel({
   return (
     <aside className="panel">
       <div className="group">
-        <div className="sec-head">Model</div>
+        <div className="sec-head">
+          Model
+          <InfoDot title="The scan">
+            <p>
+              The part as scanned — an <b>STL</b>, <b>PLY</b> or <b>OBJ</b> in millimetres.
+              Nothing else is needed here: wall thickness is a property of the part itself, so
+              there is no reference model and no alignment step.
+            </p>
+            <p>Drop it anywhere in the window. Nothing is uploaded.</p>
+          </InfoDot>
+        </div>
         <ModelSlot
           role="Scan"
           name={scanName}
@@ -40,16 +51,32 @@ export function ThicknessPanel({
           busy={busy}
           onOpen={onOpenScan}
         />
-        <p className="hint">
-          The part as scanned — nothing else is needed here. Drop it anywhere in the window.
-          Nothing is uploaded.
-        </p>
+        {!scanName && <p className="hint">Drop it anywhere in the window.</p>}
       </div>
 
       <div className="group">
         <div className="sec-head">Measurement</div>
-        <label className="field" title="How the thickness at a point is defined.">
-          <span>Method</span>
+        <label className="field">
+          <span>
+            Method
+            <InfoDot title="How thickness is measured">
+              <p>
+                <b>Ray along the normal</b> fires a ray straight into the material at each point
+                and takes how far it travels before it comes out the far side. Simple, and it is
+                what most tools mean by wall thickness.
+              </p>
+              <p>
+                <b>Sphere across the wall</b> places a sphere halfway along that ray and grows it
+                until it touches. It can never read longer than the ray and usually reads shorter,
+                because it is not tied to the ray's direction: it finds a wedge square across, and
+                the width of a block rather than the diagonal its corner points down.
+              </p>
+              <p>
+                Neither is wrong — the ray answers “how far through here”, the sphere answers “how
+                much material is actually there”.
+              </p>
+            </InfoDot>
+          </span>
           <select
             data-test="thickness-method"
             value={t.method}
@@ -60,11 +87,6 @@ export function ThicknessPanel({
             <option value="sphere">Sphere across the wall</option>
           </select>
         </label>
-        <p className="hint">
-          {t.method === 'ray'
-            ? 'A ray is fired straight into the material along the inward normal; how far it travels before it comes out the far side is the wall there.'
-            : 'A sphere is placed halfway along that ray and grown until it touches. It cannot read longer than the ray and usually reads shorter, because it is not tied to the ray’s direction: it finds a wedge square across, and the width of a block rather than the diagonal its corner points down.'}
-        </p>
 
         <NumberField
           label="Max. thickness"
@@ -75,18 +97,35 @@ export function ThicknessPanel({
           unit="mm"
           disabled={busy}
           onCommit={t.setMaxThickness}
-          hint="Nothing thicker than this is measured, and no ray looks any further."
+          hint={
+            <>
+              <p>Where the search stops. Nothing thicker than this is measured.</p>
+              <p>
+                A point with nothing behind it inside this distance is left unmeasured rather than
+                reported, which is what keeps a ray escaping through an open rim from coming back
+                as a wall the length of the part.
+              </p>
+            </>
+          }
         />
-        <p className="hint">
-          The search stops here. A point with nothing behind it inside this distance is left
-          unmeasured rather than reported — which is what keeps a ray that escapes through an
-          open rim from coming back as a wall the length of the part.
-        </p>
 
         {t.method === 'ray' && (
           <>
-            <label className="field" title="Extra rays spread through the cone; the shortest wins.">
-              <span>Rays</span>
+            <label className="field">
+              <span>
+                Rays
+                <InfoDot title="Rays">
+                  <p>
+                    A single ray along the normal reads the wall square-on, which over-reads
+                    wherever the surface is not parallel to the one behind it — a chamfer, a
+                    tapered rib, the inside of a corner.
+                  </p>
+                  <p>
+                    Spreading extra rays through a cone around the normal and keeping the shortest
+                    finds the true way across instead. More rays cost measurement time.
+                  </p>
+                </InfoDot>
+              </span>
               <select
                 data-test="thickness-rays"
                 value={t.coneRays}
@@ -116,7 +155,7 @@ export function ThicknessPanel({
           </>
         )}
 
-        <label className="checkrow" title="A surface nearly edge-on to the ray is not the other side of a wall.">
+        <label className="checkrow">
           <input
             type="checkbox"
             data-test="thickness-facing"
@@ -125,6 +164,16 @@ export function ThicknessPanel({
             onChange={(e) => t.setNormalDeviation(e.target.checked ? 60 : null)}
           />
           <span>Far surface must face back</span>
+          <InfoDot title="Far surface must face back">
+            <p>
+              A surface nearly edge-on to the ray is a rib the ray is running alongside, or the rim
+              of an open scan — not the far side of a wall.
+            </p>
+            <p>
+              With this on, such a hit is stepped over and the search carries on behind it, so the
+              wall reported is the one a caliper would find.
+            </p>
+          </InfoDot>
         </label>
         {t.normalDeviationDeg !== null && (
           <NumberField
@@ -136,14 +185,9 @@ export function ThicknessPanel({
             unit="°"
             disabled={busy}
             onCommit={(v) => t.setNormalDeviation(v)}
-            hint="How far the surface a ray lands on may be from squarely facing it and still count as the other side of the wall."
+            hint="How far the surface a ray lands on may be from squarely facing it and still count as the other side of the wall. Anything beyond this is stepped over."
           />
         )}
-        <p className="hint">
-          A surface nearly edge-on to the ray is a rib it is running alongside, or the rim of an
-          open scan — not the far side of a wall. Those are stepped over and the search goes on
-          behind them.
-        </p>
 
         <button
           className="primary block"
@@ -169,11 +213,23 @@ export function ThicknessPanel({
       {t.status === 'ready' && (
         <>
           <div className="group">
-            <div className="sec-head">Colour scale</div>
-            <p className="hint">
-              Red is thin, blue is thick. Both ends default to the spread of this part; anything
-              past either one is drawn in a dark cap.
-            </p>
+            <div className="sec-head">
+              Colour scale
+              <InfoDot title="Colour scale">
+                <p>
+                  Red is thin, blue is thick. Both ends default to the spread of this part, so the
+                  first map you see uses the full range of colour on the walls it actually found.
+                </p>
+                <p>
+                  Anything past either end is drawn in a dark cap, so a wall beyond the scale
+                  cannot be mistaken for one sitting exactly on it.
+                </p>
+                <p>
+                  Moving the ends only re-paints — nothing here is re-measured, and nothing above
+                  changes.
+                </p>
+              </InfoDot>
+            </div>
             <NumberField
               label="Thin end"
               testId="thickness-low"
@@ -229,13 +285,18 @@ export function ThicknessPanel({
               min={0.0001}
               unit="mm"
               onCommit={t.setLimit}
-              hint="The wall the 'under' figure counts below."
+              hint={
+                <>
+                  <p>
+                    The wall the <b>under {t.limit} mm</b> figure below the scale counts.
+                  </p>
+                  <p>
+                    It is a tally only and does not change the colours. Set the thin end of the
+                    scale to the same number if you want the map itself to call it out.
+                  </p>
+                </>
+              }
             />
-            <p className="hint">
-              The wall the <b>under {t.limit} mm</b> figure below the scale counts. It does not
-              change the colours — set the thin end of the scale to it if you want the map itself
-              to call it out.
-            </p>
           </div>
 
           <div className="group">

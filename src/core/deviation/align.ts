@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { symmetricEigen3 } from '../fit/linalg'
 import type { Vec3 } from '../types'
 import { absoluteOrientation } from './absoluteOrientation'
 import { icp, sampleScan, type ScanSamples } from './icp'
@@ -6,7 +7,7 @@ import { preAlignCandidates, principalFrame } from './prealign'
 import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
 import type { NominalSurface } from './surface'
 
-export type AlignSource = 'auto' | 'points'
+export type AlignSource = 'auto' | 'points' | 'local'
 
 export interface AlignResult {
   /** Carries scan coordinates into the nominal's frame. The scan itself is
@@ -27,6 +28,15 @@ export interface AlignResult {
   ambiguous: boolean
   /** RMS of the picked pairs themselves, before ICP. Manual alignments only. */
   pairRms?: number
+  /** How many marked scan vertices a local fit was given. */
+  selected?: number
+  /** The gate a local fit was run under, in mm. Part of how the number was
+   *  arrived at, so it belongs in the report with it. */
+  searchDistance?: number
+  /** Set when the marked surface faces essentially one way — a single flat
+   *  patch fixes the distance across itself and nothing else, so the fit is
+   *  free to slide along it. Local fits only. */
+  underconstrained?: boolean
 }
 
 export interface AlignOptions {
@@ -214,4 +224,134 @@ export function alignFromPairs(
   const result = fine(surface, samples, solved.transform, 'points', false, options)
   result.pairRms = solved.rms
   return result
+}
+
+/** Below this there is not enough marked surface to place a part with: six
+ *  degrees of freedom against a handful of noisy points is not a measurement. */
+export const MIN_LOCAL_POINTS = 50
+
+/** Second largest eigenvalue of the marked normals' covariance, below which
+ *  the selection faces one way and the fit is free to slide along it. Unit
+ *  normals all pointing one way give (1, 0, 0) and two faces at a right angle
+ *  give (½, ½, 0); this sits between them at about a 20° spread, which is the
+ *  point where a gently curved patch stops meaningfully resisting a slide. */
+const FLAT_SELECTION = 0.05
+
+export interface LocalAlignOptions extends AlignOptions {
+  /** How far a marked point may reach for reference surface, in mm. The whole
+   *  point of the local fit: it stops the marked patch from snapping onto a
+   *  neighbouring feature that happens to fit it better. */
+  maxDistance: number
+}
+
+/**
+ * Fine tuning against part of the scan, from an alignment that already
+ * roughly holds.
+ *
+ * The global best fit weighs every point of the scan the same, which is right
+ * up until the scan contains surface that is not the part: sprayed developer,
+ * print supports, the riser it was scanned on, a fixture. Those pull the whole
+ * fit off, and no amount of iterating fixes it, because they are being fitted
+ * on purpose. Here the user has said which surface is real, so only that is
+ * measured — and because the answer is a correction rather than a search, the
+ * pose starts where the global fit left it and pairs beyond `maxDistance` are
+ * refused outright.
+ *
+ * Everything downstream is unchanged: the result is still a full scan → nominal
+ * transform, and the deviation map that follows is still measured over the
+ * whole scan. Excluding surface from the *fit* is not excluding it from the
+ * *reading*.
+ */
+export function alignLocal(
+  surface: NominalSurface,
+  scanPositions: Float32Array,
+  scanNormals: Float32Array | null,
+  vertices: Uint32Array,
+  start: Rigid,
+  options: LocalAlignOptions,
+): AlignResult {
+  if (vertices.length < MIN_LOCAL_POINTS) {
+    throw new Error(
+      `Mark more surface — a local fit needs at least ${MIN_LOCAL_POINTS} marked points, and this selection has ${vertices.length}.`,
+    )
+  }
+  if (!(options.maxDistance > 0)) {
+    throw new Error('The maximum search distance must be greater than zero.')
+  }
+
+  options.onProgress?.('Fine fit — reading the marked surface…')
+  const picked = new Float32Array(vertices.length * 3)
+  const pickedNormals = scanNormals ? new Float32Array(vertices.length * 3) : null
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i]
+    picked[i * 3] = scanPositions[v * 3]
+    picked[i * 3 + 1] = scanPositions[v * 3 + 1]
+    picked[i * 3 + 2] = scanPositions[v * 3 + 2]
+    if (pickedNormals && scanNormals) {
+      pickedNormals[i * 3] = scanNormals[v * 3]
+      pickedNormals[i * 3 + 1] = scanNormals[v * 3 + 1]
+      pickedNormals[i * 3 + 2] = scanNormals[v * 3 + 2]
+    }
+  }
+  const samples = sampleScan(picked, pickedNormals, options.fineSamples ?? 25_000)
+
+  options.onProgress?.('Fine fit — refining on the marked surface…')
+  const r = icp(surface, samples, start, {
+    maxIterations: FINE_ITERATIONS,
+    rejectMedianFactor: 3,
+    // The pose is already right to within a fraction of a millimetre, so the
+    // facing test can be strict — it is what keeps a marked wall from pairing
+    // with the other side of a thin one.
+    minNormalDot: 0.5,
+    maxPairDistance: options.maxDistance,
+    // A sample that found nothing inside the gate costs exactly the gate, so
+    // the score stays comparable between poses that match different subsets.
+    scoreCap: options.maxDistance,
+    onIteration:
+      options.onProgress || options.onTransform
+        ? (i, d, m) => {
+            options.onProgress?.(`Fine fit — pass ${i}, mean deviation ${d.toFixed(4)} mm…`)
+            options.onTransform?.(m, i, d)
+          }
+        : undefined,
+  })
+
+  if (r.matched === 0) {
+    throw new Error(
+      `No marked point found reference surface within ${options.maxDistance} mm. Raise the maximum search distance, or run the global best fit first.`,
+    )
+  }
+
+  return {
+    transform: r.transform,
+    source: 'local',
+    rms: r.rms,
+    meanDistance: r.meanDistance,
+    iterations: r.iterations,
+    matched: r.matched,
+    sampled: r.sampled,
+    ambiguous: false,
+    selected: vertices.length,
+    searchDistance: options.maxDistance,
+    underconstrained: normalSpread(samples.normals, samples.count) < FLAT_SELECTION,
+  }
+}
+
+/** How many directions the marked surface faces, as the middle eigenvalue of
+ *  the mean outer product of its normals. One flat patch scatters along a
+ *  single direction and returns ~0; anything with a second face returns a
+ *  substantial fraction. */
+function normalSpread(normals: Float64Array | null, count: number): number {
+  if (!normals || count === 0) return 1
+  const m = new Float64Array(9)
+  for (let i = 0; i < count; i++) {
+    const x = normals[i * 3], y = normals[i * 3 + 1], z = normals[i * 3 + 2]
+    m[0] += x * x; m[1] += x * y; m[2] += x * z
+    m[4] += y * y; m[5] += y * z
+    m[8] += z * z
+  }
+  m[3] = m[1]; m[6] = m[2]; m[7] = m[5]
+  for (let i = 0; i < 9; i++) m[i] /= count
+  // Ascending, so the middle one is the second largest.
+  return symmetricEigen3(m).values[1]
 }

@@ -1,4 +1,4 @@
-# ScanRuler
+# ScanRuler by CNC Kitchen
 
 Check a 3D scan against what it should have been — entirely in your browser.
 Three workspaces share the loaded scan:
@@ -10,7 +10,8 @@ Three workspaces share the loaded scan:
   bars and other calibrated artefacts. The measured elements can serve as
   datums for a **3-2-1 alignment** into the global coordinate system, and be
   **exported as a STEP file** of analytic geometry.
-- **Deviation** — best-fit the scan onto a **nominal CAD part** and paint the
+- **Deviation** — best-fit the scan onto a **nominal CAD part**, loaded as a
+  mesh or as a **STEP file** tessellated in the browser, and paint the
   difference over it as a colour map.
 - **Thickness** — paint the **wall thickness of the part itself** over it, with
   no reference model and no alignment: load one file and measure.
@@ -23,7 +24,8 @@ never leave your computer.
 ### How to use it
 
 1. **Open** your scan (STL, PLY, or OBJ — meshes only, units assumed mm), or
-   drag & drop it anywhere in the window.
+   drag & drop it anywhere in the window. (CAD goes in the Deviation
+   workspace's reference slot, which also takes STEP.)
 2. Press **Sphere**, **Cylinder** or **Plane**, then **click a point on that
    feature** in the 3D view. The tool automatically selects the surface around
    your click — the spherical patch without leaking onto the connecting rod,
@@ -42,6 +44,50 @@ Each fitted element reports its size and its **sigma** — the RMS deviation of
 the scan from the ideal geometry, i.e. how round, how cylindrical or how flat
 the scanned surface actually is. Cylinders also report the length and the arc
 of wall the fit rests on, planes the size of the measured patch.
+
+### Marking the surface by hand
+
+Automatic surface selection is right almost all of the time, and wrong exactly
+where a scan is worst: a rounded edge that lets the region creep onto the next
+face, a bore broken up by noise, a feature you deliberately want to measure on
+one clean band rather than on everything the tool can reach.
+
+Set **Surface** to *Marked by hand* in the element being created and the fit
+takes what you mark, and nothing else. The tools are the same ones the
+[local fine fit](#local-fine-fit) is marked with — **Navigate**, **Window**,
+**Brush**, **Lasso**, the **Erase** switch, *Mark faces pointing away too* and
+*Clear marking* — and they behave identically here: nothing is armed until you
+pick a gesture, **left-drag marks and right-drag rubs out** while one is,
+Shift-drag still orbits, and **Navigate** or `Esc` hands the plain drags back to
+the camera without touching what is already marked. A second `Esc` discards the
+element, the way it always has.
+
+The **brush Ø** in millimetres sets how wide a brush stroke is — it starts sized
+to the part. A ring on the surface under the cursor shows the footprint before
+you commit to it, in the element's colour while marking and dark while rubbing
+out. The marked surface wears the colour the element will get, the fit re-runs
+each time you lift the button, and *Clear marking* starts over.
+
+A gesture takes whole triangles — the ones it actually covers — so what lights
+up is exactly what the fit is given. It never reaches through a thin wall or
+around an edge either, unless you ask it to with *Mark faces pointing away too*.
+
+Everything else is unchanged — the same Gaussian best fit, the same outlier
+cut-off, the same reported sigma — so a hand-marked element and an automatic
+one are the same measurement, differently aimed. Changing *Used points* re-fits
+a hand-marked element on exactly the surface it was marked with.
+
+Whichever tool you pick stays picked from one element to the next; switching
+workspaces puts it back to **Navigate**, so a gesture is never holding the mouse
+because of something you did somewhere else.
+
+### Which way the surface faces
+
+**Backfaces** in the status strip colours the far side of every triangle. A
+scan is a surface, not a solid: where it has a hole, you are looking at the
+inside of the wall behind it, and in plain grey that reads as part. Switched
+on, it reads as a hole — which is also how an inverted normal gives itself
+away.
 
 ### Elements: fitted, picked and constructed
 
@@ -165,6 +211,9 @@ Switch to the **Deviation** workspace and it asks for the two models it needs,
 in the viewport, each its own drop target — drag and drop works anywhere in the
 window, and whichever slot is still empty takes the file.
 
+The scan is a mesh, as always. The reference takes a mesh too, or **a STEP file
+straight from CAD** — see below.
+
 Both parts are on the stage as soon as both are loaded, the reference drawn as
 a translucent ghost over the scan. Press **Align automatically** and the scan
 walks onto it pass by pass — the refinement streams its intermediate poses out
@@ -187,6 +236,41 @@ almost everywhere.
 **Hover the part for the deviation under the cursor**, interpolated across the
 triangle rather than snapped to a vertex, and **click to pin a reading** where
 you want a number to stay.
+
+### The reference straight from CAD
+
+The nominal part is whatever the CAD system says it is, and exporting it to STL
+first means choosing a tessellation in a dialog that has nothing to do with the
+measurement. So the reference slot also takes **STEP** (`.step` / `.stp`,
+ISO 10303-21, AP203 / AP214 / AP242): the file's exact surfaces are tessellated
+here, in the browser, by [meshStep](https://github.com/CNCKitchen/meshStep).
+Coordinates come out in millimetres whatever unit the file declares, so an
+inch-native export needs no conversion beforehand.
+
+How finely it is tessellated matters, because chord error is a systematic term
+in every reading taken against a curved face. The tolerance is scaled to the
+part — 0.01 mm on a 100 mm one, tighter on smaller — which puts it about a
+tenth of what a good structured-light scanner resolves, so the conversion
+disappears under the scan rather than being measured by it. The figure is
+reported in the status strip and stays on the reference slot, since it is the
+floor under everything the map says.
+
+What it deliberately does *not* do is subdivide by length. Triangle count is
+driven by curvature alone: a flat face is exact at two triangles however large
+it is, and the usual size-adaptive default spends 238 510 triangles on a 20 mm
+cube that 12 describe perfectly. A bracket arrives as a few thousand triangles
+of exactly the right shape instead of a million of the same shape.
+
+The conversion is audited, and the result is not taken on trust. A STEP file
+whose faces come through with cracks or holes leaves the solid without a
+reliable inside — and *inside* is where the sign of every deviation comes from
+— so that is reported as an error against the reference, with the advice to
+export a mesh from CAD instead. A file that only needed heuristic repair says
+so more quietly, in the status strip.
+
+A scan is never a B-rep, so the scan slot does not offer STEP and turns one
+away by name if it is pushed at it; a STEP file dropped anywhere in the
+Deviation workspace goes to the reference.
 
 ### The best fit
 
@@ -219,6 +303,71 @@ picks only fix a coarse pose, solved in closed form by Horn's absolute
 orientation, and ICP does the rest, so they only have to be roughly right.
 Points that land nearly in a line are rejected as you place them: the rotation
 about that line would be unconstrained.
+
+### Local fine fit
+
+The global fit weighs every point of the scan alike, which is right until the
+scan contains surface that is not the part — developer spray, print supports,
+the riser it was scanned on, fixturing, geometry the reference simply does not
+have. Those are fitted on purpose, they pull the whole alignment off, and no
+number of passes shakes them loose.
+
+**Local fine fit** is the second pass: mark the surface that really is the
+part, and fit on that alone. It starts from the alignment already in hand and
+only corrects it — it is not a way to find a pose from scratch, so run the
+global fit first.
+
+Four modes, one of which is always live:
+
+| | |
+|---|---|
+| **Navigate** | Marking off. Orbit, pan and zoom exactly as everywhere else. This is what the tools open in and return to after a fit — what is already marked stays marked. |
+| **Window** | Drag a rectangle. Everything inside it is marked — the fastest way to drop a riser or a whole scanned-in fixture. |
+| **Brush** | Drag over the surface with a round brush of a set diameter, as in the Elements workspace. For working along an edge. |
+| **Lasso** | Draw a free outline; everything it encloses is marked. For a patch of spray that follows no straight line. |
+
+The three gestures are additive and all undone by the same gesture with the
+right button (or with **Erase** switched on, or with Alt). A live gesture takes
+both plain drags for as long as it is on, so **Navigate** — or `Esc`, or
+clicking the live tool again — hands them straight back. Shift-drag orbits
+while a gesture is live, and the middle button is untouched throughout.
+
+`Esc` backs out one step at a time: the first press stands the gesture down and
+returns the camera, the second closes the local fine fit and clears the
+marking. Never both at once — `Esc` is the key you reach for to get the mouse
+working again, and losing a marking to that would be a trap.
+
+While the tools are out, the rest of the faceplate fades back: loading models,
+the global fit and reading the map all belong to another step. It is a fade,
+not a lock — anything there still works, and comes back to full strength under
+the pointer.
+
+**Mark faces pointing away too** decides whether a gesture reaches through the
+part. Off — the default — only surface turned towards you is taken, so a window
+over a closed part cannot quietly mark the far wall along with the near one.
+On, the gesture goes straight through, which takes a whole rib or boss in one
+sweep and is also the escape hatch for a scan whose normals are inverted. There
+is no depth test behind this, only the facing test: that is how CAD selection
+works everywhere, and it is why the switch exists.
+
+**Max search distance** (1 mm by default) is a hard gate on the fit: a marked
+point that finds no reference surface within it contributes nothing, and
+counts against the pose exactly as a miss does. It is what stops a marked patch
+from sliding onto a neighbouring feature that happens to fit it better. A
+global fit already has the part within a few tenths, so a millimetre is
+generous; raise it and the fine fit can find a different feature and settle
+there instead. If nothing at all is in reach, the fit refuses rather than
+answering.
+
+A selection that faces essentially one way is flagged: a single flat patch
+fixes the distance across itself and leaves the part free to slide along it and
+to spin about its normal. Mark a second surface facing another way.
+
+The marking excludes surface from the **fit**, never from the **reading** — the
+map that follows is still measured over the whole scan, so the supports and the
+spray are still coloured, just no longer voting on where the part sits.
+**Back to the global fit** puts the whole-scan alignment back, exactly as it
+was.
 
 ### The map
 
@@ -340,15 +489,25 @@ it — used by `tests/align.test.ts`. Both files are already aligned in GOM, so
 that test displaces the scan by random rigid transforms first; otherwise the
 automatic match would never be asked a real question.
 
-Four end-to-end smoke tests drive the real app in headless Chrome against a
+Seven end-to-end smoke tests drive the real app in headless Chrome against a
 running dev server:
 
 ```bash
 node scripts/e2e-smoke.mjs      # element fitting on the ball bar
+node scripts/e2e-paint.mjs      # hand-marked surface fitting + back-face tint
 node scripts/e2e-deviation.mjs  # load, align, measure, split-screen picking
+node scripts/e2e-local-fit.mjs  # window / brush / lasso marking + local fine fit
 node scripts/e2e-align.mjs      # 3-2-1 datum alignment + STEP export round-trip
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
+node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 ```
+
+`e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
+known before the app is started: the reference is a STEP cube and the scan is a
+fine mesh of the *same* cube with one face raised 0.2 mm and another sunk
+0.15 mm. A correct import has to read those two numbers back off the map — sign
+included — and leave the other four faces flat. It does, to 66.6 % of the scan
+inside ±0.1 mm, which is exactly four faces of six.
 
 ## Deploying to GitHub Pages
 
@@ -366,7 +525,6 @@ every push to `main`:
 - More fit methods: Chebyshev (min-zone), min-circumscribed, max-inscribed
 - More element types: cones, circles, slots
 - Point-cloud (faceless PLY) support
-- Local best fit: align on selected datum surfaces rather than the whole part
 - Export the coloured scan, and section views through the deviation map
 
 ## License
@@ -382,7 +540,10 @@ changes? **Commercial exceptions are available** — see
 [CONTRIBUTING.md](CONTRIBUTING.md), which also documents the strict dependency
 license policy (no third-party copyleft in the app — it would break the
 dual-licensing model; enforced in CI by
-[license-check.yml](.github/workflows/license-check.yml)).
+[license-check.yml](.github/workflows/license-check.yml)). The STEP importer
+[meshStep](https://github.com/CNCKitchen/meshStep) is AGPL, which the policy
+otherwise forbids, and is in only because it is ours as well: a commercial
+exception for this app covers it too.
 
 The bundled fonts are third-party under SIL OFL 1.1 (license files alongside
 them in [public/fonts/](public/fonts/)). The project name and the CNC Kitchen

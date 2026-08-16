@@ -3,7 +3,13 @@
 // reports. Controls at the top, readouts below, in the order the work happens.
 
 import { useState } from 'react'
-import { alignSlotPicks, elementColor, useStore, type Element } from '../state/store'
+import {
+  alignSlotPicks,
+  elementColor,
+  useStore,
+  type Element,
+  type SelectMode,
+} from '../state/store'
 import { ELEMENT_KINDS, elementKindInfo } from '../core/elements/kinds'
 import { creationMethod, methodsForKind } from '../core/elements/construct'
 import { providesRole, type RefRole } from '../core/elements/refs'
@@ -31,6 +37,9 @@ import {
 } from '../core/dimensions'
 import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
 import type { ElementKind, FitData, SigmaPreset } from '../core/types'
+import { useMark } from '../state/markStore'
+import { InfoDot } from './InfoDot'
+import { MarkTools } from './MarkTools'
 import { ModelSlot } from './ModelSlot'
 
 /** The six inputs of the manual move / rotate box, in the order the values
@@ -86,7 +95,7 @@ function RefSelect({
       <span>{label}</span>
       <select
         data-test={testId}
-        value={picking ? '__pick__' : value ?? ''}
+        value={picking ? '__pick__' : (value ?? '')}
         onChange={(e) => {
           if (e.target.value === '__pick__') onPickNew?.()
           else onChange(e.target.value === '' ? null : Number(e.target.value))
@@ -179,28 +188,33 @@ function AlignSelect({
 export function Panel({
   onOpenScan,
   onStartDraft,
+  onSelectMode,
+  onClearPaint,
   onUndoPick,
   onCancelDraft,
   onConfirmDraft,
   onPickPoint,
   onDelete,
-  onClearAll,
   onCopy,
   onStartAlignment,
   onApplyAlignment,
   onApplyManual,
   onResetAlignment,
   onExportStep,
+  onExportStl,
 }: {
   onOpenScan: (file: File) => void
   onStartDraft: (kind: ElementKind) => void
+  /** Switch between clicking a point and marking the surface by hand. */
+  onSelectMode: (mode: SelectMode) => void
+  /** Rub out the whole hand-marked surface. */
+  onClearPaint: () => void
   onUndoPick: () => void
   onCancelDraft: () => void
   onConfirmDraft: () => void
   /** Fill dimension slot n by picking a new point on the scan. */
   onPickPoint: (slot: number) => void
   onDelete: (id: number) => void
-  onClearAll: () => void
   onCopy: () => void
   onStartAlignment: () => void
   /** Bake the computed datum alignment into the part. */
@@ -209,6 +223,8 @@ export function Panel({
   onApplyManual: (m: Rigid) => void
   onResetAlignment: () => void
   onExportStep: () => void
+  /** Save the scan as an STL in the pose it is currently shown in. */
+  onExportStl: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
   const busy = useStore((s) => s.busy)
@@ -233,6 +249,12 @@ export function Panel({
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
   const toggleDimensionVisible = useStore((s) => s.toggleDimensionVisible)
   const modelSize = useStore((s) => s.modelSize)
+  const selectMode = useStore((s) => s.selectMode)
+  const setSelectMode = onSelectMode
+  // The marking itself is the shared tool set (markStore / MarkTools); the
+  // panel only needs to know how much surface it has taken.
+  const markGesture = useMark((s) => s.gesture)
+  const paintCount = useMark((s) => s.count)
   const alignDraft = useStore((s) => s.alignDraft)
   const appliedAlignment = useStore((s) => s.appliedAlignment)
   const cancelAlignment = useStore((s) => s.cancelAlignment)
@@ -253,14 +275,23 @@ export function Panel({
   const method = draft && creationMethod(draft.kind, draft.method)
   const kindMethods = draft ? methodsForKind(draft.kind) : []
 
+  // Marking the surface by hand replaces the click-and-grow flow, so it only
+  // exists for the kinds that are fitted to the scan at all.
+  const paintingSurface = draft !== null && method?.mode === 'fit' && selectMode === 'paint'
   const pickHint =
     !draft || !draftKind || !method
       ? ''
-      : draft.picks.length === 0
-        ? method.hint
-        : method.mode === 'pick'
-          ? 'Click again to move the point, or create it.'
-          : `Add more points if the ${draftKind.noun} is split across unconnected patches, then create it.`
+      : paintingSurface
+        ? markGesture === null
+          ? `Pick a marking tool above, then drag over the ${draftKind.noun}.`
+          : paintCount === 0
+            ? `Drag over the ${draftKind.noun} to mark it.`
+            : 'Keep marking to add more; right-drag rubs out.'
+        : draft.picks.length === 0
+          ? method.hint
+          : method.mode === 'pick'
+            ? 'Click again to move the point, or create it.'
+            : `Add more points if the ${draftKind.noun} is split across unconnected patches.`
 
   // Live preview of the dimension being built.
   const dimInfo = dimDraft ? dimensionTypeInfo(dimDraft.type) : null
@@ -269,7 +300,10 @@ export function Panel({
     const fits = dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit)
     dimPreview = fits.every((f): f is FitData => f !== undefined)
       ? evaluateDimension(dimDraft.type, fits, dimDraft.anchor)
-      : { label: dimInfo.label, invalid: 'A referenced element is unavailable.' }
+      : {
+          label: dimInfo.label,
+          invalid: 'A referenced element is unavailable.',
+        }
   }
   const dimRefsAreSpheres =
     dimDraft?.type === 'dist-point-point' &&
@@ -290,7 +324,11 @@ export function Panel({
   // place, points picked on the scan.
   const fitOf = (id: number | null) =>
     id === null ? undefined : elements.find((e) => e.id === id)?.fit
-  let alignReady: { rigid: Rigid; rotationDeg: number; translation: number } | null = null
+  let alignReady: {
+    rigid: Rigid
+    rotationDeg: number
+    translation: number
+  } | null = null
   let alignError: string | null = null
   if (alignDraft) {
     try {
@@ -317,7 +355,19 @@ export function Panel({
   return (
     <aside className="panel">
       <div className="group">
-        <div className="sec-head">Model</div>
+        <div className="sec-head">
+          Model
+          <InfoDot title="The scan">
+            <p>
+              The part as measured — an <b>STL</b>, <b>PLY</b> or <b>OBJ</b> from your scanner. Drop
+              it anywhere in the window, or use the button.
+            </p>
+            <p>
+              Units are assumed to be millimetres. Nothing is uploaded: the file is read and the
+              whole measurement runs in this browser.
+            </p>
+          </InfoDot>
+        </div>
         <ModelSlotBlock
           fileName={fileName}
           triangleCount={triangleCount}
@@ -326,241 +376,40 @@ export function Panel({
         />
       </div>
 
-      {draft === null && (
-        <div className="group">
-          <div className="sec-head">Create element</div>
-          <div className="kindrow">
-            {ELEMENT_KINDS.map((k) => (
-              <button
-                key={k.id}
-                data-test={`fit-${k.id}`}
-                disabled={!fileName || busy}
-                onClick={() => onStartDraft(k.id)}
-              >
-                {k.label}
-              </button>
-            ))}
-          </div>
-          {fileName && (
-            <p className="hint">
-              Fit an element to the scan, pick a point, or construct one from existing elements.
-            </p>
-          )}
-        </div>
-      )}
-
-      {draft !== null && draftKind !== null && method !== null && (
-        <div className="draftbox" style={{ borderLeftColor: draftColor }}>
-          <div className="sec-head">
-            <span className="dot" style={{ background: draftColor }} />
-            New {draftKind.noun}
-          </div>
-
-          {kindMethods.length > 1 && (
-            <label className="field">
-              <span>Created</span>
-              <select
-                data-test="draft-method"
-                value={draft.method}
-                onChange={(e) => setDraftMethod(e.target.value)}
-              >
-                {kindMethods.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-
-          {method.mode === 'construct' ? (
-            <>
-              <p className="hint">{method.hint}</p>
-              {method.slots.map((slot, i) => (
-                <RefSelect
-                  key={i}
-                  label={slot.label}
-                  roles={[slot.role]}
-                  value={draft.refs[i]}
-                  elements={elements}
-                  testId={`draft-ref-${i}`}
-                  onChange={(id) => setDraftRef(i, id)}
-                />
-              ))}
-              {method.params.map((p, i) => (
-                <label className="field" key={p.key}>
-                  <span>
-                    {p.label}
-                    {p.unit ? ` (${p.unit})` : ''}
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    data-test={`draft-param-${p.key}`}
-                    value={Number.isFinite(draft.params[i]) ? draft.params[i] : ''}
-                    onChange={(e) =>
-                      setDraftParam(i, e.target.value === '' ? NaN : Number(e.target.value))
-                    }
-                  />
-                </label>
-              ))}
-            </>
-          ) : (
-            <p className="hint">{pickHint}</p>
-          )}
-
-          <div className="dro">
-            <div className="dro-label">
-              <span>Preview</span>
-              {method.mode !== 'construct' && (
-                <span>
-                  {draft.picks.length} pick{draft.picks.length === 1 ? '' : 's'}
-                </span>
-              )}
-            </div>
-            <div
-              className={
-                'dro-window ' +
-                draft.status +
-                (draft.status === 'fitting' ? ' working' : draft.status === 'failed' ? ' alarm' : '')
-              }
-              data-test="draft-status"
-            >
-              {draft.status === 'empty' && (
-                <b style={{ fontSize: 12, fontWeight: 400, color: 'var(--dim)' }}>
-                  {method.mode === 'construct' ? 'Incomplete' : 'No points picked'}
-                </b>
-              )}
-              {draft.status === 'fitting' && (
-                <b>
-                  <span className="spinner" />
-                  Fitting…
-                </b>
-              )}
-              {draft.status === 'failed' && <b>{draft.message ?? 'Failed'}</b>}
-              {draft.status === 'ready' &&
-                (() => {
-                  const primary = formatPrimary(draft.fit!)
-                  if (draft.fit!.kind === 'point' || draft.fit!.kind === 'line' || primary === '') {
-                    return <b style={{ color: draftColor }}>✓ {draftKind.label}</b>
-                  }
-                  const [num, unit] = splitValue(primary)
-                  return (
-                    <>
-                      <b style={{ color: draftColor }}>{num}</b>
-                      <span>{unit}</span>
-                    </>
-                  )
-                })()}
-            </div>
-            {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
-          </div>
-
-          <button
-            className="primary block"
-            data-test="create-element"
-            disabled={draft.status !== 'ready'}
-            onClick={onConfirmDraft}
-          >
-            Create {draftKind.noun}
-          </button>
-          <div className="toolrow">
-            {method.mode !== 'construct' && (
-              <button disabled={draft.picks.length === 0} onClick={onUndoPick}>
-                Undo point
-              </button>
-            )}
-            <button data-test="cancel-draft" onClick={onCancelDraft}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {draft !== null && method?.mode === 'fit' && (
-        <div className="group">
-          <div className="g-label">
-            <span>Fitting</span>
-          </div>
-          <label className="field">
-            <span>Method</span>
-            <select value={settings.method} disabled>
-              <option value="gaussian">Gaussian best-fit</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Used points</span>
-            <select
-              value={settings.sigma}
-              disabled={busy}
-              onChange={(e) => setSigma(Number(e.target.value) as SigmaPreset)}
-            >
-              {([3, 2, 1, 0] as SigmaPreset[]).map((k) => (
-                <option key={k} value={k}>
-                  {SIGMA_LABELS[k]}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="hint">
-            Outlier cut-off for every fit. Changing it re-fits all elements from their picked
-            points.
-          </p>
-        </div>
-      )}
-
-      {elements.length > 0 && (
-        <div className="group">
-          <div className="g-label">
-            <span>Elements</span>
-            <b>{elements.length}</b>
-          </div>
-          {elements.map((el) => (
-            <div
-              className={'kv' + (el.visible ? '' : ' ghost') + (selectedIds.has(el.id) ? ' sel' : '')}
-              data-test="element-row"
-              key={el.id}
-            >
-              <span className="dot" style={{ background: el.color }} />
-              <span className="name">{el.name}</span>
-              {el.status === 'fitting' ? (
-                <b className="working">
-                  <span className="spinner" />
-                  fitting
-                </b>
-              ) : el.fit ? (
-                <b>{formatPrimary(el.fit)}</b>
-              ) : (
-                <b className="warn" title={el.message}>
-                  ⚠
-                </b>
-              )}
-              <button
-                className="x eye"
-                title={el.visible ? `Hide ${el.name} in the viewport` : `Show ${el.name}`}
-                onClick={() => toggleElementVisible(el.id)}
-              >
-                {el.visible ? '◉' : '○'}
-              </button>
-              <button className="x" title={`Delete ${el.name}`} onClick={() => onDelete(el.id)}>
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="group">
-        <div className="g-label">
-          <span>Alignment</span>
+        <div className="sec-head">
+          Alignment
+          <InfoDot title="Alignment">
+            <p>
+              Where X, Y, Z and the zero point sit on the part. Until it is set the scan lies in
+              whatever pose the scanner left it in, so heights, offsets and anything measured
+              against an axis mean nothing.
+            </p>
+            <p>
+              <b>Align part (3-2-1)</b> builds the frame the way a drawing does: one datum levels
+              the part, a second stops it spinning, a third sets the origin. Each can be a measured
+              element or points clicked straight on the scan.
+            </p>
+            <p>
+              <b>Move / rotate by numbers</b> applies a transform you already know instead. Both are
+              baked into the part, and <b>Reset alignment</b> puts it back.
+            </p>
+          </InfoDot>
         </div>
         {alignDraft === null && manual !== null ? (
           <div className="draftbox">
-            <div className="sec-head">Move / rotate part</div>
-            <p className="hint">
-              Type how far to move (mm) and turn (°) the part along the global axes. It turns
-              about the zero point — about X, then Y, then Z — and moves after that.
-            </p>
+            <div className="sec-head">
+              Move / rotate part
+              <InfoDot title="Move / rotate part">
+                <p>
+                  How far to move the part (mm) and how far to turn it (°) along the global axes.
+                </p>
+                <p>
+                  It turns about the zero point first — about X, then Y, then Z — and moves after
+                  that, so a rotation and an offset entered together behave the same way every time.
+                </p>
+              </InfoDot>
+            </div>
             {MANUAL_FIELDS.map((f, i) => (
               <label className="field" key={f.key}>
                 <span>
@@ -632,19 +481,27 @@ export function Panel({
                 Reset alignment
               </button>
             )}
-            <p className="hint">
-              Set where X, Y, Z and the zero point sit on the part — using measured elements,
-              points picked on the scan, a mix of both, or typed-in numbers.
-            </p>
           </>
         ) : (
           <div className="draftbox">
-            <div className="sec-head">Align part</div>
-            <p className="hint">
-              Level the part with a flat face, a cylinder, or 3 picked points. Optionally add a
-              second direction so it cannot spin, and a point that becomes the zero. Whatever
-              levels or rotates also sets its own zero — a levelling face ends up at height 0.
-            </p>
+            <div className="sec-head">
+              Align part
+              <InfoDot title="3-2-1 alignment">
+                <p>
+                  <b>Level with</b> sets the first direction: a flat face, a cylinder axis, or 3
+                  points picked on the scan. <i>Points along</i> says which axis that direction
+                  becomes.
+                </p>
+                <p>
+                  <b>Rotate with</b> is optional and adds a second direction, so the part cannot
+                  spin about the first. <b>Zero point</b> is optional too and becomes 0, 0, 0.
+                </p>
+                <p>
+                  Whatever levels or rotates also sets its own zero along that axis — a levelling
+                  face ends up at height 0 — so the origin slot only has to supply what is left.
+                </p>
+              </InfoDot>
+            </div>
             <AlignSelect
               label="Level with"
               roles={['plane', 'axis']}
@@ -730,7 +587,13 @@ export function Panel({
                     <span>DEG</span>
                   </>
                 ) : (
-                  <b style={{ fontSize: 12, fontWeight: 400, color: 'var(--dim)' }}>
+                  <b
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 400,
+                      color: 'var(--dim)',
+                    }}
+                  >
                     Choose what levels the part
                   </b>
                 )}
@@ -769,9 +632,337 @@ export function Panel({
         )}
       </div>
 
+      {draft === null && (
+        <div className="group">
+          <div className="sec-head">
+            Create element
+            <InfoDot title="Elements">
+              <p>
+                Every measurement here starts with an element — a plane, a cylinder, a sphere, a
+                circle, a point or a line. Dimensions are then measured between them, never between
+                raw triangles.
+              </p>
+              <p>
+                An element is either <b>fitted</b> to the scan, by clicking the feature and letting
+                the tool find the surface; <b>picked</b> straight off the mesh, for a single point;
+                or <b>constructed</b> from elements you already have — an axis through two circles,
+                a midpoint between two points, a plane offset from another.
+              </p>
+              <p>
+                Which of those a kind offers appears as <i>Created</i> once you choose it.
+              </p>
+            </InfoDot>
+          </div>
+          <div className="kindrow">
+            {ELEMENT_KINDS.map((k) => (
+              <button
+                key={k.id}
+                data-test={`fit-${k.id}`}
+                disabled={!fileName || busy}
+                onClick={() => onStartDraft(k.id)}
+              >
+                {k.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {draft !== null && draftKind !== null && method !== null && (
+        <div className="draftbox" style={{ borderLeftColor: draftColor }}>
+          <div className="sec-head">
+            <span className="dot" style={{ background: draftColor }} />
+            New {draftKind.noun}
+          </div>
+
+          {kindMethods.length > 1 && (
+            <label className="field">
+              <span>Created</span>
+              <select
+                data-test="draft-method"
+                value={draft.method}
+                onChange={(e) => setDraftMethod(e.target.value)}
+              >
+                {kindMethods.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {method.mode === 'fit' && (
+            <label className="field">
+              <span>
+                Surface
+                <InfoDot title="Which surface is fitted">
+                  <p>
+                    <b>Found from a click:</b> click once on the feature and the patch grows outward
+                    across the scan on its own, stopping where the surface stops being flat or round
+                    enough to belong. Fast, and right most of the time.
+                  </p>
+                  <p>
+                    <b>Marked by hand:</b> take exactly the triangles you want — with a window, a
+                    round brush or a lasso, the same three tools the deviation workspace marks a
+                    local fine fit with. Use it when a click runs off across a fillet, when noise
+                    breaks the feature into unconnected patches, or when only part of a face is
+                    worth trusting.
+                  </p>
+                  <p>
+                    Nothing is armed until you pick one of them: while a tool is live it takes both
+                    plain drags — left marks, right rubs out — and <b>Navigate</b> or Esc hands them
+                    back to the camera. Shift-drag orbits either way.
+                  </p>
+                </InfoDot>
+              </span>
+              <select
+                data-test="draft-select-mode"
+                value={selectMode}
+                onChange={(e) => setSelectMode(e.target.value as SelectMode)}
+              >
+                <option value="auto">Found from a click</option>
+                <option value="paint">Marked by hand</option>
+              </select>
+            </label>
+          )}
+
+          {paintingSurface && (
+            <MarkTools
+              showCount={false}
+              escapeNote="Esc a second time discards the element."
+              onClear={onClearPaint}
+            />
+          )}
+
+          {method.mode === 'construct' ? (
+            <>
+              <p className="hint">{method.hint}</p>
+              {method.slots.map((slot, i) => (
+                <RefSelect
+                  key={i}
+                  label={slot.label}
+                  roles={[slot.role]}
+                  value={draft.refs[i]}
+                  elements={elements}
+                  testId={`draft-ref-${i}`}
+                  onChange={(id) => setDraftRef(i, id)}
+                />
+              ))}
+              {method.params.map((p, i) => (
+                <label className="field" key={p.key}>
+                  <span>
+                    {p.label}
+                    {p.unit ? ` (${p.unit})` : ''}
+                  </span>
+                  <input
+                    type="number"
+                    step="any"
+                    data-test={`draft-param-${p.key}`}
+                    value={Number.isFinite(draft.params[i]) ? draft.params[i] : ''}
+                    onChange={(e) =>
+                      setDraftParam(i, e.target.value === '' ? NaN : Number(e.target.value))
+                    }
+                  />
+                </label>
+              ))}
+            </>
+          ) : (
+            <p className="hint">{pickHint}</p>
+          )}
+
+          <div className="dro">
+            <div className="dro-label">
+              <span>Preview</span>
+              {paintingSurface ? (
+                <span data-test="paint-count">
+                  {paintCount.toLocaleString('en-US')} point
+                  {paintCount === 1 ? '' : 's'} marked
+                </span>
+              ) : (
+                method.mode !== 'construct' && (
+                  <span>
+                    {draft.picks.length} pick
+                    {draft.picks.length === 1 ? '' : 's'}
+                  </span>
+                )
+              )}
+            </div>
+            <div
+              className={
+                'dro-window ' +
+                draft.status +
+                (draft.status === 'fitting'
+                  ? ' working'
+                  : draft.status === 'failed'
+                    ? ' alarm'
+                    : '')
+              }
+              data-test="draft-status"
+            >
+              {draft.status === 'empty' && (
+                <b style={{ fontSize: 12, fontWeight: 400, color: 'var(--dim)' }}>
+                  {method.mode === 'construct'
+                    ? 'Incomplete'
+                    : paintingSurface
+                      ? 'Nothing marked'
+                      : 'No points picked'}
+                </b>
+              )}
+              {draft.status === 'fitting' && (
+                <b>
+                  <span className="spinner" />
+                  Fitting…
+                </b>
+              )}
+              {draft.status === 'failed' && <b>{draft.message ?? 'Failed'}</b>}
+              {draft.status === 'ready' &&
+                (() => {
+                  const primary = formatPrimary(draft.fit!)
+                  if (draft.fit!.kind === 'point' || draft.fit!.kind === 'line' || primary === '') {
+                    return <b style={{ color: draftColor }}>✓ {draftKind.label}</b>
+                  }
+                  const [num, unit] = splitValue(primary)
+                  return (
+                    <>
+                      <b style={{ color: draftColor }}>{num}</b>
+                      <span>{unit}</span>
+                    </>
+                  )
+                })()}
+            </div>
+            {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
+          </div>
+
+          <button
+            className="primary block"
+            data-test="create-element"
+            disabled={draft.status !== 'ready'}
+            onClick={onConfirmDraft}
+          >
+            Create {draftKind.noun}
+          </button>
+          <div className="toolrow">
+            {method.mode !== 'construct' && !paintingSurface && (
+              <button disabled={draft.picks.length === 0} onClick={onUndoPick}>
+                Undo point
+              </button>
+            )}
+            <button data-test="cancel-draft" onClick={onCancelDraft}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {draft !== null && method?.mode === 'fit' && (
+        <div className="group">
+          <div className="g-label">
+            <span>Fitting</span>
+          </div>
+          <label className="field">
+            <span>Method</span>
+            <select value={settings.method} disabled>
+              <option value="gaussian">Gaussian best-fit</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>
+              Used points
+              <InfoDot title="Used points">
+                <p>
+                  Every element is a Gaussian best fit — the plane, cylinder or sphere that
+                  minimises the squared distance to the points taken from the scan.
+                </p>
+                <p>
+                  This is the outlier cut-off. Points further from that first fit than the chosen
+                  multiple of the standard deviation are dropped and the fit is repeated, so scan
+                  noise, a stray edge triangle or a speck of spray cannot drag the result. Tighter
+                  cut-offs give a cleaner element from fewer points; <i>all points</i> keeps
+                  everything.
+                </p>
+                <p>
+                  The setting is global: changing it re-fits every element from the points it was
+                  built on.
+                </p>
+              </InfoDot>
+            </span>
+            <select
+              value={settings.sigma}
+              disabled={busy}
+              onChange={(e) => setSigma(Number(e.target.value) as SigmaPreset)}
+            >
+              {([3, 2, 1, 0] as SigmaPreset[]).map((k) => (
+                <option key={k} value={k}>
+                  {SIGMA_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+
+      {elements.length > 0 && (
+        <div className="group">
+          <div className="g-label">
+            <span>Elements</span>
+            <b>{elements.length}</b>
+          </div>
+          {elements.map((el) => (
+            <div
+              className={
+                'kv' + (el.visible ? '' : ' ghost') + (selectedIds.has(el.id) ? ' sel' : '')
+              }
+              data-test="element-row"
+              key={el.id}
+            >
+              <span className="dot" style={{ background: el.color }} />
+              <span className="name">{el.name}</span>
+              {el.status === 'fitting' ? (
+                <b className="working">
+                  <span className="spinner" />
+                  fitting
+                </b>
+              ) : el.fit ? (
+                <b>{formatPrimary(el.fit)}</b>
+              ) : (
+                <b className="warn" title={el.message}>
+                  ⚠
+                </b>
+              )}
+              <button
+                className="x eye"
+                title={el.visible ? `Hide ${el.name} in the viewport` : `Show ${el.name}`}
+                onClick={() => toggleElementVisible(el.id)}
+              >
+                {el.visible ? '◉' : '○'}
+              </button>
+              <button className="x" title={`Delete ${el.name}`} onClick={() => onDelete(el.id)}>
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="group">
-        <div className="g-label">
-          <span>Dimensions</span>
+        <div className="sec-head">
+          Create dimensions
+          <InfoDot title="Dimensions">
+            <p>
+              What you actually read off the part: distances, diameters and angles measured between
+              the elements you have created.
+            </p>
+            <p>
+              Fill a slot from the dropdown, or click the element straight in the viewport — the
+              dimension type switches to match what you pick, so a click on two circles becomes a
+              centre distance without you choosing it.
+            </p>
+            <p>
+              Between two spheres you can also measure the surface gap or the outer span instead of
+              centre to centre — a ball-bar length is centre to centre.
+            </p>
+          </InfoDot>
           {dimensions.length > 0 && <b>{dimensions.length}</b>}
         </div>
 
@@ -816,10 +1007,7 @@ export function Panel({
                   </optgroup>
                 </select>
               </label>
-              <p className="hint">
-                {dimInfo.hint} Click elements in the viewport to fill the slots — the type
-                switches to match what you pick.
-              </p>
+              <p className="hint">{dimInfo.hint}</p>
               {dimInfo.slots.map((slot, i) => (
                 <RefSelect
                   key={i}
@@ -933,12 +1121,14 @@ export function Panel({
               })()
             )}
             {value.detail && !value.invalid && <div className="dro-note">{value.detail}</div>}
-            {(value.warning ?? value.invalid) && <WarningNote text={(value.warning ?? value.invalid)!} />}
+            {(value.warning ?? value.invalid) && (
+              <WarningNote text={(value.warning ?? value.invalid)!} />
+            )}
           </div>
         ))}
       </div>
 
-      {(elements.length > 0 || draft !== null) && (
+      {fileName && (
         <>
           <div className="divider" />
           <div className="toolrow">
@@ -960,7 +1150,14 @@ export function Panel({
             >
               Export STEP
             </button>
-            <button onClick={onClearAll}>Clear all</button>
+            <button
+              data-test="export-stl"
+              disabled={busy}
+              onClick={onExportStl}
+              title="Save the scan as an STL where it now stands — any alignment or move you applied comes with it"
+            >
+              Export STL
+            </button>
           </div>
         </>
       )}
@@ -990,12 +1187,7 @@ function ModelSlotBlock({
         busy={busy}
         onOpen={onOpenScan}
       />
-      {!fileName && (
-        <p className="hint">
-          The part as measured. Drop it anywhere in the window. Units are assumed to be
-          millimetres, and nothing is uploaded: the whole measurement runs in this browser.
-        </p>
-      )}
+      {!fileName && <p className="hint">Drop it anywhere in the window.</p>}
     </>
   )
 }

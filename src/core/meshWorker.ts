@@ -4,10 +4,11 @@ import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
+import { parseSTEP, type StepInfo } from './parsers/step'
 import { buildMeshGraph } from './geometry/buildGraph'
-import { getFitter } from './elements/registry'
+import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
-import { alignFromPairs, autoAlign } from './deviation/align'
+import { alignFromPairs, alignLocal, autoAlign } from './deviation/align'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
@@ -27,12 +28,35 @@ function post(msg: WorkerResponse, transfer: Transferable[] = []): void {
   ;(self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(msg, transfer)
 }
 
+function extensionOf(name: string): string {
+  return name.split('.').pop()?.toLowerCase() ?? ''
+}
+
 function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) => void): ParsedMesh {
-  const ext = name.split('.').pop()?.toLowerCase()
+  const ext = extensionOf(name)
   if (ext === 'stl') return parseSTL(buffer, onProgress)
   if (ext === 'ply') return parsePLY(buffer, onProgress)
   if (ext === 'obj') return parseOBJ(buffer, onProgress)
   throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, or OBJ.`)
+}
+
+/** The reference takes CAD as well as meshes: it is the nominal part, and the
+ *  nominal part is what came out of the CAD system in the first place. A scan
+ *  never arrives as a B-rep, so this stays on the reference side. */
+function parseNominal(
+  name: string,
+  buffer: ArrayBuffer,
+  onProgress: (t: string) => void,
+): { parsed: ParsedMesh; step?: StepInfo } {
+  const ext = extensionOf(name)
+  if (ext === 'step' || ext === 'stp') {
+    const imported = parseSTEP(buffer, onProgress)
+    return { parsed: imported.mesh, step: imported.info }
+  }
+  if (ext === 'stl' || ext === 'ply' || ext === 'obj') {
+    return { parsed: parseByName(name, buffer, onProgress) }
+  }
+  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, or STEP.`)
 }
 
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
@@ -85,12 +109,36 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     return
   }
 
+  if (msg.type === 'fit-selection') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      // A vertex index out of range would read past the end of the position
+      // buffer and quietly produce a fit of nonsense; the selection comes from
+      // the render thread's copy of the mesh, so it can only disagree if the
+      // two have drifted apart.
+      for (let i = 0; i < msg.vertices.length; i++) {
+        if (msg.vertices[i] >= graph.vertexCount) {
+          throw new Error('The marked surface does not belong to the loaded scan.')
+        }
+      }
+      const result = getSelectionFitter(msg.elementType)(graph, msg.vertices, msg.settings)
+      post({ type: 'fit-ok', requestId: msg.requestId, result }, [result.region.buffer])
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
+    return
+  }
+
   if (msg.type === 'load-nominal') {
     try {
-      const parsed = parseByName(msg.name, msg.buffer, progress)
+      const { parsed, step } = parseNominal(msg.name, msg.buffer, progress)
       // The nominal goes through the same welding as a scan: the pseudonormals
       // that give a signed distance its sign are sums over the faces meeting at
       // a vertex or an edge, and an unwelded triangle soup has no such thing.
+      // A STEP import is welded already, so this only pays for a pass over it.
       const g = buildMeshGraph(parsed, progress)
       progress('Indexing reference geometry…')
       nominal = new NominalSurface(g.positions, g.indices)
@@ -107,6 +155,7 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
           vertexCount: g.vertexCount,
           triangleCount: g.triangleCount,
           bboxDiagonal: nominal.bboxDiagonal,
+          step,
         },
         [positions.buffer, indices.buffer, normals.buffer],
       )
@@ -141,10 +190,24 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
             meanDistance,
           }),
       }
-      const result =
-        msg.mode === 'auto'
-          ? autoAlign(nominal, graph.positions, graph.normals, options)
-          : alignFromPairs(nominal, graph.positions, graph.normals, msg.pairs, options)
+      let result
+      if (msg.mode === 'auto') {
+        result = autoAlign(nominal, graph.positions, graph.normals, options)
+      } else if (msg.mode === 'points') {
+        result = alignFromPairs(nominal, graph.positions, graph.normals, msg.pairs, options)
+      } else {
+        // Same check as a hand-marked fit: an index past the end of the scan
+        // would read whatever follows the position buffer and fit to it.
+        for (let i = 0; i < msg.vertices.length; i++) {
+          if (msg.vertices[i] >= graph.vertexCount) {
+            throw new Error('The marked surface does not belong to the loaded scan.')
+          }
+        }
+        result = alignLocal(nominal, graph.positions, graph.normals, msg.vertices, msg.start, {
+          ...options,
+          maxDistance: msg.maxDistance,
+        })
+      }
       post({ type: 'align-ok', requestId: msg.requestId, result })
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })

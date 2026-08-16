@@ -3,6 +3,7 @@ import type { FitSettings, MeshGraph, SphereFitOutput } from '../types'
 import { FitError } from './errors'
 import { collectPatch, growSphereRegion } from './regionGrow'
 import { ransacSphere } from './ransac'
+import { requireSelection } from './selection'
 import { fitSphereClipped } from './sphere'
 
 export { FitError }
@@ -50,4 +51,30 @@ export function fitSphereFromSeed(
     }
   }
   throw new FitError("Couldn't fit a sphere at this point — try clicking nearer the middle of a sphere.")
+}
+
+/** Best-fit sphere on a hand-painted selection — the marked points as given,
+ *  with the user's outlier cut-off and nothing else in the way. */
+export function fitSphereOnSelection(
+  g: MeshGraph,
+  selection: Uint32Array,
+  settings: FitSettings,
+): SphereFitOutput {
+  requireSelection(selection, 'sphere')
+  const fin = fitSphereClipped(g.positions, selection, settings.sigma)
+  if (!fin || !Number.isFinite(fin.sphere.r) || fin.sphere.r <= 0) {
+    throw new FitError(
+      "Couldn't fit a sphere to the marked surface — it curves too little to place a centre. Mark more of the ball.",
+    )
+  }
+  const { sphere } = fin
+  return {
+    kind: 'sphere',
+    center: [sphere.cx, sphere.cy, sphere.cz],
+    radius: sphere.r,
+    sigma: fin.sigma,
+    usedPoints: fin.used.length,
+    regionSize: selection.length,
+    region: selection,
+  }
 }

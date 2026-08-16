@@ -4,6 +4,7 @@ import { FitError } from './errors'
 import { orthoBasis } from './linalg'
 import { fitPlaneClipped, ransacPlane } from './plane'
 import { collectPatch, growPlaneRegion } from './regionGrow'
+import { requireSelection } from './selection'
 
 /** In-plane rotations tried when boxing the patch in, over a quarter turn —
  *  past that the box repeats. */
@@ -173,4 +174,40 @@ export function fitPlaneFromSeed(
   throw new FitError(
     "Couldn't fit a plane at this point — try clicking in the middle of a flat surface, away from edges.",
   )
+}
+
+/** Best-fit plane on a hand-painted selection: steps 4 and 5 of the pipeline
+ *  above, on exactly the marked points. The roughness check the seeded path
+ *  applies is left out on purpose — there it guards against a region that grew
+ *  onto the wrong surface, and here the surface is the user's own choice. */
+export function fitPlaneOnSelection(
+  g: MeshGraph,
+  selection: Uint32Array,
+  settings: FitSettings,
+): PlaneFit & { region: Uint32Array } {
+  requireSelection(selection, 'surface')
+  const fin = fitPlaneClipped(g.positions, selection, settings.sigma)
+  if (!fin) {
+    throw new FitError(
+      "Couldn't fit a plane to the marked surface — the points lie along a line rather than spanning an area.",
+    )
+  }
+  const plane = orientToSurface(fin.plane, g.normals, selection)
+  const ext = patchExtents(g.positions, selection, plane)
+  if (!ext) {
+    throw new FitError("Couldn't measure the extent of the marked surface — try marking a wider patch.")
+  }
+  return {
+    kind: 'plane',
+    center: ext.center,
+    normal: [plane.nx, plane.ny, plane.nz],
+    basisU: ext.basisU,
+    basisV: ext.basisV,
+    extentU: ext.extentU,
+    extentV: ext.extentV,
+    sigma: fin.sigma,
+    usedPoints: fin.used.length,
+    regionSize: selection.length,
+    region: selection,
+  }
 }

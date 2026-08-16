@@ -2,12 +2,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MeshWorkerClient } from './core/workerClient'
 import { buildSummary } from './core/summary'
+import { isMeshFile, isReferenceFile, isStepFile, REFERENCE_ACCEPT } from './core/formats'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
 import type { ElementKind, FitData, PointFit } from './core/types'
-import { alignSlotPicks, elementColor, useStore } from './state/store'
+import { alignSlotPicks, elementColor, useStore, type SelectMode } from './state/store'
 import type {
   SceneManager,
   OverlayAngle,
@@ -20,6 +21,7 @@ import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
 import { TopBar } from './ui/TopBar'
 import { StatusStrip } from './ui/StatusStrip'
+import { BusyOverlay } from './ui/BusyOverlay'
 import { ImprintModal } from './ui/Imprint'
 import { SupportBanner } from './ui/SupportBanner'
 import { DeviationPanel } from './ui/DeviationPanel'
@@ -28,7 +30,9 @@ import { MapLegend, type LegendStat } from './ui/MapLegend'
 import { StartPane, type StartSlot } from './ui/StartPane'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
-import { useDeviation } from './state/deviationStore'
+import { markChipText } from './ui/MarkTools'
+import { MARK_COLOR, useDeviation } from './state/deviationStore'
+import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
 import { paintField, type FieldScale } from './core/field/colormap'
 import { fieldHistogram } from './core/field/stats'
@@ -39,6 +43,7 @@ import { buildThicknessReport } from './core/thickness/report'
 import { rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
 import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
 import { buildStepFile } from './core/exportStep'
+import { buildBinaryStl } from './core/exportStl'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
 
@@ -87,9 +92,14 @@ export default function App() {
   }
 
   const openFile = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!ext || !['stl', 'ply', 'obj'].includes(ext)) {
-      useStore.getState().setError('Unsupported file type — use STL, PLY, or OBJ.')
+    if (!isMeshFile(file.name)) {
+      useStore
+        .getState()
+        .setError(
+          isStepFile(file.name)
+            ? 'A STEP file is CAD, not a scan — load it as the reference in the Deviation workspace.'
+            : 'Unsupported file type — use STL, PLY, or OBJ.',
+        )
       return
     }
     const store = useStore.getState()
@@ -103,6 +113,9 @@ export default function App() {
     thicknessRgb.current = null
     useDeviation.getState().clearAlign()
     useThickness.getState().clear()
+    // Nothing is marked on a part that is being replaced, and no gesture should
+    // survive the swap.
+    useMark.getState().reset()
     store.beginLoad(file.name)
     try {
       const buffer = await file.arrayBuffer()
@@ -113,6 +126,8 @@ export default function App() {
       useStore
         .getState()
         .finishLoad(mesh.vertexCount, mesh.triangleCount, sceneRef.current?.modelSize() ?? 1)
+      // The brush is sized to the part it will be used on, in both workspaces.
+      useMark.getState().sizeToModel(sceneRef.current?.modelSize() ?? 1)
       // How thick a wall to look for is a property of the part, so the search
       // is sized to the one just loaded — until the user says otherwise.
       useThickness.getState().suggestMaxThickness(2 * (sceneRef.current?.modelSize() ?? 1))
@@ -128,11 +143,20 @@ export default function App() {
     }
   }
 
-  /** Re-fit an already measured element (used when the sigma preset changes). */
-  const runFit = async (elementId: number, kind: ElementKind, seeds: number[]) => {
+  /** Re-fit an already measured element (used when the sigma preset changes).
+   *  A hand-marked element re-fits on its marked surface, an auto-fitted one
+   *  from its seeds — both are the recipe the element was made with. */
+  const runFit = async (
+    elementId: number,
+    kind: ElementKind,
+    seeds: number[],
+    selection?: Uint32Array,
+  ) => {
     const settings = useStore.getState().settings
     try {
-      const result = await clientRef.current!.fit(kind, seeds, settings)
+      const result = selection
+        ? await clientRef.current!.fitSelection(kind, selection, settings)
+        : await clientRef.current!.fit(kind, seeds, settings)
       useStore.getState().resolveFit(elementId, result)
       const el = useStore.getState().elements.find((e) => e.id === elementId)
       if (el) sceneRef.current?.applyRegion(elementId, el.color, result.region)
@@ -163,6 +187,57 @@ export default function App() {
       sceneRef.current?.setPreviewRegion(null)
       useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  /** Fit the draft to the surface the user has marked by hand. The marked
+   *  surface is the region, so there is nothing to preview separately — it is
+   *  already tinted on the part, in the colour the element will get. */
+  const runDraftPaintFit = async (kind: ElementKind, selection: Uint32Array) => {
+    const seq = ++draftSeq.current
+    const settings = useStore.getState().settings
+    useStore.getState().setDraftSelection(selection)
+    try {
+      const result = await clientRef.current!.fitSelection(kind, selection, settings)
+      if (seq !== draftSeq.current || !useStore.getState().draft) return
+      draftRegion.current = result.region
+      useStore.getState().resolveDraft(result)
+    } catch (e) {
+      if (seq !== draftSeq.current || !useStore.getState().draft) return
+      draftRegion.current = null
+      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** A marking gesture ended: re-fit on what is marked now, or fall back to an
+   *  empty draft once the last of the marking has been rubbed out. */
+  const handlePaintChange = (count: number) => {
+    // The same marking layer and the same tools serve both workspaces; only who
+    // is listening differs — an element re-fits on every stroke, a local best
+    // fit waits to be asked.
+    useMark.getState().setCount(count)
+    if (useDeviation.getState().marking) return
+    const store = useStore.getState()
+    const draft = store.draft
+    if (!draft || creationMethod(draft.kind, draft.method).mode !== 'fit') return
+    const selection = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
+    if (selection.length === 0) {
+      draftSeq.current++
+      draftRegion.current = null
+      store.setDraftSelection(null)
+      return
+    }
+    void runDraftPaintFit(draft.kind, selection)
+  }
+
+  /** Rub the marking out. The tools stay as they are — which gesture is in the
+   *  user's hand outlives the element it was collecting, the same way it
+   *  outlives a local fine fit. */
+  const clearPaint = () => {
+    draftSeq.current++
+    draftRegion.current = null
+    sceneRef.current?.clearPaint()
+    useMark.getState().setCount(0)
+    useStore.getState().setDraftSelection(null)
   }
 
   /** Bake a datum alignment (or its inverse, on reset) into everything that
@@ -221,6 +296,21 @@ export default function App() {
     useStore.getState().setStatus('Alignment reset — the part is back in scan coordinates.')
   }
 
+  /** Hand a built file to the browser. The object URL outlives the click by
+   *  long enough for the download to start, then goes. */
+  const saveFile = (name: string, blob: Blob) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
+
+  /** The scan's name without its extension — the stem every export is built
+   *  on. */
+  const exportStem = () => (useStore.getState().fileName ?? 'scan').replace(/\.[^.]+$/, '')
+
   /** Hand the created elements over as analytic STEP geometry. */
   const handleExportStep = () => {
     const store = useStore.getState()
@@ -231,22 +321,52 @@ export default function App() {
       store.fileName ?? 'scan',
       new Date().toISOString().slice(0, 19),
     )
-    const name = `${(store.fileName ?? 'scan').replace(/\.[^.]+$/, '')}-elements.step`
-    const url = URL.createObjectURL(new Blob([text], { type: 'model/step' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    const name = `${exportStem()}-elements.step`
+    saveFile(name, new Blob([text], { type: 'model/step' }))
     store.setStatus(`${els.length} element${els.length === 1 ? '' : 's'} exported to ${name}.`)
+  }
+
+  /** Hand the scan back as an STL in the pose it is being shown in.
+   *
+   *  A 3-2-1 or typed-in alignment is already baked into the vertices, so it
+   *  comes along for free. The deviation workspace's best fit is not: it rides
+   *  on the scan's group matrix so the fit can be watched and undone, and it
+   *  has to be applied on the way out. Either way what lands on disk is the
+   *  part where the user can see it. */
+  const handleExportStl = () => {
+    const store = useStore.getState()
+    const geometry = sceneRef.current?.scanGeometry()
+    if (!geometry || !store.fileName) return
+    const positions = geometry.getAttribute('position')?.array as Float32Array | undefined
+    if (!positions) return
+    const index = geometry.getIndex()?.array as Uint32Array | Uint16Array | undefined
+    const align = useDeviation.getState().align
+    const moved = align !== null || store.appliedAlignment !== null
+    const stem = exportStem()
+    // Never the name it came in under, however little has happened to it: the
+    // export lands in the same folder the scan was picked from, and silently
+    // shadowing the original there is not a thing a measuring tool should do.
+    const name = `${stem}-${moved ? 'aligned' : 'export'}.stl`
+    const buffer = buildBinaryStl(
+      positions,
+      index ?? null,
+      align?.transform ?? null,
+      `ScanRuler scan export - ${stem}`,
+    )
+    saveFile(name, new Blob([buffer], { type: 'model/stl' }))
+    const triangles = (index ? index.length : positions.length / 3) / 3
+    store.setStatus(
+      `Scan exported to ${name} — ${triangles.toLocaleString('en-US')} triangles${
+        moved ? ', in its aligned position' : ''
+      }.`,
+    )
   }
 
   // ---- Deviation workspace -------------------------------------------------
 
   const openNominal = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase()
-    if (!ext || !['stl', 'ply', 'obj'].includes(ext)) {
-      useStore.getState().setError('Unsupported file type — use STL, PLY, or OBJ.')
+    if (!isReferenceFile(file.name)) {
+      useStore.getState().setError('Unsupported file type — use STL, PLY, OBJ, or STEP.')
       return
     }
     const dev = useDeviation.getState()
@@ -254,21 +374,44 @@ export default function App() {
     deviationRgb.current = null
     sceneRef.current?.setFieldColors(null)
     dev.beginNominalLoad(file.name)
-    useStore.getState().setStatus('Reading reference geometry…')
+    useStore
+      .getState()
+      .setStatus(
+        isStepFile(file.name)
+          ? 'Reading STEP file — tessellating the CAD surfaces…'
+          : 'Reading reference geometry…',
+      )
     try {
       const mesh = await clientRef.current!.loadNominal(file.name, await file.arrayBuffer())
       sceneRef.current?.setNominal(mesh.positions, mesh.indices, mesh.normals)
       sceneRef.current?.setAlignment(null)
-      useDeviation.getState().finishNominalLoad(file.name, mesh.vertexCount, mesh.triangleCount)
+      useDeviation
+        .getState()
+        .finishNominalLoad(file.name, mesh.vertexCount, mesh.triangleCount, mesh.step ?? null)
       // Both models on screen from here, wherever the reference happens to sit
       // — otherwise a reference exported in another frame would be aligned
       // entirely off-camera.
       sceneRef.current?.frameAll()
+
+      // A STEP reference is a conversion, and how good a conversion decides
+      // how much of the map is the part. A file that came apart in the
+      // conversion breaks the sign of every reading, so it gets the toast; a
+      // clean one just says what it cost.
+      const step = mesh.step
+      const converted = step
+        ? ` Tessellated from STEP at ${step.surfaceDeviation} mm chord tolerance${
+            step.units && step.units !== 'mm' ? `, converted from ${step.units}` : ''
+          }.`
+        : ''
       useStore
         .getState()
         .setStatus(
-          `Reference loaded — ${mesh.triangleCount.toLocaleString('en-US')} triangles. Check it is the right part, then align the scan to it.`,
+          `Reference loaded — ${mesh.triangleCount.toLocaleString('en-US')} triangles.${converted} Check it is the right part, then align the scan to it.`,
         )
+      if (step?.warning) {
+        if (step.unsound) useStore.getState().setError(step.warning)
+        else useStore.getState().setStatus(step.warning)
+      }
     } catch (e) {
       useDeviation.getState().nominalFailed()
       useStore.getState().loadFailed(e instanceof Error ? e.message : String(e))
@@ -297,6 +440,78 @@ export default function App() {
       useDeviation.getState().failAlign(message)
       useStore.getState().setStatus('')
     }
+  }
+
+  // ---- local fine fit ------------------------------------------------------
+
+  const handleStartMarking = () => {
+    // The tools open in Navigate with nothing marked: a gesture takes both
+    // plain drags away from the camera, so one is only ever live because the
+    // user just picked it.
+    useMark.getState().reset()
+    useDeviation.getState().startMarking()
+    useStore
+      .getState()
+      .setStatus(
+        'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.',
+      )
+  }
+
+  const handleStopMarking = () => {
+    sceneRef.current?.clearPaint()
+    useDeviation.getState().stopMarking()
+    useMark.getState().reset()
+    useStore.getState().setStatus('')
+  }
+
+  const handleClearMarking = () => {
+    sceneRef.current?.clearPaint()
+    useMark.getState().setCount(0)
+  }
+
+  /** Refine the alignment on the marked surface only, starting from the fit
+   *  already in hand. */
+  const runLocalAlign = async () => {
+    const dev = useDeviation.getState()
+    const start = dev.align
+    if (!start) return
+    const vertices = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
+    dev.beginAlign()
+    try {
+      const result = await clientRef.current!.alignLocal(
+        vertices,
+        start.transform,
+        dev.localMaxDistance,
+      )
+      useDeviation.getState().resolveAlign(result)
+      // The fit is what the marking was for, so the gesture stands down and
+      // the camera has its buttons back for looking at the result. What was
+      // marked stays marked, ready for another pass.
+      useMark.getState().setGesture(null)
+      deviation.current = null
+      sceneRef.current?.setFieldColors(null)
+      useStore
+        .getState()
+        .setStatus(
+          `Fine fitted — ${result.rms.toFixed(4)} mm RMS over ${result.matched.toLocaleString('en-US')} marked points. Re-measuring the deviation.`,
+        )
+      void runDeviation()
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      // The fit that was in hand is still the fit that is in hand: a refusal
+      // here must not throw away a good global alignment, or the map measured
+      // under it.
+      useDeviation.getState().failLocal(message)
+      useStore.getState().setStatus('')
+    }
+  }
+
+  const handleRevertLocal = () => {
+    useDeviation.getState().revertToGlobal()
+    deviation.current = null
+    sceneRef.current?.setFieldColors(null)
+    useStore.getState().setStatus('Back to the global best fit — re-measuring the deviation.')
+    void runDeviation()
   }
 
   const runDeviation = async () => {
@@ -426,7 +641,13 @@ export default function App() {
       // A picked point is the exact raycast hit — no worker round-trip, and
       // clicking again moves it rather than adding to it.
       store.setDraftPicks([faceVertices])
-      const fit: PointFit = { kind: 'point', center: hit.point, sigma: 0, usedPoints: 0, regionSize: 0 }
+      const fit: PointFit = {
+        kind: 'point',
+        center: hit.point,
+        sigma: 0,
+        usedPoints: 0,
+        regionSize: 0,
+      }
       useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
       return
     }
@@ -468,6 +689,9 @@ export default function App() {
   const handleStartDraft = (kind: ElementKind) => {
     const store = useStore.getState()
     clearPreview()
+    // A new element starts from bare scan, whichever way the last one was
+    // collected — the brush stays armed, but nothing is marked for it yet.
+    clearPaint()
     store.startDraft(kind)
     const draft = useStore.getState().draft!
     const method = creationMethod(kind, draft.method)
@@ -484,6 +708,23 @@ export default function App() {
     useStore.getState().setStatus('Click the point on the scan you want to measure to.')
   }
 
+  /** Switch between clicking a point and marking the surface by hand. Both
+   *  start the fit over: what one of them collected means nothing to the
+   *  other. */
+  const handleSelectMode = (mode: SelectMode) => {
+    const store = useStore.getState()
+    if (mode === store.selectMode) return
+    clearPreview()
+    clearPaint()
+    store.setSelectMode(mode)
+    if (store.draft) store.setDraftPicks([])
+    store.setStatus(
+      mode === 'paint'
+        ? 'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.'
+        : 'Click a point on the surface you want to measure.',
+    )
+  }
+
   const handleUndoPick = () => {
     const store = useStore.getState()
     if (!store.draft || store.draft.picks.length === 0) return
@@ -496,6 +737,7 @@ export default function App() {
 
   const handleCancelDraft = () => {
     clearPreview()
+    clearPaint()
     useStore.getState().cancelDraft()
     useStore.getState().setStatus('')
   }
@@ -505,6 +747,9 @@ export default function App() {
     const id = useStore.getState().commitDraft()
     if (id === null) return
     clearPreview()
+    // The marking hands its surface over to the element that was made from it:
+    // clear it first, so the element's own tint is what stays on the part.
+    clearPaint()
     const el = useStore.getState().elements.find((e) => e.id === id)
     if (el && region) sceneRef.current?.applyRegion(id, el.color, region)
     useStore.getState().setStatus(`${el?.name ?? 'Element'} created.`)
@@ -522,17 +767,17 @@ export default function App() {
     const store = useStore.getState()
     for (const el of store.elements) {
       if (el.status !== 'done' || el.source.type !== 'fitted') continue
-      store.markFitting(el.id, el.source.seeds)
-      void runFit(el.id, el.kind, el.source.seeds)
+      const selection = el.source.selection
+      store.markFitting(el.id, el.source.seeds, selection)
+      void runFit(el.id, el.kind, el.source.seeds, selection)
     }
     const draft = store.draft
-    if (
-      draft &&
-      draft.picks.length > 0 &&
-      creationMethod(draft.kind, draft.method).mode === 'fit'
-    ) {
-      store.setDraftPicks(draft.picks)
-      void runDraftFit(draft.kind, draft.picks)
+    if (draft && creationMethod(draft.kind, draft.method).mode === 'fit') {
+      if (draft.selection) void runDraftPaintFit(draft.kind, draft.selection)
+      else if (draft.picks.length > 0) {
+        store.setDraftPicks(draft.picks)
+        void runDraftFit(draft.kind, draft.picks)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sigma])
@@ -544,11 +789,71 @@ export default function App() {
     sceneRef.current?.setPreview(draftFit ?? null)
   }, [draftFit])
 
+  // The marking layer is armed for exactly one of two sessions: a fit draft
+  // collecting its surface by hand, or the deviation workspace's local fine
+  // fit. Never for a construction, whose inputs are elements rather than scan
+  // surface, and never in the thickness workspace. Both drive the same tools,
+  // so the only thing that differs is the colour the marking takes — the tint
+  // the pending element will wear, or the fine fit's own. Re-arming on a change
+  // of gesture, radius, colour or erase keeps whatever is already marked.
+  const draftColor = elementColor(useStore((s) => s.nextNumber))
+  const painting = useStore(
+    (s) =>
+      s.selectMode === 'paint' &&
+      s.draft !== null &&
+      creationMethod(s.draft.kind, s.draft.method).mode === 'fit',
+  )
+  const paintWorkspace = useDeviation((s) => s.workspace === 'elements')
+  const marking = useDeviation((s) => s.marking)
+  const markWorkspace = useDeviation((s) => s.workspace === 'deviation')
+  const markGesture = useMark((s) => s.gesture)
+  const markErase = useMark((s) => s.erase)
+  const markBackfaces = useMark((s) => s.backfaces)
+  const brushDiameter = useMark((s) => s.diameter)
+  const paintSession = painting && paintWorkspace
+  const markSession = marking && markWorkspace
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    if (!paintSession && !markSession) {
+      scene.setPaintBrush(null)
+      if (useMark.getState().count !== 0) useMark.getState().setCount(0)
+      return
+    }
+    scene.setPaintBrush({
+      color: paintSession ? draftColor : MARK_COLOR,
+      diameter: brushDiameter,
+      erase: markErase,
+      gesture: markGesture,
+      backfaces: markBackfaces,
+    })
+  }, [
+    paintSession,
+    markSession,
+    draftColor,
+    brushDiameter,
+    markErase,
+    markGesture,
+    markBackfaces,
+  ])
+
+  // Which way the surface faces, shown on the surface itself.
+  const showBackfaces = useStore((s) => s.showBackfaces)
+  useEffect(() => {
+    sceneRef.current?.setBackfaceTint(showBackfaces)
+  }, [showBackfaces])
+
   // Keep viewport overlays in sync with the elements and the dimensions the
   // user created between them.
   const elements = useStore((s) => s.elements)
   const dimensions = useStore((s) => s.dimensions)
   const showOverlays = useStore((s) => s.showOverlays)
+  // Elements and their dimensions are results of the measure workspace and
+  // belong to it: a fitted sphere sitting on a deviation map is a second set
+  // of colours over a reading, and its label competes with the map's own
+  // figures. They stay measured — leaving the workspace only puts them away,
+  // and coming back shows them again without re-fitting.
+  const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
@@ -580,14 +885,23 @@ export default function App() {
       }))
     const angles: OverlayAngle[] = rows
       .filter((r) => r.value.arc)
-      .map((r) => ({ ...r.value.arc!, title: r.dim.name, value: r.value.value! }))
-    sceneRef.current?.updateOverlays(items, pairs, angles, showOverlays)
-    // A hidden element's surface tint goes with its overlay.
-    sceneRef.current?.setHiddenRegions(elements.filter((e) => !e.visible).map((e) => e.id))
+      .map((r) => ({
+        ...r.value.arc!,
+        title: r.dim.name,
+        value: r.value.value!,
+      }))
+    sceneRef.current?.updateOverlays(items, pairs, angles, showOverlays && elementsWorkspace)
+    // A hidden element's surface tint goes with its overlay — and outside the
+    // measure workspace that is every element, so the scan is bare underneath
+    // whichever map is being read. Ownership stays recorded either way, so
+    // this is a repaint on the way back, not a re-fit.
+    sceneRef.current?.setHiddenRegions(
+      (elementsWorkspace ? elements.filter((e) => !e.visible) : elements).map((e) => e.id),
+    )
     // Overlays were rebuilt, so the selection glow has to be re-applied.
     sceneRef.current?.setHighlightedElements(highlightIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elements, dimensions, showOverlays])
+  }, [elements, dimensions, showOverlays, elementsWorkspace])
 
   useEffect(() => {
     sceneRef.current?.setHighlightedElements(highlightIds)
@@ -623,7 +937,6 @@ export default function App() {
   // A viewport click selects elements whenever a dimension is being assembled
   // or a construction has reference slots — but never while clicks are picking
   // scan points for a fit, and never in the deviation workspace.
-  const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
   // While an alignment slot is collecting points, clicks must land on the raw
   // surface even where an element's region is painted — so element picking
   // stands down for the duration.
@@ -693,13 +1006,7 @@ export default function App() {
     paintField(values, scale, rgb)
     scene.setFieldColors(rgb)
 
-    const histogram = fieldHistogram(
-      values,
-      scale.low,
-      scale.high,
-      scale.validMin,
-      scale.validMax,
-    )
+    const histogram = fieldHistogram(values, scale.low, scale.high, scale.validMin, scale.validMax)
     if (workspace === 'deviation') {
       useDeviation.getState().setReadout(deviationStats(values, maxDistance, tolerance), histogram)
     } else {
@@ -779,6 +1086,17 @@ export default function App() {
   // A half-finished element fit or alignment has no meaning in the other
   // workspaces.
   useEffect(() => {
+    // Leaving the deviation workspace drops the marking with it — the scene
+    // clears it when the tools are put away, and a count left standing for a
+    // marking that no longer exists would offer a fit of nothing.
+    if (workspace !== 'deviation' && useDeviation.getState().marking) {
+      useDeviation.getState().stopMarking()
+    }
+    // Both workspaces mark with the same tools, so a gesture picked in one must
+    // not still be holding the mouse when the other opens. Within a workspace
+    // the choice sticks: whoever marked the last element with a lasso means to
+    // mark the next one with it too.
+    useMark.getState().reset()
     if (workspace === 'elements') return
     if (useStore.getState().draft) handleCancelDraft()
     if (useStore.getState().alignDraft) useStore.getState().cancelAlignment()
@@ -797,8 +1115,7 @@ export default function App() {
   const hasDeviationMap = useDeviation((s) => s.mapStatus === 'ready')
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
   const hasMap =
-    (workspace === 'deviation' && hasDeviationMap) ||
-    (workspace === 'thickness' && hasThicknessMap)
+    (workspace === 'deviation' && hasDeviationMap) || (workspace === 'thickness' && hasThicknessMap)
   useEffect(() => {
     sceneRef.current?.setHoverEnabled(hasMap && !picking)
   }, [hasMap, picking])
@@ -830,9 +1147,29 @@ export default function App() {
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
       const store = useStore.getState()
+      if (useDeviation.getState().marking) {
+        // Escape backs out one step at a time: the first hands the camera back
+        // by standing the gesture down, the second closes the local fine fit
+        // and takes the marking with it. Never both at once — the key is
+        // reached for to get the mouse working again, and losing a marking to
+        // that would be a trap.
+        if (e.key !== 'Escape') return
+        if (useMark.getState().gesture !== null) useMark.getState().setGesture(null)
+        else handleStopMarking()
+        return
+      }
       if (store.draft) {
-        if (e.key === 'Escape') handleCancelDraft()
-        else if (e.key === 'Enter' && store.draft.status === 'ready') handleConfirmDraft()
+        if (e.key === 'Escape') {
+          // The same retreat while an element is being marked by hand: the
+          // first Escape hands the camera back, the second discards the draft.
+          // Never both at once — the key is reached for to get the mouse
+          // working again, and losing the marking to that would be a trap.
+          const marked =
+            store.selectMode === 'paint' &&
+            creationMethod(store.draft.kind, store.draft.method).mode === 'fit'
+          if (marked && useMark.getState().gesture !== null) useMark.getState().setGesture(null)
+          else handleCancelDraft()
+        } else if (e.key === 'Enter' && store.draft.status === 'ready') handleConfirmDraft()
         return
       }
       if (store.alignDraft) {
@@ -903,11 +1240,15 @@ export default function App() {
       if (!file) return
       // In the deviation workspace a drop fills whichever slot is still empty,
       // so the two files can simply be dropped one after the other; only once
-      // both are there does a drop mean "replace the scan".
+      // both are there does a drop mean "replace the scan". A STEP file is the
+      // exception: it can only ever be the reference, so it goes there however
+      // full the slots are.
       const dev = useDeviation.getState()
-      if (dev.workspace === 'deviation' && useStore.getState().fileName && !dev.nominalName) {
-        void openNominal(file)
-        return
+      if (dev.workspace === 'deviation') {
+        if (isStepFile(file.name) || (useStore.getState().fileName && !dev.nominalName)) {
+          void openNominal(file)
+          return
+        }
       }
       void openFile(file)
     }
@@ -940,17 +1281,6 @@ export default function App() {
     useStore.getState().removeElement(id)
   }
 
-  const handleClearAll = () => {
-    clearPreview()
-    sceneRef.current?.clearAllRegions()
-    useStore.getState().clearElements()
-  }
-
-  // Fits run in a worker and can take seconds on a big scan — say so on the
-  // canvas, where the user is looking after a pick.
-  const fitting = useStore(
-    (s) => s.draft?.status === 'fitting' || s.elements.some((e) => e.status === 'fitting'),
-  )
   // The instruction of the moment rides above the model; everything else the
   // tool has to say goes to the status strip.
   const fileName = useStore((s) => s.fileName)
@@ -992,23 +1322,40 @@ export default function App() {
     const label = dimensionTypeInfo(dimDraft.type).slots[empty].label
     return `Click an element in the viewport for “${label}” — the dimension type follows what you pick`
   })()
+  const markCount = useMark((s) => s.count)
+  // Marking a surface by hand has its own line — the same line the local fine
+  // fit gets, since it is the same tool set: which gesture is live, what the
+  // buttons do while it is, and the way back to the camera. Only where Escape
+  // leads and how the element is finished differ.
+  const paintHint = !painting
+    ? null
+    : markChipText(markGesture, markCount, `the ${elementKindInfo(draft!.kind).noun}`, {
+        idle: 'Esc discards the element',
+        live: 'Esc to navigate, twice to discard',
+      }) + (draft!.status === 'ready' ? ' · Enter or middle-click creates it' : '')
   const stageHint = !draft
     ? openSlotHint
     : draftMode === 'construct'
       ? openSlotHint
-      : draft.picks.length === 0
-        ? draftMode === 'pick'
-          ? 'Click the point on the scan you want to measure to'
-          : `Click a point on the ${elementKindInfo(draft.kind).noun} you want to measure`
-        : draft.status === 'ready'
+      : painting
+        ? paintHint
+        : draft.picks.length === 0
           ? draftMode === 'pick'
-            ? 'Enter or middle-click to create · Esc to discard · click again to move the point'
-            : 'Enter or middle-click to create · Esc to discard · click again to add points'
-          : null
+            ? 'Click the point on the scan you want to measure to'
+            : `Click a point on the ${elementKindInfo(draft.kind).noun} you want to measure`
+          : draft.status === 'ready'
+            ? draftMode === 'pick'
+              ? 'Enter or middle-click to create · Esc to discard · click again to move the point'
+              : 'Enter or middle-click to create · Esc to discard · click again to add points'
+            : null
 
-  const measuring = useThickness((s) => s.status === 'running')
-  const deviating =
-    useDeviation((s) => s.alignStatus === 'running' || s.mapStatus === 'running') || measuring
+  const markHint = !marking
+    ? null
+    : markChipText(markGesture, markCount, 'the surface to fit on', {
+        idle: 'Esc closes',
+        live: 'Esc to navigate, twice to close',
+      })
+
   const mapReady = useDeviation((s) => s.mapStatus === 'ready')
   const showHistogram = useDeviation((s) => s.showHistogram)
   const stats = useDeviation((s) => s.stats)
@@ -1054,7 +1401,10 @@ export default function App() {
           ? `${((thickStats.belowLimit / thickStats.measured) * 100).toFixed(1)} %`
           : '—',
       },
-      { label: 'thin pts', value: thickStats.belowLimit.toLocaleString('en-US') },
+      {
+        label: 'thin pts',
+        value: thickStats.belowLimit.toLocaleString('en-US'),
+      },
       {
         label: 'measured',
         value: `${thickStats.measured.toLocaleString('en-US')} / ${thickStats.total.toLocaleString('en-US')}`,
@@ -1080,8 +1430,9 @@ export default function App() {
         scanSlot,
         {
           role: 'Reference',
-          what: 'The nominal CAD part',
+          what: 'The nominal CAD part — mesh or STEP',
           name: nominalName,
+          accept: REFERENCE_ACCEPT,
           onOpen: (f) => void openNominal(f),
         },
       ]
@@ -1099,7 +1450,13 @@ export default function App() {
             onAlign={() => void runAlign(false)}
             onPickPoints={() => useDeviation.getState().startPicking()}
             onMeasure={() => void runDeviation()}
+            onStartMarking={handleStartMarking}
+            onStopMarking={handleStopMarking}
+            onClearMarking={handleClearMarking}
+            onLocalFit={() => void runLocalAlign()}
+            onRevertLocal={handleRevertLocal}
             onCopy={handleCopyReport}
+            onExportStl={handleExportStl}
           />
         ) : onThickness ? (
           <ThicknessPanel
@@ -1111,18 +1468,20 @@ export default function App() {
           <Panel
             onOpenScan={(f) => void openFile(f)}
             onStartDraft={handleStartDraft}
+            onSelectMode={handleSelectMode}
+            onClearPaint={clearPaint}
             onUndoPick={handleUndoPick}
             onCancelDraft={handleCancelDraft}
             onConfirmDraft={handleConfirmDraft}
             onPickPoint={handleDimensionPick}
             onDelete={handleDelete}
-            onClearAll={handleClearAll}
             onCopy={handleCopy}
             onStartAlignment={handleStartAlignment}
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
             onApplyManual={(m) => void handleApplyManual(m)}
             onResetAlignment={() => void handleResetAlignment()}
             onExportStep={handleExportStep}
+            onExportStl={handleExportStl}
           />
         )}
         <div className="stage">
@@ -1137,6 +1496,7 @@ export default function App() {
               onPick={handlePick}
               onHover={handleHover}
               onElementPick={handleElementPick}
+              onPaintChange={handlePaintChange}
             />
           </div>
           {picking && scanGeometry && nominalGeometry && (
@@ -1183,7 +1543,7 @@ export default function App() {
               }
               blurb={
                 onDeviation
-                  ? 'Load both, then best-fit the scan onto the reference and read the difference off the part. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
+                  ? 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan as STL, PLY or OBJ in millimetres, reference as any of those or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
                     ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
                     : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
@@ -1206,14 +1566,18 @@ export default function App() {
             </div>
           )}
           {stageHint && workspace === 'elements' && <div className="hintchip">{stageHint}</div>}
-          {(fitting || deviating) && !picking && (
-            <div className="busychip" data-test="fitting-chip">
-              <span className="spinner" />
-              {deviating ? 'WORKING…' : 'FITTING…'}
+          {markHint && !picking && (
+            <div className="hintchip" data-test="mark-chip">
+              {markHint}
             </div>
           )}
+          <BusyOverlay />
           {errorText && <div className="toast">{errorText}</div>}
-          {dragging && <div className="drop-overlay">Drop your STL / PLY / OBJ here</div>}
+          {dragging && (
+            <div className="drop-overlay">
+              Drop your STL / PLY / OBJ{onDeviation ? ' / STEP' : ''} here
+            </div>
+          )}
         </div>
       </div>
       <StatusStrip />

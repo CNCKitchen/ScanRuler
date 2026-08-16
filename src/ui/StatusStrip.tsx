@@ -2,8 +2,8 @@
 // Machine status strip: ready-lamp, what the tool is doing right now, the
 // running tally of what has been measured, and the overlay toggle.
 
+import { useDeviation } from '../state/deviationStore'
 import { useStore } from '../state/store'
-import { SIGMA_LABELS } from '../core/summary'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 
 export function StatusStrip() {
@@ -12,13 +12,17 @@ export function StatusStrip() {
   const statusText = useStore((s) => s.statusText)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
-  const sigma = useStore((s) => s.settings.sigma)
   const showOverlays = useStore((s) => s.showOverlays)
   const setShowOverlays = useStore((s) => s.setShowOverlays)
+  const showBackfaces = useStore((s) => s.showBackfaces)
+  const setShowBackfaces = useStore((s) => s.setShowBackfaces)
   const openImprint = useStore((s) => s.openImprint)
   const navScheme = useStore((s) => s.navScheme)
   const setNavScheme = useStore((s) => s.setNavScheme)
   const scheme = schemeById(navScheme)
+  // The overlays are the measure workspace's own: elsewhere they are put away
+  // whatever this says, and a switch that does nothing is worse than no switch.
+  const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
 
   const fitting = draft?.status === 'fitting' || elements.some((e) => e.status === 'fitting')
   const lamp = errorText ? 'lamp err' : busy || fitting ? 'lamp busy' : 'lamp'
@@ -32,9 +36,6 @@ export function StatusStrip() {
       <div>
         <span className={lamp} /> {state}
       </div>
-      <div>
-        FIT <b>gaussian</b> · <b>{SIGMA_LABELS[sigma].toLowerCase()}</b>
-      </div>
       {elements.length > 0 && (
         <div>
           ELEMENTS <b>{done.length}</b>
@@ -42,7 +43,9 @@ export function StatusStrip() {
           <b>{dimensions.length}</b>
         </div>
       )}
-      <div className="msg grow">{errorText ? <span className="warn">⚠ {errorText}</span> : statusText}</div>
+      <div className="msg grow">
+        {errorText ? <span className="warn">⚠ {errorText}</span> : statusText}
+      </div>
       <div className="nav">
         <label htmlFor="navscheme">CONTROLS</label>
         <select
@@ -59,12 +62,23 @@ export function StatusStrip() {
         </select>
         <span className="navhint">{scheme.hint}</span>
       </div>
+      {elementsWorkspace && (
+        <button
+          className={showOverlays ? 'on' : ''}
+          onClick={() => setShowOverlays(!showOverlays)}
+          title="Show fitted elements & distance callouts in the viewport"
+        >
+          ▤ OVERLAYS
+        </button>
+      )}
       <button
-        className={showOverlays ? 'on' : ''}
-        onClick={() => setShowOverlays(!showOverlays)}
-        title="Show fitted elements & distance callouts in the viewport"
+        className={showBackfaces ? 'on' : ''}
+        data-test="toggle-backfaces"
+        aria-pressed={showBackfaces}
+        onClick={() => setShowBackfaces(!showBackfaces)}
+        title="Colour the far side of every triangle — holes in the scan and inverted normals stop looking like solid part"
       >
-        ▤ OVERLAYS
+        ◱ BACKFACES
       </button>
       <button
         className="stripimprint"

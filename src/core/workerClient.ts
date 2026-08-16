@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
+import type { StepInfo } from './parsers/step'
 import type { ElementKind, FitOutput, FitSettings } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 
@@ -14,6 +15,8 @@ export interface LoadedMesh {
 
 export interface LoadedNominal extends LoadedMesh {
   bboxDiagonal: number
+  /** How a STEP reference was converted; absent when the file was a mesh. */
+  step?: StepInfo
 }
 
 export interface DeviationResult {
@@ -91,6 +94,24 @@ export class MeshWorkerClient {
     return res.result
   }
 
+  /** Fit to the surface the user painted. The vertex list is copied rather
+   *  than transferred: the caller keeps it as the element's rebuild recipe. */
+  async fitSelection(
+    elementType: ElementKind,
+    vertices: Uint32Array,
+    settings: FitSettings,
+  ): Promise<FitOutput> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
+      type: 'fit-selection',
+      requestId,
+      elementType,
+      vertices,
+      settings,
+    })
+    return res.result
+  }
+
   async loadNominal(name: string, buffer: ArrayBuffer): Promise<LoadedNominal> {
     const requestId = this.nextId++
     return this.request<LoadedNominal>({ type: 'load-nominal', requestId, name, buffer }, [buffer])
@@ -102,6 +123,26 @@ export class MeshWorkerClient {
       ? { type: 'align', requestId, mode: 'points', pairs }
       : { type: 'align', requestId, mode: 'auto' }
     const res = await this.request<Extract<WorkerResponse, { type: 'align-ok' }>>(msg)
+    return res.result
+  }
+
+  /** Fine-tune the alignment on the marked surface only. The vertex list is
+   *  copied rather than transferred: the marking stays on the part, ready for
+   *  another pass. */
+  async alignLocal(
+    vertices: Uint32Array,
+    start: Rigid,
+    maxDistance: number,
+  ): Promise<AlignResult> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'align-ok' }>>({
+      type: 'align',
+      requestId,
+      mode: 'local',
+      vertices,
+      start,
+      maxDistance,
+    })
     return res.result
   }
 

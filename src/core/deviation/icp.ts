@@ -31,6 +31,11 @@ export interface IcpOptions {
   /** Drop a pair whose scan normal disagrees with the nominal's by more than
    *  `acos(minNormalDot)` — stops a surface from latching onto the far wall. */
   minNormalDot?: number
+  /** Hard ceiling on how far a sample may reach for reference surface, in mm.
+   *  Unlike the median cut-off this one does not adapt: it is the user's
+   *  statement that nothing further away is the same feature, which is what
+   *  keeps a fine fit from walking the part onto the neighbouring boss. */
+  maxPairDistance?: number
   /** Distance at which a sample stops counting for more in the pose score, in
    *  mm. Defaults to 5 % of the nominal's bounding-box diagonal. */
   scoreCap?: number
@@ -112,6 +117,7 @@ export function icp(
   const maxIterations = options.maxIterations ?? 60
   const rejectMedianFactor = options.rejectMedianFactor ?? 3
   const minNormalDot = options.minNormalDot ?? 0
+  const maxPairDistance = options.maxPairDistance ?? Infinity
   const tolerance = options.tolerance ?? surface.bboxDiagonal * 1e-7
   const scoreCap = options.scoreCap ?? surface.bboxDiagonal * 0.05
 
@@ -159,6 +165,13 @@ export function icp(
       rigidApply(transform, samples.xyz[i * 3], samples.xyz[i * 3 + 1], samples.xyz[i * 3 + 2], p)
       q[i * 3] = p[0]; q[i * 3 + 1] = p[1]; q[i * 3 + 2] = p[2]
       if (!surface.closest(p[0], p[1], p[2], hit)) {
+        scoreSum += scoreCap
+        continue
+      }
+      // Out of reach counts against the pose exactly as a miss does — a fit
+      // that solves by sliding until only a handful of points still answer
+      // must not be rewarded for the ones it abandoned.
+      if (hit.distance > maxPairDistance) {
         scoreSum += scoreCap
         continue
       }

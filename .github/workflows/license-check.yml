@@ -10,6 +10,17 @@
 # ship. CC-BY-4.0 is data-only (caniuse-lite's browser tables) and BlueOak-1.0.0
 # is OSI-approved permissive; the private root package is excluded because
 # license-checker reports `private: true` as UNLICENSED.
+#
+# `meshstep` is excluded rather than allowed: it is AGPL-3.0-only, which is a
+# license this policy otherwise rejects outright, but it is OUR code (same
+# author, same dual-licensing model, https://github.com/CNCKitchen/meshStep).
+# The rule the allowlist enforces is "no copyleft we cannot relicense", and a
+# commercial exception for this app covers meshStep too. The exclusion is
+# pinned to the exact version package.json pins (license-checker only honours
+# --excludePackages against --onlyAllow, not its startsWith variant), so an
+# upgrade has to be made deliberately in both places — which is what we want
+# for the component that decides how CAD surfaces become triangles. It must
+# never be widened to a package we do not own.
 name: License check
 
 on:
@@ -31,5 +42,6 @@ jobs:
       - name: npm license allowlist
         run: >-
           npx --yes license-checker --excludePrivatePackages
+          --excludePackages "meshstep@0.1.1"
           --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
           --summary

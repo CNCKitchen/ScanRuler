@@ -10,9 +10,9 @@ import { useDeviation, type Workspace } from '../state/deviationStore'
 const GITHUB_URL = 'https://github.com/cnckitchen/ScanRuler'
 
 const WORKSPACES: { id: Workspace; label: string; title: string }[] = [
-  { id: 'elements', label: 'Elements', title: 'Fit spheres, cylinders and planes, and measure between them' },
-  { id: 'deviation', label: 'Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
-  { id: 'thickness', label: 'Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
+  { id: 'elements', label: 'Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
+  { id: 'deviation', label: 'Surface Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
+  { id: 'thickness', label: 'Wall Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
 ]
 
 export function TopBar() {
@@ -28,7 +28,7 @@ export function TopBar() {
       <div className="brandmark">SR</div>
       <div className="brand">
         <b>ScanRuler</b>
-        <span>CNC Kitchen · scan metrology</span>
+        <span>CNC Kitchen · 3D scan analysis</span>
       </div>
       {/* Both workspaces share the loaded scan, the scene and the camera, so
           switching is free and neither side loses what it had. */}

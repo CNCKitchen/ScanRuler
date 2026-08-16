@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { CylinderFit, FitSettings, MeshGraph, Vec3 } from '../types'
-import { fitCylinderClipped, ransacCylinder } from './cylinder'
+import type { Cylinder, CylinderFit, FitSettings, MeshGraph, Vec3 } from '../types'
+import { axisFromNormals, fitCylinderClipped, fitCylinderOnAxis, ransacCylinder } from './cylinder'
 import { FitError } from './errors'
 import { orthoBasis } from './linalg'
 import { collectPatch, growCylinderRegion } from './regionGrow'
+import { requireSelection } from './selection'
 
 /** Angles beyond which the coverage estimate stops sampling — plenty to
  *  resolve the widest gap in any real scan. */
@@ -110,4 +111,48 @@ export function fitCylinderFromSeed(
   throw new FitError(
     "Couldn't fit a cylinder at this point — try clicking on a clearly curved part of the cylindrical surface.",
   )
+}
+
+/** Best-fit cylinder on a hand-painted selection. The axis still has to be
+ *  guessed before the five-parameter fit can be refined: the normal-covariance
+ *  axis is the cheap and accurate answer for a clean selection, and a robust
+ *  LMedS estimate takes over when the marked surface is noisy enough that the
+ *  normals alone cannot pin the direction down. */
+export function fitCylinderOnSelection(
+  g: MeshGraph,
+  selection: Uint32Array,
+  settings: FitSettings,
+): CylinderFit & { region: Uint32Array } {
+  requireSelection(selection, 'cylindrical surface')
+
+  const axis = axisFromNormals(g.normals, selection)
+  let init: Cylinder | null = axis ? fitCylinderOnAxis(g.positions, selection, axis) : null
+  if (!init) init = ransacCylinder(g.positions, g.normals, selection, { seed: 0x5eed })?.cylinder ?? null
+  if (!init) {
+    throw new FitError(
+      "Couldn't find an axis in the marked surface — it curves too little to be told from a plane. Mark more of the way around the cylinder.",
+    )
+  }
+
+  const fin = fitCylinderClipped(g.positions, selection, init, settings.sigma)
+  if (!fin || !Number.isFinite(fin.cylinder.r) || fin.cylinder.r <= 0) {
+    throw new FitError("Couldn't fit a cylinder to the marked surface.")
+  }
+  const c = fin.cylinder
+  const { coverage, minT, maxT } = extents(g.positions, selection, c)
+  const length = maxT - minT
+  if (!(length > 0)) throw new FitError("Couldn't measure the length of the marked surface.")
+  const mid = (minT + maxT) / 2
+  return {
+    kind: 'cylinder',
+    center: [c.px + mid * c.ax, c.py + mid * c.ay, c.pz + mid * c.az],
+    axis: [c.ax, c.ay, c.az],
+    radius: c.r,
+    length,
+    coverage,
+    sigma: fin.sigma,
+    usedPoints: fin.used.length,
+    regionSize: selection.length,
+    region: selection,
+  }
 }

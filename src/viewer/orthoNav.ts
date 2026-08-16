@@ -10,7 +10,15 @@
 
 import * as THREE from 'three'
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
-import { MMB, SCHEMES, type ControlScheme, type NavAction } from './navSchemes'
+import {
+  LMB,
+  MMB,
+  RMB,
+  SCHEMES,
+  type ControlScheme,
+  type NavBinding,
+  type NavAction,
+} from './navSchemes'
 
 /** Sphere enclosing everything drawn. Held by reference and re-read every
  *  frame, so the owner can re-frame its model without re-registering it. */
@@ -24,6 +32,10 @@ export class OrthoNavigator {
   readonly pivotMarker: THREE.Mesh
 
   private scheme: ControlScheme = SCHEMES[0]
+  /** The active scheme's bindings, with plain left-drag handed over to the
+   *  brush while the user is painting a surface (see setPaintMode). */
+  private bindings: NavBinding[] = SCHEMES[0].bindings
+  private paintMode = false
   private action: NavAction | null = null
   /** Last seen `buttons` bitmask, so a chord change can be spotted. */
   private mask = 0
@@ -89,7 +101,51 @@ export class OrthoNavigator {
   /** Swap the pointer-button control scheme (dropdown in the status strip). */
   setScheme(scheme: ControlScheme): void {
     this.scheme = scheme
-    // Cancel any in-flight gesture so stale state can't leak across schemes.
+    this.rebuildBindings()
+    this.cancelGesture()
+  }
+
+  /**
+   * Hand both plain left-drag and plain right-drag to the caller (the surface
+   * brush, which marks with one and rubs out with the other) for as long as it
+   * is painting.
+   *
+   * Most schemes drive the camera with at least one of those buttons, and a
+   * brush that fought it would be unusable. Rather than taking the gesture
+   * away, the binding moves out of the way one notch: where left-drag orbits,
+   * Shift+left-drag orbits instead, and the same for the right button. Middle-
+   * button bindings — pan in most schemes, orbit in several — are untouched
+   * either way, so there is always a route to the camera that needs no
+   * modifier at all.
+   */
+  setPaintMode(on: boolean): void {
+    if (this.paintMode === on) return
+    this.paintMode = on
+    this.rebuildBindings()
+    this.cancelGesture()
+  }
+
+  private rebuildBindings(): void {
+    if (!this.paintMode) {
+      this.bindings = this.scheme.bindings
+      return
+    }
+    const moved = this.scheme.bindings.map((b) =>
+      (b.buttons === LMB || b.buttons === RMB) && !b.shift && !b.ctrl && !b.alt
+        ? { ...b, shift: true }
+        : b,
+    )
+    // A scheme that already used Shift with that button now has two bindings
+    // for the same chord (Rhino's Shift+right pan behind its right-drag orbit,
+    // say). First match wins, which puts the gesture that was plain — the one
+    // the user reaches for without thinking — in front of the one that already
+    // asked for a modifier.
+    this.bindings = moved
+  }
+
+  /** Drop any in-flight gesture, so stale state cannot leak across a change of
+   *  what the buttons mean. */
+  private cancelGesture(): void {
     this.endOrbit()
     this.action = null
     this.mask = 0
@@ -201,7 +257,7 @@ export class OrthoNavigator {
     if (this.catiaZoomLatch && mask === MMB) {
       action = 'zoom'
     } else if (mask) {
-      const b = this.scheme.bindings.find(
+      const b = this.bindings.find(
         (b) =>
           b.buttons === mask &&
           !!b.shift === e.shiftKey &&

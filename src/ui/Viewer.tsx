@@ -7,12 +7,15 @@ export function Viewer({
   onPick,
   onHover,
   onElementPick,
+  onPaintChange,
 }: {
   onReady: (scene: SceneManager) => void
   onPick: (hit: PickHit) => void
   onHover?: (hit: PickHit | null) => void
   /** A click that landed on an existing element while element picking is on. */
   onElementPick?: (id: number) => void
+  /** A brush stroke ended, with this many vertices marked in total. */
+  onPaintChange?: (count: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const pickRef = useRef(onPick)
@@ -21,6 +24,8 @@ export function Viewer({
   hoverRef.current = onHover
   const elementPickRef = useRef(onElementPick)
   elementPickRef.current = onElementPick
+  const paintRef = useRef(onPaintChange)
+  paintRef.current = onPaintChange
   const readyRef = useRef(onReady)
   readyRef.current = onReady
 
@@ -29,6 +34,7 @@ export function Viewer({
     scene.onPick = (hit) => pickRef.current(hit)
     scene.onHover = (hit) => hoverRef.current?.(hit)
     scene.onElementPick = (id) => elementPickRef.current?.(id)
+    scene.onPaintChange = (count) => paintRef.current?.(count)
     readyRef.current(scene)
     return () => scene.dispose()
   }, [])

@@ -4,7 +4,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DObject, CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
+import {
+  acceleratedRaycast,
+  computeBoundsTree,
+  disposeBoundsTree,
+  INTERSECTED,
+  NOT_INTERSECTED,
+} from 'three-mesh-bvh'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { UNMEASURED_RGB } from '../core/field/colormap'
@@ -40,6 +46,13 @@ const BASE_COLOR: [number, number, number] = [
  *  grey scan of very nearly the same shape, and two greys in the same place
  *  read as one washed-out object rather than as two parts being compared. */
 const NOMINAL_COLOR = 0x5c86bd
+
+/** The inside of the surface, when back-face tinting is switched on: a dull
+ *  rose that no element colour, no deviation band and no unmeasured grey can
+ *  be mistaken for. What it marks is worth seeing — a hole in the scan, an
+ *  inverted normal, or simply that you are looking at the far wall of the
+ *  part through one. */
+const BACKFACE_COLOR = 0x9c5b70
 
 /** The ghost shape of an unconfirmed fit is neutral grey — only the marked
  *  surfaces carry the colour the element will get, so "picked" and "measured"
@@ -149,6 +162,114 @@ export interface ProbeMarker {
   point: Vec3
   label: string
   color: string
+}
+
+/** How a marking gesture takes surface: dragged over it with a round brush,
+ *  swept with a rectangular window, or ringed with a freehand lasso. The last
+ *  two are screen-space and take everything they enclose in one go, which is
+ *  what makes excluding a whole riser or a run of spray practical. */
+export type MarkGesture = 'brush' | 'window' | 'lasso'
+
+/** The surface marking: a fit is measured on exactly what it covers, instead
+ *  of on a region grown from a click or on the whole scan. */
+export interface PaintBrush {
+  /** Tint of the marked surface — the colour the pending element will get. */
+  color: string
+  /** Width of the brush on the surface, in the scan's own units (mm). */
+  diameter: number
+  /** Left-drag rubs the marking out instead of laying it down. Right-drag
+   *  always rubs out, and Alt inverts whichever way the switch is set. */
+  erase: boolean
+  /** Which gesture marks. Defaults to the brush.
+   *
+   *  Explicitly null means armed but idle: the marking stays on the part and
+   *  keeps its tint, no gesture takes or gives back surface, and the camera
+   *  keeps both plain drags. That is the state both marking sessions — a
+   *  hand-marked element and the local fine fit — open in and return to
+   *  between markings; a tool that quietly held the mouse buttons hostage for
+   *  as long as its panel was open would be a trap. */
+  gesture?: MarkGesture | null
+  /** Take triangles facing away from the camera as well. Off by default,
+   *  because a window dragged over a closed part would otherwise mark the far
+   *  wall along with the near one — and on a scan the far wall is usually the
+   *  one you cannot see to judge. */
+  backfaces?: boolean
+}
+
+/** A window or lasso being dragged: where it started, the outline so far, and
+ *  which way it will go — decided when the button went down, so that letting
+ *  go of Alt half way through does not turn a rub-out into a marking. */
+interface Marquee {
+  gesture: 'window' | 'lasso'
+  erase: boolean
+  /** Container-local pixels, the same frame the outline is drawn in. */
+  points: { x: number; y: number }[]
+  /** Where the container sat when the drag began, so client coordinates can be
+   *  converted without asking the layout engine on every move. */
+  origin: { left: number; top: number }
+}
+
+/** The brush footprint, drawn on the surface under the cursor: what a stroke
+ *  would take, before it takes it. Erasing shows in the ring's own colour, so
+ *  the mode is visible where the user is looking rather than only in the
+ *  panel. */
+const BRUSH_ERASE_COLOR = 0x26282a
+
+/** The four corners of the window, from the two the user dragged between. */
+function rectanglePoints(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): { x: number; y: number }[] {
+  return [
+    { x: a.x, y: a.y },
+    { x: b.x, y: a.y },
+    { x: b.x, y: b.y },
+    { x: a.x, y: b.y },
+  ]
+}
+
+/** Point-in-polygon by crossing number, with the outline's bounding box in
+ *  front of it. The box rejects the great majority of a part's triangles for
+ *  four comparisons, which matters when the test runs once per triangle of a
+ *  million-triangle scan. A lasso that crosses itself is filled by the
+ *  odd-even rule — the same thing every drawing program does with one. */
+function polygonTester(outline: { x: number; y: number }[]): (x: number, y: number) => boolean {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const p of outline) {
+    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
+    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
+  }
+  const n = outline.length
+  return (x, y) => {
+    if (x < minX || x > maxX || y < minY || y > maxY) return false
+    let inside = false
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const yi = outline[i].y
+      const yj = outline[j].y
+      if (yi > y === yj > y) continue
+      const xi = outline[i].x
+      if (x < ((outline[j].x - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+    }
+    return inside
+  }
+}
+
+/** Whether a triangle's front side is the one being looked at, from its
+ *  winding and the view direction in the same (part-local) frame. */
+function facesCamera(
+  pos: Float32Array,
+  a: number,
+  b: number,
+  c: number,
+  view: THREE.Vector3,
+): boolean {
+  const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2]
+  const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az
+  const vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az
+  const nx = uy * vz - uz * vy
+  const ny = uz * vx - ux * vz
+  const nz = ux * vy - uy * vx
+  return nx * view.x + ny * view.y + nz * view.z < 0
 }
 
 /** A point picked on the scan while setting up an alignment. */
@@ -284,9 +405,48 @@ export class SceneManager {
   private selectionCleanup: (() => void)[] = []
   private lastOverlayElements: OverlayElement[] = []
 
+  /** Back-face tinting, shared by every material that opts in: a flag and a
+   *  colour rather than two materials, so switching it is a uniform write
+   *  instead of a shader recompile mid-session. */
+  private backface = {
+    uBackfaceTint: { value: 0 },
+    uBackfaceColor: { value: new THREE.Color(BACKFACE_COLOR) },
+  }
+
+  /** Hand-painted surface selection: one byte per vertex, live only while the
+   *  brush is armed. Vertex indices, like everything else the fitter speaks. */
+  private paint: PaintBrush | null = null
+  private paintMask: Uint8Array | null = null
+  private paintCount = 0
+  private paintRgb: [number, number, number] = [0, 0, 0]
+  private painting = false
+  private paintLast: { x: number; y: number } | null = null
+  private paintSphere = new THREE.Sphere()
+  /** Scratch for the per-triangle brush test, which runs thousands of times
+   *  per stroke and must not allocate. */
+  private scratchA = new THREE.Vector3()
+  private scratchB = new THREE.Vector3()
+  private scratchC = new THREE.Vector3()
+  /** Whether the brush would rub out right now — from the switch, from Alt, or
+   *  from the right button being the one that is down. Drives the ring colour. */
+  private paintErasing = false
+  /** Footprint of the brush on the surface: a ring the size of a stroke, laid
+   *  flat on the face under the cursor. Rides in the part's group, so it stays
+   *  put on the scan whatever the alignment does. */
+  private brushRing: THREE.LineLoop
+  private brushRingMaterial: THREE.LineBasicMaterial
+  /** The window or lasso in flight, and the outline drawn for it. An SVG over
+   *  the canvas rather than a line in the scene: the gesture is a screen-space
+   *  one, and a rubber band that swung about with the part would be unusable. */
+  private marquee: Marquee | null = null
+  private marqueeSvg: SVGSVGElement
+  private marqueeShape: SVGPolygonElement
+
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
   onElementPick: ((id: number) => void) | null = null
+  /** How many vertices the brush has marked, reported when a stroke ends. */
+  onPaintChange: ((count: number) => void) | null = null
 
   constructor(private container: HTMLDivElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
@@ -301,6 +461,14 @@ export class SceneManager {
     labelDom.style.pointerEvents = 'none'
     this.container.appendChild(labelDom)
 
+    const NS = 'http://www.w3.org/2000/svg'
+    this.marqueeSvg = document.createElementNS(NS, 'svg')
+    this.marqueeSvg.setAttribute('class', 'marquee')
+    this.marqueeShape = document.createElementNS(NS, 'polygon')
+    this.marqueeSvg.append(this.marqueeShape)
+    this.marqueeSvg.style.display = 'none'
+    this.container.appendChild(this.marqueeSvg)
+
     this.scene.background = new THREE.Color(STAGE_BG)
     // Parallel projection: metrology views should not foreshorten, and equal
     // features must read the same size wherever they sit in the frame.
@@ -312,7 +480,30 @@ export class SceneManager {
     this.keyLight = new THREE.DirectionalLight(0xffffff, 1.6)
     this.scene.add(this.keyLight)
     this.scene.add(this.keyLight.target)
+    // Unit circle in XY, turned to lie on whatever face it is over. Drawn over
+    // the part rather than into it: a ring that lost the depth test against
+    // the very surface it is lying on would flicker with every wobble of the
+    // scan.
+    const ringPoints: THREE.Vector3[] = []
+    for (let i = 0; i < 96; i++) {
+      const a = (i / 96) * Math.PI * 2
+      ringPoints.push(new THREE.Vector3(Math.cos(a), Math.sin(a), 0))
+    }
+    this.brushRingMaterial = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.95,
+    })
+    this.brushRing = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(ringPoints),
+      this.brushRingMaterial,
+    )
+    this.brushRing.renderOrder = 5
+    this.brushRing.visible = false
+
     this.partGroup.matrixAutoUpdate = false
+    this.partGroup.add(this.brushRing)
     this.partGroup.add(this.overlayGroup)
     this.partGroup.add(this.selectionGroup)
     this.partGroup.add(this.previewGroup)
@@ -356,7 +547,27 @@ export class SceneManager {
     rc.firstHitOnly = true
 
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
-      if (e.button === 0) this.pointerDown = { x: e.clientX, y: e.clientY }
+      // With the brush armed, a plain drag is a stroke: left lays the marking
+      // down, right takes it away — the navigator has stepped both of those
+      // bindings aside for exactly this. Anything with a modifier still
+      // belongs to the camera.
+      // Nothing is marked on a scan that is switched off: a gesture over a
+      // hidden part would take surface the user cannot see to judge, and the
+      // window and lasso do not raycast, so nothing else would stop them.
+      const gesture = this.paint && this.mesh?.visible ? this.gestureOf(this.paint!) : null
+      if (gesture && (e.button === 0 || e.button === 2) && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+        const erase = this.eraseFor(e.button === 2, e.altKey)
+        this.painting = true
+        if (gesture === 'brush') {
+          this.paintLast = null
+          this.stroke(e.clientX, e.clientY, erase)
+        } else {
+          this.beginMarquee(gesture, erase, e.clientX, e.clientY)
+        }
+        return
+      }
+      if (e.button !== 0) return
+      this.pointerDown = { x: e.clientX, y: e.clientY }
     })
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       const down = this.pointerDown
@@ -382,6 +593,11 @@ export class SceneManager {
       this.hoverAt = null
       this.hoverDirty = true
     })
+
+    // A stroke that runs off the edge of the viewport keeps painting, and one
+    // released outside it still ends — same reasoning as the navigator's.
+    document.addEventListener('pointermove', this.onPaintMove)
+    document.addEventListener('pointerup', this.onPaintUp)
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(this.container)
@@ -410,10 +626,15 @@ export class SceneManager {
     this.nav.setScheme(scheme)
   }
 
-  /** One hover test per frame, and only when the answer could have changed. */
+  /** One pointer test per frame, and only when the answer could have changed:
+   *  the hover readout when a map is showing, the brush footprint when the
+   *  brush is armed. A mouse can emit hundreds of moves a second and only the
+   *  last of them is on screen. */
   private updateHover(): void {
-    if (!this.hoverEnabled || !this.hoverDirty) return
+    if (!this.hoverDirty) return
     this.hoverDirty = false
+    if (this.paint) this.updateBrushRing()
+    if (!this.hoverEnabled) return
     const at = this.hoverAt
     const hit = at ? this.pick(at.x, at.y) : null
     // Silence is worth reporting once, not every frame the cursor spends off
@@ -508,7 +729,10 @@ export class SceneManager {
       metalness: 0.05,
       side: THREE.DoubleSide,
     })
+    this.tintBackfaces(material)
     this.mesh = new THREE.Mesh(geometry, material)
+    this.paintMask = new Uint8Array(vertexCount)
+    this.paintCount = 0
     this.partGroup.add(this.mesh)
     // A new scan is not aligned to anything yet.
     this.setAlignment(null)
@@ -521,6 +745,36 @@ export class SceneManager {
     this.scanAxis = principalAxis(positions)
     this.frameCamera(geometry.boundingBox!, this.scanAxis)
     geometry.computeBoundsTree()
+  }
+
+  /**
+   * Make a material paint its back faces in the flag colour when back-face
+   * tinting is on.
+   *
+   * Done in the shader rather than by drawing the mesh a second time with the
+   * faces flipped, because the second pass would have to be the same million
+   * triangles again — and because a front-face-only main pass would take the
+   * inside of the part out of reach of the raycaster, which is what picking,
+   * hovering and the brush all run on.
+   */
+  private tintBackfaces(material: THREE.Material): void {
+    material.onBeforeCompile = (shader) => {
+      shader.uniforms.uBackfaceTint = this.backface.uBackfaceTint
+      shader.uniforms.uBackfaceColor = this.backface.uBackfaceColor
+      shader.fragmentShader =
+        'uniform float uBackfaceTint;\nuniform vec3 uBackfaceColor;\n' +
+        shader.fragmentShader.replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+          if ( uBackfaceTint > 0.5 && ! gl_FrontFacing ) diffuseColor.rgb = uBackfaceColor;`,
+        )
+    }
+  }
+
+  /** Show which way the surface faces: the far side of every triangle gets a
+   *  colour of its own, so holes and flipped normals stop reading as part. */
+  setBackfaceTint(on: boolean): void {
+    this.backface.uBackfaceTint.value = on ? 1 : 0
   }
 
   /** Point the camera at the bounding-box centre from a broadside direction,
@@ -647,6 +901,457 @@ export class SceneManager {
 
   setElementPickEnabled(enabled: boolean): void {
     this.elementPickEnabled = enabled
+  }
+
+  // ---- the surface brush ---------------------------------------------------
+
+  /**
+   * Arm the brush, change what it does, or (with null) put it away.
+   *
+   * Re-arming keeps whatever is already marked: the panel calls this on every
+   * change of radius or of the erase switch, and a stroke the user has already
+   * laid down must survive reaching for the slider.
+   */
+  setPaintBrush(brush: PaintBrush | null): void {
+    const wasOn = this.paint !== null
+    this.paint = brush
+    // Only a live gesture takes the plain drags away from the camera. Idle —
+    // and that is the state both marking sessions open in — the camera keeps
+    // everything it normally has.
+    const gesture = brush && this.gestureOf(brush)
+    this.nav.setPaintMode(gesture !== null)
+    if (!brush) {
+      this.painting = false
+      this.paintLast = null
+      this.paintErasing = false
+      this.brushRing.visible = false
+      this.endMarquee()
+      this.clearPaint()
+      return
+    }
+    // Switching gesture mid-session leaves the marking alone but takes the
+    // footprint of the old one off the part, and abandons anything in flight.
+    if (gesture !== 'brush') this.brushRing.visible = false
+    if (gesture === null) {
+      this.painting = false
+      this.paintLast = null
+      this.endMarquee()
+    }
+    // The footprint follows the settings even if the cursor never moves again.
+    this.hoverDirty = true
+    this.paintErasing = brush.erase
+    this.updateRingColor()
+    const c = new THREE.Color(brush.color)
+    const rgb: [number, number, number] = [
+      Math.round(c.r * 255),
+      Math.round(c.g * 255),
+      Math.round(c.b * 255),
+    ]
+    const recolour = wasOn && rgb.some((v, i) => v !== this.paintRgb[i])
+    this.paintRgb = rgb
+    if (this.mesh && !this.paintMask) {
+      this.paintMask = new Uint8Array(this.mesh.geometry.getAttribute('position').count)
+      this.paintCount = 0
+    }
+    if (recolour && this.paintCount > 0 && this.colorAttr) {
+      this.applyPaint(this.colorAttr.array as Uint8Array)
+      this.colorAttr.needsUpdate = true
+    }
+  }
+
+  /** Which gesture a marker is set to, with the brush standing in for a caller
+   *  that never said. Null is a deliberate idle, not an omission. */
+  private gestureOf(brush: PaintBrush): MarkGesture | null {
+    return brush.gesture === undefined ? 'brush' : brush.gesture
+  }
+
+  /** The vertices marked so far, as the fitter wants them. */
+  paintedVertices(): Uint32Array {
+    const mask = this.paintMask
+    if (!mask || this.paintCount === 0) return new Uint32Array(0)
+    const out = new Uint32Array(this.paintCount)
+    let w = 0
+    for (let v = 0; v < mask.length && w < out.length; v++) if (mask[v]) out[w++] = v
+    return w === out.length ? out : out.slice(0, w)
+  }
+
+  /** Rub out the whole marking and hand the surface back to whatever was
+   *  underneath it. */
+  clearPaint(): void {
+    if (!this.paintMask || this.paintCount === 0) {
+      this.paintCount = 0
+      this.paintMask?.fill(0)
+      return
+    }
+    const mask = this.paintMask
+    const arr = this.colorAttr?.array as Uint8Array | undefined
+    for (let v = 0; v < mask.length; v++) {
+      if (!mask[v]) continue
+      mask[v] = 0
+      if (!arr) continue
+      const c = this.baseColorOf(v)
+      arr[v * 3] = c[0]
+      arr[v * 3 + 1] = c[1]
+      arr[v * 3 + 2] = c[2]
+    }
+    this.paintCount = 0
+    if (this.colorAttr) this.colorAttr.needsUpdate = true
+  }
+
+  /** One dab per few pixels along the segment the pointer covered, so a fast
+   *  drag paints a stroke rather than a dotted line. */
+  private stroke(x: number, y: number, erase: boolean): void {
+    const last = this.paintLast
+    const steps = last
+      ? Math.min(24, Math.max(1, Math.round(Math.hypot(x - last.x, y - last.y) / 5)))
+      : 1
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps
+      this.dab(last ? last.x + (x - last.x) * t : x, last ? last.y + (y - last.y) * t : y, erase)
+    }
+    this.paintLast = { x, y }
+    if (this.colorAttr) this.colorAttr.needsUpdate = true
+  }
+
+  /**
+   * Mark (or unmark) every triangle the brush touches, by marking its corners.
+   *
+   * Triangles rather than corners on their own, because a triangle is what the
+   * user sees change colour: a vertex-only rule on a coarse mesh paints a wide
+   * patch — the tint is interpolated across each triangle — while handing the
+   * fit the two or three corners that happened to fall inside the brush. What
+   * is marked has to be what is measured.
+   *
+   * A ball around the hit point would also reach straight through a thin wall
+   * and mark the far side, which is invisible from here and would quietly
+   * corrupt the fit — so a triangle has to face roughly the way the surface
+   * under the cursor does. That same test keeps a stroke near an edge from
+   * spilling onto the face around the corner.
+   */
+  private dab(clientX: number, clientY: number, erase: boolean): void {
+    const mesh = this.mesh
+    const brush = this.paint
+    if (!mesh || !brush || !this.colorAttr) return
+    if (!this.paintMask) this.paintMask = new Uint8Array(mesh.geometry.getAttribute('position').count)
+
+    this.setPickRay(clientX, clientY)
+    const hit = this.raycaster.intersectObject(mesh, false)[0]
+    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
+
+    const geometry = mesh.geometry as THREE.BufferGeometry
+    const bvh = geometry.boundsTree
+    const index = geometry.getIndex()
+    if (!bvh || !index) return
+    const idx = index.array as ArrayLike<number>
+    const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
+
+    // The hit arrives in world space, which is the reference's frame once the
+    // scan has been aligned; everything below is in the scan's own.
+    this.partGroup.updateWorldMatrix(true, false)
+    const centre = this.partGroup.worldToLocal(hit.point.clone())
+    const f = hit.faceIndex * 3
+    const face = this.faceNormal(pos, idx[f], idx[f + 1], idx[f + 2])
+    if (!face) return
+
+    const radius = Math.max(brush.diameter / 2, 1e-6)
+    this.paintSphere.center.copy(centre)
+    this.paintSphere.radius = radius
+    const sphere = this.paintSphere
+    const arr = this.colorAttr.array as Uint8Array
+    const near = this.scratchA
+    const edge1 = this.scratchB
+    const edge2 = this.scratchC
+    // With back faces allowed the brush marks straight through: the test that
+    // keeps a stroke on the face under the cursor is the same one that keeps
+    // it off the far wall, so switching it off does both.
+    const anyFacing = brush.backfaces === true
+
+    const touch = (v: number): void => this.markVertex(v, erase, arr)
+
+    bvh.shapecast({
+      intersectsBounds: (box) => (sphere.intersectsBox(box) ? INTERSECTED : NOT_INTERSECTED),
+      intersectsTriangle: (tri, triIndex) => {
+        // The box the BVH pruned by is not the triangle: check the triangle
+        // itself before taking it.
+        tri.closestPointToPoint(centre, near)
+        if (near.distanceToSquared(centre) > radius * radius) return false
+        // Same winding convention as the face under the cursor, so the two
+        // normals can be compared at all.
+        if (!anyFacing) {
+          edge1.subVectors(tri.b, tri.a)
+          edge2.subVectors(tri.c, tri.a)
+          edge1.cross(edge2)
+          if (edge1.dot(face) <= 0) return false
+        }
+        const f = triIndex * 3
+        touch(idx[f])
+        touch(idx[f + 1])
+        touch(idx[f + 2])
+        return false
+      },
+    })
+  }
+
+  private faceNormal(
+    pos: Float32Array,
+    a: number,
+    b: number,
+    c: number,
+  ): THREE.Vector3 | null {
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2]
+    const ux = pos[b * 3] - ax, uy = pos[b * 3 + 1] - ay, uz = pos[b * 3 + 2] - az
+    const vx = pos[c * 3] - ax, vy = pos[c * 3 + 1] - ay, vz = pos[c * 3 + 2] - az
+    const n = new THREE.Vector3(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+    // A degenerate sliver has no direction to compare anything against.
+    if (n.lengthSq() < 1e-24) return null
+    return n.normalize()
+  }
+
+  /** Lay the marking on one vertex, or take it off, and put the right colour
+   *  under it either way. The single place the mask and the count move
+   *  together — every gesture goes through here. */
+  private markVertex(v: number, erase: boolean, arr: Uint8Array): void {
+    const mask = this.paintMask
+    if (!mask || mask[v] === (erase ? 0 : 1)) return
+    mask[v] = erase ? 0 : 1
+    this.paintCount += erase ? -1 : 1
+    const c = erase ? this.baseColorOf(v) : this.paintRgb
+    const j = v * 3
+    arr[j] = c[0]
+    arr[j + 1] = c[1]
+    arr[j + 2] = c[2]
+  }
+
+  /** What a vertex should be coloured when nothing is marked on it: the
+   *  measured map where one is showing — marking surface for a fine fit is
+   *  done on top of the deviation map, and rubbing it out has to give the
+   *  reading back — otherwise its element's tint, otherwise bare scan. */
+  private baseColorOf(v: number): [number, number, number] {
+    const field = this.fieldColors
+    if (field) return [field[v * 3], field[v * 3 + 1], field[v * 3 + 2]]
+    const id = this.owner ? this.owner[v] : 0
+    if (id > 0 && !this.hiddenRegions.has(id)) return this.elementColors.get(id) ?? BASE_COLOR
+    return BASE_COLOR
+  }
+
+  // ---- window and lasso ----------------------------------------------------
+
+  private beginMarquee(
+    gesture: 'window' | 'lasso',
+    erase: boolean,
+    clientX: number,
+    clientY: number,
+  ): void {
+    const box = this.container.getBoundingClientRect()
+    const origin = { left: box.left, top: box.top }
+    this.marquee = {
+      gesture,
+      erase,
+      origin,
+      points: [{ x: clientX - origin.left, y: clientY - origin.top }],
+    }
+    this.marqueeShape.setAttribute('class', erase ? 'erase' : '')
+    this.marqueeSvg.style.display = ''
+    this.drawMarquee()
+  }
+
+  private extendMarquee(clientX: number, clientY: number): void {
+    const m = this.marquee
+    if (!m) return
+    const p = { x: clientX - m.origin.left, y: clientY - m.origin.top }
+    if (m.gesture === 'window') {
+      // A window is its two corners and nothing else, however the cursor got
+      // from one to the other.
+      m.points[1] = p
+    } else {
+      // Thinning the trail keeps the point-in-polygon test — which runs once
+      // per vertex of the scan — from carrying a thousand edges for a gesture
+      // a hundred would describe.
+      const last = m.points[m.points.length - 1]
+      if (Math.hypot(p.x - last.x, p.y - last.y) < 4) return
+      m.points.push(p)
+    }
+    this.drawMarquee()
+  }
+
+  private drawMarquee(): void {
+    const m = this.marquee
+    if (!m) return
+    const outline =
+      m.gesture === 'window' ? rectanglePoints(m.points[0], m.points[1] ?? m.points[0]) : m.points
+    this.marqueeShape.setAttribute('points', outline.map((p) => `${p.x},${p.y}`).join(' '))
+  }
+
+  private endMarquee(): void {
+    this.marquee = null
+    this.marqueeSvg.style.display = 'none'
+  }
+
+  /**
+   * Take every triangle the outline encloses.
+   *
+   * A triangle counts when its centre falls inside — the resolution of a scan
+   * is far finer than anything drawn by hand, so where exactly the boundary
+   * cuts a single triangle is below the noise of the gesture itself.
+   *
+   * There is no depth buffer in this: what stops a window from marking the
+   * whole part front to back is the facing test, which is how every CAD
+   * selection does it and is why "include back faces" is a switch the user
+   * holds. On an open scan seen through a hole, surface behind the cursor
+   * *facing this way* is marked too — which is the honest answer, since from
+   * this side of the part there is nothing to tell it apart from the near
+   * wall.
+   */
+  private markMarquee(outline: { x: number; y: number }[], erase: boolean): void {
+    const mesh = this.mesh
+    const marker = this.paint
+    if (!mesh || !marker || !this.colorAttr || outline.length < 3) return
+    const geometry = mesh.geometry as THREE.BufferGeometry
+    const index = geometry.getIndex()
+    if (!index) return
+    const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
+    const idx = index.array as ArrayLike<number>
+    const vertexCount = pos.length / 3
+    if (!this.paintMask) this.paintMask = new Uint8Array(vertexCount)
+
+    const w = this.container.clientWidth || 1
+    const h = this.container.clientHeight || 1
+    this.partGroup.updateWorldMatrix(true, false)
+    this.camera.updateMatrixWorld()
+    const toClip = new THREE.Matrix4()
+      .multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+      .multiply(this.partGroup.matrixWorld)
+
+    // Every vertex projected once, rather than three times per triangle: at a
+    // million triangles that is the difference between a gesture that lands
+    // and one that stalls the frame. The projection is affine (parallel
+    // camera), so a triangle's centre on screen is the mean of its corners'.
+    const sx = new Float32Array(vertexCount)
+    const sy = new Float32Array(vertexCount)
+    const clipped = new Uint8Array(vertexCount)
+    const p = new THREE.Vector3()
+    for (let v = 0; v < vertexCount; v++) {
+      p.set(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]).applyMatrix4(toClip)
+      sx[v] = ((p.x + 1) / 2) * w
+      sy[v] = ((1 - p.y) / 2) * h
+      // Outside the depth range is behind a clipping plane, so it is not on
+      // screen and must not be marked from here.
+      clipped[v] = p.z < -1 || p.z > 1 ? 1 : 0
+    }
+
+    // The view direction in the part's own coordinates, so the facing test is
+    // a dot product against the triangle's own normal with no per-triangle
+    // matrix work.
+    const viewLocal = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(this.camera.quaternion)
+      .applyMatrix3(new THREE.Matrix3().setFromMatrix4(this.partGroup.matrixWorld).invert())
+    const anyFacing = marker.backfaces === true
+
+    const test = polygonTester(outline)
+    const arr = this.colorAttr.array as Uint8Array
+    const before = this.paintCount
+    for (let f = 0; f < idx.length; f += 3) {
+      const a = idx[f], b = idx[f + 1], c = idx[f + 2]
+      if (clipped[a] || clipped[b] || clipped[c]) continue
+      if (!test((sx[a] + sx[b] + sx[c]) / 3, (sy[a] + sy[b] + sy[c]) / 3)) continue
+      if (!anyFacing && !facesCamera(pos, a, b, c, viewLocal)) continue
+      this.markVertex(a, erase, arr)
+      this.markVertex(b, erase, arr)
+      this.markVertex(c, erase, arr)
+    }
+    if (this.paintCount !== before) this.colorAttr.needsUpdate = true
+  }
+
+  /** Whether the brush takes marking away rather than laying it down: the
+   *  right button always does, the switch says what the left one does, and Alt
+   *  turns whichever of those applies around. */
+  private eraseFor(rightButton: boolean, alt: boolean): boolean {
+    if (!this.paint) return false
+    return rightButton ? !alt : this.paint.erase !== alt
+  }
+
+  private onPaintMove = (e: PointerEvent): void => {
+    if (!this.paint || this.gestureOf(this.paint) === null) return
+    if (this.marquee) {
+      this.extendMarquee(e.clientX, e.clientY)
+      return
+    }
+    const erasing = this.eraseFor((e.buttons & 2) !== 0, e.altKey)
+    if (erasing !== this.paintErasing) {
+      this.paintErasing = erasing
+      this.updateRingColor()
+    }
+    if (!this.painting) return
+    this.stroke(e.clientX, e.clientY, erasing)
+  }
+
+  private onPaintUp = (e: PointerEvent): void => {
+    if (!this.painting || (e.button !== 0 && e.button !== 2)) return
+    this.painting = false
+    this.paintLast = null
+    const m = this.marquee
+    if (m) {
+      // A window needs its second corner and a lasso needs enough of a loop to
+      // enclose anything; either way an accidental click marks nothing rather
+      // than sweeping the whole part.
+      const outline =
+        m.gesture === 'window'
+          ? m.points.length > 1
+            ? rectanglePoints(m.points[0], m.points[1])
+            : []
+          : m.points
+      this.endMarquee()
+      if (outline.length >= 3) this.markMarquee(outline, m.erase)
+    }
+    // One report per gesture: the fit behind it is worth running when the user
+    // lifts the button, not sixty times a second while they draw.
+    this.onPaintChange?.(this.paintCount)
+  }
+
+  /**
+   * Lay the brush footprint on the surface under the cursor.
+   *
+   * The ring is flat and the scan is not, so it is a reading of where a stroke
+   * would land rather than a tracing of it — the same bargain every CAD brush
+   * cursor makes, and at a brush width that is small against the feature being
+   * marked the difference does not show.
+   */
+  private updateBrushRing(): void {
+    const at = this.hoverAt
+    if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !this.mesh) {
+      this.brushRing.visible = false
+      return
+    }
+    this.setPickRay(at.x, at.y)
+    const hit = this.raycaster.intersectObject(this.mesh, false)[0]
+    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) {
+      this.brushRing.visible = false
+      return
+    }
+    const geometry = this.mesh.geometry as THREE.BufferGeometry
+    const index = geometry.getIndex()
+    if (!index) {
+      this.brushRing.visible = false
+      return
+    }
+    const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
+    const f = hit.faceIndex * 3
+    const normal = this.faceNormal(pos, index.getX(f), index.getX(f + 1), index.getX(f + 2))
+    if (!normal) {
+      this.brushRing.visible = false
+      return
+    }
+    this.partGroup.updateWorldMatrix(true, false)
+    const centre = this.partGroup.worldToLocal(hit.point.clone())
+    this.brushRing.position.copy(centre)
+    this.brushRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
+    this.brushRing.scale.setScalar(Math.max(this.paint.diameter / 2, 1e-6))
+    this.brushRing.visible = true
+  }
+
+  private updateRingColor(): void {
+    if (!this.paint) return
+    this.brushRingMaterial.color.set(this.paintErasing ? BRUSH_ERASE_COLOR : this.paint.color)
   }
 
   /** The element under the cursor: the nearest hit among the overlay shapes
@@ -855,7 +1560,7 @@ export class SceneManager {
       arr[v * 3 + 1] = rgb[1]
       arr[v * 3 + 2] = rgb[2]
     }
-    this.paintPreview(arr)
+    this.paintOverlays(arr)
     this.colorAttr.needsUpdate = true
   }
 
@@ -874,7 +1579,7 @@ export class SceneManager {
       arr[v * 3 + 2] = BASE_COLOR[2]
     }
     if (!paint) return
-    this.paintPreview(arr)
+    this.paintOverlays(arr)
     this.colorAttr.needsUpdate = true
   }
 
@@ -914,17 +1619,32 @@ export class SceneManager {
       }
     }
     this.previewRegion = region
-    this.paintPreview(arr)
+    this.paintOverlays(arr)
     this.colorAttr.needsUpdate = true
   }
 
-  private paintPreview(arr: Uint8Array): void {
-    if (!this.previewRegion) return
-    for (let i = 0; i < this.previewRegion.length; i++) {
-      const v = this.previewRegion[i]
-      arr[v * 3] = this.previewRgb[0]
-      arr[v * 3 + 1] = this.previewRgb[1]
-      arr[v * 3 + 2] = this.previewRgb[2]
+  /** The two layers that sit above the element tints: the preview region of a
+   *  pending auto-fit, and the surface marked by hand for one. */
+  private paintOverlays(arr: Uint8Array): void {
+    if (this.previewRegion) {
+      for (let i = 0; i < this.previewRegion.length; i++) {
+        const v = this.previewRegion[i]
+        arr[v * 3] = this.previewRgb[0]
+        arr[v * 3 + 1] = this.previewRgb[1]
+        arr[v * 3 + 2] = this.previewRgb[2]
+      }
+    }
+    this.applyPaint(arr)
+  }
+
+  private applyPaint(arr: Uint8Array): void {
+    const mask = this.paintMask
+    if (!mask || this.paintCount === 0) return
+    for (let v = 0; v < mask.length; v++) {
+      if (!mask[v]) continue
+      arr[v * 3] = this.paintRgb[0]
+      arr[v * 3 + 1] = this.paintRgb[1]
+      arr[v * 3 + 2] = this.paintRgb[2]
     }
   }
 
@@ -980,13 +1700,36 @@ export class SceneManager {
     return mesh
   }
 
-  /** How far off the element's centre its label should float. */
+  /** How far off the element's centre its label should float.
+   *
+   *  A sphere is the same in every direction, so straight up is as good as
+   *  anywhere. A cylinder is not: lifting its label along world Y walks it out
+   *  along the axis of an upright cylinder, leaving the pin hanging a radius
+   *  and a half off the end of the tube with nothing under it. The offset has
+   *  to be across the axis, so the label always sits just off the wall of the
+   *  piece of surface that was measured. */
   private labelOffset(fit: FitData): Vec3 {
     if (fit.kind === 'sphere') return [0, fit.radius * 1.35, 0]
-    if (fit.kind === 'cylinder') return [0, fit.radius * 1.5, 0]
+    if (fit.kind === 'cylinder') {
+      const out = this.acrossAxis(fit.axis)
+      const lift = fit.radius * 1.15
+      return [out.x * lift, out.y * lift, out.z * lift]
+    }
     if (fit.kind === 'point' || fit.kind === 'line') return [0, this.modelRadius * 0.03, 0]
     const lift = Math.max(fit.extentU, fit.extentV) * 0.12
     return [fit.normal[0] * lift, fit.normal[1] * lift, fit.normal[2] * lift]
+  }
+
+  /** The direction across the given axis that points as far up the screen as
+   *  it can — an upright label beside the feature, not one buried behind it. */
+  private acrossAxis(axis: Vec3): THREE.Vector3 {
+    const a = new THREE.Vector3(...axis).normalize()
+    const out = new THREE.Vector3(0, 1, 0)
+    out.addScaledVector(a, -out.dot(a))
+    // The axis itself is vertical: any direction across it is as good.
+    if (out.lengthSq() < 1e-8) out.set(1, 0, 0).addScaledVector(a, -a.x)
+    if (out.lengthSq() < 1e-8) out.set(0, 0, 1)
+    return out.normalize()
   }
 
   /** Translucent ghost of the element a pending fit produced. */
@@ -1327,8 +2070,12 @@ export class SceneManager {
     this.fieldColors = colors
     if (!this.colorAttr) return
     const arr = this.colorAttr.array as Uint8Array
-    if (colors && colors.length === arr.length) arr.set(colors)
-    else this.repaintFromElements(arr)
+    if (colors && colors.length === arr.length) {
+      arr.set(colors)
+      // The marking sits above the map: re-scaling the colours must not rub
+      // out the surface a fine fit is about to be run on.
+      this.applyPaint(arr)
+    } else this.repaintFromElements(arr)
     this.colorAttr.needsUpdate = true
   }
 
@@ -1341,7 +2088,7 @@ export class SceneManager {
       arr[v * 3 + 1] = c[1]
       arr[v * 3 + 2] = c[2]
     }
-    this.paintPreview(arr)
+    this.paintOverlays(arr)
   }
 
   /** Switch the surface tint of the given elements off (and everyone else's
@@ -1379,6 +2126,11 @@ export class SceneManager {
     this.owner = null
     this.elementColors.clear()
     this.previewRegion = null
+    this.paintMask = null
+    this.paintCount = 0
+    this.painting = false
+    this.paintLast = null
+    this.endMarquee()
   }
 
   private resize(): void {
@@ -1392,6 +2144,8 @@ export class SceneManager {
   dispose(): void {
     cancelAnimationFrame(this.rafId)
     this.resizeObserver.disconnect()
+    document.removeEventListener('pointermove', this.onPaintMove)
+    document.removeEventListener('pointerup', this.onPaintUp)
     // The navigator listens on the document so drags can leave the canvas;
     // nothing else takes those down with the container.
     this.nav.dispose()
@@ -1400,6 +2154,8 @@ export class SceneManager {
     this.setProbes([])
     this.setPickMarkers([])
     this.probeGeometry.dispose()
+    this.brushRing.geometry.dispose()
+    this.brushRingMaterial.dispose()
     for (const d of this.gizmoDisposables) d.dispose()
     this.unitSphere.dispose()
     this.unitCylinder.dispose()

@@ -63,12 +63,22 @@ export interface Draft {
   /** Creation method id — see CREATION_METHODS. */
   method: string
   picks: [number, number, number][]
+  /** The surface marked by hand, when the fit came from the brush rather than
+   *  from a click. Carried into the element so a change of outlier cut-off
+   *  re-fits on exactly the same points. */
+  selection?: Uint32Array
   refs: (number | null)[]
   params: number[]
   status: 'empty' | 'fitting' | 'ready' | 'failed'
   fit?: FitData
   message?: string
 }
+
+/** How the surface a fit is measured on gets chosen: click a point and let the
+ *  tool find the feature, or mark the surface by hand. A tool setting rather
+ *  than a property of one element, because it is a way of working — whoever
+ *  paints one cylinder will paint the next one too. */
+export type SelectMode = 'auto' | 'paint'
 
 /** The 3-2-1 alignment being set up: per slot either an existing element or
  *  points picked straight on the scan (3 span the levelling plane, 2 the
@@ -276,7 +286,14 @@ interface AppState {
   nextDimensionId: number
   nextOfDimGroup: Record<'distance' | 'angle', number>
   settings: FitSettings
+  /** Where a fit gets its surface from — see SelectMode. Marking one by hand
+   *  uses the shared tools in markStore, the same ones the deviation
+   *  workspace's local fine fit is marked with. */
+  selectMode: SelectMode
   showOverlays: boolean
+  /** Colour the far side of every triangle differently, so holes and inverted
+   *  normals stop reading as solid part. */
+  showBackfaces: boolean
   /** Id of the mouse navigation scheme (see viewer/navSchemes). Remembered per
    *  browser, because which buttons orbit is a habit from whichever CAD the
    *  user came from, not a property of the part on screen. */
@@ -289,7 +306,7 @@ interface AppState {
   beginLoad: (name: string) => void
   finishLoad: (vertexCount: number, triangleCount: number, modelSize: number) => void
   loadFailed: (message: string) => void
-  markFitting: (id: number, seeds: number[]) => void
+  markFitting: (id: number, seeds: number[], selection?: Uint32Array) => void
   resolveFit: (id: number, r: FitOutput) => void
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
@@ -298,6 +315,9 @@ interface AppState {
   startDraft: (kind: ElementKind) => void
   setDraftMethod: (method: string) => void
   setDraftPicks: (picks: [number, number, number][]) => void
+  /** The hand-marked surface a draft's fit is running on, or null when the
+   *  marking has been cleared. */
+  setDraftSelection: (selection: Uint32Array | null) => void
   setDraftRef: (slot: number, id: number | null) => void
   setDraftParam: (index: number, value: number) => void
   resolveDraft: (r: FitOutput) => void
@@ -337,7 +357,9 @@ interface AppState {
   removeDimension: (id: number) => void
   toggleDimensionVisible: (id: number) => void
   setSigma: (k: SigmaPreset) => void
+  setSelectMode: (mode: SelectMode) => void
   setShowOverlays: (v: boolean) => void
+  setShowBackfaces: (v: boolean) => void
   setNavScheme: (id: string) => void
   openImprint: (v: boolean) => void
 }
@@ -382,7 +404,9 @@ export const useStore = create<AppState>()((set, get) => ({
   nextDimensionId: 1,
   nextOfDimGroup: { distance: 1, angle: 1 },
   settings: { method: 'gaussian', sigma: 3 },
+  selectMode: 'auto',
   showOverlays: true,
+  showBackfaces: false,
   navScheme: storedNavScheme(),
   imprintOpen: false,
 
@@ -408,17 +432,23 @@ export const useStore = create<AppState>()((set, get) => ({
       triangleCount: 0,
     }),
 
+  // The brush is sized to the part it will be used on — see markStore, which
+  // holds it for both workspaces.
   finishLoad: (vertexCount, triangleCount, modelSize) =>
     set({ busy: false, vertexCount, triangleCount, modelSize }),
 
   loadFailed: (message) =>
     set({ busy: false, fileName: null, statusText: '', errorText: message }),
 
-  markFitting: (id, seeds) =>
+  markFitting: (id, seeds, selection) =>
     set((s) => ({
       elements: s.elements.map((e) =>
         e.id === id
-          ? { ...e, source: { type: 'fitted' as const, seeds }, status: 'fitting' as const }
+          ? {
+              ...e,
+              source: { type: 'fitted' as const, seeds, selection },
+              status: 'fitting' as const,
+            }
           : e,
       ),
     })),
@@ -519,6 +549,21 @@ export const useStore = create<AppState>()((set, get) => ({
         : {},
     ),
 
+  setDraftSelection: (selection) =>
+    set((s) =>
+      s.draft
+        ? {
+            draft: {
+              ...s.draft,
+              selection: selection ?? undefined,
+              fit: undefined,
+              message: undefined,
+              status: selection ? ('fitting' as const) : ('empty' as const),
+            },
+          }
+        : {},
+    ),
+
   setDraftRef: (slot, id) =>
     set((s) => {
       if (!s.draft) return {}
@@ -558,7 +603,9 @@ export const useStore = create<AppState>()((set, get) => ({
     const m = creationMethod(d.kind, d.method)
     const source: ElementSource =
       m.mode === 'fit'
-        ? { type: 'fitted', seeds: d.picks.flat() }
+        ? d.selection
+          ? { type: 'fitted', seeds: [], selection: d.selection }
+          : { type: 'fitted', seeds: d.picks.flat() }
         : m.mode === 'pick'
           ? { type: 'picked' }
           : { type: 'constructed', method: d.method, refs: d.refs as number[], params: d.params }
@@ -817,7 +864,9 @@ export const useStore = create<AppState>()((set, get) => ({
     })),
 
   setSigma: (sigma) => set((s) => ({ settings: { ...s.settings, sigma } })),
+  setSelectMode: (selectMode) => set({ selectMode }),
   setShowOverlays: (showOverlays) => set({ showOverlays }),
+  setShowBackfaces: (showBackfaces) => set({ showBackfaces }),
   setNavScheme: (navScheme) => {
     try {
       localStorage.setItem(NAV_SCHEME_KEY, navScheme)

@@ -58,6 +58,16 @@ If a copyleft component is ever genuinely needed, the options are: isolate it
 behind a process/network boundary as an optional component, buy a commercial
 license for it, or write our own. Ask first.
 
+**The one AGPL dependency is our own.** [`meshstep`](https://github.com/CNCKitchen/meshStep)
+— the STEP importer behind the CAD reference geometry — is AGPL-3.0-only, and
+lands here under the fourth option above: we wrote it, so a commercial
+exception for this app can cover it too. That is the whole of the exemption:
+"AGPL code we don't own" above still means never. It is excluded by exact
+version in the CI allowlist and pinned without a caret in `package.json`, so
+upgrading it is a deliberate edit in both files — appropriate for the code
+that decides how an exact CAD surface becomes triangles a measurement is taken
+against.
+
 Assets follow the same rule with one carve-out: the bundled fonts in
 [public/fonts/](public/fonts/) are SIL OFL 1.1, which permits bundling with
 software of any license as long as the font files keep their own license text

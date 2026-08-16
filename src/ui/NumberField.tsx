@@ -3,7 +3,8 @@
 // never re-scales a map mid-keystroke. Shared by every workspace that puts a
 // figure in front of the user to change.
 
-import { useRef } from 'react'
+import { useRef, type ReactNode } from 'react'
+import { InfoDot } from './InfoDot'
 
 export function NumberField({
   label,
@@ -23,13 +24,17 @@ export function NumberField({
   unit: string
   disabled?: boolean
   onCommit: (v: number) => void
-  hint?: string
+  /** What the number does, on the ⓘ key beside its label. */
+  hint?: ReactNode
   testId?: string
 }) {
   const ref = useRef<HTMLInputElement>(null)
   return (
-    <label className="field" title={hint}>
-      <span>{label}</span>
+    <label className="field">
+      <span>
+        {label}
+        {hint !== undefined && <InfoDot title={label}>{hint}</InfoDot>}
+      </span>
       <span className="unitfield">
         <input
           ref={ref}

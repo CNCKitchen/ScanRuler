@@ -3,6 +3,7 @@
 // workspaces, so a scan is opened the same way whichever one you are in.
 
 import { useRef } from 'react'
+import { MESH_ACCEPT, MESH_FORMATS } from '../core/formats'
 
 export function ModelSlot({
   role,
@@ -10,6 +11,8 @@ export function ModelSlot({
   detail,
   dotColor,
   busy,
+  accept = MESH_ACCEPT,
+  formats = MESH_FORMATS,
   onOpen,
 }: {
   role: string
@@ -17,6 +20,10 @@ export function ModelSlot({
   detail: string
   dotColor: string
   busy: boolean
+  /** What the file picker offers. The reference slot takes CAD as well. */
+  accept?: string
+  /** The same list in prose, for the empty slot. */
+  formats?: string
   onOpen: (file: File) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
@@ -25,7 +32,7 @@ export function ModelSlot({
       <input
         ref={inputRef}
         type="file"
-        accept=".stl,.ply,.obj"
+        accept={accept}
         hidden
         onChange={(e) => {
           const f = e.target.files?.[0]
@@ -39,7 +46,7 @@ export function ModelSlot({
       />
       <div className="slotname">
         <b title={name ?? undefined}>{name ?? `No ${role.toLowerCase()} loaded`}</b>
-        <span>{name ? detail : 'STL, PLY or OBJ · mm'}</span>
+        <span>{name ? detail : formats}</span>
       </div>
       <button
         data-test={`open-${role.toLowerCase()}`}

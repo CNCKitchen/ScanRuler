@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
+import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { ElementKind, FitOutput, FitSettings } from './types'
 
@@ -13,9 +14,30 @@ export type WorkerRequest =
       seeds: number[]
       settings: FitSettings
     }
+  /** Fit to a surface the user marked by hand: the vertices are the region,
+   *  so nothing is searched for or grown. */
+  | {
+      type: 'fit-selection'
+      requestId: number
+      elementType: ElementKind
+      vertices: Uint32Array
+      settings: FitSettings
+    }
   | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer }
   | { type: 'align'; requestId: number; mode: 'auto' }
   | { type: 'align'; requestId: number; mode: 'points'; pairs: PointPair[] }
+  /** Fine tuning on the surface the user marked, from the fit already in
+   *  hand. The starting pose travels with the request because the worker
+   *  holds no alignment of its own — the scan's vertices never move for a
+   *  scan-to-reference fit, only the transform reported back does. */
+  | {
+      type: 'align'
+      requestId: number
+      mode: 'local'
+      vertices: Uint32Array
+      start: Rigid
+      maxDistance: number
+    }
   | { type: 'deviate'; requestId: number; transform: Rigid }
   /** Wall thickness of the scan itself — no reference model involved. The
    *  settings that shape the search travel with the request: all of them
@@ -55,6 +77,9 @@ export type WorkerResponse =
       vertexCount: number
       triangleCount: number
       bboxDiagonal: number
+      /** Present only when the reference was tessellated from a STEP file:
+       *  how finely, and whether the conversion can be trusted. */
+      step?: StepInfo
     }
   | {
       /** A pose from part-way through the refinement, so the viewport can show

@@ -6,14 +6,62 @@
    labels, B612 Mono (the Airbus cockpit face) for all data. All three are
    SIL OFL 1.1, self-hosted from /fonts (licenses alongside the files). */
 
-@font-face { font-family: "Barlow"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/barlow-400.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/barlow-500.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/barlow-600.woff2") format("woff2"); }
-@font-face { font-family: "Barlow"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/barlow-700.woff2") format("woff2"); }
-@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 500; font-display: swap; src: url("/fonts/barlow-semi-condensed-500.woff2") format("woff2"); }
-@font-face { font-family: "Barlow Semi Condensed"; font-style: normal; font-weight: 600; font-display: swap; src: url("/fonts/barlow-semi-condensed-600.woff2") format("woff2"); }
-@font-face { font-family: "B612 Mono"; font-style: normal; font-weight: 400; font-display: swap; src: url("/fonts/b612-mono-400.woff2") format("woff2"); }
-@font-face { font-family: "B612 Mono"; font-style: normal; font-weight: 700; font-display: swap; src: url("/fonts/b612-mono-700.woff2") format("woff2"); }
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/barlow-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/barlow-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Semi Condensed';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/barlow-semi-condensed-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Barlow Semi Condensed';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/barlow-semi-condensed-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'B612 Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/b612-mono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'B612 Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/b612-mono-700.woff2') format('woff2');
+}
 
 :root {
   --chassis: #e7e6e1; /* instrument housing */
@@ -32,9 +80,9 @@
   --red: #b3361c;
   --amber: #c97b10;
   --strip: #26282a; /* machine status strip */
-  --ui: "Barlow", "Segoe UI", system-ui, sans-serif;
-  --cond: "Barlow Semi Condensed", var(--ui);
-  --mono: "B612 Mono", Consolas, "Cascadia Mono", monospace;
+  --ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
+  --cond: 'Barlow Semi Condensed', var(--ui);
+  --mono: 'B612 Mono', Consolas, 'Cascadia Mono', monospace;
   --r: 3px;
   --inset: inset 0 1px 2px rgba(0, 0, 0, 0.06);
 }
@@ -200,6 +248,99 @@ button.ghost {
   background: var(--panel);
 }
 
+/* ---------------- the ⓘ key and its card ---------------- */
+
+/* Sits directly after the label it belongs to, at the weight of a punctuation
+   mark: present enough to be found, quiet enough that a faceplate full of them
+   still reads as controls. It lights up once it has been opened. */
+button.infodot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--dim);
+  font-family: var(--cond);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: -2px;
+}
+
+button.infodot:hover:not(:disabled),
+button.infodot.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.infodot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The dot follows the label it explains, so everywhere but a .sec-head — which
+   already spaces its children — it carries a word's worth of gap itself. */
+.hint button.infodot {
+  margin-left: 3px;
+}
+
+.field > span button.infodot,
+.checkrow button.infodot,
+.g-label button.infodot {
+  margin-left: 5px;
+}
+
+/* Wider than the panel on purpose — it is portalled to the body so that an
+   explanation is not squeezed into a 306 px column. */
+.infocard {
+  position: fixed;
+  z-index: 60;
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  padding: 13px 15px 15px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.17);
+}
+
+.infocard > b {
+  display: block;
+  font-family: var(--cond);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink);
+  margin-bottom: 7px;
+}
+
+.infocard-body {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+.infocard-body p {
+  margin: 0 0 7px;
+}
+
+.infocard-body p:last-child {
+  margin-bottom: 0;
+}
+
+.infocard-body b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 button.block {
   display: block;
   width: 100%;
@@ -237,7 +378,7 @@ button.x:hover:not(:disabled) {
   background: var(--well-deep);
 }
 
-input[type="checkbox"] {
+input[type='checkbox'] {
   accent-color: var(--accent);
 }
 
@@ -271,10 +412,15 @@ select:disabled {
   gap: 13px;
 }
 
+/* Every section is one tool, and the rule down its left edge says where that
+   tool starts and stops — the panel is a stack of instruments, not one long
+   form. */
 .group {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding-left: 9px;
+  border-left: 2px solid var(--line);
 }
 
 /* Small-caps rule between sections — the panel's only headings. */
@@ -319,6 +465,17 @@ select:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+/* A tally beside the heading — pushed to the far end of the rule. */
+.sec-head > b {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--dim);
+}
+
 .hint {
   font-size: 11.5px;
   color: var(--dim);
@@ -329,6 +486,14 @@ select:disabled {
 .divider {
   border-top: 1px solid var(--line);
   margin: 2px 0;
+}
+
+/* What a panel offers once the measuring is done — below the rule that closes
+   the last section, and outside the sections' own left rules. */
+.tailrow {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
 }
 
 .field {
@@ -344,9 +509,13 @@ select:disabled {
   white-space: nowrap;
 }
 
+/* Preferred width, not a fixed one: a long label — "Max. deviation of
+   normals", with its ⓘ key after it — would otherwise push the control off the
+   edge of the panel rather than take the space from it. */
 .field select {
   width: 172px;
-  flex: none;
+  flex: 0 1 172px;
+  min-width: 108px;
 }
 
 .toolrow {
@@ -358,6 +527,49 @@ select:disabled {
   flex: 1;
   white-space: nowrap;
   padding: 6px 8px;
+}
+
+/* Steps of the workflow that are not the one in hand — everything but the
+   local fine fit, while its marking tools are out. Faded back rather than
+   disabled: none of it stops working, and any of it comes straight back under
+   the pointer or the moment something inside takes focus. Greying a control
+   out that still responds would be the worse lie. */
+.muted {
+  opacity: 0.38;
+  filter: saturate(0.5);
+  transition:
+    opacity 130ms ease,
+    filter 130ms ease;
+}
+
+.muted:hover,
+.muted:focus-within {
+  opacity: 1;
+  filter: none;
+}
+
+/* A mode selector of more keys than fit across the faceplate — the marking
+   gestures, where one of the four is always the live one. Two rows rather
+   than four cramped columns, so each key can say what it is. */
+.moderow {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.moderow button {
+  white-space: nowrap;
+  padding: 6px 8px;
+}
+
+/* A latching key in the panel — the erase switch of the surface brush. It has
+   to read as held down, not merely hovered. */
+.moderow button.on,
+.toolrow button.on {
+  color: var(--accent-d);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
 }
 
 .checkrow {
@@ -635,6 +847,33 @@ button.x.eye:hover:not(:disabled) {
   display: block;
 }
 
+/* The window / lasso outline, drawn over the canvas while it is being
+   dragged. Dashed and unfilled-but-for-a-wash, so the surface it is about to
+   take stays readable underneath it. */
+.marquee {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.marquee polygon {
+  fill: rgba(255, 255, 255, 0.14);
+  stroke: #12161a;
+  stroke-width: 1.25;
+  stroke-dasharray: 5 3;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Rubbing out reads inverted: the same outline, in the tone of surface being
+   handed back rather than taken. */
+.marquee polygon.erase {
+  fill: rgba(18, 22, 26, 0.16);
+  stroke: #fbfaf7;
+}
+
 /* Empty bench: the stage says what it is waiting for. */
 .stagehint {
   position: absolute;
@@ -671,23 +910,47 @@ button.x.eye:hover:not(:disabled) {
   text-overflow: ellipsis;
 }
 
-.busychip {
+/* Reading a file or grinding on the mesh: said in the middle of the viewport,
+   where the user is already looking. It never takes the pointer — the camera
+   keeps working while the worker does. */
+.busyoverlay {
   position: absolute;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  inset: 0;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 5px 14px;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 8;
+}
+
+.busycard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100% - 48px));
+  padding: 20px 26px;
   font-family: var(--mono);
-  font-size: 11px;
-  background: rgba(252, 252, 250, 0.94);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-align: center;
+  background: rgba(252, 252, 250, 0.96);
   border: 1px solid var(--line);
   border-radius: var(--r);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-  pointer-events: none;
-  z-index: 5;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+}
+
+.busycard b {
+  font-weight: 700;
+}
+
+.busynote {
+  font-family: var(--ui);
+  font-size: 11.5px;
+  letter-spacing: 0;
+  line-height: 1.4;
+  color: var(--dim);
 }
 
 .toast {
@@ -763,15 +1026,8 @@ button.x.eye:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.32);
 }
 
-.supportbanner ~ .busychip,
 .supportbanner ~ .toast {
   bottom: 56px;
-}
-
-/* Banner and busy chip both up: the toast clears the raised chip instead of
-   landing on it. */
-.supportbanner ~ .busychip ~ .toast {
-  bottom: 92px;
 }
 
 .drop-overlay {
@@ -982,6 +1238,13 @@ button.x.eye:hover:not(:disabled) {
   animation: spin 0.7s linear infinite;
 }
 
+/* The viewport's own: big enough to be the thing you see, not a detail. */
+.spinner.big {
+  width: 30px;
+  height: 30px;
+  border-width: 3px;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -1141,6 +1404,7 @@ button.x.eye:hover:not(:disabled) {
    depressed key is the workspace you are in. */
 .modeswitch {
   display: flex;
+  flex: none; /* two-word labels must not be squeezed by the part chip */
   margin-left: 4px;
   border: 1px solid var(--line-strong);
   border-radius: var(--r);
@@ -1161,6 +1425,7 @@ button.x.eye:hover:not(:disabled) {
   text-transform: uppercase;
   color: var(--dim);
   padding: 5px 13px;
+  white-space: nowrap;
 }
 
 .modeswitch button + button {
@@ -1199,7 +1464,7 @@ button.x.eye:hover:not(:disabled) {
   border-radius: 0 var(--r) var(--r) 0;
 }
 
-.field input[type="number"] {
+.field input[type='number'] {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink);
@@ -1209,7 +1474,8 @@ button.x.eye:hover:not(:disabled) {
   padding: 5px 7px;
   box-shadow: var(--inset);
   width: 172px;
-  flex: none;
+  flex: 0 1 172px;
+  min-width: 108px;
 }
 
 .slider {
@@ -1572,11 +1838,12 @@ button.x.eye:hover:not(:disabled) {
    what it is measured in is the reason to have this at all. */
 .unitfield {
   position: relative;
-  flex: none;
+  flex: 0 1 172px;
   width: 172px;
+  min-width: 108px;
 }
 
-.unitfield input[type="number"] {
+.unitfield input[type='number'] {
   width: 100%;
   padding-right: 30px;
 }
@@ -1664,7 +1931,9 @@ button.x.eye:hover:not(:disabled) {
   background: var(--panel);
   border: 1px dashed var(--line-strong);
   border-radius: 5px;
-  transition: border-color 120ms, background 120ms;
+  transition:
+    border-color 120ms,
+    background 120ms;
 }
 
 .starttile.over {
