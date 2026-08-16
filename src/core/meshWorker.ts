@@ -5,6 +5,7 @@ import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
 import { parseSTEP, type StepInfo } from './parsers/step'
+import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
@@ -26,10 +27,6 @@ let scanSolid: MeshBVH | null = null
 
 function post(msg: WorkerResponse, transfer: Transferable[] = []): void {
   ;(self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(msg, transfer)
-}
-
-function extensionOf(name: string): string {
-  return name.split('.').pop()?.toLowerCase() ?? ''
 }
 
 function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) => void): ParsedMesh {

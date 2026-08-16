@@ -142,7 +142,8 @@ export function computeThickness(
       if (coneRays > 0 && best > epsilon) {
         // Any two directions perpendicular to the axis will do; building the
         // first from the axis's own smallest component keeps the cross product
-        // well away from degenerate.
+        // well away from degenerate. This is fit/linalg's orthoBasis unrolled
+        // onto scalars — deliberately, this loop runs per vertex.
         const ax = Math.abs(dx)
         const ay = Math.abs(dy)
         const az = Math.abs(dz)

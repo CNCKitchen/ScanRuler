@@ -272,9 +272,11 @@ export class NominalSurface {
       case Feature.EdgeAB:
       case Feature.EdgeAC:
       case Feature.EdgeBC: {
-        const pair =
-          s[3] === Feature.EdgeAB ? [ia, ib] : s[3] === Feature.EdgeAC ? [ia, ic] : [ib, ic]
-        const id = this.edgeId.get(this.edgeKey(pair[0], pair[1]))
+        // Plain locals: this runs millions of times per map, so even a
+        // two-element array here would dominate the allocator.
+        const e0 = s[3] === Feature.EdgeBC ? ib : ia
+        const e1 = s[3] === Feature.EdgeAB ? ib : ic
+        const id = this.edgeId.get(this.edgeKey(e0, e1))
         if (id === undefined) {
           nx = this.faceNormal[f * 3]
           ny = this.faceNormal[f * 3 + 1]
