@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { parseSTL } from '../src/core/parsers/stl'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { mulberry32 } from '../src/core/fit/ransac'
@@ -81,8 +81,15 @@ function rotated(normals: Float32Array, pose: Rigid): Float32Array {
 }
 
 describe.skipIf(!NOMINAL.exists)('best fit to a nominal part', () => {
-  const nominalGraph = load(NOMINAL.path)
-  const surface = new NominalSurface(nominalGraph.positions, nominalGraph.indices)
+  // Loaded in beforeAll rather than the describe body: the body runs during
+  // collection even when the suite is skipped, so an eager load would throw
+  // ENOENT wherever the fixture is absent.
+  let nominalGraph: MeshGraph
+  let surface: NominalSurface
+  beforeAll(() => {
+    nominalGraph = load(NOMINAL.path)
+    surface = new NominalSurface(nominalGraph.positions, nominalGraph.indices)
+  })
 
   it('recovers a random pose of the nominal against itself', () => {
     const rand = mulberry32(2024)
@@ -138,7 +145,10 @@ describe.skipIf(!NOMINAL.exists)('best fit to a nominal part', () => {
   })
 
   describe.skipIf(!SCAN.exists)('against the real scan', () => {
-    const scanGraph = load(SCAN.path)
+    let scanGraph: MeshGraph
+    beforeAll(() => {
+      scanGraph = load(SCAN.path)
+    })
 
     it('recovers a random pose of the scan and measures the same part', () => {
       // Aligned in place first: the two files ship in a shared frame, so this
