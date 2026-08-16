@@ -14,7 +14,18 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e:smoke": "node scripts/e2e-smoke.mjs",
+    "e2e:align": "node scripts/e2e-align.mjs",
+    "e2e:align-live": "node scripts/e2e-align-live.mjs",
+    "e2e:nav": "node scripts/e2e-nav.mjs",
+    "e2e:edit": "node scripts/e2e-edit.mjs",
+    "e2e:paint": "node scripts/e2e-paint.mjs",
+    "e2e:extend": "node scripts/e2e-extend.mjs",
+    "e2e:deviation": "node scripts/e2e-deviation.mjs",
+    "e2e:thickness": "node scripts/e2e-thickness.mjs",
+    "e2e:step": "node scripts/e2e-step.mjs",
+    "e2e:local-fit": "node scripts/e2e-local-fit.mjs"
   },
   "dependencies": {
     "meshstep": "0.1.1",

@@ -11,14 +11,22 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
 import { importStep, writeBinarySTL } from 'meshstep'
 import { cylinderStep } from '../tests/stepFixtures.ts'
+import {
+  canvasRect,
+  check,
+  click,
+  fail,
+  finish,
+  launchApp,
+  loadScan,
+  repoFile,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const STL = process.env.STL ?? fileURLToPath(new URL('../block-marius.stl', import.meta.url))
+const STL = process.env.STL ?? repoFile('block-marius.stl')
 
 /** The second half of the test needs a cylinder big enough to aim at, so it
  *  builds its own: a Ø40 × 40 mm bar, tessellated finely out of the same
@@ -35,50 +43,11 @@ writeFileSync(
     writeBinarySTL(importStep(cylinderStep(ROD_R, ROD_H), { surfaceDeviation: 0.02, maxEdge: 2 }).mesh),
   ),
 )
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const fail = (msg) => {
-  console.log(`FAIL: ${msg}`)
-  process.exitCode = 1
-}
-const check = (ok, msg) => (ok ? console.log(`PASS: ${msg}`) : fail(msg))
+const { browser, page, consoleErrors } = await launchApp()
+await loadScan(page, STL)
+const rect = await canvasRect(page)
 
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1500,950', '--no-sandbox'],
-  defaultViewport: { width: 1500, height: 950 },
-})
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
-
-const input = await page.$('input[type=file]')
-await input.uploadFile(STL)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 120_000 },
-)
-console.log('loaded:', await page.$eval('.file-info', (el) => el.textContent))
-await sleep(800)
-
-const rect = await page.$eval('.viewport canvas', (el) => {
-  const r = el.getBoundingClientRect()
-  return { x: r.x, y: r.y, w: r.width, h: r.height }
-})
-
-const click = async (sel) => {
-  await page.waitForSelector(sel, { timeout: 10_000 })
-  await page.click(sel)
-}
 const saveEnabled = (timeout = 30_000) =>
   page
     .waitForSelector('[data-test="create-element"]:not([disabled])', { timeout })
@@ -124,11 +93,11 @@ async function fitPlane() {
     [0.62, 0.42],
   ]
   for (const [fx, fy] of spots) {
-    await click('[data-test="fit-plane"]')
+    await click(page, '[data-test="fit-plane"]')
     await page.mouse.click(rect.x + rect.w * fx, rect.y + rect.h * fy)
     await sleep(350)
     if (await saveEnabled(4_000)) return [rect.x + rect.w * fx, rect.y + rect.h * fy]
-    await click('[data-test="cancel-draft"]').catch(() => {})
+    await click(page, '[data-test="cancel-draft"]').catch(() => {})
   }
   return null
 }
@@ -169,7 +138,7 @@ check(
 
 // ---- square it, then put it back -------------------------------------------
 
-await click('[data-test="extend-square"]')
+await click(page, '[data-test="extend-square"]')
 await sleep(150)
 const squared = await drawnSize()
 check(Math.abs(squared[0] - squared[1]) < 0.02, `Make square squares the patch (${squared})`)
@@ -178,7 +147,7 @@ check(
   'squaring only ever grows the patch',
 )
 
-await click('[data-test="extend-reset"]')
+await click(page, '[data-test="extend-reset"]')
 await sleep(150)
 const reset = await drawnSize()
 check(
@@ -248,12 +217,12 @@ if (grip) {
 // ---- keep it, and get it back ----------------------------------------------
 
 const beforeSave = await fieldValues()
-await page.screenshot({ path: `${SHOT_DIR}/e2e-extend-grips.png` })
-await click('[data-test="create-element"]')
+await page.screenshot({ path: shotPath('e2e-extend-grips.png') })
+await click(page, '[data-test="create-element"]')
 await sleep(400)
-await page.screenshot({ path: `${SHOT_DIR}/e2e-extend.png` })
+await page.screenshot({ path: shotPath('e2e-extend.png') })
 
-await click('[data-test="edit-element"]')
+await click(page, '[data-test="edit-element"]')
 await sleep(500)
 await page.waitForSelector('[data-test="extend-uMin"]', { timeout: 10_000 })
 const reopened = await fieldValues()
@@ -268,7 +237,7 @@ check(
   Math.abs(measuredAgain[0] - measured[0]) < 1e-9 && Math.abs(measuredAgain[1] - measured[1]) < 1e-9,
   `the saved element goes on reporting the patch it was measured on (${measuredAgain})`,
 )
-await click('[data-test="cancel-draft"]')
+await click(page, '[data-test="cancel-draft"]')
 
 // ---- the other shape: a cylinder, which grows out of its two ends ----------
 //
@@ -277,21 +246,16 @@ await click('[data-test="cancel-draft"]')
 
 await page.reload({ waitUntil: 'networkidle0' })
 await page.waitForSelector('.panel')
-await (await page.$('input[type=file]')).uploadFile(ROD)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 120_000 },
-)
-await sleep(800)
+await loadScan(page, ROD, { settle: 800 })
 
 async function fitCylinder() {
   for (const fy of [0.5, 0.46, 0.54, 0.42, 0.58]) {
     for (const fx of [0.5, 0.42, 0.58, 0.35, 0.65]) {
-      await click('[data-test="fit-cylinder"]')
+      await click(page, '[data-test="fit-cylinder"]')
       await page.mouse.click(rect.x + rect.w * fx, rect.y + rect.h * fy)
       await sleep(350)
       if (await saveEnabled(5_000)) return [rect.x + rect.w * fx, rect.y + rect.h * fy]
-      await click('[data-test="cancel-draft"]').catch(() => {})
+      await click(page, '[data-test="cancel-draft"]').catch(() => {})
     }
   }
   return null
@@ -319,7 +283,7 @@ if (onRod) {
   await setField('start', -1e6)
   const clamped = await lengthOf()
   check(clamped > 0 && clamped < 0.01, `shrinking past the end stops at nothing (${clamped} mm)`)
-  await click('[data-test="extend-reset"]')
+  await click(page, '[data-test="extend-reset"]')
   await sleep(150)
   check(Math.abs((await lengthOf()) - length0) < 0.02, 'Reset gives the measured length back')
 
@@ -350,10 +314,8 @@ if (onRod) {
     }
     check(pulled !== null, pulled ? `dragging an end typed itself into the fields: ${pulled}` : 'dragging the end grip changed nothing')
     check(Math.abs((await lengthOf()) - length0) > 0.05, 'and the rod on screen grew with it')
-    await page.screenshot({ path: `${SHOT_DIR}/e2e-extend-cylinder.png` })
+    await page.screenshot({ path: shotPath('e2e-extend-cylinder.png') })
   }
 }
 
-check(consoleErrors.length === 0, `no console errors${consoleErrors.length ? `: ${consoleErrors[0]}` : ''}`)
-await browser.close()
-console.log(process.exitCode ? 'FAILED' : 'ALL PASS')
+await finish(browser, consoleErrors)

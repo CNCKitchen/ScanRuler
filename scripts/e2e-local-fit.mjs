@@ -8,49 +8,36 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-local-fit.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SCAN, NOMINAL, SHOT_DIR.
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
+import {
+  check,
+  drag as libDrag,
+  finish,
+  launchApp,
+  loadScan,
+  repoFile,
+  requireFixture,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const SCAN = process.env.SCAN ?? fileURLToPath(new URL('../block-marius.stl', import.meta.url))
-const NOMINAL =
-  process.env.NOMINAL ?? fileURLToPath(new URL('../side bracket left.stl', import.meta.url))
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+const SCAN = process.env.SCAN ?? repoFile('block-marius.stl')
+const NOMINAL = process.env.NOMINAL ?? repoFile('side bracket left.stl')
+requireFixture(NOMINAL)
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-let failed = false
-const check = (ok, what) => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}: ${what}`)
-  if (!ok) failed = true
-}
-
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1600,1000', '--no-sandbox'],
-  defaultViewport: { width: 1600, height: 1000 },
+const { browser, page, consoleErrors } = await launchApp({
+  width: 1600,
+  height: 1000,
   protocolTimeout: 600_000,
 })
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
 
 // ---- both models, global fit, map -----------------------------------------
 await page.click('[data-test=workspace-deviation]')
 await page.waitForSelector('[data-test=start-pane]')
-await (await page.$('[data-test=start-scan] input[type=file]')).uploadFile(SCAN)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 300_000 },
-)
+await loadScan(page, SCAN, {
+  inputSelector: '[data-test=start-scan] input[type=file]',
+  timeout: 300_000,
+  settle: 0,
+})
 await (await page.$('[data-test=start-reference] input[type=file]')).uploadFile(NOMINAL)
 await page.waitForFunction(
   () => document.querySelector('[data-test=align-auto]')?.disabled === false,
@@ -66,7 +53,7 @@ await page.waitForFunction(() => !document.querySelector('[data-test=fitting-chi
 await sleep(700)
 const globalRms = await page.$eval('[data-test=align-rms] b', (el) => Number(el.textContent))
 console.log(`global fit: ${globalRms} mm RMS`)
-await page.screenshot({ path: `${SHOT_DIR}/local-00-global.png` })
+await page.screenshot({ path: shotPath('local-00-global.png') })
 
 // ---- the marking tools ----------------------------------------------------
 const canvas = await page.$eval('.viewslot canvas', (el) => {
@@ -122,23 +109,16 @@ await page.mouse.up()
 await sleep(400)
 check((await gizmoFingerprint()) !== beforeOrbit, 'left-drag still orbits with no gesture armed')
 check((await marked()) === 0, 'orbiting marked nothing')
-await page.screenshot({ path: `${SHOT_DIR}/local-01-idle-orbit.png` })
+await page.screenshot({ path: shotPath('local-01-idle-orbit.png') })
 await page.click('[data-test=mark-window]')
 await sleep(150)
 check((await liveGesture()) === 'window', 'the window tool arms when picked')
 
 /** Drag between two fractional stage positions with the given button. */
-async function drag(from, to, { button = 'left', steps = 12 } = {}) {
+const drag = (from, to, { button = 'left' } = {}) => {
   const a = at(...from)
   const b = at(...to)
-  await page.mouse.move(a.x, a.y)
-  await page.mouse.down({ button })
-  for (let i = 1; i <= steps; i++) {
-    await page.mouse.move(a.x + ((b.x - a.x) * i) / steps, a.y + ((b.y - a.y) * i) / steps)
-    await sleep(16)
-  }
-  await page.mouse.up({ button })
-  await sleep(300)
+  return libDrag(page, [a.x, a.y], [b.x, b.y], { button, steps: 12, settle: 300 })
 }
 
 // ---- window ---------------------------------------------------------------
@@ -148,7 +128,7 @@ await page.mouse.move(at(0.5, 0.45).x, at(0.5, 0.45).y)
 await sleep(120)
 const bandShown = await page.$eval('.marquee', (el) => el.style.display !== 'none')
 check(bandShown, 'the window outline is drawn while dragging')
-await page.screenshot({ path: `${SHOT_DIR}/local-02-window-drag.png` })
+await page.screenshot({ path: shotPath('local-02-window-drag.png') })
 await page.mouse.move(at(0.62, 0.6).x, at(0.62, 0.6).y)
 await page.mouse.up()
 await sleep(400)
@@ -163,7 +143,7 @@ check(
   await page.$eval('[data-test=local-fit]', (el) => !el.disabled),
   'the fit is offered once there is enough marked',
 )
-await page.screenshot({ path: `${SHOT_DIR}/local-03-window-marked.png` })
+await page.screenshot({ path: shotPath('local-03-window-marked.png') })
 
 // Escape hands the camera back without touching what is marked — the one
 // thing it must never do is throw a marking away.
@@ -194,7 +174,7 @@ await drag([0.4, 0.42], [0.55, 0.5])
 const afterBrush = await marked()
 console.log(`brush: ${beforeBrush} -> ${afterBrush}`)
 check(afterBrush > beforeBrush, 'the brush marks along a stroke')
-await page.screenshot({ path: `${SHOT_DIR}/local-04-brush.png` })
+await page.screenshot({ path: shotPath('local-04-brush.png') })
 
 // ---- lasso ----------------------------------------------------------------
 await page.click('[data-test=mark-lasso]')
@@ -221,7 +201,7 @@ await sleep(400)
 const afterLasso = await marked()
 console.log(`lasso: ${before} -> ${afterLasso}`)
 check(afterLasso > before, 'the lasso marks what it encloses')
-await page.screenshot({ path: `${SHOT_DIR}/local-05-lasso.png` })
+await page.screenshot({ path: shotPath('local-05-lasso.png') })
 
 // ---- back faces -----------------------------------------------------------
 await page.click('[data-test=mark-backfaces]')
@@ -262,7 +242,7 @@ check(
   'the readout says how much surface the fit used',
 )
 check(Boolean(await page.$('[data-test=deviation-legend]')), 'the map was measured again')
-await page.screenshot({ path: `${SHOT_DIR}/local-06-fitted.png` })
+await page.screenshot({ path: shotPath('local-06-fitted.png') })
 
 // The fit is done, so the camera gets its buttons back without being asked:
 // the result is the thing you want to turn round and look at.
@@ -286,7 +266,7 @@ check(
   (await page.$('[data-test=local-revert]')) === null,
   'nothing is left to revert to once it is back',
 )
-await page.screenshot({ path: `${SHOT_DIR}/local-07-reverted.png` })
+await page.screenshot({ path: shotPath('local-07-reverted.png') })
 
 // ---- putting the tools away -------------------------------------------------
 // Everything that is not this step should be faded back while the tools are
@@ -321,10 +301,4 @@ check(
   'the marking tools go away when asked',
 )
 
-const noise = consoleErrors.filter((t) => !/favicon|Download the React DevTools/i.test(t))
-check(noise.length === 0, `no console errors (${noise.length})`)
-for (const t of noise.slice(0, 5)) console.log('  ', t)
-
-await browser.close()
-console.log(failed ? 'FAILED' : 'ALL PASSED')
-process.exitCode = failed ? 1 : 0
+await finish(browser, consoleErrors)

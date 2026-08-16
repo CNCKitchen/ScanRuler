@@ -8,46 +8,26 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-nav.mjs
 // Env: CHROME (chrome.exe path), APP_URL, STL (scan path), SHOT_DIR.
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
+import {
+  canvasRect,
+  check,
+  drag as libDrag,
+  finish,
+  launchApp,
+  loadScan,
+  pixelDiff,
+  previewReady,
+  repoFile,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const STL = process.env.STL ?? fileURLToPath(new URL('../ballbar.stl', import.meta.url))
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+const STL = process.env.STL ?? repoFile('ballbar.stl')
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const { browser, page, consoleErrors } = await launchApp()
+await loadScan(page, STL)
 
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1500,950', '--no-sandbox'],
-  defaultViewport: { width: 1500, height: 950 },
-})
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
-
-const input = await page.$('input[type=file]')
-await input.uploadFile(STL)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 120_000 },
-)
-await sleep(800)
-console.log('loaded:', await page.$eval('.file-info', (el) => el.textContent))
-
-const rect = await page.$eval('.viewport canvas', (el) => {
-  const r = el.getBoundingClientRect()
-  return { x: r.x, y: r.y, w: r.width, h: r.height }
-})
+const rect = await canvasRect(page)
 const mid = [rect.x + rect.w / 2, rect.y + rect.h / 2]
 
 // The rendered frame is the only readable witness of the camera. It has to come
@@ -110,7 +90,7 @@ async function sample() {
   // Hand the centroid back in client coordinates, so a zoom can be anchored on
   // the part rather than on whatever empty space sits at the frame centre.
   const toClient = ([fx, fy]) => [CROP.x + fx * CROP.width, CROP.y + fy * CROP.height]
-  return { ...m, at: toClient([m.cx, m.cy]), spots: m.spots.map(toClient) }
+  return { ...m, png, at: toClient([m.cx, m.cy]), spots: m.spots.map(toClient) }
 }
 
 const canvasHash = async () => (await sample()).hash
@@ -131,27 +111,7 @@ const setScheme = async (id) => {
   console.log(`scheme ${id}: ${hint}`)
 }
 
-const drag = async (from, to, button) => {
-  await page.mouse.move(...from)
-  await page.mouse.down({ button })
-  // Several steps, so the gesture passes the click/drag threshold and the
-  // per-move maths runs the way it does under a real hand.
-  for (let i = 1; i <= 8; i++) {
-    await page.mouse.move(
-      from[0] + ((to[0] - from[0]) * i) / 8,
-      from[1] + ((to[1] - from[1]) * i) / 8,
-    )
-    await sleep(16)
-  }
-  await page.mouse.up({ button })
-  await sleep(200)
-}
-
-const failures = []
-const check = (name, ok, detail) => {
-  console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`)
-  if (!ok) failures.push(name)
-}
+const drag = (from, to, button) => libDrag(page, from, to, { button })
 
 // ---- zoom, from the freshly framed view ----
 // Zoom is checked first and anchored on the part's own centroid: the zoom is
@@ -162,35 +122,39 @@ const check = (name, ok, detail) => {
 await setScheme('cnckitchen')
 
 const framed = await sample()
-check('the part is on screen to begin with', framed.area > 0.005, `area ${framed.area.toFixed(4)}`)
+check(framed.area > 0.005, `the part is on screen to begin with — area ${framed.area.toFixed(4)}`)
 
 await scrollAt(framed.at, -120, 3)
 const zoomedIn = await sample()
 check(
-  'scroll up zooms in',
   zoomedIn.area > framed.area * 1.15,
-  `area ${framed.area.toFixed(4)} → ${zoomedIn.area.toFixed(4)}`,
+  `scroll up zooms in — area ${framed.area.toFixed(4)} → ${zoomedIn.area.toFixed(4)}`,
 )
 
 await scrollAt(framed.at, 120, 3)
 const zoomedBack = await sample()
 check(
-  'scroll down undoes it',
   Math.abs(zoomedBack.area - framed.area) < framed.area * 0.1,
-  `area ${zoomedIn.area.toFixed(4)} → ${zoomedBack.area.toFixed(4)} (framed ${framed.area.toFixed(4)})`,
+  `scroll down undoes it — area ${zoomedIn.area.toFixed(4)} → ${zoomedBack.area.toFixed(4)} (framed ${framed.area.toFixed(4)})`,
 )
 
 // SolidWorks and the Autodesk desktop tools scroll the other way round. Rather
 // than measure a size again — the part already overflows the sampled crop, so
-// area stops tracking zoom once it grows — assert the inversion exactly: a
-// SolidWorks scroll DOWN has to land on the very frame a default scroll UP did.
+// area stops tracking zoom once it grows — assert the inversion: a SolidWorks
+// scroll DOWN has to land on the frame a default scroll UP did. The frames are
+// rendered independently, so they are compared by pixel diff with a small
+// tolerance rather than by exact hash — last-bit rasterisation jitter is not
+// a different camera.
 await setScheme('solidworks')
 await scrollAt(framed.at, 120, 3)
-const swIn = await canvasHash()
-check('solidworks scroll is inverted', swIn === zoomedIn.hash, `${swIn} vs ${zoomedIn.hash}`)
+const swIn = await sample()
+const swInDiff = await pixelDiff(page, swIn.png, zoomedIn.png)
+check(swInDiff < 0.5, `solidworks scroll is inverted (${swInDiff.toFixed(3)}% off the zoomed-in frame)`)
 
 await scrollAt(framed.at, -120, 3)
-check('solidworks scroll up zooms back out', (await canvasHash()) === framed.hash)
+const swOut = await sample()
+const swOutDiff = await pixelDiff(page, swOut.png, framed.png)
+check(swOutDiff < 0.5, `solidworks scroll up zooms back out (${swOutDiff.toFixed(3)}% off the framed view)`)
 
 // ---- drag gestures ----
 await setScheme('cnckitchen')
@@ -198,7 +162,7 @@ await setScheme('cnckitchen')
 let before = await canvasHash()
 await drag(mid, [mid[0] + 220, mid[1] + 90], 'left')
 let after = await canvasHash()
-check('left-drag orbits', before !== after)
+check(before !== after, 'left-drag orbits')
 
 // A right-drag is navigation, so the browser context menu must stay shut: watch
 // for a contextmenu event reaching the document with its default still intact.
@@ -212,11 +176,11 @@ await page.evaluate(() => {
 before = after
 await drag(mid, [mid[0] - 140, mid[1] - 60], 'right')
 after = await canvasHash()
-check('right-drag pans', before !== after)
+check(before !== after, 'right-drag pans')
 
 check(
-  'right-drag opens no context menu',
   !(await page.evaluate(() => window.__ctxUnprevented)),
+  'right-drag opens no context menu',
 )
 
 // SolidWorks binds nothing to a plain left drag: the view must hold still.
@@ -224,14 +188,14 @@ await setScheme('solidworks')
 before = await canvasHash()
 await drag(mid, [mid[0] + 200, mid[1] + 80], 'left')
 after = await canvasHash()
-check('solidworks left-drag does nothing', before === after)
+check(before === after, 'solidworks left-drag does nothing')
 
 // Onshape puts orbit on the right button, where the default scheme pans.
 await setScheme('onshape')
 before = await canvasHash()
 await drag(mid, [mid[0] + 200, mid[1] + 80], 'right')
 after = await canvasHash()
-check('onshape right-drag orbits', before !== after)
+check(before !== after, 'onshape right-drag orbits')
 
 // ---- middle-button and chorded schemes ----
 // Orbit and pan both just "change the picture", so pixels alone can't tell them
@@ -293,40 +257,30 @@ const orbitsUnder = async ({ buttons, modifiers = [], chord = null }) => {
 
 await setScheme('blender')
 let g = await orbitsUnder({ buttons: ['middle'] })
-check('blender middle-drag orbits', g.orbited, `${g.red} pivot px`)
-check('the pivot marker clears on release', g.afterRed === 0, `${g.afterRed} px left`)
+check(g.orbited, `blender middle-drag orbits (${g.red} pivot px)`)
+check(g.afterRed === 0, `the pivot marker clears on release (${g.afterRed} px left)`)
 
 g = await orbitsUnder({ buttons: ['middle'], modifiers: ['Shift'] })
-check('blender Shift+middle pans, not orbits', !g.orbited, `${g.red} pivot px`)
+check(!g.orbited, `blender Shift+middle pans, not orbits (${g.red} pivot px)`)
 
 await setScheme('freecad')
 g = await orbitsUnder({ buttons: ['middle'] })
-check('freecad middle-drag pans, not orbits', !g.orbited, `${g.red} pivot px`)
+check(!g.orbited, `freecad middle-drag pans, not orbits (${g.red} pivot px)`)
 
 // The chord: middle already held and panning, then left goes down and the rest
 // of the same drag has to become an orbit.
 g = await orbitsUnder({ buttons: ['middle'], chord: 'left' })
-check('freecad middle+left chord orbits', g.orbited, `${g.red} pivot px`)
+check(g.orbited, `freecad middle+left chord orbits (${g.red} pivot px)`)
 
 // ---- picking still works after all that ----
 // A drag must not read as a click, and a click must not read as a drag: sweep
 // the frame for a point that starts a sphere draft and previews a fit.
 await setScheme('cnckitchen')
 
-const previewReady = async () => {
-  for (let i = 0; i < 60; i++) {
-    if (await page.$('[data-test="create-element"]:not([disabled])')) return true
-    const status = await page.$eval('[data-test="draft-status"]', (e) => e.className)
-    if (status.includes('failed') || status.includes('empty')) return false
-    await sleep(250)
-  }
-  return false
-}
-
 // Aim at pixels the part actually occupies: the orbits and pans above left it
 // wherever they left it, and this check is about the click, not about aim.
 const target = await sample()
-check('the part is still on screen to click', target.spots.length > 0, `area ${target.area.toFixed(4)}`)
+check(target.spots.length > 0, `the part is still on screen to click — area ${target.area.toFixed(4)}`)
 
 let picked = false
 for (const [x, y] of target.spots) {
@@ -334,19 +288,11 @@ for (const [x, y] of target.spots) {
   await page.click('[data-test="fit-sphere"]')
   await page.mouse.click(x, y)
   await sleep(250)
-  picked = await previewReady()
+  picked = await previewReady(page, { tries: 60 })
   if (!picked) await page.click('[data-test="cancel-draft"]').catch(() => {})
 }
-check('a click still picks after navigating', picked)
+check(picked, 'a click still picks after navigating')
 
-await page.screenshot({ path: `${SHOT_DIR}/e2e-nav.png` })
+await page.screenshot({ path: shotPath('e2e-nav.png') })
 
-const realErrors = consoleErrors.filter((e) => !/favicon|Download the React/i.test(e))
-check('no console errors', realErrors.length === 0, realErrors.slice(0, 3).join(' | '))
-
-await browser.close()
-if (failures.length) {
-  console.error(`\n${failures.length} failed: ${failures.join(', ')}`)
-  process.exit(1)
-}
-console.log('\nall navigation checks passed')
+await finish(browser, consoleErrors)

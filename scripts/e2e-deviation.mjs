@@ -7,58 +7,45 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-deviation.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SCAN, NOMINAL, SHOT_DIR.
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
+import {
+  colouredFraction,
+  fail,
+  finish,
+  launchApp,
+  loadScan,
+  repoFile,
+  requireFixture,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const SCAN = process.env.SCAN ?? fileURLToPath(new URL('../block-marius.stl', import.meta.url))
-const NOMINAL = process.env.NOMINAL ?? fileURLToPath(new URL('../side bracket left.stl', import.meta.url))
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+const SCAN = process.env.SCAN ?? repoFile('block-marius.stl')
+const NOMINAL = process.env.NOMINAL ?? repoFile('side bracket left.stl')
+requireFixture(NOMINAL)
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const fail = (m) => {
-  console.error('FAIL:', m)
-  process.exitCode = 1
-}
-
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1600,1000', '--no-sandbox'],
-  defaultViewport: { width: 1600, height: 1000 },
+const { browser, page, consoleErrors } = await launchApp({
+  width: 1600,
+  height: 1000,
   protocolTimeout: 600_000,
 })
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
 
 // ---- workspace first, then both models from the stage ----------------------
 await page.click('[data-test=workspace-deviation]')
 await page.waitForSelector('[data-test=start-pane]')
-await page.screenshot({ path: `${SHOT_DIR}/deviation-empty.png` })
+await page.screenshot({ path: shotPath('deviation-empty.png') })
 
-await (await page.$('[data-test=start-scan] input[type=file]')).uploadFile(SCAN)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 300_000 },
-)
-console.log('scan:', await page.$eval('.file-info', (el) => el.textContent.replace(/\s+/g, ' ')))
-await sleep(600)
+await loadScan(page, SCAN, {
+  inputSelector: '[data-test=start-scan] input[type=file]',
+  timeout: 300_000,
+  settle: 600,
+})
 // With one model in, the prompt must get out of the way of it rather than
 // covering the stage.
 const compact = await page.$eval('[data-test=start-pane]', (el) =>
   el.classList.contains('compact'),
 )
 if (!compact) fail('the start prompt still covers the stage after a model loaded')
-await page.screenshot({ path: `${SHOT_DIR}/deviation-half-loaded.png` })
+await page.screenshot({ path: shotPath('deviation-half-loaded.png') })
 
 await (await page.$('[data-test=start-reference] input[type=file]')).uploadFile(NOMINAL)
 await page.waitForFunction(
@@ -73,13 +60,13 @@ console.log('reference loaded')
 const cleared = await page.evaluate(() => !document.querySelector('[data-test=start-pane]'))
 if (!cleared) fail('the stage prompt did not clear once both models were loaded')
 await page.waitForSelector('[data-test=ready-chip]')
-await page.screenshot({ path: `${SHOT_DIR}/deviation-both-loaded.png` })
+await page.screenshot({ path: shotPath('deviation-both-loaded.png') })
 
 // ---- automatic best fit + map ---------------------------------------------
 await page.click('[data-test=align-auto]')
 // Catch it mid-flight: the reference should be visibly on the move.
 await sleep(2500)
-await page.screenshot({ path: `${SHOT_DIR}/deviation-aligning.png` })
+await page.screenshot({ path: shotPath('deviation-aligning.png') })
 await page.waitForSelector('[data-test=deviation-legend]', { timeout: 300_000 })
 await page.waitForFunction(
   () => !document.querySelector('[data-test=fitting-chip]'),
@@ -102,42 +89,9 @@ console.log(`align rms: ${rms} mm`)
 console.log('stats:', stats)
 if (!(rms > 0 && rms < 0.5)) fail(`alignment rms ${rms} mm is not a converged fit`)
 
-await page.screenshot({ path: `${SHOT_DIR}/deviation-map.png` })
+await page.screenshot({ path: shotPath('deviation-map.png') })
 
-/** Share of the stage that carries a saturated colour. Read back from a
- *  screenshot rather than from the WebGL canvas directly: without
- *  preserveDrawingBuffer the drawing buffer is already gone by the time script
- *  can copy it, and reads back blank. */
-async function colouredFraction() {
-  const clip = await page.$eval('.stage', (el) => {
-    const r = el.getBoundingClientRect()
-    return { x: r.x, y: r.y, width: r.width - 190, height: r.height }
-  })
-  const shot = await page.screenshot({ clip, encoding: 'base64' })
-  return page.evaluate(async (b64) => {
-    const img = new Image()
-    img.src = 'data:image/png;base64,' + b64
-    await img.decode()
-    const c = document.createElement('canvas')
-    c.width = img.width
-    c.height = img.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-    const { data } = ctx.getImageData(0, 0, c.width, c.height)
-    let painted = 0
-    let total = 0
-    for (let i = 0; i < data.length; i += 4 * 17) {
-      const max = Math.max(data[i], data[i + 1], data[i + 2])
-      const min = Math.min(data[i], data[i + 1], data[i + 2])
-      total++
-      // The stage and both greys are near-neutral; a deviation colour is not.
-      if (max - min > 45) painted++
-    }
-    return painted / total
-  }, shot)
-}
-
-const coloured = await colouredFraction()
+const coloured = await colouredFraction(page)
 console.log(`coloured stage: ${(coloured * 100).toFixed(1)} %`)
 if (coloured < 0.05) fail('the deviation map does not appear to be painted on the scan')
 
@@ -161,7 +115,7 @@ await sleep(500)
 const after = await page.$eval('[data-test=range-value]', (el) => el.value)
 console.log(`range: ${before} -> ${after}`)
 if (before === after) fail('the range slider did not change the scale')
-await page.screenshot({ path: `${SHOT_DIR}/deviation-tight-range.png` })
+await page.screenshot({ path: shotPath('deviation-tight-range.png') })
 
 // ---- hover reading and pinning --------------------------------------------
 const stage = await page.$eval('.viewslot canvas', (el) => {
@@ -192,7 +146,7 @@ const pinned = await page.$$eval('[data-test=probe-row]', (els) =>
 )
 console.log('pinned:', pinned)
 if (pinned.length !== 1) fail(`expected one pinned reading, got ${pinned.length}`)
-await page.screenshot({ path: `${SHOT_DIR}/deviation-pin.png` })
+await page.screenshot({ path: shotPath('deviation-pin.png') })
 
 // ---- split-screen point picker --------------------------------------------
 await page.click('[data-test=align-points]')
@@ -240,7 +194,7 @@ for (let i = 0; i < 6 && !(await alignEnabled()); i++) {
 }
 const pins = await pairCount()
 console.log(`picked pairs: ${pins}, spread ${await page.$eval('.splitfit', (el) => el.textContent).catch(() => 'n/a')}`)
-await page.screenshot({ path: `${SHOT_DIR}/deviation-split.png` })
+await page.screenshot({ path: shotPath('deviation-split.png') })
 if (pins < 3) fail(`expected at least 3 picked pairs, got ${pins}`)
 if (!(await alignEnabled())) fail('the picked pairs never became enough to align')
 
@@ -254,7 +208,7 @@ await page.waitForFunction(
 )
 const warn = await page.$('.splitwarn')
 if (warn) {
-  await page.screenshot({ path: `${SHOT_DIR}/deviation-split-failed.png` })
+  await page.screenshot({ path: shotPath('deviation-split-failed.png') })
   fail(`point-pair alignment refused: ${await warn.evaluate((el) => el.textContent)}`)
   await browser.close()
   process.exit(1)
@@ -264,16 +218,12 @@ await page.waitForFunction(() => !document.querySelector('[data-test=fitting-chi
 })
 await sleep(600)
 console.log('point-pair alignment finished:', await page.$eval('[data-test=align-rms] b', (el) => el.textContent), 'mm rms')
-await page.screenshot({ path: `${SHOT_DIR}/deviation-after-points.png` })
+await page.screenshot({ path: shotPath('deviation-after-points.png') })
 
 // ---- back to the other workspace ------------------------------------------
 await page.click('[data-test=workspace-elements]')
 await page.waitForSelector('[data-test=fit-sphere]')
 await sleep(400)
-await page.screenshot({ path: `${SHOT_DIR}/deviation-back-to-elements.png` })
+await page.screenshot({ path: shotPath('deviation-back-to-elements.png') })
 
-if (consoleErrors.length) {
-  fail(`console errors:\n  ${consoleErrors.join('\n  ')}`)
-}
-console.log(process.exitCode ? 'FAILED' : 'OK')
-await browser.close()
+await finish(browser, consoleErrors)

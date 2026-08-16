@@ -7,56 +7,41 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-thickness.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SCAN, SHOT_DIR.
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
+import {
+  colouredFraction,
+  fail,
+  finish,
+  launchApp,
+  loadScan,
+  repoFile,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const SCAN = process.env.SCAN ?? fileURLToPath(new URL('../block-marius.stl', import.meta.url))
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+const SCAN = process.env.SCAN ?? repoFile('block-marius.stl')
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const fail = (m) => {
-  console.error('FAIL:', m)
-  process.exitCode = 1
-}
-
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1600,1000', '--no-sandbox'],
-  defaultViewport: { width: 1600, height: 1000 },
+const { browser, page, consoleErrors } = await launchApp({
+  width: 1600,
+  height: 1000,
   protocolTimeout: 600_000,
 })
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
 
 // ---- workspace first, then the one model it needs --------------------------
 await page.click('[data-test=workspace-thickness]')
 await page.waitForSelector('[data-test=start-pane]')
-await page.screenshot({ path: `${SHOT_DIR}/thickness-empty.png` })
+await page.screenshot({ path: shotPath('thickness-empty.png') })
 
-await (await page.$('[data-test=start-scan] input[type=file]')).uploadFile(SCAN)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 300_000 },
-)
-console.log('scan:', await page.$eval('.file-info', (el) => el.textContent.replace(/\s+/g, ' ')))
-await sleep(600)
+await loadScan(page, SCAN, {
+  inputSelector: '[data-test=start-scan] input[type=file]',
+  timeout: 300_000,
+  settle: 600,
+})
 
 // One model is all this workspace asks for, so the prompt clears entirely.
 const cleared = await page.evaluate(() => !document.querySelector('[data-test=start-pane]'))
 if (!cleared) fail('the stage prompt did not clear once the scan was loaded')
 await page.waitForSelector('[data-test=thickness-ready-chip]')
-await page.screenshot({ path: `${SHOT_DIR}/thickness-loaded.png` })
+await page.screenshot({ path: shotPath('thickness-loaded.png') })
 
 // ---- measure ---------------------------------------------------------------
 // The search is sized to the part that was just loaded.
@@ -82,40 +67,9 @@ const low = await readNumber('[data-test=thickness-low]')
 const high = await readNumber('[data-test=thickness-high]')
 console.log(`scale: ${low} … ${high} mm`)
 if (!(high > low && high > 0)) fail(`the suggested scale ${low}…${high} is not a usable range`)
-await page.screenshot({ path: `${SHOT_DIR}/thickness-map.png` })
+await page.screenshot({ path: shotPath('thickness-map.png') })
 
-/** Share of the stage that carries a saturated colour — read back from a
- *  screenshot, since without preserveDrawingBuffer the WebGL buffer is gone by
- *  the time script can copy it. */
-async function colouredFraction() {
-  const clip = await page.$eval('.stage', (el) => {
-    const r = el.getBoundingClientRect()
-    return { x: r.x, y: r.y, width: r.width - 190, height: r.height }
-  })
-  const shot = await page.screenshot({ clip, encoding: 'base64' })
-  return page.evaluate(async (b64) => {
-    const img = new Image()
-    img.src = 'data:image/png;base64,' + b64
-    await img.decode()
-    const c = document.createElement('canvas')
-    c.width = img.width
-    c.height = img.height
-    const ctx = c.getContext('2d')
-    ctx.drawImage(img, 0, 0)
-    const { data } = ctx.getImageData(0, 0, c.width, c.height)
-    let painted = 0
-    let total = 0
-    for (let i = 0; i < data.length; i += 4 * 17) {
-      const max = Math.max(data[i], data[i + 1], data[i + 2])
-      const min = Math.min(data[i], data[i + 1], data[i + 2])
-      total++
-      if (max - min > 45) painted++
-    }
-    return painted / total
-  }, shot)
-}
-
-const coloured = await colouredFraction()
+const coloured = await colouredFraction(page)
 console.log(`coloured stage: ${(coloured * 100).toFixed(1)} %`)
 if (coloured < 0.05) fail('the thickness map does not appear to be painted on the scan')
 
@@ -155,7 +109,7 @@ await sleep(500)
 if ((await readNumber('[data-test=thickness-high]')) !== tightened) {
   fail('re-measuring threw away the scale the user had dialled in')
 }
-await page.screenshot({ path: `${SHOT_DIR}/thickness-tight-scale.png` })
+await page.screenshot({ path: shotPath('thickness-tight-scale.png') })
 
 // ---- hover reading and pinning --------------------------------------------
 const stage = await page.$eval('.viewslot canvas', (el) => {
@@ -192,7 +146,7 @@ const pinned = await page.$$eval('[data-test=thickness-probe-row]', (els) =>
 )
 console.log('pinned:', pinned)
 if (pinned.length !== 1) fail(`expected one pinned reading, got ${pinned.length}`)
-await page.screenshot({ path: `${SHOT_DIR}/thickness-pin.png` })
+await page.screenshot({ path: shotPath('thickness-pin.png') })
 
 // ---- the cone, the sphere, and back to the other workspaces ----------------
 const summarise = () =>
@@ -206,7 +160,7 @@ await page.waitForFunction(() => !document.querySelector('[data-test=fitting-chi
 })
 await sleep(600)
 console.log('after the cone: ', await summarise())
-await page.screenshot({ path: `${SHOT_DIR}/thickness-cone.png` })
+await page.screenshot({ path: shotPath('thickness-cone.png') })
 
 const sphereStarted = Date.now()
 await page.select('[data-test=thickness-method]', 'sphere')
@@ -221,15 +175,11 @@ await page.waitForFunction(() => !document.querySelector('[data-test=fitting-chi
 await sleep(600)
 console.log(`sphere measured in ${((Date.now() - sphereStarted) / 1000).toFixed(1)} s`)
 console.log('by sphere:    ', await summarise())
-await page.screenshot({ path: `${SHOT_DIR}/thickness-sphere.png` })
+await page.screenshot({ path: shotPath('thickness-sphere.png') })
 
 await page.click('[data-test=workspace-elements]')
 await page.waitForSelector('[data-test=fit-sphere]')
 await sleep(400)
-await page.screenshot({ path: `${SHOT_DIR}/thickness-back-to-elements.png` })
+await page.screenshot({ path: shotPath('thickness-back-to-elements.png') })
 
-if (consoleErrors.length) {
-  fail(`console errors:\n  ${consoleErrors.join('\n  ')}`)
-}
-console.log(process.exitCode ? 'FAILED' : 'OK')
-await browser.close()
+await finish(browser, consoleErrors)

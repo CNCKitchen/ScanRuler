@@ -19,23 +19,13 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import puppeteer from 'puppeteer-core'
 import { importStep, writeBinarySTL } from 'meshstep'
 import { cubeStep } from '../tests/stepFixtures.ts'
-
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+import { fail, finish, launchApp, shotPath, sleep } from './e2e-lib.mjs'
 
 const SIZE = 20
 const RAISE = 0.2 // top face, z = SIZE, pushed outward
 const SINK = 0.15 // +X face, pulled inward
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const fail = (m) => {
-  console.error('FAIL:', m)
-  process.exitCode = 1
-}
 
 // ---- the pair --------------------------------------------------------------
 const dir = mkdtempSync(join(tmpdir(), 'scanruler-step-'))
@@ -57,23 +47,11 @@ writeFileSync(scanPath, Buffer.from(writeBinarySTL(dense.mesh)))
 console.log(`fixtures in ${dir}: STEP cube + ${dense.mesh.indices.length / 3} triangle scan`)
 
 // ---- drive the app ---------------------------------------------------------
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1600,1000', '--no-sandbox'],
-  defaultViewport: { width: 1600, height: 1000 },
+const { browser, page, consoleErrors } = await launchApp({
+  width: 1600,
+  height: 1000,
   protocolTimeout: 600_000,
 })
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
 await page.click('[data-test=workspace-deviation]')
 await page.waitForSelector('[data-test=start-pane]')
 
@@ -131,7 +109,7 @@ console.log('reference triangles:', triangles)
 if (!(triangles > 10 && triangles < 5000)) {
   fail(`${triangles} triangles for a cube is not a chord-driven tessellation`)
 }
-await page.screenshot({ path: `${SHOT_DIR}/step-reference-loaded.png` })
+await page.screenshot({ path: shotPath('step-reference-loaded.png') })
 
 // ---- align and measure -----------------------------------------------------
 await page.click('[data-test=align-auto]')
@@ -171,13 +149,6 @@ if (!(share > 50 && share < 85)) {
   )
 }
 
-await page.screenshot({ path: `${SHOT_DIR}/step-map.png` })
+await page.screenshot({ path: shotPath('step-map.png') })
 
-if (consoleErrors.length) {
-  console.error('console errors:')
-  for (const e of consoleErrors) console.error('  ', e)
-  fail(`${consoleErrors.length} console error(s)`)
-}
-
-await browser.close()
-console.log(process.exitCode ? 'e2e-step: FAILED' : 'e2e-step: OK')
+await finish(browser, consoleErrors)

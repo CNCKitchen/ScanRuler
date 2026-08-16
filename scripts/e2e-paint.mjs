@@ -11,69 +11,36 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-paint.mjs
 // Env: CHROME (chrome.exe path), APP_URL, STL (scan path), SHOT_DIR.
-import { fileURLToPath } from 'node:url'
-import puppeteer from 'puppeteer-core'
+import {
+  ballCandidates,
+  canvasRect,
+  check,
+  click,
+  finish,
+  launchApp,
+  loadScan,
+  pixelDiff,
+  previewReady,
+  repoFile,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const STL = process.env.STL ?? fileURLToPath(new URL('../ballbar.stl', import.meta.url))
-const SHOT_DIR = process.env.SHOT_DIR ?? '.'
+const STL = process.env.STL ?? repoFile('ballbar.stl')
 
 const BALL_DIAMETER = 15.92 // GOM reference, both balls of the bar
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-let failed = false
-const check = (ok, what) => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}: ${what}`)
-  if (!ok) failed = true
-}
+const { browser, page, consoleErrors } = await launchApp()
+await loadScan(page, STL)
+const rect = await canvasRect(page)
 
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1500,950', '--no-sandbox'],
-  defaultViewport: { width: 1500, height: 950 },
-})
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
-
-const input = await page.$('input[type=file]')
-await input.uploadFile(STL)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 120_000 },
-)
-console.log('loaded:', await page.$eval('.file-info', (el) => el.textContent))
-await sleep(800)
-
-const rect = await page.$eval('.viewport canvas', (el) => {
-  const r = el.getBoundingClientRect()
-  return { x: r.x, y: r.y, w: r.width, h: r.height }
-})
-
-const click = async (sel) => {
-  await page.waitForSelector(sel, { timeout: 10_000 })
-  await page.click(sel)
-}
 const markedCount = () =>
   page
     .$eval('[data-test="paint-count"]', (e) => parseInt(e.textContent.replace(/[^\d]/g, ''), 10))
     .catch(() => 0)
-const previewReady = async () => {
-  for (let i = 0; i < 80; i++) {
-    if (await page.$('[data-test="create-element"]:not([disabled])')) return true
-    await sleep(250)
-  }
-  return false
-}
+// No draft-status watching here: while marking, an empty status only means
+// nothing is marked yet, not that the fit gave up.
+const paintPreviewReady = () => previewReady(page, { tries: 80, watchStatus: false })
 
 /** A short stroke centred on (x, y): press, wiggle, release. The right button
  *  rubs out, the left lays down. */
@@ -88,20 +55,7 @@ async function stroke(x, y, { button = 'left' } = {}) {
   await sleep(250)
 }
 
-// Same sweep as the smoke test: the bar is framed broadside, so try both
-// screen axes inward from one end until a stroke actually lands on a ball.
-function candidates() {
-  const out = []
-  for (const near of [0.1, 0.14, 0.18, 0.06, 0.23]) {
-    for (const off of [0.5, 0.44, 0.56, 0.38, 0.62]) {
-      out.push([rect.x + rect.w * off, rect.y + rect.h * near])
-      out.push([rect.x + rect.w * near, rect.y + rect.h * off])
-    }
-  }
-  return out
-}
-
-await click('[data-test="fit-sphere"]')
+await click(page, '[data-test="fit-sphere"]')
 await page.waitForSelector('[data-test="draft-select-mode"]')
 await page.select('[data-test="draft-select-mode"]', 'paint')
 
@@ -112,7 +66,7 @@ check(
   await page.$eval('[data-test="mark-navigate"]', (e) => e.getAttribute('aria-pressed') === 'true'),
   'the marking tools open in Navigate',
 )
-await click('[data-test="mark-brush"]')
+await click(page, '[data-test="mark-brush"]')
 await page.waitForSelector('[data-test="mark-brush-diameter"]')
 // A brush a little smaller than the ball marks a cap in one stroke.
 await page.$eval('[data-test="mark-brush-diameter"]', (el) => {
@@ -122,8 +76,9 @@ await page.$eval('[data-test="mark-brush-diameter"]', (el) => {
 })
 await sleep(150)
 
+// Same sweep as the smoke test, minus the far end: one marked ball is enough.
 let hit = null
-for (const [x, y] of candidates()) {
+for (const [x, y] of ballCandidates(rect, { nears: [0.1, 0.14, 0.18, 0.06, 0.23] })) {
   await stroke(x, y)
   if ((await markedCount()) > 0) {
     hit = [x, y]
@@ -138,7 +93,22 @@ if (!hit) {
 
 const afterFirst = await markedCount()
 console.log('marked after one stroke:', afterFirst)
-check(await previewReady(), 'the fit follows the marked surface')
+check(await paintPreviewReady(), 'the fit follows the marked surface')
+
+const shot = () => page.screenshot({ encoding: 'base64' })
+
+// Control first: two frames with nothing happening bound the repaint noise, so
+// "the picture changed" below means the ring or the camera, not screenshot
+// noise. Without this, comparing frames for plain inequality passes on any
+// stray pixel.
+await page.mouse.move(rect.x + 30, rect.y + rect.h - 30) // park off the part
+await sleep(250)
+const idleShot = await shot()
+await sleep(250)
+const idleNoise = await pixelDiff(page, idleShot, await shot())
+check(idleNoise < 0.05, `an untouched viewport repaints identically (${idleNoise.toFixed(3)}% differ)`)
+// Anything the ring checks call a change must clear the measured idle noise.
+const RING_THRESHOLD = idleNoise + 0.01
 
 // The brush footprint is drawn on the part under the cursor: moving the
 // cursor over the scan has to change the picture even though nothing else
@@ -148,18 +118,23 @@ check(await previewReady(), 'the fit follows the marked surface')
 // flat where the ball is not, so away from the silhouette it sinks inside the
 // surface and is hidden — two frames with the cursor at different places on the
 // ball can therefore both be ringless, and comparing them would prove nothing.
-const shot = () => page.screenshot({ encoding: 'base64' })
 await page.mouse.move(hit[0], hit[1])
 await sleep(250)
 const ringHere = await shot()
 await page.mouse.move(hit[0] + 10, hit[1] + 6)
 await sleep(250)
-const ringMoved = await shot()
+const ringMoved = await pixelDiff(page, ringHere, await shot())
 await page.mouse.move(rect.x + 30, rect.y + rect.h - 30) // off the part
 await sleep(250)
-const ringOff = await shot()
-check(ringHere !== ringMoved, 'the brush footprint follows the cursor over the part')
-check(ringHere !== ringOff, 'the brush footprint goes away off the part')
+const ringOff = await pixelDiff(page, ringHere, await shot())
+check(
+  ringMoved > RING_THRESHOLD,
+  `the brush footprint follows the cursor over the part (${ringMoved.toFixed(3)}% > ${RING_THRESHOLD.toFixed(3)}% idle)`,
+)
+check(
+  ringOff > RING_THRESHOLD,
+  `the brush footprint goes away off the part (${ringOff.toFixed(3)}% > ${RING_THRESHOLD.toFixed(3)}% idle)`,
+)
 
 const value = await page.$eval('[data-test="draft-status"]', (e) =>
   e.textContent.replace(/\s+/g, ' ').trim(),
@@ -180,13 +155,13 @@ await stroke(hit[0] + 14, hit[1] + 10, { button: 'right' })
 const afterErase = await markedCount()
 check(afterErase < afterSecond, `right-drag rubs the marking out (${afterSecond} → ${afterErase})`)
 
-check(await previewReady(), 'the fit is still ready after editing the marking')
+check(await paintPreviewReady(), 'the fit is still ready after editing the marking')
 
 // The camera is still reachable while the brush has the plain left-drag: in a
 // scheme that orbits with the left button, Shift+left-drag orbits instead —
-// and orbiting must not mark anything.
-const view = () => page.screenshot({ encoding: 'base64' })
-const beforeOrbit = await view()
+// and orbiting must not mark anything. An orbit repaints a large share of the
+// viewport, far above the idle-noise threshold.
+const beforeOrbit = await shot()
 const markedBeforeOrbit = await markedCount()
 await page.keyboard.down('Shift')
 await page.mouse.move(hit[0], hit[1] + 120)
@@ -195,7 +170,11 @@ for (let i = 1; i <= 8; i++) await page.mouse.move(hit[0] + i * 14, hit[1] + 120
 await page.mouse.up()
 await page.keyboard.up('Shift')
 await sleep(400)
-check((await view()) !== beforeOrbit, 'Shift-drag still orbits while the brush is armed')
+const orbitDiff = await pixelDiff(page, beforeOrbit, await shot())
+check(
+  orbitDiff > Math.max(RING_THRESHOLD, 0.5),
+  `Shift-drag still orbits while the brush is armed (${orbitDiff.toFixed(2)}% repainted)`,
+)
 check((await markedCount()) === markedBeforeOrbit, 'orbiting marks nothing')
 
 // Escape backs out one step at a time, the same way it does in the local fine
@@ -211,13 +190,17 @@ check((await markedCount()) === markedBeforeOrbit, 'and leaves the marking alone
 
 // …and with no gesture live, a plain drag is the camera's again — the whole
 // point of porting Navigate over from the local fine fit.
-const beforeIdle = await view()
+const beforeIdle = await shot()
 await stroke(hit[0], hit[1] + 120)
 check((await markedCount()) === markedBeforeOrbit, 'a plain drag marks nothing once it stands down')
-check((await view()) !== beforeIdle, 'and drives the camera instead')
+const idleDragDiff = await pixelDiff(page, beforeIdle, await shot())
+check(
+  idleDragDiff > Math.max(RING_THRESHOLD, 0.5),
+  `and drives the camera instead (${idleDragDiff.toFixed(2)}% repainted)`,
+)
 
 const markedAtCreate = await markedCount()
-await click('[data-test="create-element"]')
+await click(page, '[data-test="create-element"]')
 await page.waitForSelector('[data-test="element-row"]', { timeout: 10_000 })
 const row = await page.$eval('[data-test="element-row"]', (e) =>
   e.textContent.replace(/\s+/g, ' ').trim(),
@@ -235,7 +218,7 @@ check(
 // Re-opening a hand-marked element puts its surface back on the part, under
 // the same tools it was laid down with — so changing it is more marking, not a
 // fresh start.
-await click('[data-test="edit-element"]')
+await click(page, '[data-test="edit-element"]')
 await page.waitForSelector('[data-test="mark-gestures"]', { timeout: 10_000 })
 check(
   (await page.$eval('[data-test="draft-select-mode"]', (e) => e.value)) === 'paint',
@@ -246,18 +229,18 @@ check(
   reopened === markedAtCreate,
   `the marking comes back with it (${markedAtCreate} → ${reopened} points)`,
 )
-check(await previewReady(), 'and the fit stands on it without another stroke')
+check(await paintPreviewReady(), 'and the fit stands on it without another stroke')
 // In Navigate, like every other way the tools come out: the marking is back on
 // the part, but the mouse is still the camera's until a tool is picked up.
 check(
   await page.$eval('[data-test="mark-navigate"]', (e) => e.getAttribute('aria-pressed') === 'true'),
   'the restored tools open in Navigate',
 )
-await click('[data-test="mark-brush"]')
+await click(page, '[data-test="mark-brush"]')
 await stroke(hit[0] + 14, hit[1] + 10)
 check((await markedCount()) > reopened, 'a stroke adds to the restored marking')
-check(await previewReady(), 'and the fit follows it')
-await click('[data-test="create-element"]')
+check(await paintPreviewReady(), 'and the fit follows it')
+await click(page, '[data-test="create-element"]')
 await sleep(400)
 const editedRows = await page.$$eval('[data-test="element-row"]', (els) =>
   els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
@@ -273,19 +256,14 @@ check(
   'the marking tools are put away again once it is saved',
 )
 
-await click('[data-test="toggle-backfaces"]')
+await click(page, '[data-test="toggle-backfaces"]')
 await sleep(400)
-await page.screenshot({ path: `${SHOT_DIR}/e2e-paint.png` })
+await page.screenshot({ path: shotPath('e2e-paint.png') })
 check(
   await page.$eval('[data-test="toggle-backfaces"]', (e) => e.getAttribute('aria-pressed') === 'true'),
   'back-face tint switches on',
 )
-await click('[data-test="toggle-backfaces"]')
+await click(page, '[data-test="toggle-backfaces"]')
 await sleep(300)
 
-const filteredErrors = consoleErrors.filter((e) => !e.includes('favicon'))
-console.log('console errors:', filteredErrors.length ? JSON.stringify(filteredErrors) : 'none')
-check(filteredErrors.length === 0, 'no console errors')
-
-await browser.close()
-if (failed) process.exitCode = 1
+await finish(browser, consoleErrors)

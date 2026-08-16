@@ -15,96 +15,36 @@
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-align-live.mjs
-// Env: CHROME (chrome.exe path), APP_URL, STL (scan path), OUT_DIR (shots).
+// Env: CHROME (chrome.exe path), APP_URL, STL (scan path), SHOT_DIR (shots).
 import { writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
-import puppeteer from 'puppeteer-core'
+import {
+  canvasRect,
+  check,
+  finish,
+  launchApp,
+  loadScan,
+  pixelDiff,
+  repoFile,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
 
-const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
-const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
-const STL = process.env.STL ?? fileURLToPath(new URL('../block-marius.stl', import.meta.url))
-const OUT_DIR = process.env.OUT_DIR ?? fileURLToPath(new URL('..', import.meta.url))
+const STL = process.env.STL ?? repoFile('block-marius.stl')
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-let failed = false
-const check = (ok, what) => {
-  console.log(`${ok ? 'PASS' : 'FAIL'}: ${what}`)
-  if (!ok) failed = true
-}
-
-const browser = await puppeteer.launch({
-  executablePath: CHROME,
-  headless: 'new',
-  args: ['--window-size=1500,950', '--no-sandbox'],
-  defaultViewport: { width: 1500, height: 950 },
-})
-
-const page = await browser.newPage()
-const consoleErrors = []
-page.on('console', (m) => {
-  if (m.type() === 'error') consoleErrors.push(m.text())
-})
-page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-
-await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-await page.waitForSelector('.panel')
-
-const input = await page.$('input[type=file]')
-await input.uploadFile(STL)
-await page.waitForFunction(
-  () => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''),
-  { timeout: 120_000 },
-)
-console.log('loaded:', await page.$eval('.file-info', (el) => el.textContent))
-await sleep(800)
-
-const rect = await page.$eval('.viewport canvas', (el) => {
-  const r = el.getBoundingClientRect()
-  return { x: r.x, y: r.y, w: r.width, h: r.height }
-})
+const { browser, page, consoleErrors } = await launchApp()
+await loadScan(page, STL)
+const rect = await canvasRect(page)
 
 /** A shot of the viewport, kept as base64 so the page can decode it again. */
 const shot = async (name) => {
   const buf = await page.screenshot({
     clip: { x: rect.x, y: rect.y, width: rect.w, height: rect.h },
   })
-  if (name) writeFileSync(join(OUT_DIR, `e2e-align-live-${name}.png`), buf)
+  if (name) writeFileSync(shotPath(`e2e-align-live-${name}.png`), buf)
   return buf.toString('base64')
 }
 
-/** Percentage of pixels that differ between two shots, decoded in the page. */
-const diff = (a, b) =>
-  page.evaluate(
-    async (x, y) => {
-      const load = async (b64) => {
-        const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))
-        return createImageBitmap(new Blob([bin], { type: 'image/png' }))
-      }
-      const [ia, ib] = await Promise.all([load(x), load(y)])
-      const pixels = (img) => {
-        const c = new OffscreenCanvas(img.width, img.height)
-        const ctx = c.getContext('2d')
-        ctx.drawImage(img, 0, 0)
-        return ctx.getImageData(0, 0, img.width, img.height).data
-      }
-      const pa = pixels(ia)
-      const pb = pixels(ib)
-      let n = 0
-      for (let i = 0; i < pa.length; i += 4) {
-        // A channel apart is compression / last-bit rounding, not a repaint.
-        if (
-          Math.abs(pa[i] - pb[i]) > 3 ||
-          Math.abs(pa[i + 1] - pb[i + 1]) > 3 ||
-          Math.abs(pa[i + 2] - pb[i + 2]) > 3
-        )
-          n++
-      }
-      return (100 * n) / (pa.length / 4)
-    },
-    a,
-    b,
-  )
+const diff = (a, b) => pixelDiff(page, a, b)
 
 /** The labels the picked points wear, in the order they were placed. */
 const pickLabels = () =>
@@ -191,9 +131,4 @@ await sleep(200)
 check(await alignPick(0.5, 0.5), 'the aligned part sits under the middle of the view')
 await page.click('[data-test="cancel-alignment"]')
 
-const filteredErrors = consoleErrors.filter((e) => !e.includes('favicon'))
-console.log('console errors:', filteredErrors.length ? JSON.stringify(filteredErrors) : 'none')
-if (filteredErrors.length) failed = true
-
-await browser.close()
-if (failed) process.exitCode = 1
+await finish(browser, consoleErrors)
