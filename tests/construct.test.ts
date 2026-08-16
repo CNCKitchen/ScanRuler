@@ -176,6 +176,14 @@ describe('plane constructions', () => {
     expect(Math.abs(p.normal[2])).toBeCloseTo(1, 9)
   })
 
+  it('refuses a midplane between perpendicular planes', () => {
+    const upright = planeZ([0, 0, 10], [0, 0, 1], [1, 0, 0], [0, 1, 0])
+    const side = planeZ([5, 0, 5], [1, 0, 0], [0, 1, 0], [0, 0, 1])
+    expect(() => evaluateConstruction('plane-midplane', [upright, side], [], SIZE)).toThrow(
+      'perpendicular',
+    )
+  })
+
   it('builds a plane from coordinates with a normalized normal', () => {
     const p = evaluateConstruction('plane-coords', [], [0, 0, 2, 1, 2, 3], SIZE) as PlaneFit
     expect(p.normal).toEqual([0, 0, 1])

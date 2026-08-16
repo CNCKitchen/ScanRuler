@@ -38,13 +38,17 @@ function readScalar(dv: DataView, off: number, type: string, little: boolean): n
 
 export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => void): ParsedMesh {
   const bytes = new Uint8Array(buffer)
-  // Locate "end_header" plus its newline.
+  // Locate "end_header" plus its newline in the raw bytes. The body offset
+  // must not come from decoded text: a multi-byte character in a comment
+  // would put every character index off its byte.
   const headerLimit = Math.min(bytes.length, 64 * 1024)
-  const headText = new TextDecoder().decode(bytes.subarray(0, headerLimit))
-  const endTag = headText.indexOf('end_header')
-  if (!headText.startsWith('ply') || endTag < 0) throw new Error('Not a valid PLY file.')
-  const bodyStart = headText.indexOf('\n', endTag) + 1
-  const header = headText.slice(0, endTag)
+  const endTag = indexOfAscii(bytes, 'end_header', headerLimit)
+  const isPly = bytes[0] === 0x70 && bytes[1] === 0x6c && bytes[2] === 0x79
+  if (!isPly || endTag < 0) throw new Error('Not a valid PLY file.')
+  let bodyStart = endTag
+  while (bodyStart < headerLimit && bytes[bodyStart] !== 0x0a) bodyStart++
+  bodyStart++
+  const header = new TextDecoder().decode(bytes.subarray(0, endTag))
 
   let format = ''
   const elements: PlyElement[] = []
@@ -75,6 +79,16 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   const little = format === 'binary_little_endian'
   if (!little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
   return parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
+}
+
+function indexOfAscii(bytes: Uint8Array, needle: string, limit: number): number {
+  outer: for (let i = 0; i + needle.length <= limit; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (bytes[i + j] !== needle.charCodeAt(j)) continue outer
+    }
+    return i
+  }
+  return -1
 }
 
 function parseBinaryBody(

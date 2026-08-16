@@ -12,10 +12,12 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     const line = lines[li]
     if (line.length < 3) continue
     const c0 = line.charCodeAt(0)
-    if (c0 === 118 /* v */ && line.charCodeAt(1) === 32) {
+    const c1 = line.charCodeAt(1)
+    const sep = c1 === 32 /* space */ || c1 === 9 /* tab */
+    if (c0 === 118 /* v */ && sep) {
       const parts = line.trim().split(/\s+/)
       coords.push(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]))
-    } else if (c0 === 102 /* f */ && line.charCodeAt(1) === 32) {
+    } else if (c0 === 102 /* f */ && sep) {
       const parts = line.trim().split(/\s+/)
       const vcount = coords.length / 3
       const face: number[] = []

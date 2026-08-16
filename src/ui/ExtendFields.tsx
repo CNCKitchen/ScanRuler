@@ -127,7 +127,10 @@ function SideField({
         onBlur={(e) => {
           const v = Number(e.target.value)
           if (Number.isFinite(v)) onCommit(v)
-          else e.target.value = String(round(value))
+          // Rewrite the text either way: a commit the store clamps back to
+          // the value already held re-renders nothing, and the rejected text
+          // would otherwise stay. A changed value re-keys the input over this.
+          e.target.value = String(round(value))
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') e.currentTarget.blur()

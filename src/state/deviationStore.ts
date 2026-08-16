@@ -75,6 +75,7 @@ interface DeviationState {
   rangeAuto: boolean
   /** Deviation past this has no counterpart and is not drawn as a measurement. */
   maxDistance: number
+  maxDistanceAuto: boolean
   /** Discrete colour bands, or null for a continuous ramp. */
   bands: number | null
   /** The band the "within tolerance" figure counts, in mm. */
@@ -106,6 +107,7 @@ interface DeviationState {
   resolveAlign: (r: AlignResult) => void
   failAlign: (message: string) => void
   failLocal: (message: string) => void
+  failMap: (message: string) => void
   clearAlign: () => void
   startMarking: () => void
   stopMarking: () => void
@@ -144,6 +146,7 @@ const CLEARED = {
   pairs: [] as PointPair[],
   pendingScan: null,
   marking: false,
+  maxDistanceAuto: true,
 }
 
 export const useDeviation = create<DeviationState>()((set, get) => ({
@@ -225,6 +228,10 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // where it was — only the message is new.
   failLocal: (alignMessage) => set({ alignStatus: 'done', alignMessage }),
 
+  // A measurement that refuses leaves no map behind — and must not tear down
+  // the alignment it was measured under.
+  failMap: (alignMessage) => set({ mapStatus: 'idle', alignMessage }),
+
   clearAlign: () => set({ ...CLEARED }),
 
   // Opening the tools arms nothing: the camera keeps its buttons until a
@@ -260,7 +267,7 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
       mapStatus: 'ready',
       mapVersion: s.mapVersion + 1,
       range: s.rangeAuto ? range : s.range,
-      maxDistance: s.mapVersion === 0 ? maxDistance : s.maxDistance,
+      maxDistance: s.maxDistanceAuto ? maxDistance : s.maxDistance,
       // The map is on the scan now, so the ghost stops earning its place.
       showNominal: false,
       probes: [],
@@ -269,7 +276,8 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   setReadout: (stats, histogram) => set({ stats, histogram }),
 
   setRange: (range) => set({ range: Math.max(1e-4, range), rangeAuto: false }),
-  setMaxDistance: (maxDistance) => set({ maxDistance: Math.max(1e-4, maxDistance) }),
+  setMaxDistance: (maxDistance) =>
+    set({ maxDistance: Math.max(1e-4, maxDistance), maxDistanceAuto: false }),
   setBands: (bands) => set({ bands }),
   setTolerance: (tolerance) => set({ tolerance: Math.max(1e-4, tolerance) }),
   setShowHistogram: (showHistogram) => set({ showHistogram }),

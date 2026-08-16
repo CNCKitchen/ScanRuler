@@ -545,7 +545,9 @@ export default function App() {
       useDeviation.getState().resolveMap(result.suggestedRange, result.suggestedMaxDistance)
       useStore.getState().setStatus('Deviation measured.')
     } catch (e) {
-      useDeviation.getState().failAlign(e instanceof Error ? e.message : String(e))
+      // The alignment the map was measured under is still good — only the
+      // measurement refused.
+      useDeviation.getState().failMap(e instanceof Error ? e.message : String(e))
       useStore.getState().setStatus('')
     }
   }
@@ -1285,6 +1287,10 @@ export default function App() {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+      // Enter on a focused button belongs to the button — the browser clicks
+      // it right after this handler, and confirming the draft as well would
+      // fire two different actions from one key press.
+      if (e.key === 'Enter' && target?.closest('button')) return
       const store = useStore.getState()
       if (useDeviation.getState().marking) {
         // Escape backs out one step at a time: the first hands the camera back

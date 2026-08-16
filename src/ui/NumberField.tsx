@@ -48,7 +48,11 @@ export function NumberField({
           onBlur={(e) => {
             const v = Number(e.target.value)
             if (Number.isFinite(v) && v >= min) onCommit(v)
-            else e.target.value = String(value)
+            // Rewrite the text either way: when the store clamps the commit
+            // back to the value already held, nothing re-renders, and the
+            // rejected text would otherwise stay on screen. A commit that
+            // does change the value re-keys the input over this.
+            e.target.value = String(value)
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') ref.current?.blur()

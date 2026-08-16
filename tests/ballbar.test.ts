@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { existsSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseSTL } from '../src/core/parsers/stl'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { fitSphereFromSeed } from '../src/core/fit/fitSphereFromSeed'
 import type { MeshGraph, SphereFitOutput } from '../src/core/types'
+import { fixture } from './fixtures'
 
 /** Acceptance test against a real structured-light scan of a ball bar.
  *  GOM Inspect (Gaussian best-fit, 3-sigma used points) measures this file
  *  at 148.64 mm center distance with sphere sigma ≈ 0.021 mm. */
-const FILE = fileURLToPath(new URL('../ballbar.stl', import.meta.url))
+const FILE = fixture('ballbar.stl')
 
-describe.skipIf(!existsSync(FILE))('ballbar.stl acceptance', () => {
+describe.skipIf(!FILE.exists)('ballbar.stl acceptance', () => {
   it('matches the GOM Inspect reference measurement', () => {
-    const buf = readFileSync(FILE)
+    const buf = readFileSync(FILE.path)
     const parsed = parseSTL(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
     const graph = buildMeshGraph(parsed)
     console.log(`mesh: ${graph.vertexCount} vertices, ${graph.triangleCount} triangles`)

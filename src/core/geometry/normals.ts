@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /** Area-weighted per-vertex normals (unnormalized cross products summed,
- *  then normalized). Orientation follows the triangle winding; the fitting
- *  code only uses |dot|, so inverted meshes still work. */
+ *  then normalized). Orientation follows the triangle winding — see
+ *  `orientNormalsOutward` for how an inside-out mesh is put right. */
 export function computeVertexNormals(positions: Float32Array, indices: Uint32Array): Float32Array {
   const normals = new Float32Array(positions.length)
   for (let t = 0; t < indices.length; t += 3) {
@@ -38,4 +38,54 @@ export function computeVertexNormals(positions: Float32Array, indices: Uint32Arr
     }
   }
   return normals
+}
+
+/**
+ * Flip every normal in place when the winding decisively encloses its volume
+ * inside-out. The alignment code matches surfaces by the *signed* dot of scan
+ * and nominal normals, and wall thickness casts into the material along them,
+ * so an STL exported with reversed winding would silently fail both.
+ *
+ * The test is the signed volume about the centroid: origin-independent for a
+ * closed mesh, and anchoring at the centroid keeps an open scan's spurious
+ * contribution small. A scan too open to give a decisive signal (a single
+ * sheet has none) is left exactly as wound.
+ */
+export function orientNormalsOutward(
+  positions: Float32Array,
+  indices: Uint32Array,
+  normals: Float32Array,
+): boolean {
+  const vcount = positions.length / 3
+  if (vcount === 0) return false
+  let cx = 0, cy = 0, cz = 0
+  let minX = Infinity, minY = Infinity, minZ = Infinity
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity
+  for (let v = 0; v < positions.length; v += 3) {
+    const x = positions[v], y = positions[v + 1], z = positions[v + 2]
+    cx += x; cy += y; cz += z
+    if (x < minX) minX = x
+    if (x > maxX) maxX = x
+    if (y < minY) minY = y
+    if (y > maxY) maxY = y
+    if (z < minZ) minZ = z
+    if (z > maxZ) maxZ = z
+  }
+  cx /= vcount; cy /= vcount; cz /= vcount
+
+  let vol6 = 0
+  for (let t = 0; t < indices.length; t += 3) {
+    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
+    const ax = positions[a] - cx, ay = positions[a + 1] - cy, az = positions[a + 2] - cz
+    const bx = positions[b] - cx, by = positions[b + 1] - cy, bz = positions[b + 2] - cz
+    const px = positions[c] - cx, py = positions[c + 1] - cy, pz = positions[c + 2] - cz
+    vol6 += ax * (by * pz - bz * py) + ay * (bz * px - bx * pz) + az * (bx * py - by * px)
+  }
+
+  const bboxVol = (maxX - minX) * (maxY - minY) * (maxZ - minZ)
+  // Decisive means the enclosed volume is a real fraction of the bounding box;
+  // below that the mesh is a sheet and its orientation is not knowable.
+  if (!(bboxVol > 0) || vol6 >= -6e-3 * bboxVol) return false
+  for (let v = 0; v < normals.length; v++) normals[v] = -normals[v]
+  return true
 }

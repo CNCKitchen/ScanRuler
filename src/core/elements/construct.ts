@@ -376,12 +376,14 @@ export function evaluateConstruction(
     case 'plane-midplane': {
       const pa = need(refPlane(refs[0]), 'plane A')
       const pb = need(refPlane(refs[1]), 'plane B')
+      // At a right angle the two bisecting planes are equally valid, and the
+      // sign alignment below would pick one of them arbitrarily — refuse.
+      if (90 - acuteAngle(pa.normal, pb.normal) < INTERSECT_MIN_ANGLE)
+        throw new ConstructionError('The planes are perpendicular — no midplane between them.')
       // Opposing faces have opposing normals; align B to A so the average
       // means something either way.
       const nb: Vec3 = dot(pa.normal, pb.normal) < 0 ? scale(pb.normal, -1) : pb.normal
-      const normal = normalize(add(pa.normal, nb))
-      if (!normal)
-        throw new ConstructionError('The planes are perpendicular — no midplane between them.')
+      const normal = normalize(add(pa.normal, nb))!
       const center = mid(pa.center, pb.center)
       const u = normalize(addScaled(pa.basisU, normal, -dot(pa.basisU, normal)))
       const basisU = u ?? orthoBasis(normal)[0]

@@ -89,9 +89,10 @@ export function ImprintModal() {
             the session only, are never uploaded, and are gone when you close the tab.
           </li>
           <li>
-            The only thing this tool stores on your device is whether you dismissed the support
-            banner, kept in your browser’s sessionStorage for the current tab. No personal data
-            is stored.
+            The only things this tool stores on your device are whether you dismissed the
+            support banner, kept in your browser’s sessionStorage for the current tab, and two
+            preferences — your chosen mouse navigation scheme and STEP export style —
+            kept in your browser’s localStorage. No personal data is stored.
           </li>
           <li>This website does not use cookies, analytics, or any tracking technologies.</li>
           <li>

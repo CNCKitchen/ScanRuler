@@ -399,6 +399,10 @@ export class SceneManager {
   /** Sphere enclosing everything drawn, handed to the navigator by reference so
    *  re-framing a new model just writes to it. */
   private clipSphere = { center: new THREE.Vector3(), radius: 1 }
+  /** What frameCamera last enclosed, kept so an alignment preview can bound
+   *  "the framed scene plus the moved scan" absolutely each call instead of
+   *  ratcheting clipSphere up and never back down. */
+  private framedClip = { center: new THREE.Vector3(), radius: 1 }
 
   private probeCleanup: (() => void)[] = []
   private probeGeometry = new THREE.SphereGeometry(1, 18, 12)
@@ -885,6 +889,8 @@ export class SceneManager {
     // about the cursor moves the camera off any distance fixed now.
     this.clipSphere.center.copy(center)
     this.clipSphere.radius = radius
+    this.framedClip.center.copy(center)
+    this.framedClip.radius = radius
     this.camera.lookAt(center)
     this.camera.updateMatrixWorld(true)
 
@@ -928,7 +934,9 @@ export class SceneManager {
   }
 
   private pick(clientX: number, clientY: number): PickHit | null {
-    if (!this.mesh) return null
+    // Raycasting ignores visibility, so gate by hand — a hidden scan must not
+    // swallow clicks meant for whatever is shown in its place.
+    if (!this.mesh?.visible) return null
     this.setPickRay(clientX, clientY)
     const hits = this.raycaster.intersectObject(this.mesh, false)
     const hit = hits[0]
@@ -1429,7 +1437,7 @@ export class SceneManager {
    */
   private updateBrushRing(): void {
     const at = this.hoverAt
-    if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !this.mesh) {
+    if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !this.mesh?.visible) {
       this.brushRing.visible = false
       return
     }
@@ -1723,7 +1731,7 @@ export class SceneManager {
     if (this.previewRegion) {
       for (let i = 0; i < this.previewRegion.length; i++) {
         const v = this.previewRegion[i]
-        const c = this.elementColors.get(this.owner[v]) ?? BASE_COLOR
+        const c = this.baseColorOf(v)
         arr[v * 3] = c[0]
         arr[v * 3 + 1] = c[1]
         arr[v * 3 + 2] = c[2]
@@ -2363,8 +2371,27 @@ export class SceneManager {
     // scan, not the camera — have to be re-centred on where it now sits, or the
     // far side of a large rotation is sliced off.
     const moved = geometry.boundingSphere.clone().applyMatrix4(this.partGroup.matrix)
-    this.clipSphere.center.copy(moved.center)
-    this.clipSphere.radius = Math.max(this.clipSphere.radius, moved.radius)
+    // The smallest sphere holding both the framed scene and the moved scan,
+    // written absolutely: clearing the preview or a smaller rotation must
+    // shrink the clip range back, not leave it where the largest swing put it.
+    const base = this.framedClip
+    const d = moved.center.distanceTo(base.center)
+    if (moved.radius >= d + base.radius) {
+      this.clipSphere.center.copy(moved.center)
+      this.clipSphere.radius = moved.radius
+    } else if (base.radius >= d + moved.radius) {
+      this.clipSphere.center.copy(base.center)
+      this.clipSphere.radius = base.radius
+    } else {
+      const radius = (d + base.radius + moved.radius) / 2
+      this.clipSphere.center
+        .copy(moved.center)
+        .sub(base.center)
+        .normalize()
+        .multiplyScalar(radius - base.radius)
+        .add(base.center)
+      this.clipSphere.radius = radius
+    }
   }
 
   private updatePartMatrix(): void {
@@ -2477,6 +2504,7 @@ export class SceneManager {
     this.colorAttr = null
     this.owner = null
     this.elementColors.clear()
+    this.hiddenRegions.clear()
     this.previewRegion = null
     this.paintMask = null
     this.paintCount = 0

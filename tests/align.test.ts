@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { existsSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseSTL } from '../src/core/parsers/stl'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
@@ -16,6 +15,7 @@ import {
   type Rigid,
 } from '../src/core/deviation/rigid'
 import type { MeshGraph, Vec3 } from '../src/core/types'
+import { fixture } from './fixtures'
 
 /** The furthest any point of the part ends up from where the other transform
  *  would have put it, in mm. Measured over the actual vertices rather than
@@ -34,8 +34,8 @@ function poseError(a: Rigid, b: Rigid, positions: Float32Array): number {
   return worst
 }
 
-const NOMINAL = fileURLToPath(new URL('../side bracket left.stl', import.meta.url))
-const SCAN = fileURLToPath(new URL('../block-marius.stl', import.meta.url))
+const NOMINAL = fixture('side bracket left.stl')
+const SCAN = fixture('block-marius.stl')
 
 function load(path: string): MeshGraph {
   const buf = readFileSync(path)
@@ -80,8 +80,8 @@ function rotated(normals: Float32Array, pose: Rigid): Float32Array {
   return out
 }
 
-describe.skipIf(!existsSync(NOMINAL))('best fit to a nominal part', () => {
-  const nominalGraph = load(NOMINAL)
+describe.skipIf(!NOMINAL.exists)('best fit to a nominal part', () => {
+  const nominalGraph = load(NOMINAL.path)
   const surface = new NominalSurface(nominalGraph.positions, nominalGraph.indices)
 
   it('recovers a random pose of the nominal against itself', () => {
@@ -137,8 +137,8 @@ describe.skipIf(!existsSync(NOMINAL))('best fit to a nominal part', () => {
     ).toThrow(/at least three/i)
   })
 
-  describe.skipIf(!existsSync(SCAN))('against the real scan', () => {
-    const scanGraph = load(SCAN)
+  describe.skipIf(!SCAN.exists)('against the real scan', () => {
+    const scanGraph = load(SCAN.path)
 
     it('recovers a random pose of the scan and measures the same part', () => {
       // Aligned in place first: the two files ship in a shared frame, so this
