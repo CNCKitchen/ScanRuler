@@ -31,6 +31,11 @@ export class OrthoNavigator {
   /** Marks the live orbit centre. The owner adds it to its own scene. */
   readonly pivotMarker: THREE.Mesh
 
+  /** Fires whenever a gesture here changes what is on screen — the camera
+   *  moving, the pivot marker coming or going — so an owner that only renders
+   *  on demand knows the frame is worth drawing. */
+  onChange: (() => void) | null = null
+
   private scheme: ControlScheme = SCHEMES[0]
   /** The active scheme's bindings, with plain left-drag handed over to the
    *  brush while the user is painting a surface (see setPaintMode). */
@@ -61,6 +66,12 @@ export class OrthoNavigator {
   private tmp2 = new THREE.Vector3()
   private q1 = new THREE.Quaternion()
   private q2 = new THREE.Quaternion()
+  private pickNdc = new THREE.Vector2()
+  /** The canvas rect, asked of the layout engine at most once per frame:
+   *  getBoundingClientRect can force a layout pass, and setPickRay runs for
+   *  every dab of a brush stroke. Cleared in updateClipPlanes, which the owner
+   *  already calls once per frame. */
+  private rect: DOMRect | null = null
 
   constructor(
     private camera: THREE.OrthographicCamera,
@@ -163,6 +174,8 @@ export class OrthoNavigator {
    *  from being sliced away after the pivot has walked the camera in. Rays cast
    *  into the scene compensate — see setPickRay. */
   updateClipPlanes(): void {
+    // A new frame may mean new layout; the rect is re-read on the next ray.
+    this.rect = null
     const d = this.camera.position.distanceTo(this.clipSphere.center)
     const r = this.clipSphere.radius * 1.5 + 1e-3
     this.camera.near = d - r
@@ -177,8 +190,8 @@ export class OrthoNavigator {
    *  between the two is drawn yet sits behind the ray start and could never be
    *  hit. Walk the origin back until the whole model is in front of it. */
   setPickRay(raycaster: THREE.Raycaster, clientX: number, clientY: number): void {
-    const rect = this.canvas.getBoundingClientRect()
-    const ndc = new THREE.Vector2(
+    const rect = this.canvasRect()
+    const ndc = this.pickNdc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     )
@@ -187,6 +200,11 @@ export class OrthoNavigator {
     const along = this.tmp.copy(this.clipSphere.center).sub(ray.origin).dot(ray.direction)
     const back = along - this.clipSphere.radius * 1.01
     if (back < 0) ray.recast(back)
+  }
+
+  private canvasRect(): DOMRect {
+    if (!this.rect) this.rect = this.canvas.getBoundingClientRect()
+    return this.rect
   }
 
   dispose(): void {
@@ -361,6 +379,7 @@ export class OrthoNavigator {
     this.camera.up.applyQuaternion(this.q1)
     this.camera.quaternion.premultiply(this.q1)
     this.camera.updateMatrixWorld()
+    this.onChange?.()
   }
 
   private endOrbit(): void {
@@ -370,6 +389,9 @@ export class OrthoNavigator {
     this.orbitLast = null
     this.orbiting = false // the free orbit keeps its tilt — no re-levelling
     this.pivotMarker.visible = false
+    // The marker leaving the screen is a visible change of its own, even
+    // though the camera stays put.
+    this.onChange?.()
   }
 
   /** Screen-space pan: translate camera and target along the view plane, so the
@@ -392,6 +414,7 @@ export class OrthoNavigator {
     this.camera.position.add(this.tmp)
     this.controls.target.add(this.tmp)
     this.controls.update()
+    this.onChange?.()
   }
 
   /** Drag-zoom (Shift+middle in SolidWorks, the CATIA chord, …): drag up to
@@ -414,7 +437,7 @@ export class OrthoNavigator {
   /** Cursor-centric zoom: scale the frustum, then shift the camera so the world
    *  point under (clientX, clientY) re-projects to the same screen position. */
   private zoomAt(factor: number, clientX: number, clientY: number): void {
-    const rect = this.canvas.getBoundingClientRect()
+    const rect = this.canvasRect()
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1
     const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1
     this.camera.updateMatrixWorld()
@@ -427,5 +450,6 @@ export class OrthoNavigator {
     this.controls.target.add(this.tmp)
     this.controls.update()
     if (this.orbiting) this.showPivotMarker()
+    this.onChange?.()
   }
 }

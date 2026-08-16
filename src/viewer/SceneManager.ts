@@ -391,6 +391,15 @@ export class SceneManager {
   private rafId = 0
   private resizeObserver: ResizeObserver
   private pointerDown: { x: number; y: number } | null = null
+  /** Render-on-demand: the rAF loop keeps ticking (the early-out is nearly
+   *  free) but the scene is only drawn on frames something marked. A missed
+   *  mark shows as a stale image, so every path that could change what is on
+   *  screen calls invalidate — an extra repaint costs nothing. */
+  private needsRender = true
+
+  private invalidate = (): void => {
+    this.needsRender = true
+  }
 
   /** Orbit / pan / zoom, bound to whichever CAD tool's buttons the user picked. */
   private nav: OrthoNavigator
@@ -444,12 +453,23 @@ export class SceneManager {
   private paintRgb: [number, number, number] = [0, 0, 0]
   private painting = false
   private paintLast: { x: number; y: number } | null = null
+  /** Pointer positions a stroke has covered since the last frame. Dabs are
+   *  laid from here once per frame rather than per pointermove: a gaming mouse
+   *  reports up to a thousand moves a second, each dab is a raycast plus a BVH
+   *  sweep, and nothing between two frames is ever seen anyway. */
+  private strokeQueue: { x: number; y: number; erase: boolean }[] = []
   private paintSphere = new THREE.Sphere()
   /** Scratch for the per-triangle brush test, which runs thousands of times
    *  per stroke and must not allocate. */
   private scratchA = new THREE.Vector3()
   private scratchB = new THREE.Vector3()
   private scratchC = new THREE.Vector3()
+  /** Scratch for picking, which runs every frame the cursor moves: the hit
+   *  point carried into the part's frame, and the fourth vector barycentric
+   *  needs beyond the triangle's own corners. Separate from the trio above so
+   *  a dab can hold its centre while the brush test churns through those. */
+  private scratchD = new THREE.Vector3()
+  private scratchE = new THREE.Vector3()
   /** Whether the brush would rub out right now — from the switch, from Alt, or
    *  from the right button being the one that is down. Drives the ring colour. */
   private paintErasing = false
@@ -471,6 +491,10 @@ export class SceneManager {
    *  would be a grip that cannot be grabbed. */
   private handleGroup = new THREE.Group()
   private handles: ExtendGrip[] = []
+  /** The grip meshes alone, kept beside the grips: the hover test runs every
+   *  frame the cursor moves, and mapping the list out afresh each time is a
+   *  per-frame allocation for an array that only changes when the grips do. */
+  private handleMeshes: THREE.Mesh[] = []
   private handleCleanup: (() => void)[] = []
   private handleColor = '#ffffff'
   private hoveredHandle: ExtendSide | null = null
@@ -592,6 +616,11 @@ export class SceneManager {
       this.clipSphere,
     )
     this.scene.add(this.nav.pivotMarker)
+    // The navigator says when a gesture changed the view; the controls'
+    // 'change' event is the safety net behind it, fired by update() whenever
+    // the camera turns out to have moved since the last frame.
+    this.nav.onChange = this.invalidate
+    this.controls.addEventListener('change', this.invalidate)
 
     this.buildGizmo()
 
@@ -679,11 +708,19 @@ export class SceneManager {
     const animate = () => {
       this.rafId = requestAnimationFrame(animate)
       if (this.paused) return
-      const w = this.container.clientWidth || 1
-      const h = this.container.clientHeight || 1
+      // These run every tick, rendered or not: the clip planes track the
+      // camera (and let the navigator drop its cached canvas rect), update()
+      // is what notices camera motion and fires 'change', and the stroke and
+      // hover queues are what decide whether this frame has anything new to
+      // show at all.
       this.nav.updateClipPlanes()
       this.controls.update()
+      this.drainStroke()
       this.updateHover()
+      if (!this.needsRender) return
+      this.needsRender = false
+      const w = this.container.clientWidth || 1
+      const h = this.container.clientHeight || 1
       this.keyLight.position.copy(this.camera.position)
       this.keyLight.target.position.copy(this.controls.target)
       this.renderer.setViewport(0, 0, w, h)
@@ -697,6 +734,7 @@ export class SceneManager {
   /** Swap the pointer-button control scheme (dropdown in the status strip). */
   setNavScheme(scheme: ControlScheme): void {
     this.nav.setScheme(scheme)
+    this.invalidate()
   }
 
   /** One pointer test per frame, and only when the answer could have changed:
@@ -731,6 +769,7 @@ export class SceneManager {
     if (this.hoverEnabled === enabled) return
     this.hoverEnabled = enabled
     this.hoverDirty = true
+    this.invalidate()
     if (!enabled && this.hoverWasHit) {
       this.hoverWasHit = false
       this.onHover?.(null)
@@ -860,6 +899,7 @@ export class SceneManager {
    *  colour of its own, so holes and flipped normals stop reading as part. */
   setBackfaceTint(on: boolean): void {
     this.backface.uBackfaceTint.value = on ? 1 : 0
+    this.invalidate()
   }
 
   /** Point the camera at the bounding-box centre from a broadside direction,
@@ -912,6 +952,7 @@ export class SceneManager {
     this.fitExtent = { halfW: halfW * 1.08, halfH: halfH * 1.08 }
     this.applyFrustum()
     this.controls.update()
+    this.invalidate()
   }
 
   /** Rebuild the orthographic frustum for the current viewport aspect,
@@ -949,9 +990,10 @@ export class SceneManager {
     // hit.point is in world space, which is the *reference's* frame once the
     // scan has been aligned. Everything a caller does with it — pinning a
     // reading, reading a per-vertex field — belongs to the scan, so hand back
-    // scan coordinates.
+    // scan coordinates. Scratch, not a clone: this runs every frame while the
+    // hover readout is on.
     this.partGroup.updateWorldMatrix(true, false)
-    const local = this.partGroup.worldToLocal(hit.point.clone())
+    const local = this.partGroup.worldToLocal(this.scratchD.copy(hit.point))
     return {
       vertices,
       weights: this.barycentric(vertices, local),
@@ -962,7 +1004,9 @@ export class SceneManager {
   }
 
   /** Where a hit sits inside its triangle, as the three corner weights, so a
-   *  per-vertex field can be read at the point rather than at a corner. */
+   *  per-vertex field can be read at the point rather than at a corner.
+   *  Runs on scratch vectors (p itself is left alone): it is on the per-frame
+   *  hover path and must not allocate. */
   private barycentric(
     vertices: [number, number, number],
     p: THREE.Vector3,
@@ -970,10 +1014,10 @@ export class SceneManager {
     const pos = (this.mesh!.geometry as THREE.BufferGeometry).getAttribute(
       'position',
     ) as THREE.BufferAttribute
-    const a = new THREE.Vector3().fromBufferAttribute(pos, vertices[0])
-    const v0 = new THREE.Vector3().fromBufferAttribute(pos, vertices[1]).sub(a)
-    const v1 = new THREE.Vector3().fromBufferAttribute(pos, vertices[2]).sub(a)
-    const v2 = p.clone().sub(a)
+    const a = this.scratchA.fromBufferAttribute(pos, vertices[0])
+    const v0 = this.scratchB.fromBufferAttribute(pos, vertices[1]).sub(a)
+    const v1 = this.scratchC.fromBufferAttribute(pos, vertices[2]).sub(a)
+    const v2 = this.scratchE.copy(p).sub(a)
     const d00 = v0.dot(v0)
     const d01 = v0.dot(v1)
     const d11 = v1.dot(v1)
@@ -1012,6 +1056,7 @@ export class SceneManager {
     if (!brush) {
       this.painting = false
       this.paintLast = null
+      this.strokeQueue.length = 0
       this.paintErasing = false
       this.brushRing.visible = false
       this.endMarquee()
@@ -1024,6 +1069,7 @@ export class SceneManager {
     if (gesture === null) {
       this.painting = false
       this.paintLast = null
+      this.strokeQueue.length = 0
       this.endMarquee()
     }
     // The footprint follows the settings even if the cursor never moves again.
@@ -1046,6 +1092,7 @@ export class SceneManager {
       this.applyPaint(this.colorAttr.array as Uint8Array)
       this.colorAttr.needsUpdate = true
     }
+    this.invalidate()
   }
 
   /** Which gesture a marker is set to, with the brush standing in for a caller
@@ -1090,6 +1137,7 @@ export class SceneManager {
     if (!this.colorAttr) return
     this.applyPaint(this.colorAttr.array as Uint8Array)
     this.colorAttr.needsUpdate = true
+    this.invalidate()
   }
 
   /** Rub out the whole marking and hand the surface back to whatever was
@@ -1113,6 +1161,7 @@ export class SceneManager {
     }
     this.paintCount = 0
     if (this.colorAttr) this.colorAttr.needsUpdate = true
+    this.invalidate()
   }
 
   /** One dab per few pixels along the segment the pointer covered, so a fast
@@ -1128,6 +1177,7 @@ export class SceneManager {
     }
     this.paintLast = { x, y }
     if (this.colorAttr) this.colorAttr.needsUpdate = true
+    this.invalidate()
   }
 
   /**
@@ -1163,9 +1213,10 @@ export class SceneManager {
     const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
 
     // The hit arrives in world space, which is the reference's frame once the
-    // scan has been aligned; everything below is in the scan's own.
+    // scan has been aligned; everything below is in the scan's own. scratchD
+    // holds the centre across the sweep — the trio below is the sweep's.
     this.partGroup.updateWorldMatrix(true, false)
-    const centre = this.partGroup.worldToLocal(hit.point.clone())
+    const centre = this.partGroup.worldToLocal(this.scratchD.copy(hit.point))
     const f = hit.faceIndex * 3
     const face = this.faceNormal(pos, idx[f], idx[f + 1], idx[f + 2])
     if (!face) return
@@ -1376,7 +1427,10 @@ export class SceneManager {
       this.markVertex(b, erase, arr)
       this.markVertex(c, erase, arr)
     }
-    if (this.paintCount !== before) this.colorAttr.needsUpdate = true
+    if (this.paintCount !== before) {
+      this.colorAttr.needsUpdate = true
+      this.invalidate()
+    }
   }
 
   /** Whether the brush takes marking away rather than laying it down: the
@@ -1399,11 +1453,36 @@ export class SceneManager {
       this.updateRingColor()
     }
     if (!this.painting) return
-    this.stroke(e.clientX, e.clientY, erasing)
+    // Buffered, not painted here: pointermove can outrun the display several
+    // times over, and each dab is a raycast plus a BVH sweep. The rAF loop
+    // drains the buffer once per frame — the same coalescing the hover path
+    // gets.
+    this.strokeQueue.push({ x: e.clientX, y: e.clientY, erase: erasing })
+  }
+
+  /** Land the dabs for every position a stroke buffered since the last frame.
+   *  Positions that have not covered a dab's worth of ground are folded into
+   *  the segment their successor draws — the stroke stays continuous, the work
+   *  stays proportional to distance covered rather than to the mouse's report
+   *  rate. The last position is always dabbed: it is where the cursor is, and
+   *  where the stroke must end. */
+  private drainStroke(): void {
+    const queue = this.strokeQueue
+    if (queue.length === 0) return
+    this.strokeQueue = []
+    for (let i = 0; i < queue.length; i++) {
+      const p = queue[i]
+      const last = this.paintLast
+      if (i < queue.length - 1 && last && Math.hypot(p.x - last.x, p.y - last.y) < 4) continue
+      this.stroke(p.x, p.y, p.erase)
+    }
   }
 
   private onPaintUp = (e: PointerEvent): void => {
     if (!this.painting || (e.button !== 0 && e.button !== 2)) return
+    // A short fast stroke can end with its tail still buffered for the next
+    // frame; land it now, or the mark stops short of where the cursor got to.
+    this.drainStroke()
     this.painting = false
     this.paintLast = null
     const m = this.marquee
@@ -1434,6 +1513,10 @@ export class SceneManager {
    * marked the difference does not show.
    */
   private updateBrushRing(): void {
+    // Runs at most once per frame, and only because the cursor (or the brush's
+    // settings) moved — either way the ring is worth redrawing, even when the
+    // change is just the ring going away.
+    this.invalidate()
     const at = this.hoverAt
     if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !this.mesh?.visible) {
       this.brushRing.visible = false
@@ -1459,7 +1542,7 @@ export class SceneManager {
       return
     }
     this.partGroup.updateWorldMatrix(true, false)
-    const centre = this.partGroup.worldToLocal(hit.point.clone())
+    const centre = this.partGroup.worldToLocal(this.scratchD.copy(hit.point))
     this.brushRing.position.copy(centre)
     this.brushRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal)
     this.brushRing.scale.setScalar(Math.max(this.paint.diameter / 2, 1e-6))
@@ -1469,6 +1552,7 @@ export class SceneManager {
   private updateRingColor(): void {
     if (!this.paint) return
     this.brushRingMaterial.color.set(this.paintErasing ? BRUSH_ERASE_COLOR : this.paint.color)
+    this.invalidate()
   }
 
   /** The element under the cursor: the nearest hit among the overlay shapes
@@ -1496,7 +1580,10 @@ export class SceneManager {
         index.getX(f + 2),
       ]
       this.partGroup.updateWorldMatrix(true, false)
-      const weights = this.barycentric(vertices, this.partGroup.worldToLocal(hit.point.clone()))
+      const weights = this.barycentric(
+        vertices,
+        this.partGroup.worldToLocal(this.scratchD.copy(hit.point)),
+      )
       const nearest = weights.indexOf(Math.max(...weights))
       const owner = this.owner[vertices[nearest]]
       return owner > 0 && !this.hiddenRegions.has(owner) && this.elementColors.has(owner)
@@ -1512,6 +1599,7 @@ export class SceneManager {
     this.highlightIds = new Set(ids)
     for (const [id, entry] of this.shellMaterials) this.applyHighlight(id, entry)
     this.rebuildSelectionOutlines()
+    this.invalidate()
   }
 
   private applyHighlight(id: number, entry: { material: THREE.MeshStandardMaterial; color: string }): void {
@@ -1627,6 +1715,7 @@ export class SceneManager {
         label.element.remove()
       })
     }
+    this.invalidate()
   }
 
   /** Mark the points picked for an alignment slot on the part, labelled with
@@ -1653,10 +1742,12 @@ export class SceneManager {
         label.element.remove()
       })
     }
+    this.invalidate()
   }
 
   applyRegion(elementId: number, colorHex: string, region: Uint32Array): void {
     if (!this.colorAttr || !this.owner) return
+    this.invalidate()
     this.clearElement(elementId)
     const c = new THREE.Color(colorHex)
     const rgb: [number, number, number] = [
@@ -1683,6 +1774,7 @@ export class SceneManager {
 
   clearElement(elementId: number): void {
     if (!this.colorAttr || !this.owner) return
+    this.invalidate()
     this.elementColors.delete(elementId)
     this.hiddenRegions.delete(elementId)
     const arr = this.colorAttr.array as Uint8Array
@@ -1702,6 +1794,7 @@ export class SceneManager {
 
   clearAllRegions(): void {
     if (!this.colorAttr || !this.owner) return
+    this.invalidate()
     this.owner.fill(0)
     this.elementColors.clear()
     this.hiddenRegions.clear()
@@ -1738,6 +1831,7 @@ export class SceneManager {
     this.previewRegion = region
     this.paintOverlays(arr)
     this.colorAttr.needsUpdate = true
+    this.invalidate()
   }
 
   /** The two layers that sit above the element tints: the preview region of a
@@ -1851,6 +1945,7 @@ export class SceneManager {
 
   /** Translucent ghost of the element a pending fit produced. */
   setPreview(fit: FitData | null): void {
+    this.invalidate()
     if (this.previewShape) {
       this.previewGroup.remove(this.previewShape)
       ;(this.previewShape.material as THREE.Material).dispose()
@@ -1885,7 +1980,9 @@ export class SceneManager {
     this.handleCleanup = []
     this.handleGroup.clear()
     this.handles = []
+    this.handleMeshes = []
     this.handleColor = color
+    this.invalidate()
     if (this.hoveredHandle !== null && this.handleDrag === null) this.setHoveredHandle(null)
     if (!fit) return
 
@@ -1967,6 +2064,7 @@ export class SceneManager {
     mesh.userData.extendSide = side
     this.handleGroup.add(mesh)
     this.handles.push({ side, position: position.clone(), dir: dir.clone(), mesh, material })
+    this.handleMeshes.push(mesh)
     this.handleCleanup.push(() => material.dispose())
   }
 
@@ -1979,10 +2077,7 @@ export class SceneManager {
     // Grips are built and moved between frames; the ray has to meet them where
     // they are now, not where the last render left them.
     this.handleGroup.updateWorldMatrix(true, true)
-    const hits = this.raycaster.intersectObjects(
-      this.handles.map((h) => h.mesh),
-      false,
-    )
+    const hits = this.raycaster.intersectObjects(this.handleMeshes, false)
     if (hits.length === 0) return null
     const side = hits[0].object.userData.extendSide as ExtendSide
     return this.handles.find((h) => h.side === side) ?? null
@@ -1993,6 +2088,7 @@ export class SceneManager {
   private setHoveredHandle(side: ExtendSide | null): void {
     if (this.hoveredHandle === side) return
     this.hoveredHandle = side
+    this.invalidate()
     for (const h of this.handles) h.material.color.set(h.side === side ? 0xffffff : this.handleColor)
     this.claimDrag('handle', side !== null)
     this.renderer.domElement.style.cursor = side !== null ? 'grab' : ''
@@ -2077,6 +2173,7 @@ export class SceneManager {
     angles: OverlayAngle[],
     visible: boolean,
   ): void {
+    this.invalidate()
     for (const fn of this.overlayCleanup) fn()
     this.overlayCleanup = []
     this.overlayGroup.clear()
@@ -2300,6 +2397,7 @@ export class SceneManager {
     this.nominalMesh.visible = false
     this.nominalMesh.renderOrder = 1
     this.scene.add(this.nominalMesh)
+    this.invalidate()
   }
 
   /** Bake a datum alignment into the scan's vertices. Vertex order is
@@ -2396,14 +2494,17 @@ export class SceneManager {
     this.partGroup.matrix.multiplyMatrices(this.alignMatrix, this.previewMatrix)
     this.partGroup.matrixWorldNeedsUpdate = true
     this.partGroup.updateMatrixWorld(true)
+    this.invalidate()
   }
 
   setNominalVisible(visible: boolean): void {
     if (this.nominalMesh) this.nominalMesh.visible = visible
+    this.invalidate()
   }
 
   setScanVisible(visible: boolean): void {
     if (this.mesh) this.mesh.visible = visible
+    this.invalidate()
   }
 
   /**
@@ -2423,6 +2524,7 @@ export class SceneManager {
     material.opacity = ghost ? 0.5 : 1
     material.depthWrite = !ghost
     material.needsUpdate = true
+    this.invalidate()
   }
 
   /** Frame the camera so that both models are on screen, wherever the
@@ -2445,6 +2547,7 @@ export class SceneManager {
    *  null to hand the surface back to the element colours. */
   setFieldColors(colors: Uint8Array | null): void {
     this.fieldColors = colors
+    this.invalidate()
     if (!this.colorAttr) return
     const arr = this.colorAttr.array as Uint8Array
     if (colors && colors.length === arr.length) {
@@ -2478,6 +2581,7 @@ export class SceneManager {
     if (!this.colorAttr || this.fieldColors) return
     this.repaintFromElements(this.colorAttr.array as Uint8Array)
     this.colorAttr.needsUpdate = true
+    this.invalidate()
   }
 
   private disposeNominal(): void {
@@ -2508,6 +2612,7 @@ export class SceneManager {
     this.paintCount = 0
     this.painting = false
     this.paintLast = null
+    this.strokeQueue.length = 0
     this.endMarquee()
   }
 
@@ -2517,6 +2622,7 @@ export class SceneManager {
     this.renderer.setSize(w, h)
     this.labelRenderer.setSize(w, h)
     this.applyFrustum()
+    this.invalidate()
   }
 
   dispose(): void {

@@ -52,6 +52,15 @@ export class PickScene {
   private resizeObserver: ResizeObserver
   private rafId = 0
   private pointerDown: { x: number; y: number } | null = null
+  /** Render-on-demand: the rAF loop keeps ticking (the early-out is nearly
+   *  free) but the scene is only drawn on frames something marked. A missed
+   *  mark shows as a stale image, so every path that could change what is on
+   *  screen calls invalidate — an extra repaint costs nothing. */
+  private needsRender = true
+
+  private invalidate = (): void => {
+    this.needsRender = true
+  }
 
   onPick: ((point: Vec3) => void) | null = null
 
@@ -110,6 +119,11 @@ export class PickScene {
       this.clipSphere,
     )
     this.scene.add(this.nav.pivotMarker)
+    // The navigator says when a gesture changed the view; the controls'
+    // 'change' event is the safety net behind it, fired by update() whenever
+    // the camera turns out to have moved since the last frame.
+    this.nav.onChange = this.invalidate
+    this.controls.addEventListener('change', this.invalidate)
 
     const rc = this.raycaster as THREE.Raycaster & { firstHitOnly?: boolean }
     rc.firstHitOnly = true
@@ -134,8 +148,13 @@ export class PickScene {
 
     const animate = (): void => {
       this.rafId = requestAnimationFrame(animate)
+      // These run every tick, rendered or not: the clip planes track the
+      // camera (and let the navigator drop its cached canvas rect), and
+      // update() is what notices camera motion and fires 'change'.
       this.nav.updateClipPlanes()
       this.controls.update()
+      if (!this.needsRender) return
+      this.needsRender = false
       this.keyLight.position.copy(this.camera.position)
       this.keyLight.target.position.copy(this.controls.target)
       this.renderer.render(this.scene, this.camera)
@@ -191,6 +210,7 @@ export class PickScene {
    *  the model there, so the two must not navigate differently. */
   setNavScheme(scheme: ControlScheme): void {
     this.nav.setScheme(scheme)
+    this.invalidate()
   }
 
   private pick(clientX: number, clientY: number): Vec3 | null {
@@ -224,6 +244,7 @@ export class PickScene {
         div.remove()
       })
     }
+    this.invalidate()
   }
 
   private resize(): void {
@@ -232,6 +253,7 @@ export class PickScene {
     this.renderer.setSize(w, h)
     this.labelRenderer.setSize(w, h)
     this.applyFrustum()
+    this.invalidate()
   }
 
   dispose(): void {
