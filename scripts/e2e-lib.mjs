@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 
-export const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/ScanRuler/'
+export const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/'
 export const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
 
 /** A file at the repo root, e.g. the default STL fixtures. */

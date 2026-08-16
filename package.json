@@ -13,6 +13,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "deploy": "npm run build && npx --yes wrangler deploy",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e:smoke": "node scripts/e2e-smoke.mjs",

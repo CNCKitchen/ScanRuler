@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Cloudflare config: the app is pure static assets served by a Worker with no
+// script of its own. Deploy with `npm run deploy` (needs `npx wrangler login`
+// once), or connect the repo to Workers Builds so every push to main deploys.
+{
+  "name": "scanruler",
+  "compatibility_date": "2026-08-16",
+  "assets": {
+    "directory": "./dist",
+    // There is only index.html — anything else that misses is a stale asset
+    // URL from an old deploy, and reloading into the app beats a bare 404.
+    "not_found_handling": "single-page-application"
+  }
+}

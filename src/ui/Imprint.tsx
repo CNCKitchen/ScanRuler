@@ -70,16 +70,16 @@ export function ImprintModal() {
         </p>
         <ul>
           <li>
-            This website is hosted on GitHub Pages (GitHub Inc. / Microsoft Corp., 88 Colin P
-            Kelly Jr St, San Francisco, CA 94107, USA). When you visit this site, GitHub may
-            process your IP address in server logs. Legal basis: Art. 6(1)(f) DSGVO (legitimate
-            interest in providing the website). See{' '}
+            This website is hosted on Cloudflare (Cloudflare, Inc., 101 Townsend St, San
+            Francisco, CA 94107, USA). When you visit this site, Cloudflare may process your IP
+            address in server logs to deliver the site and protect it against attacks. Legal
+            basis: Art. 6(1)(f) DSGVO (legitimate interest in providing the website). See{' '}
             <a
-              href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement"
+              href="https://www.cloudflare.com/privacypolicy/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              GitHub’s Privacy Statement
+              Cloudflare’s Privacy Policy
             </a>
             .
           </li>

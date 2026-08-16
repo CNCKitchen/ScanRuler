@@ -590,16 +590,23 @@ fine mesh of the *same* cube with one face raised 0.2 mm and another sunk
 included — and leave the other four faces flat. It does, to 66.6 % of the scan
 inside ±0.1 mm, which is exactly four faces of six.
 
-## Deploying to GitHub Pages
+## Deploying to Cloudflare
 
-The included workflow (`.github/workflows/deploy.yml`) builds and deploys on
-every push to `main`:
+The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no
+server code — `wrangler.jsonc` holds the whole configuration. Two ways to ship
+it:
 
-1. Create a GitHub repository named `ScanRuler` (the Vite `base` path in
-   `vite.config.ts` must match the repository name).
-2. In the repository settings, under **Pages**, set the source to
-   **GitHub Actions**.
-3. Push. The site appears at `https://<user>.github.io/ScanRuler/`.
+- **From your machine:** `npx wrangler login` once, then `npm run deploy`
+  (builds, then uploads `dist/`).
+- **On every push:** in the Cloudflare dashboard, create a Worker from this
+  Git repository (Workers Builds). Set the build command to
+  `npm test && npm run build` — the config file supplies the rest. Pushes to
+  `main` then build and deploy automatically.
+
+Either way the site lands on a `*.workers.dev` URL; attach a custom domain in
+the Worker's settings if you have one. The GitHub Actions workflow
+(`.github/workflows/ci.yml`) still runs tests and a build on every push and
+pull request, so a red suite is visible before Cloudflare ships it.
 
 ## Roadmap
 
