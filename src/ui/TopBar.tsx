@@ -7,7 +7,7 @@
 import { useStore } from '../state/store'
 import { useDeviation, type Workspace } from '../state/deviationStore'
 
-const GITHUB_URL = 'https://github.com/cnckitchen/ScanRuler'
+const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
 const WORKSPACES: { id: Workspace; label: string; title: string }[] = [
   { id: 'elements', label: 'Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },

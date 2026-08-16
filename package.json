@@ -7,7 +7,7 @@
   "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/CNCKitchen/ScanRuler.git"
+    "url": "git+https://github.com/CNCKitchen/scanruler.git"
   },
   "scripts": {
     "dev": "vite",
