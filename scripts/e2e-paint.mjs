@@ -55,6 +55,23 @@ async function stroke(x, y, { button = 'left' } = {}) {
   await sleep(250)
 }
 
+/** A deliberate vertical drag for the camera checks. The ball bar stands
+ *  upright and is nearly a surface of revolution, so yaw about the screen's
+ *  vertical axis barely moves its silhouette — a pitch is what makes a real
+ *  orbit read as a large repaint rather than a fraction of a percent. */
+async function orbitDrag(x, y, { shift = false, dir = -1 } = {}) {
+  if (shift) await page.keyboard.down('Shift')
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) {
+    await page.mouse.move(x, y + i * 14 * dir)
+    await sleep(16)
+  }
+  await page.mouse.up()
+  if (shift) await page.keyboard.up('Shift')
+  await sleep(400)
+}
+
 await click(page, '[data-test="fit-sphere"]')
 await page.waitForSelector('[data-test="draft-select-mode"]')
 await page.select('[data-test="draft-select-mode"]', 'paint')
@@ -163,19 +180,16 @@ check(await paintPreviewReady(), 'the fit is still ready after editing the marki
 // viewport, far above the idle-noise threshold.
 const beforeOrbit = await shot()
 const markedBeforeOrbit = await markedCount()
-await page.keyboard.down('Shift')
-await page.mouse.move(hit[0], hit[1] + 120)
-await page.mouse.down()
-for (let i = 1; i <= 8; i++) await page.mouse.move(hit[0] + i * 14, hit[1] + 120)
-await page.mouse.up()
-await page.keyboard.up('Shift')
-await sleep(400)
+await orbitDrag(hit[0], hit[1] + 120, { shift: true })
 const orbitDiff = await pixelDiff(page, beforeOrbit, await shot())
 check(
   orbitDiff > Math.max(RING_THRESHOLD, 0.5),
   `Shift-drag still orbits while the brush is armed (${orbitDiff.toFixed(2)}% repainted)`,
 )
 check((await markedCount()) === markedBeforeOrbit, 'orbiting marks nothing')
+// Put the camera back: every screen coordinate measured earlier is reused by
+// the strokes below, and they only land if the part is where it was.
+await orbitDrag(hit[0], hit[1] + 120, { shift: true, dir: 1 })
 
 // Escape backs out one step at a time, the same way it does in the local fine
 // fit: the first hands the camera back and leaves both the draft and its
@@ -191,13 +205,14 @@ check((await markedCount()) === markedBeforeOrbit, 'and leaves the marking alone
 // …and with no gesture live, a plain drag is the camera's again — the whole
 // point of porting Navigate over from the local fine fit.
 const beforeIdle = await shot()
-await stroke(hit[0], hit[1] + 120)
+await orbitDrag(hit[0], hit[1] + 120)
 check((await markedCount()) === markedBeforeOrbit, 'a plain drag marks nothing once it stands down')
 const idleDragDiff = await pixelDiff(page, beforeIdle, await shot())
 check(
   idleDragDiff > Math.max(RING_THRESHOLD, 0.5),
   `and drives the camera instead (${idleDragDiff.toFixed(2)}% repainted)`,
 )
+await orbitDrag(hit[0], hit[1] + 120, { dir: 1 })
 
 const markedAtCreate = await markedCount()
 await click(page, '[data-test="create-element"]')
