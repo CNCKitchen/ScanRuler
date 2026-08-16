@@ -4,6 +4,7 @@
 // the other workspace — then the best fit, then everything that governs how
 // the resulting map is read.
 
+import { useShallow } from 'zustand/react/shallow'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
 import { useDeviation } from '../state/deviationStore'
@@ -59,7 +60,42 @@ export function DeviationPanel({
   const scanName = useStore((s) => s.fileName)
   const scanTriangles = useStore((s) => s.triangleCount)
   const scanBusy = useStore((s) => s.busy)
-  const d = useDeviation()
+  // Only the slice this panel actually reads: the store is also written on
+  // every map repaint and probe, and re-rendering the whole panel for fields
+  // it never shows would be paid on every one of them.
+  const d = useDeviation(
+    useShallow((s) => ({
+      align: s.align,
+      alignMessage: s.alignMessage,
+      alignStatus: s.alignStatus,
+      bands: s.bands,
+      clearProbes: s.clearProbes,
+      globalAlign: s.globalAlign,
+      localMaxDistance: s.localMaxDistance,
+      mapStatus: s.mapStatus,
+      marking: s.marking,
+      maxDistance: s.maxDistance,
+      nominalBusy: s.nominalBusy,
+      nominalName: s.nominalName,
+      nominalStep: s.nominalStep,
+      nominalTriangles: s.nominalTriangles,
+      probes: s.probes,
+      range: s.range,
+      removeProbe: s.removeProbe,
+      setBands: s.setBands,
+      setLocalMaxDistance: s.setLocalMaxDistance,
+      setMaxDistance: s.setMaxDistance,
+      setRange: s.setRange,
+      setShowHistogram: s.setShowHistogram,
+      setShowNominal: s.setShowNominal,
+      setShowScan: s.setShowScan,
+      setTolerance: s.setTolerance,
+      showHistogram: s.showHistogram,
+      showNominal: s.showNominal,
+      showScan: s.showScan,
+      tolerance: s.tolerance,
+    })),
+  )
   const markCount = useMark((s) => s.count)
 
   const busy = scanBusy || d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running'
