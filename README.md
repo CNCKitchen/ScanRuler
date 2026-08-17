@@ -24,6 +24,15 @@ Three workspaces share the loaded scan:
 **Everything runs locally.** Your scan files are processed in your browser and
 never leave your computer.
 
+**First time here?** An amber ring pulses around the one control to press next
+— open the scan, fit an element, measure between them — and moves on by itself
+as each step is done. It is read off the state of the work rather than from a
+script, so doing the steps out of order or undoing one keeps it honest, and it
+never rings a control that cannot be pressed yet. A workspace stops hinting
+once you have carried it through on two separate visits, so a reload always
+gives them back to you the first time; **◉ HINTS** in the status strip switches
+the guidance off outright, and switching it back on starts it over.
+
 ## Elements: fitting and measuring features
 
 ### How to use it
@@ -494,7 +503,7 @@ Reading the map:
 
 | Control | Unit | What it does |
 | --- | --- | --- |
-| **Range ±** | mm | Half-width of the colour scale. Defaults to the rounded 95th percentile of the absolute deviation, so a handful of outliers on a fixture edge cannot flatten the whole part to green. |
+| **Range ±** | mm | Half-width of the colour scale. Defaults to the rounded 95th percentile of the absolute deviation, so a handful of outliers on a fixture edge cannot flatten the whole part to green — and never opens wider than **±1 mm** on its own, so a great many of them cannot either. A part that really is further out than that says so in the dark end caps; widen the scale by hand to read it. |
 | **Bands** | — | Continuous jet, or quantised into bands when you want iso-deviation contours. |
 | **Histogram** | — | The distribution, drawn beside the scale and sharing its axis, plus min / max / mean / RMS / sigma. |
 | **Max search distance** | mm | How far a scan point may look for reference surface. Beyond it there is nothing to deviate from, so the surface is left plain grey and kept out of the statistics. Display only — it never affects the alignment, and moving it re-colours instantly. |
@@ -511,12 +520,24 @@ back to within **0.9 µm** of the fit found in place.
 
 ## Deviation from a fitted element
 
-Choose **Fitted element** under *Measure against* and pick any plane, cylinder or
-sphere you measured in the Elements workspace. That is the whole setup: **no
-reference file and no alignment**, because the element was fitted on this scan
-and is already in its frame. There is no *Measure* button either — the distance
-to a plane, a cylinder or a sphere is a handful of flops per vertex, so the map
-is computed on the main thread and simply follows every change to it.
+Choose **Fitted element** under *Measure against* and every plane, cylinder and
+sphere you measured in the Elements workspace appears on the part, each in its own
+colour. **Click one on the model** — or pick it from the dropdown — and that is
+the whole setup: **no reference file and no alignment**, because the element was
+fitted on this scan and is already in its frame. There is no *Measure* button
+either: the distance to a plane, a cylinder or a sphere is a handful of flops per
+vertex, so the map is computed on the main thread and simply follows every change
+to it.
+
+The element **in use** is reduced to its outline, for two reasons. It lies exactly
+on the surface being read, so a translucent body there would wash the colour the
+reading is made of — and on a map the colour *is* the measurement. And an outline
+is not something clicks resolve through, so a click on the map it covers still
+pins a reading rather than re-selecting the element under it. The elements **on
+offer** stay bodies, faded, because a body is what you can aim a click at.
+*Show elements on the part* takes them all off for a clean screenshot, and with
+them the clicking; an element hidden by its own eye in the Elements workspace
+stays hidden here too.
 
 A point and a line are not offered. The distance to them is unsigned, so there is
 no zero for a scale that runs warm one way and cool the other.
@@ -546,7 +567,8 @@ thickness search steps over a surface that does not face back.
 
 | Control | Unit | What it does |
 | --- | --- | --- |
-| **Measure to** | — | The element the map is measured against. Choosing one measures it. |
+| **Measure to** | — | The element the map is measured against. Choosing one measures it — as does clicking it on the part. |
+| **Show elements on the part** | — | The candidates on the model, which is also what makes them clickable. |
 | **Material side** | — | Which side of the element the material is on, detected from the scan. **Flip** inverts the whole map. |
 | **Max search distance** | mm | How far off the element a point may be and still be measured. Display only, so it can be dialled either way with the map following immediately. How far the element reaches *sideways* is set by extending it. |
 | **Surface must face the element** | ° | Leave out scan surface whose own normal points away from the element's — the far side of a wall, the back of a rib. |
@@ -556,9 +578,10 @@ tally, hover readings and pinned ones, **Copy report** — is the same instrumen
 as for a reference part, because it is the same map.
 
 Validated end-to-end against a generated 20 mm CAD cube
-(`npm run e2e:element-deviation`): a plane fitted on its top face maps the face
-as flat to 0.000 mm, leaves the underside out while the facing filter is on, and
-reports it as exactly −20.000 mm with the filter off.
+(`npm run e2e:element-deviation`): two planes fitted on two of its faces, chosen
+and swapped by clicking them on the model, and the map on each reading the face as
+flat to 0.000 mm, leaving the underside out while the facing filter is on, and
+reporting it as exactly −20.000 mm with the filter off.
 
 ## Wall thickness
 

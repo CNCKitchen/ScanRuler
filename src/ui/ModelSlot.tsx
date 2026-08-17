@@ -4,6 +4,7 @@
 
 import { useRef } from 'react'
 import { MESH_ACCEPT, MESH_FORMATS } from '../core/formats'
+import { usePulse } from '../app/useHints'
 
 export function ModelSlot({
   role,
@@ -27,8 +28,10 @@ export function ModelSlot({
   onOpen: (file: File) => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const slot = role.toLowerCase()
+  const pulse = usePulse(`open-${slot}`)
   return (
-    <div className="slot" data-test={`slot-${role.toLowerCase()}`}>
+    <div className="slot" data-test={`slot-${slot}`}>
       <input
         ref={inputRef}
         type="file"
@@ -49,7 +52,8 @@ export function ModelSlot({
         <span>{name ? detail : formats}</span>
       </div>
       <button
-        data-test={`open-${role.toLowerCase()}`}
+        data-test={`open-${slot}`}
+        className={pulse ? 'pulse' : undefined}
         disabled={busy}
         onClick={() => inputRef.current?.click()}
       >

@@ -82,13 +82,29 @@ export function deviationStats(
 }
 
 /**
+ * How wide the colour scale opens on its own, in mm. Past this the scale is the
+ * user's to widen: a millimetre either side is already a lot of deviation, and
+ * whatever pushed the suggestion past it is far more likely to be a feature that
+ * has no business being in the reading — a boss standing proud of the datum
+ * plane a map is measured against, scan spray, a fixture — than the part being
+ * genuinely two millimetres out. Suggesting the wide scale those produce would
+ * flatten the real deviation, all a few hundredths of a millimetre of it, into
+ * one shade of green.
+ *
+ * Anything past the ends is drawn in a dark cap rather than at the limit colour,
+ * so a part that really is further out says so plainly instead of hiding.
+ */
+export const MAX_AUTO_RANGE = 1
+
+/**
  * A colour range that shows the part rather than its worst pixel: the rounded
  * 95th percentile of the absolute deviation, so that a handful of points on a
- * fixture edge cannot flatten the whole part to green.
+ * fixture edge cannot flatten the whole part to green. Capped, so that a great
+ * many such points cannot either.
  */
 export function suggestRange(values: Float32Array, maxDistance: number): number {
   const [p95] = fieldPercentiles(values, -maxDistance, maxDistance, [0.95], true)
-  return Number.isFinite(p95) && p95 > 0 ? niceCeil(p95) : 0.1
+  return Number.isFinite(p95) && p95 > 0 ? Math.min(MAX_AUTO_RANGE, niceCeil(p95)) : 0.1
 }
 
 /** Default search distance: 2 % of the part's bounding-box diagonal, rounded.

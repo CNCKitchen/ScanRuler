@@ -10,6 +10,7 @@
 
 import { useRef, useState } from 'react'
 import { MESH_ACCEPT } from '../core/formats'
+import { usePulse } from '../app/useHints'
 
 export interface StartSlot {
   role: string
@@ -23,6 +24,10 @@ export interface StartSlot {
 function Tile({ role, what, name, accept = MESH_ACCEPT, onOpen }: StartSlot) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
+  // Keyed to the step rather than to this pane, so that the tile and the
+  // panel's slot for the same model light up together — they are one action
+  // offered twice, and the ring should not suggest otherwise.
+  const pulse = usePulse(`open-${role.toLowerCase()}`)
 
   return (
     <div
@@ -62,7 +67,10 @@ function Tile({ role, what, name, accept = MESH_ACCEPT, onOpen }: StartSlot) {
       ) : (
         <div className="starttile-drop">Drop it here</div>
       )}
-      <button className={name ? undefined : 'primary'} onClick={() => inputRef.current?.click()}>
+      <button
+        className={((name ? '' : 'primary ') + (pulse ? 'pulse' : '')).trim() || undefined}
+        onClick={() => inputRef.current?.click()}
+      >
         {name ? 'Replace…' : 'Choose file…'}
       </button>
     </div>

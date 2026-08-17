@@ -47,6 +47,7 @@ import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
 import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
+import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
 
@@ -455,6 +456,12 @@ export default function App() {
     const store = useStore.getState()
     const el = store.elements.find((e) => e.id === id)
     if (!el?.fit) return
+    // Over an element map the elements on offer are drawn on the part precisely
+    // so that one can be chosen by clicking it, which is the whole setup here.
+    if (useDeviation.getState().workspace === 'deviation') {
+      if (useDeviation.getState().source === 'element') handleSelectTarget(id)
+      return
+    }
     if (store.draft) {
       const method = creationMethod(store.draft.kind, store.draft.method)
       if (method.mode !== 'construct') return
@@ -807,6 +814,13 @@ export default function App() {
         live: 'Esc to navigate, twice to close',
       })
 
+  // The guided hints: which control is ringing is the control's own business
+  // (usePulse), but the sentence that goes with it belongs on the stage, and
+  // this is also where a workspace is retired once it has been carried through.
+  // The other workspaces already say their outstanding step in a chip below, so
+  // only the measure workspace's steps come from here.
+  const hintText = useHintChip()
+
   const source = useDeviation((s) => s.source)
   const targetId = useDeviation((s) => s.targetId)
   // Whichever map this workspace is reading — the legend, the hover readout and
@@ -986,6 +1000,15 @@ export default function App() {
               histogram={histogram}
               showHistogram={showHistogram}
               zeroAt={0}
+              // The sign is the one thing a deviation map cannot leave implicit.
+              // Against a reference part it names a side of that surface; against
+              // a fitted element there is no solid to be outside of, only more or
+              // less material than the ideal shape accounts for.
+              ends={
+                source === 'element'
+                  ? { high: 'too much material', low: 'too little material' }
+                  : { high: 'outside the reference', low: 'inside the reference' }
+              }
             />
           )}
           {!picking && onThickness && hasThicknessMap && (
@@ -1042,7 +1065,7 @@ export default function App() {
           {onDeviation && source === 'element' && !picking && fileName && targetId === null && (
             <div className="hintchip" data-test="need-element-chip">
               {elements.some((e) => e.fit && e.kind !== 'point' && e.kind !== 'line')
-                ? 'Choose the element to measure against in the panel'
+                ? 'Click the element to measure against — or choose it in the panel'
                 : 'No plane, cylinder or sphere yet — fit one in the Measure workspace'}
             </div>
           )}
@@ -1052,6 +1075,11 @@ export default function App() {
             </div>
           )}
           {stageHint && workspace === 'elements' && <div className="hintchip">{stageHint}</div>}
+          {!stageHint && workspace === 'elements' && fileName && hintText && (
+            <div className="hintchip" data-test="hint-chip">
+              {hintText}
+            </div>
+          )}
           {markHint && !picking && (
             <div className="hintchip" data-test="mark-chip">
               {markHint}

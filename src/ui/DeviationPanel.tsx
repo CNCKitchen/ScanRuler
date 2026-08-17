@@ -12,6 +12,7 @@ import { useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
 import { targetFitOf } from '../app/useElementField'
+import { usePulse } from '../app/useHints'
 import { CopyButton } from './CopyButton'
 import { formatSigned } from './format'
 import { InfoDot } from './InfoDot'
@@ -124,6 +125,8 @@ export function DeviationPanel({
   )
   const markCount = useMark((s) => s.count)
   const elements = useStore((s) => s.elements)
+  const pulseAlign = usePulse('align-auto')
+  const pulseMeasure = usePulse('measure-deviation')
 
   const onElement = d.source === 'element'
   const busy = scanBusy || d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running'
@@ -245,8 +248,10 @@ export function DeviationPanel({
           targetId={d.targetId}
           target={target}
           side={d.targetSide}
+          shown={d.showElement}
           disabled={!scanName || busy}
           onSelect={onSelectTarget}
+          onShown={d.setShowElement}
           onFlip={d.flipTargetSide}
           onGoToMeasure={onGoToMeasure}
         />
@@ -274,7 +279,7 @@ export function DeviationPanel({
           </InfoDot>
         </div>
         <button
-          className="primary block"
+          className={pulseAlign ? 'primary block pulse' : 'primary block'}
           data-test="align-auto"
           disabled={!ready || busy}
           onClick={onAlign}
@@ -338,7 +343,7 @@ export function DeviationPanel({
             )}
             {d.mapStatus !== 'ready' && (
               <button
-                className="primary block"
+                className={pulseMeasure ? 'primary block pulse' : 'primary block'}
                 data-test="measure-deviation"
                 disabled={busy}
                 onClick={onMeasure}
@@ -475,9 +480,13 @@ export function DeviationPanel({
               <InfoDot title="Colour scale">
                 <p>
                   How the measured deviation is painted onto the scan. Zero always sits at the
-                  centre of the scale, on green; too much material runs warm, too little runs cool,
-                  and anything past either end is drawn in a dark cap so it cannot be mistaken for
-                  the limit itself.
+                  centre of the scale, on green; anything past either end is drawn in a dark cap so
+                  it cannot be mistaken for the limit itself.
+                </p>
+                <p>
+                  <b>Positive is outside the reference</b> — material the reference does not have,
+                  painted warm. <b>Negative is inside it</b> — material the reference has and the
+                  scan does not, painted cool. Both ends of the scale say so beside the map.
                 </p>
                 <p>
                   The slider is logarithmic, so the same control serves a 0.02 mm print and a 5 mm
@@ -510,7 +519,7 @@ export function DeviationPanel({
               min={0.0001}
               unit="mm"
               onCommit={d.setRange}
-              hint="Half-width of the colour scale. Zero always sits at the centre, on green; anything past either end is drawn in a dark cap."
+              hint="Half-width of the colour scale. Zero always sits at the centre, on green; positive is outside the reference, negative inside it, and anything past either end is drawn in a dark cap."
             />
             <ScaleControls
               bands={d.bands}
@@ -519,17 +528,10 @@ export function DeviationPanel({
               onShowHistogram={d.setShowHistogram}
               histogramTestId="toggle-histogram"
             />
-            {onElement ? (
-              <label className="checkrow">
-                <input
-                  type="checkbox"
-                  data-test="toggle-element"
-                  checked={d.showElement}
-                  onChange={(e) => d.setShowElement(e.target.checked)}
-                />
-                <span>Show element</span>
-              </label>
-            ) : (
+            {/* Showing the elements belongs to the Element section rather than
+                here: they are on the part from the moment this workspace opens,
+                which is before there is any colour scale to put a switch on. */}
+            {!onElement && (
               <label className="checkrow">
                 <input
                   type="checkbox"

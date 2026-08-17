@@ -4,7 +4,12 @@ import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { mulberry32 } from '../src/core/fit/ransac'
 import { absoluteOrientation } from '../src/core/deviation/absoluteOrientation'
 import { NominalSurface, emptyHit } from '../src/core/deviation/surface'
-import { deviationScale, deviationStats, suggestRange } from '../src/core/deviation/deviation'
+import {
+  deviationScale,
+  deviationStats,
+  MAX_AUTO_RANGE,
+  suggestRange,
+} from '../src/core/deviation/deviation'
 import { fieldHistogram, niceCeil, niceFloor } from '../src/core/field/stats'
 import {
   jet,
@@ -208,6 +213,23 @@ describe('scale and statistics', () => {
     for (let i = 0; i < 1000; i++) values[i] = i % 2 ? 0.1 : -0.1
     values[1000] = 9
     expect(suggestRange(values, 100)).toBeLessThan(1)
+  })
+
+  it('never opens the scale wider than a millimetre on its own', () => {
+    // A third of the surface standing 6 mm proud — a boss on the datum plane an
+    // element map is measured against, or a fixture in a reference map. The 95th
+    // percentile lands on it, and a ±6 mm scale would render the deviation that
+    // actually matters, a few hundredths, as one shade of green. The cap keeps
+    // the reading legible and the dark end caps say the rest is off-scale.
+    const values = new Float32Array(900)
+    for (let i = 0; i < 600; i++) values[i] = i % 2 ? 0.03 : -0.03
+    for (let i = 600; i < 900; i++) values[i] = 6
+    expect(suggestRange(values, 100)).toBe(MAX_AUTO_RANGE)
+    expect(MAX_AUTO_RANGE).toBe(1)
+    // Below the cap the suggestion is still the tool's own, to whatever
+    // precision the part deserves.
+    const tight = new Float32Array(100).fill(0.04)
+    expect(suggestRange(tight, 100)).toBeLessThan(0.1)
   })
 
   it('counts only what the search distance matched', () => {

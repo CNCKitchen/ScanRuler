@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { create } from 'zustand'
 import type { AlignResult, PointPair } from '../core/deviation/align'
-import type { DeviationStats } from '../core/deviation/deviation'
+import { MAX_AUTO_RANGE, type DeviationStats } from '../core/deviation/deviation'
 import { DEFAULT_FACING_DEG, type MaterialSide } from '../core/deviation/elementField'
 import type { FieldHistogram } from '../core/field/stats'
 import type { StepInfo } from '../core/parsers/step'
@@ -219,7 +219,10 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // than the next feature on almost any part.
   localMaxDistance: 1,
 
-  range: 0.5,
+  // The widest the scale ever opens by itself — see MAX_AUTO_RANGE. Starting
+  // there rather than tighter means the first map a session measures is never
+  // read off a scale narrower than the one the tool would have chosen.
+  range: MAX_AUTO_RANGE,
   rangeAuto: true,
   maxDistance: 3,
   bands: null,
@@ -242,13 +245,22 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
 
   // A different element is a different measurement — the map on the old one goes
   // with the choice, and the field itself is recomputed by whoever owns it.
+  //
+  // Choosing the element already in use has to be nothing at all, not a reset:
+  // the map is recomputed off a change to the choice, so putting the status back
+  // to idle when the choice has not moved would take the map away and leave
+  // nothing to bring it back.
   setTarget: (targetId, side = 1) =>
-    set((s) => ({
-      ...NO_TARGET,
-      targetId,
-      targetSide: side,
-      ...clearedReadout(s.source === 'element'),
-    })),
+    set((s) =>
+      s.targetId === targetId && s.targetSide === side
+        ? {}
+        : {
+            ...NO_TARGET,
+            targetId,
+            targetSide: side,
+            ...clearedReadout(s.source === 'element'),
+          },
+    ),
 
   flipTargetSide: () => set((s) => ({ targetSide: s.targetSide === 1 ? -1 : 1 })),
 

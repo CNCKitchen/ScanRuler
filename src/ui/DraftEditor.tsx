@@ -9,6 +9,7 @@ import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
 import type { SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
 import { blockedRefs, draftColorOf, useStore, type SelectMode } from '../state/store'
+import { usePulse } from '../app/useHints'
 import { DroValue } from './DroValue'
 import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
@@ -45,6 +46,9 @@ export function DraftEditor({
   // panel only needs to know how much surface it has taken.
   const markGesture = useMark((s) => s.gesture)
   const paintCount = useMark((s) => s.count)
+  // Named as the step from the moment the draft opens; the ring itself waits
+  // for the fit, because a disabled control never wears one.
+  const pulse = usePulse('create-element')
 
   const draftKind = draft && elementKindInfo(draft.kind)
   const method = draft && creationMethod(draft.kind, draft.method)
@@ -251,7 +255,7 @@ export function DraftEditor({
           {draft.status === 'ready' && isExtendable(draft.fit) && <ExtendFields fit={draft.fit} />}
 
           <button
-            className="primary block"
+            className={pulse ? 'primary block pulse' : 'primary block'}
             data-test="create-element"
             disabled={draft.status !== 'ready'}
             onClick={onConfirmDraft}

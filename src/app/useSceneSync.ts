@@ -5,6 +5,7 @@
 // truth; these effects repeat it to the viewport.
 import { useEffect, useMemo } from 'react'
 import { creationMethod } from '../core/elements/construct'
+import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
 import { evaluateDimensions } from '../core/dimensions'
 import {
@@ -149,14 +150,17 @@ export function useSceneSync({
   // figures. They stay measured — leaving the workspace only puts them away,
   // and coming back shows them again without re-fitting.
   //
-  // The one exception is the element a deviation map is measured *against*.
-  // There the element is the zero of the scale, and a map with no sign of what
-  // it was measured from cannot be read at all — so that one element is drawn,
-  // alone, and only while it is what is being read.
+  // The exception is measuring the deviation to an element. There an element is
+  // the zero of the scale, and a map with no sign of what it was measured from
+  // cannot be read at all — so *every* element the map could be measured
+  // against is drawn, because choosing between them is the job at hand and it
+  // is done by clicking one of them on the part. The one in use is outlined and
+  // the rest are faded bodies on offer.
   const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
-  const targetId = useDeviation((s) =>
-    s.workspace === 'deviation' && s.source === 'element' && s.showElement ? s.targetId : null,
+  const candidates = useDeviation(
+    (s) => s.workspace === 'deviation' && s.source === 'element' && s.showElement,
   )
+  const targetId = useDeviation((s) => s.targetId)
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
@@ -177,7 +181,10 @@ export function useSceneSync({
       .filter((e) =>
         elementsWorkspace
           ? e.fit && e.visible && e.id !== editingElementId
-          : e.fit && e.id === targetId,
+          : // Only the kinds a deviation can be measured against: a point or a
+            // line is not on offer here, so drawing it would invite a click
+            // that cannot be answered.
+            candidates && e.visible && isDeviationTarget(e.fit),
       )
       // Drawn at whatever length or size it was extended to — the fit itself
       // stays the measured surface, and everything that reports a number goes
@@ -188,6 +195,11 @@ export function useSceneSync({
         name: e.name,
         color: e.color,
         fit: applyExtension(e.fit!, e.extend),
+        // On bare scan every element is a body. Over a map the one being
+        // measured against is reduced to its border, and the others stay bodies
+        // so there is something to aim a click at.
+        style: elementsWorkspace || e.id !== targetId ? ('shell' as const) : ('outline' as const),
+        muted: !elementsWorkspace && e.id !== targetId,
       }))
     // Distances draw as a line between their two anchor points, angles as an
     // arc at their hinge.
@@ -218,7 +230,6 @@ export function useSceneSync({
       elementsWorkspace ? pairs : [],
       elementsWorkspace ? angles : [],
       elementsWorkspace ? showOverlays : items.length > 0,
-      !elementsWorkspace,
     )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
@@ -240,6 +251,7 @@ export function useSceneSync({
     dimensions,
     showOverlays,
     elementsWorkspace,
+    candidates,
     targetId,
     editingElementId,
     editingDimensionId,
@@ -293,15 +305,23 @@ export function useSceneSync({
 
   // A viewport click selects elements whenever a dimension is being assembled
   // or a construction has reference slots — but never while clicks are picking
-  // scan points for a fit, and never in the deviation workspace.
+  // scan points for a fit.
   // While an alignment slot is collecting points, clicks must land on the raw
   // surface even where an element's region is painted — so element picking
   // stands down for the duration.
+  //
+  // Measuring the deviation to an element it is on the whole time: the elements
+  // on offer are drawn on the part and clicking one is how it is chosen. Only
+  // they are clickable — the one already in use is an outline, which picking
+  // does not resolve through, so a click on the surface it covers still pins a
+  // reading off the map. Bare scan does too: the element regions are hidden
+  // outside the measure workspace, and a hidden region owns no clicks.
   const wantsElementPicks =
-    elementsWorkspace &&
-    (((dimDraft !== null || (alignDraft !== null && alignDraft.pickSlot === null)) &&
-      draft === null) ||
-      (draft !== null && creationMethod(draft.kind, draft.method).mode === 'construct'))
+    candidates ||
+    (elementsWorkspace &&
+      (((dimDraft !== null || (alignDraft !== null && alignDraft.pickSlot === null)) &&
+        draft === null) ||
+        (draft !== null && creationMethod(draft.kind, draft.method).mode === 'construct')))
   useEffect(() => {
     sceneRef.current?.setElementPickEnabled(wantsElementPicks)
   }, [wantsElementPicks])

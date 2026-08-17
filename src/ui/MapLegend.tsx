@@ -20,6 +20,14 @@ export interface LegendStat {
   wide?: boolean
 }
 
+/** What the two ends of a signed scale mean, in words. The numbers alone say
+ *  "+0.4" and "−0.4" and leave everyone to guess which way that is — so the
+ *  scale spells it out, at the end it belongs to. */
+export interface LegendEnds {
+  high: string
+  low: string
+}
+
 function rgb(c: readonly [number, number, number]): string {
   return `rgb(${c[0]},${c[1]},${c[2]})`
 }
@@ -33,6 +41,7 @@ export function MapLegend({
   stats,
   showHistogram,
   zeroAt,
+  ends,
 }: {
   /** Names this legend's test hooks — one map's legend per workspace. */
   id: string
@@ -45,6 +54,9 @@ export function MapLegend({
   /** Value to call out on the scale — the nominal a map is read against, where
    *  it has one. */
   zeroAt?: number
+  /** What each end of the ramp means. Omit on an unsigned map, where a large
+   *  reading and a small one need no explaining. */
+  ends?: LegendEnds
 }) {
   const ticks = Array.from({ length: TICKS }, (_, i) => {
     const fraction = i / (TICKS - 1)
@@ -54,6 +66,11 @@ export function MapLegend({
   return (
     <div className="devlegend" data-test={`${id}-legend`}>
       <div className="devlegend-unit">{unit}</div>
+      {ends && (
+        <div className="devlegend-end high" data-test={`${id}-end-high`}>
+          <b>+</b> {ends.high}
+        </div>
+      )}
       <div className="devlegend-body">
         {showHistogram && histogram && (
           // Shares the ramp's vertical axis, so a bar sits at exactly the
@@ -103,6 +120,11 @@ export function MapLegend({
           ))}
         </div>
       </div>
+      {ends && (
+        <div className="devlegend-end low" data-test={`${id}-end-low`}>
+          <b>−</b> {ends.low}
+        </div>
+      )}
 
       {stats && (
         <div className="devstats" data-test={`${id}-stats`}>

@@ -99,6 +99,20 @@ describe('measuring against a reference part or an element', () => {
     expect(s().targetSide).toBe(-1)
   })
 
+  it('leaves the map alone when the element already in use is chosen again', () => {
+    s().setSource('element')
+    s().setTarget(7, 1)
+    s().resolveElementMap(0.2)
+    // Re-picking it in the dropdown, or clicking it on the part. The field is
+    // recomputed off a change to the choice, so resetting the status here would
+    // take the map away with nothing left to bring it back.
+    s().setTarget(7, 1)
+    expect(s().elementStatus).toBe('ready')
+    // A side that has been re-detected differently is a change, and does reset.
+    s().setTarget(7, -1)
+    expect(s().elementStatus).toBe('idle')
+  })
+
   it('leaves the reference readout alone when the element map is cleared behind it', () => {
     s().resolveAlign(doneAlign())
     s().resolveMap(0.4, 2.5)

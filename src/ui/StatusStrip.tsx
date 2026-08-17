@@ -3,6 +3,7 @@
 // running tally of what has been measured, and the overlay toggle.
 
 import { useDeviation } from '../state/deviationStore'
+import { useHintPrefs } from '../state/hintStore'
 import { useStore } from '../state/store'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 
@@ -20,6 +21,8 @@ export function StatusStrip() {
   const navScheme = useStore((s) => s.navScheme)
   const setNavScheme = useStore((s) => s.setNavScheme)
   const scheme = schemeById(navScheme)
+  const hintsOn = useHintPrefs((s) => s.on)
+  const setHintsOn = useHintPrefs((s) => s.setOn)
   // The overlays are the measure workspace's own: elsewhere they are put away
   // whatever this says, and a switch that does nothing is worse than no switch.
   const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
@@ -79,6 +82,15 @@ export function StatusStrip() {
         title="Colour the far side of every triangle — holes in the scan and inverted normals stop looking like solid part"
       >
         ◱ BACKFACES
+      </button>
+      <button
+        className={hintsOn ? 'on' : ''}
+        data-test="toggle-hints"
+        aria-pressed={hintsOn}
+        onClick={() => setHintsOn(!hintsOn)}
+        title="Ring the control to press next, until you have been through a workspace once. Switching it back on starts the guidance over."
+      >
+        ◉ <span className="btxt">HINTS</span>
       </button>
       <button
         className="stripimprint"

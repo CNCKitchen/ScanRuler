@@ -14,6 +14,7 @@ import {
 } from '../core/dimensions'
 import type { FitData } from '../core/types'
 import { useStore } from '../state/store'
+import { usePulse } from '../app/useHints'
 import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
 import { NameField, RefSelect } from './RefSelect'
@@ -100,6 +101,8 @@ export function DimensionSection({
   const commitDimension = useStore((s) => s.commitDimension)
   const removeDimension = useStore((s) => s.removeDimension)
   const toggleDimensionVisible = useStore((s) => s.toggleDimensionVisible)
+  const pulseNew = usePulse('new-dimension')
+  const pulseAdd = usePulse('add-dimension')
 
   // Every dimension re-reads its elements, so this is real work — memoised so
   // an unrelated render (a checkbox, a hover) does not repeat it.
@@ -146,7 +149,7 @@ export function DimensionSection({
       {dimDraft === null ? (
         <>
           <button
-            className="block"
+            className={pulseNew ? 'block pulse' : 'block'}
             data-test="new-dimension"
             disabled={elements.every((e) => !e.fit)}
             onClick={() => startDimension('dist-point-point')}
@@ -237,7 +240,7 @@ export function DimensionSection({
             )}
 
             <button
-              className="primary block"
+              className={pulseAdd ? 'primary block pulse' : 'primary block'}
               data-test="add-dimension"
               disabled={!dimPreview || Boolean(dimPreview.invalid)}
               onClick={commitDimension}

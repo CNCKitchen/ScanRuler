@@ -21,6 +21,23 @@ export interface OverlayElement {
   name: string
   color: string
   fit: FitData
+  /**
+   * How it is drawn, and with it what a click on it means.
+   *
+   * A **shell** is the translucent body — right on bare scan, and the only form
+   * you can reasonably aim a click at, so shells are what element picking
+   * resolves through.
+   *
+   * An **outline** is just the border. It is for the element a deviation map is
+   * measured against: that one lies exactly on the surface it was fitted to, so
+   * a shell there would both fight the depth buffer along that surface and wash
+   * the colour of the reading underneath — and on a map the colour *is* the
+   * measurement. It is also, deliberately, not clickable: it already is the
+   * element in use, and a click on the surface it covers is a reading to pin.
+   */
+  style?: 'shell' | 'outline'
+  /** Faded back: an element on offer rather than the one in use. */
+  muted?: boolean
 }
 
 export interface OverlayPair {
@@ -135,12 +152,6 @@ export class Overlays {
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     visible: boolean,
-    /** Draw the elements as bare outlines rather than translucent bodies. For an
-     *  element a deviation map is measured against: it sits exactly on the
-     *  surface it was fitted to, so a shell over it would both fight the depth
-     *  buffer along that surface and wash the colour of the reading underneath —
-     *  and on a map the colour *is* the measurement. */
-    outlined = false,
   ): void {
     this.ctx.invalidate()
     for (const fn of this.overlayCleanup) fn()
@@ -156,7 +167,7 @@ export class Overlays {
     }
 
     for (const el of elements) {
-      if (outlined) {
+      if (el.style === 'outline') {
         const outline = this.buildOutline(el.fit, el.color)
         if (outline) {
           this.overlayGroup.add(outline.line)
@@ -165,12 +176,17 @@ export class Overlays {
       } else {
         // The fitted element itself stays on screen — translucent and without
         // depth writes so the scan surface, centre marker and distance lines
-        // stay readable through it.
+        // stay readable through it. The polygon offset is what keeps it from
+        // fighting the depth buffer along a surface it was fitted to and lies
+        // exactly on: coplanar with the scan, the two would stripe.
         const shell = new THREE.MeshStandardMaterial({
           color: el.color,
           transparent: true,
-          opacity: 0.3,
+          opacity: el.muted ? 0.22 : 0.3,
           depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -1,
+          polygonOffsetUnits: -1,
           roughness: 0.4,
           metalness: 0,
           side: THREE.DoubleSide,

@@ -3,6 +3,7 @@
 // reports. Controls at the top, readouts below, in the order the work happens.
 
 import { useStore, type SelectMode } from '../state/store'
+import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
@@ -69,6 +70,9 @@ export function Panel({
   const alignDraft = useStore((s) => s.alignDraft)
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
+  // Which shape to fit is the user's to decide, so the ring goes round the row
+  // rather than singling one of them out.
+  const pulseKind = usePulse('kindrow')
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
@@ -136,7 +140,7 @@ export function Panel({
               </p>
             </InfoDot>
           </div>
-          <div className="kindrow">
+          <div className={pulseKind && !busy ? 'kindrow pulse' : 'kindrow'}>
             {ELEMENT_KINDS.map((k) => (
               <button
                 key={k.id}

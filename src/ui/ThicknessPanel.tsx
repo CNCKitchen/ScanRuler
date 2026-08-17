@@ -7,6 +7,7 @@
 
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
 import { useStore } from '../state/store'
+import { usePulse } from '../app/useHints'
 import { CopyButton } from './CopyButton'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
@@ -27,6 +28,7 @@ export function ThicknessPanel({
   const scanTriangles = useStore((s) => s.triangleCount)
   const scanBusy = useStore((s) => s.busy)
   const t = useThickness()
+  const pulse = usePulse('measure-thickness')
 
   const busy = scanBusy || t.status === 'running'
   const ready = Boolean(scanName)
@@ -192,7 +194,7 @@ export function ThicknessPanel({
         )}
 
         <button
-          className="primary block"
+          className={pulse ? 'primary block pulse' : 'primary block'}
           data-test="measure-thickness"
           disabled={!ready || busy}
           onClick={onMeasure}

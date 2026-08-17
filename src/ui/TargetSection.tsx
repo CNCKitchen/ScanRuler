@@ -8,6 +8,7 @@ import type { ElementTarget, MaterialSide } from '../core/deviation/elementField
 import { describeTarget, isDeviationTarget } from '../core/deviation/elementField'
 import { elementKindInfo } from '../core/elements/kinds'
 import type { Element } from '../state/store'
+import { usePulse } from '../app/useHints'
 import { InfoDot } from './InfoDot'
 
 /** Which side of the element the material is on, said in words rather than as a
@@ -24,8 +25,10 @@ export function TargetSection({
   targetId,
   target,
   side,
+  shown,
   disabled,
   onSelect,
+  onShown,
   onFlip,
   onGoToMeasure,
 }: {
@@ -35,8 +38,11 @@ export function TargetSection({
   /** The chosen element as drawn, or null when nothing usable is chosen. */
   target: ElementTarget | null
   side: MaterialSide
+  /** The elements are on the part — which is also what makes them clickable. */
+  shown: boolean
   disabled: boolean
   onSelect: (id: number | null) => void
+  onShown: (v: boolean) => void
   onFlip: () => void
   onGoToMeasure: () => void
 }) {
@@ -44,6 +50,10 @@ export function TargetSection({
   // measured — a construction that has gone degenerate has no geometry to be
   // measured against.
   const options = elements.filter((e) => isDeviationTarget(e.fit))
+  const pulseGo = usePulse('target-goto-measure')
+  // A dropdown is a poor thing to ring on its own, so the whole row wears it —
+  // label included, which is also what says what is being chosen.
+  const pulseSelect = usePulse('target-select')
 
   return (
     <div className={className}>
@@ -51,10 +61,14 @@ export function TargetSection({
         Element
         <InfoDot title="The element to measure against">
           <p>
-            Any plane, cylinder or sphere from the Measure workspace. The map is measured over the
-            element <b>as it is drawn</b> — extend it there with the grips and the measured region
-            grows with it, which is how a plane fitted on one pad becomes a flatness map of the
-            whole face it belongs to.
+            Any plane, cylinder or sphere from the Measure workspace. They are all drawn on the
+            part, so you can <b>click one on the model</b> instead of using the dropdown — the
+            choice is the same either way.
+          </p>
+          <p>
+            The map is measured over the element <b>as it is drawn</b> — extend it in the Measure
+            workspace with the grips and the measured region grows with it, which is how a plane
+            fitted on one pad becomes a flatness map of the whole face it belongs to.
           </p>
           <p>
             A point and a line are not offered: the distance to them has no side, so there is no
@@ -69,13 +83,17 @@ export function TargetSection({
             No plane, cylinder or sphere measured yet. Fit one on the scan in the Measure workspace
             and it appears here.
           </p>
-          <button className="block" data-test="target-goto-measure" onClick={onGoToMeasure}>
+          <button
+            className={pulseGo ? 'block pulse' : 'block'}
+            data-test="target-goto-measure"
+            onClick={onGoToMeasure}
+          >
             Go to Measure…
           </button>
         </>
       ) : (
         <>
-          <label className="field">
+          <label className={pulseSelect && !disabled ? 'field pulse' : 'field'}>
             <span>Measure to</span>
             <select
               data-test="target-select"
@@ -91,6 +109,35 @@ export function TargetSection({
               ))}
             </select>
           </label>
+
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="toggle-element"
+              checked={shown}
+              onChange={(e) => onShown(e.target.checked)}
+            />
+            <span>Show elements on the part</span>
+            <InfoDot title="The elements on the part">
+              <p>
+                Every plane, cylinder and sphere the map could be measured against is drawn on the
+                part, so that <b>clicking one chooses it</b> — the same choice as the dropdown
+                above, made where you are looking. Switching this off takes them off the stage, and
+                with them the clicking.
+              </p>
+              <p>
+                The one in use is reduced to its <b>border</b>: it lies exactly on the surface being
+                read, and a body there would wash the colour the reading is made of. It is also the
+                one element a click passes straight through, so a click on the map it covers still
+                pins a reading.
+              </p>
+              <p>An element hidden by its own eye in the Measure workspace stays hidden here too.</p>
+            </InfoDot>
+          </label>
+
+          {targetId === null && options.length > 1 && (
+            <p className="hint">Click one on the part, or pick it above.</p>
+          )}
 
           {target && (
             <>

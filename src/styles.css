@@ -254,6 +254,65 @@ button.primary:hover:not(:disabled) {
   border-color: var(--accent-d);
 }
 
+/* ---------------- guided hints ---------------- */
+
+/* The control to press next, breathing at the rate of the ready lamp. It is a
+   ring around the control and nothing else: no dimming of anything around it,
+   no overlay to click away, no change to where the control sits or how it
+   works. Which control wears it is derived from the state of the work (see
+   src/core/hints.ts), so it moves on by itself as each step is finished.
+
+   Drawn as a pseudo-element rather than a box-shadow so that the primary
+   button's own shadow survives underneath it, and hidden on anything disabled
+   — a ring on a control that cannot be pressed yet would be a lie, and it is
+   what lets the ladder name the step before the step is reachable. */
+.pulse {
+  position: relative;
+}
+
+/* Amber, and deliberately not the accent: blue is what this panel already uses
+   to mean "this is the live one", and on a primary button a blue ring is a blue
+   ring around a blue fill. Amber is the annunciator colour — the same one the
+   busy lamp runs at — so the guidance reads as a lamp rather than as another
+   piece of the control. It stands off by a couple of pixels rather than hugging
+   the control, because that strip of background is what makes it a ring. */
+.pulse::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 2px solid #e8a33d;
+  border-radius: 6px;
+  pointer-events: none;
+  animation: pulsering 1.6s ease-out infinite;
+}
+
+.pulse:disabled::after {
+  display: none;
+}
+
+/* An annunciator ping: the ring comes up to full, then throws a halo outward
+   off its own edge as it settles back. Colour and halo are animated rather
+   than opacity, so the two peak together instead of the ring dimming the very
+   halo it is throwing — and the halo is spread on a shadow rather than a
+   second element, so nothing around the control moves. */
+@keyframes pulsering {
+  0%,
+  100% {
+    border-color: rgba(232, 163, 61, 0.5);
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+  }
+
+  35% {
+    border-color: rgba(232, 163, 61, 1);
+    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0.5);
+  }
+
+  75% {
+    border-color: rgba(232, 163, 61, 0.8);
+    box-shadow: 0 0 0 10px rgba(232, 163, 61, 0);
+  }
+}
+
 /* ---------------- the ⓘ key and its card ---------------- */
 
 /* Sits directly after the label it belongs to, at the weight of a punctuation
@@ -1368,6 +1427,12 @@ button.x:disabled {
   .spinner {
     animation-duration: 2.4s;
   }
+
+  /* The ring still marks the step, at full strength; it just stops breathing. */
+  .pulse::after {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* ---------------- modals ---------------- */
@@ -1625,6 +1690,41 @@ button.x:disabled {
   text-transform: uppercase;
   color: var(--dim);
   padding-right: 2px;
+}
+
+/* The sign convention, written at the end of the ramp it belongs to. The
+   numbers alone leave "+0.4" to be guessed at, and the colours get read long
+   before the panel does — so each end says in words what it means. */
+.devlegend-end {
+  font-family: var(--cond);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink);
+  max-width: 150px;
+  text-align: right;
+  text-wrap: balance;
+  line-height: 1.2;
+  padding: 2px 4px;
+  background: rgba(252, 252, 250, 0.86);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+/* The sign itself, in the colour of the end it labels — warm above, cool
+   below, matching the ramp beside it. */
+.devlegend-end b {
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.devlegend-end.high b {
+  color: var(--red);
+}
+
+.devlegend-end.low b {
+  color: var(--accent);
 }
 
 .devlegend-body {

@@ -48,20 +48,26 @@ const { browser, page, consoleErrors } = await launchApp({ width: 1600, height: 
 await loadScan(page, CUBE, { inputSelector: '[data-test=start-scan] input[type=file]' })
 const rect = await canvasRect(page)
 
-await click(page, '[data-test=fit-plane]')
-// The part is framed from above-ish, so the middle of the canvas is the top
-// face; a couple of fallbacks in case the framing puts an edge there.
-let fitted = false
-for (const [fx, fy] of [[0.5, 0.42], [0.46, 0.38], [0.54, 0.46], [0.5, 0.5]]) {
-  await page.mouse.click(rect.x + rect.w * fx, rect.y + rect.h * fy)
-  if (await previewReady(page)) {
-    fitted = true
-    break
+/** Fit a plane by clicking the first of the given spots that the fitter takes. */
+const fitPlaneAt = async (spots, what) => {
+  await click(page, '[data-test=fit-plane]')
+  for (const [fx, fy] of spots) {
+    await page.mouse.click(rect.x + rect.w * fx, rect.y + rect.h * fy)
+    if (await previewReady(page)) {
+      await click(page, '[data-test=create-element]')
+      await sleep(400)
+      return [fx, fy]
+    }
   }
+  fail(`could not fit a plane on ${what}`)
+  return null
 }
-if (!fitted) fail('could not fit a plane on the cube')
-await click(page, '[data-test=create-element]')
-await sleep(400)
+
+// Two faces of the cube, so there is a choice to be made between them later.
+const topAt = await fitPlaneAt([[0.5, 0.42], [0.46, 0.38], [0.54, 0.46], [0.5, 0.5]], 'the top face')
+const sideAt = await fitPlaneAt([[0.42, 0.72], [0.38, 0.68], [0.46, 0.78], [0.35, 0.6]], 'a side face')
+const rows = await page.$$eval('[data-test=element-row]', (els) => els.length)
+check(rows === 2, `two planes to choose between, got ${rows}`)
 await page.screenshot({ path: shotPath('element-deviation-plane.png') })
 
 // ---- over to the deviation workspace, measuring against it -----------------
@@ -77,12 +83,42 @@ await click(page, '[data-test=source-element]')
 await page.waitForSelector('[data-test=need-element-chip]')
 const legendBefore = await page.$('[data-test=deviation-legend]')
 check(!legendBefore, 'no colour scale before an element is chosen')
+await sleep(400)
 await page.screenshot({ path: shotPath('element-deviation-empty.png') })
 
-const targetValue = await page.$eval('[data-test=target-select]', (el) =>
-  [...el.options].map((o) => o.value).filter(Boolean).at(0),
+// ---- both candidates are on the part, and clicking one chooses it ----------
+// Nothing is selected, so nothing is outlined: both planes are bodies waiting
+// to be clicked, and the stage must look different from one with them hidden.
+const withCandidates = await page.screenshot({ encoding: 'base64' })
+await click(page, '[data-test=toggle-element]')
+await sleep(400)
+const withoutCandidates = await page.screenshot({ encoding: 'base64' })
+check(
+  withCandidates !== withoutCandidates,
+  'the elements on offer are drawn on the part before one is chosen',
 )
-if (!targetValue) fail('the fitted plane is not offered as something to measure against')
+await click(page, '[data-test=toggle-element]')
+await sleep(400)
+
+// Click the side plane on the part rather than choosing it in the panel.
+await page.mouse.click(rect.x + rect.w * sideAt[0], rect.y + rect.h * sideAt[1])
+await page.waitForSelector('[data-test=deviation-legend]', { timeout: 30_000 })
+await sleep(400)
+const pickedName = await page.$eval('[data-test=target-select]', (el) => el.selectedOptions[0].textContent)
+console.log('chosen by clicking the part:', pickedName)
+check(/plane/.test(pickedName), 'clicking an element on the part chooses it')
+await page.screenshot({ path: shotPath('element-deviation-picked-on-part.png') })
+
+// And clicking the other one switches over — the map follows the click.
+await page.mouse.click(rect.x + rect.w * topAt[0], rect.y + rect.h * topAt[1])
+await sleep(600)
+const switchedName = await page.$eval('[data-test=target-select]', (el) => el.selectedOptions[0].textContent)
+console.log('switched to:', switchedName)
+check(switchedName !== pickedName, 'clicking the other element switches the map to it')
+
+// The panel dropdown must agree with what the clicks did, and still work.
+const targetValue = await page.$eval('[data-test=target-select]', (el) => el.value)
+if (!targetValue) fail('the plane clicked on the part is not selected in the panel')
 await page.select('[data-test=target-select]', targetValue)
 
 // No button to press: the map is arithmetic, so it is there with the choice.
@@ -158,7 +194,7 @@ await sleep(400)
 
 // ---- the material side turns the whole map round ---------------------------
 await setNumber('[data-test=max-distance]', 1)
-await click(page, '[data-test=target-flip'.concat(']'))
+await click(page, '[data-test=target-flip]')
 await sleep(500)
 const flipped = await page.$eval('[data-test=target-side]', (el) => el.textContent)
 console.log('flipped side:', flipped)

@@ -638,10 +638,8 @@ export class SceneManager {
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     visible: boolean,
-    /** Bare outlines instead of translucent bodies — see Overlays. */
-    outlined = false,
   ): void {
-    this.overlays.updateOverlays(elements, pairs, angles, visible, outlined)
+    this.overlays.updateOverlays(elements, pairs, angles, visible)
   }
 
   setPaused(paused: boolean): void {
