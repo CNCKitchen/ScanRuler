@@ -30,6 +30,9 @@ export interface OrthoViewportOptions {
   /** First look at every pointerdown, before the click machinery records it.
    *  Return true to take the event (a brush stroke, a grip grab). */
   onPointerDown?: (e: PointerEvent) => boolean
+  /** A second finger has landed: whatever one-finger gesture was live is over,
+   *  because the hand has moved on to navigating. */
+  onMultiTouch?: () => void
   /** Runs every animation tick, rendered or not — this is where the owner
    *  drains its per-frame queues and decides whether to invalidate. */
   onTick?: () => void
@@ -64,6 +67,12 @@ export class OrthoViewport {
   private resizeObserver: ResizeObserver
   private rafId = 0
   private pointerDown: { x: number; y: number } | null = null
+  /** Fingers down on the canvas, and whether this touch has been more than one
+   *  of them at any point. A tap picks, but the moment a second finger lands
+   *  the whole touch belongs to the navigator: a pinch that happens to start
+   *  and end within the drag threshold must not also fit a sphere. */
+  private touchIds = new Set<number>()
+  private multiTouch = false
   /** Render-on-demand: the rAF loop keeps ticking (the early-out is nearly
    *  free) but the scene is only drawn on frames something marked. A missed
    *  mark shows as a stale image, so every path that could change what is on
@@ -128,17 +137,36 @@ export class OrthoViewport {
     rc.firstHitOnly = true
 
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') {
+        this.touchIds.add(e.pointerId)
+        if (this.touchIds.size > 1 && !this.multiTouch) {
+          this.multiTouch = true
+          this.pointerDown = null
+          this.opts.onMultiTouch?.()
+        }
+      }
+      // Two fingers are the navigator's, whole: no pick, no stroke, no grip
+      // comes out of the second one landing or of anything after it.
+      if (this.multiTouch) return
       if (this.opts.onPointerDown?.(e)) return
       if (e.button !== 0) return
       this.pointerDown = { x: e.clientX, y: e.clientY }
     })
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       const down = this.pointerDown
+      const wasMulti = this.multiTouch
       this.pointerDown = null
-      if (!down || e.button !== 0) return
+      this.endTouch(e)
+      if (!down || e.button !== 0 || wasMulti) return
       // A drag is a rotation, not a pick.
       if (Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) return
       this.opts.onClick(e.clientX, e.clientY)
+    })
+    // A cancelled pointer never reports up; without this the canvas would stay
+    // convinced a finger was still down on it.
+    this.renderer.domElement.addEventListener('pointercancel', (e) => {
+      this.pointerDown = null
+      this.endTouch(e)
     })
 
     this.resizeObserver = new ResizeObserver(() => this.resize())
@@ -170,6 +198,15 @@ export class OrthoViewport {
     // mid-constructor here, and its tick hooks reach for modules it has not
     // built yet. The first frame is one rAF away either way.
     this.rafId = requestAnimationFrame(animate)
+  }
+
+  /** A finger leaving the glass. The multi-touch latch only lifts once the last
+   *  one has gone, so releasing a pinch one finger at a time cannot let the
+   *  straggler's release through as a tap. */
+  private endTouch(e: PointerEvent): void {
+    if (e.pointerType !== 'touch') return
+    this.touchIds.delete(e.pointerId)
+    if (this.touchIds.size === 0) this.multiTouch = false
   }
 
   /** Swap the pointer-button control scheme (dropdown in the status strip). */

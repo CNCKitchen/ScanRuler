@@ -34,6 +34,8 @@ export function useSceneSync({
   sceneRef,
   deviation,
   deviationRgb,
+  elementField,
+  elementRgb,
   thickness,
   thicknessRgb,
   thickScale,
@@ -42,6 +44,10 @@ export function useSceneSync({
   sceneRef: RefObject<SceneManager | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
+  /** The deviation from a fitted element, held beside the one from a reference
+   *  part so switching between them loses neither. */
+  elementField: RefObject<Float32Array | null>
+  elementRgb: RefObject<Uint8Array | null>
   thickness: RefObject<Float32Array | null>
   thicknessRgb: RefObject<Uint8Array | null>
   /** Held stable across renders by App, because it is what tells the repaint
@@ -142,7 +148,15 @@ export function useSceneSync({
   // of colours over a reading, and its label competes with the map's own
   // figures. They stay measured — leaving the workspace only puts them away,
   // and coming back shows them again without re-fitting.
+  //
+  // The one exception is the element a deviation map is measured *against*.
+  // There the element is the zero of the scale, and a map with no sign of what
+  // it was measured from cannot be read at all — so that one element is drawn,
+  // alone, and only while it is what is being read.
   const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
+  const targetId = useDeviation((s) =>
+    s.workspace === 'deviation' && s.source === 'element' && s.showElement ? s.targetId : null,
+  )
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
@@ -160,10 +174,15 @@ export function useSceneSync({
   const editingDimensionId = dimDraft?.editId
   useEffect(() => {
     const items: OverlayElement[] = elements
-      .filter((e) => e.fit && e.visible && e.id !== editingElementId)
+      .filter((e) =>
+        elementsWorkspace
+          ? e.fit && e.visible && e.id !== editingElementId
+          : e.fit && e.id === targetId,
+      )
       // Drawn at whatever length or size it was extended to — the fit itself
       // stays the measured surface, and everything that reports a number goes
-      // on reading that.
+      // on reading that. For the element a map is measured against, that drawn
+      // size is also exactly the region the map covers.
       .map((e) => ({
         id: e.id,
         name: e.name,
@@ -191,7 +210,16 @@ export function useSceneSync({
         title: r.dim.name,
         value: r.value.value!,
       }))
-    sceneRef.current?.updateOverlays(items, pairs, angles, showOverlays && elementsWorkspace)
+    // Dimensions are the measure workspace's alone: a distance between two
+    // elements has nothing to say about a map, and its leader lines would cross
+    // the reading.
+    sceneRef.current?.updateOverlays(
+      items,
+      elementsWorkspace ? pairs : [],
+      elementsWorkspace ? angles : [],
+      elementsWorkspace ? showOverlays : items.length > 0,
+      !elementsWorkspace,
+    )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
     // whichever map is being read. Ownership stays recorded either way, so
@@ -207,7 +235,15 @@ export function useSceneSync({
     // Overlays were rebuilt, so the selection glow has to be re-applied.
     sceneRef.current?.setHighlightedElements(highlightIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elements, dimensions, showOverlays, elementsWorkspace, editingElementId, editingDimensionId])
+  }, [
+    elements,
+    dimensions,
+    showOverlays,
+    elementsWorkspace,
+    targetId,
+    editingElementId,
+    editingDimensionId,
+  ])
 
   useEffect(() => {
     sceneRef.current?.setHighlightedElements(highlightIds)
@@ -276,6 +312,8 @@ export function useSceneSync({
   // feel like a different instrument.
   const workspace = useDeviation((s) => s.workspace)
   const mapVersion = useDeviation((s) => s.mapVersion)
+  const source = useDeviation((s) => s.source)
+  const elementVersion = useDeviation((s) => s.elementVersion)
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
   const bands = useDeviation((s) => s.bands)
@@ -289,18 +327,25 @@ export function useSceneSync({
   // nothing.
   const thickScaleShown = workspace === 'thickness' ? thickScale : null
   /** Whichever map this workspace is showing: its values, and the scale they
-   *  are read through. The two maps differ only in that scale and in the
-   *  figures that go under it. */
-  const shownField = () =>
-    workspace === 'deviation' && deviation.current
-      ? {
-          values: deviation.current,
-          rgb: deviationRgb,
-          scale: deviationScale(range, maxDistance, bands),
-        }
-      : workspace === 'thickness' && thickness.current
-        ? { values: thickness.current, rgb: thicknessRgb, scale: thickScale }
-        : null
+   *  are read through. The maps differ only in that scale and in the figures
+   *  that go under it — the two deviation maps not even in that, since a
+   *  deviation from a reference part and a deviation from an element are the
+   *  same signed millimetres read the same way. */
+  const shownField = () => {
+    if (workspace === 'deviation') {
+      const values = source === 'element' ? elementField.current : deviation.current
+      if (!values) return null
+      return {
+        values,
+        rgb: source === 'element' ? elementRgb : deviationRgb,
+        scale: deviationScale(range, maxDistance, bands),
+      }
+    }
+    if (workspace === 'thickness' && thickness.current) {
+      return { values: thickness.current, rgb: thicknessRgb, scale: thickScale }
+    }
+    return null
+  }
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -320,7 +365,17 @@ export function useSceneSync({
     }
     paintField(values, scale, rgb)
     scene.setFieldColors(rgb)
-  }, [workspace, mapVersion, range, maxDistance, bands, thickVersion, thickScaleShown])
+  }, [
+    workspace,
+    source,
+    mapVersion,
+    elementVersion,
+    range,
+    maxDistance,
+    bands,
+    thickVersion,
+    thickScaleShown,
+  ])
 
   // The figures under the legend, separately from the paint: the tolerance and
   // the thin-wall limit only move a tally, so changing them must not repaint
@@ -339,7 +394,9 @@ export function useSceneSync({
     }
   }, [
     workspace,
+    source,
     mapVersion,
+    elementVersion,
     range,
     maxDistance,
     bands,
@@ -358,9 +415,13 @@ export function useSceneSync({
   // starts, and the scene has no reference mesh to show until it finishes.
   const nominalBusy = useDeviation((s) => s.nominalBusy)
   const nominalReady = Boolean(nominalName) && !nominalBusy
+  // Measuring against an element is measuring in the scan's own frame — the
+  // element was fitted there. So the scan-to-reference pose comes off the scene
+  // for the duration, or the element would sit somewhere the part no longer is.
+  const shownAlign = source === 'element' ? null : align
   useEffect(() => {
-    sceneRef.current?.setAlignment(align ? rigidToColumnMajor(align.transform) : null)
-  }, [align])
+    sceneRef.current?.setAlignment(shownAlign ? rigidToColumnMajor(shownAlign.transform) : null)
+  }, [shownAlign])
   // Both models are on screen as soon as both are loaded. The reference is a
   // ghost while the scan is there to be seen through it, and turns solid when
   // the scan is switched off — which is how you check it is the right part,
@@ -370,11 +431,13 @@ export function useSceneSync({
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
-    const onDev = workspace === 'deviation'
+    // Measuring against an element there is no reference part in the question at
+    // all, so one that happens to be loaded stays off the stage.
+    const onDev = workspace === 'deviation' && source === 'reference'
     scene.setNominalVisible(onDev && nominalReady && showNominal)
     scene.setNominalGhost(!onDev || showScan)
-    scene.setScanVisible(!onDev || showScan)
-  }, [workspace, showNominal, showScan, nominalReady])
+    scene.setScanVisible(workspace !== 'deviation' || showScan)
+  }, [workspace, source, showNominal, showScan, nominalReady])
 
   // Which mouse buttons orbit, pan and zoom. Held in the store rather than the
   // scene so the status strip can show it and remember it.
@@ -410,8 +473,10 @@ export function useSceneSync({
   useEffect(() => {
     // Leaving the deviation workspace drops the marking with it — the scene
     // clears it when the tools are put away, and a count left standing for a
-    // marking that no longer exists would offer a fit of nothing.
-    if (workspace !== 'deviation' && useDeviation.getState().marking) {
+    // marking that no longer exists would offer a fit of nothing. Switching to
+    // an element counts as leaving: there is no alignment there to fine-fit.
+    if ((workspace !== 'deviation' || source === 'element') && useDeviation.getState().marking) {
+      sceneRef.current?.clearPaint()
       useDeviation.getState().stopMarking()
     }
     // Both workspaces mark with the same tools, so a gesture picked in one must
@@ -423,7 +488,7 @@ export function useSceneSync({
     if (useStore.getState().draft) cancelDraft()
     if (useStore.getState().alignDraft) useStore.getState().cancelAlignment()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace])
+  }, [workspace, source])
 
   // While the split picker is up the main viewport is hidden behind it; stop
   // rendering it rather than paying for a 1.4-million-triangle frame nobody
@@ -434,7 +499,9 @@ export function useSceneSync({
   }, [picking])
 
   // Hover testing only earns its frame when there is a map to read.
-  const hasDeviationMap = useDeviation((s) => s.mapStatus === 'ready')
+  const hasDeviationMap = useDeviation((s) =>
+    s.source === 'element' ? s.elementStatus === 'ready' : s.mapStatus === 'ready',
+  )
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
   const hasMap =
     (workspace === 'deviation' && hasDeviationMap) || (workspace === 'thickness' && hasThicknessMap)

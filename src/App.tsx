@@ -43,6 +43,8 @@ import { rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/ri
 import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
 import { exportElementsStep, exportScanStl } from './app/exports'
 import { PICK_MARK_TOOL_STATUS, useDeviationWorkspace } from './app/useDeviationWorkspace'
+import { targetFitOf, useElementField } from './app/useElementField'
+import { detectMaterialSide } from './core/deviation/elementField'
 import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
@@ -64,6 +66,11 @@ export default function App() {
   // part immediately instead of going back to the worker.
   const deviation = useRef<Float32Array | null>(null)
   const deviationRgb = useRef<Uint8Array | null>(null)
+  // The deviation from a fitted element, held beside the one from the reference
+  // part rather than sharing it: a few megabytes buys switching between what the
+  // scan is measured against without either map losing what it had.
+  const elementField = useRef<Float32Array | null>(null)
+  const elementRgb = useRef<Uint8Array | null>(null)
   // The wall thickness field, kept the same way and for the same reasons: one
   // float per scan vertex, and the two ends of its scale move it immediately
   // rather than going back to the worker.
@@ -108,12 +115,16 @@ export default function App() {
     clearPreview()
     // A different scan invalidates the alignment and the map measured under
     // it, and its wall thickness along with them; the reference geometry
-    // itself is still perfectly good.
+    // itself is still perfectly good. The elements go with the scan they were
+    // measured on, so the map against one of them goes too.
     deviation.current = null
     deviationRgb.current = null
+    elementField.current = null
+    elementRgb.current = null
     thickness.current = null
     thicknessRgb.current = null
     useDeviation.getState().clearAlign()
+    useDeviation.getState().clearElementMap()
     useThickness.getState().clear()
     // Nothing is marked on a part that is being replaced, and no gesture should
     // survive the swap.
@@ -317,6 +328,33 @@ export default function App() {
     handleCopyReport,
   } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb })
 
+  // ---- Deviation from a fitted element -------------------------------------
+
+  useElementField({ sceneRef, elementField, elementRgb })
+
+  /** Measure against this element. The material side is read off the scan as the
+   *  element is chosen — see detectMaterialSide for why it is decided here and
+   *  then left alone rather than re-derived as the controls move. */
+  const handleSelectTarget = (id: number | null) => {
+    const dev = useDeviation.getState()
+    const target = targetFitOf(useStore.getState().elements, id)
+    if (id === null || !target) {
+      dev.setTarget(null)
+      return
+    }
+    const geometry = sceneRef.current?.scanGeometry()
+    const positions = geometry?.getAttribute('position')?.array as Float32Array | undefined
+    const normals = geometry?.getAttribute('normal')?.array as Float32Array | undefined
+    dev.setTarget(
+      id,
+      positions && normals
+        ? detectMaterialSide(target, positions, normals, dev.maxDistance)
+        : 1,
+    )
+    const name = useStore.getState().elements.find((e) => e.id === id)?.name ?? 'element'
+    useStore.getState().setStatus(`Deviation measured against ${name}.`)
+  }
+
   // ---- Wall thickness workspace --------------------------------------------
 
   const { runThickness, handleCopyThicknessReport } = useThicknessWorkspace({
@@ -330,8 +368,13 @@ export default function App() {
    *  to a vertex, and written the way that map is written. Null where there is
    *  no map, or where the vertices around the hit carry no measurement. */
   const readingAt = (hit: PickHit): (HoverReading & { value: number }) | null => {
-    const onThickness = useDeviation.getState().workspace === 'thickness'
-    const values = onThickness ? thickness.current : deviation.current
+    const dev = useDeviation.getState()
+    const onThickness = dev.workspace === 'thickness'
+    const values = onThickness
+      ? thickness.current
+      : dev.source === 'element'
+        ? elementField.current
+        : deviation.current
     if (!values) return null
     const [a, b, c] = hit.vertices
     const [wa, wb, wc] = hit.weights
@@ -339,10 +382,14 @@ export default function App() {
     if (!Number.isFinite(value)) return null
     const at = { value, x: hit.clientX, y: hit.clientY }
     if (onThickness) return { ...at, text: `${value.toFixed(3)} mm`, muted: false }
-    const matched = Math.abs(value) <= useDeviation.getState().maxDistance
+    const matched = Math.abs(value) <= dev.maxDistance
     return {
       ...at,
-      text: matched ? `${formatSigned(value)} mm` : 'no reference in range',
+      text: matched
+        ? `${formatSigned(value)} mm`
+        : dev.source === 'element'
+          ? 'too far off the element'
+          : 'no reference in range',
       muted: !matched,
     }
   }
@@ -634,6 +681,8 @@ export default function App() {
     sceneRef,
     deviation,
     deviationRgb,
+    elementField,
+    elementRgb,
     thickness,
     thicknessRgb,
     thickScale,
@@ -758,7 +807,13 @@ export default function App() {
         live: 'Esc to navigate, twice to close',
       })
 
-  const mapReady = useDeviation((s) => s.mapStatus === 'ready')
+  const source = useDeviation((s) => s.source)
+  const targetId = useDeviation((s) => s.targetId)
+  // Whichever map this workspace is reading — the legend, the hover readout and
+  // the pins all follow the source rather than whichever was measured last.
+  const mapReady = useDeviation((s) =>
+    s.source === 'element' ? s.elementStatus === 'ready' : s.mapStatus === 'ready',
+  )
   const showHistogram = useDeviation((s) => s.showHistogram)
   const stats = useDeviation((s) => s.stats)
   const histogram = useDeviation((s) => s.histogram)
@@ -827,19 +882,25 @@ export default function App() {
     name: fileName,
     onOpen: (f) => void openFile(f),
   }
-  const startSlots: StartSlot[] = onDeviation
-    ? [
-        scanSlot,
-        {
-          role: 'Reference',
-          what: 'The nominal CAD part — mesh or STEP',
-          name: nominalName,
-          accept: REFERENCE_ACCEPT,
-          onOpen: (f) => void openNominal(f),
-        },
-      ]
-    : [scanSlot]
-  const needsModels = startSlots.some((slot) => !slot.name)
+  const startSlots: StartSlot[] =
+    onDeviation && source === 'reference'
+      ? [
+          scanSlot,
+          {
+            role: 'Reference',
+            what: 'The nominal CAD part — mesh or STEP',
+            name: nominalName,
+            accept: REFERENCE_ACCEPT,
+            onOpen: (f) => void openNominal(f),
+          },
+        ]
+      : [scanSlot]
+  // The stage prompt is a front door and nothing else: it says what the
+  // workspace is for and takes the first file. The moment there is a part to
+  // look at it gets out of the way for good — a card over the model is a card
+  // over the thing the user came to see, and whatever else the workspace still
+  // needs has its own row in the panel to say so.
+  const needsModels = !fileName
 
   return (
     <div className="app">
@@ -857,6 +918,8 @@ export default function App() {
             onClearMarking={handleClearMarking}
             onLocalFit={() => void runLocalAlign()}
             onRevertLocal={handleRevertLocal}
+            onSelectTarget={handleSelectTarget}
+            onGoToMeasure={() => useDeviation.getState().setWorkspace('elements')}
             onCopy={handleCopyReport}
             onExportStl={handleExportStl}
           />
@@ -940,14 +1003,18 @@ export default function App() {
             <StartPane
               title={
                 onDeviation
-                  ? 'Deviation from a nominal part'
+                  ? source === 'element'
+                    ? 'Deviation from a fitted element'
+                    : 'Deviation from a nominal part'
                   : onThickness
                     ? 'Wall thickness'
                     : 'Fitting elements'
               }
               blurb={
                 onDeviation
-                  ? 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan as STL, PLY or OBJ in millimetres, reference as any of those or a STEP file straight from CAD — everything stays in this browser.'
+                  ? source === 'element'
+                    ? 'Load a scan, fit a plane, cylinder or sphere on it in the Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
+                    : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan as STL, PLY or OBJ in millimetres, reference as any of those or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
                     ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
                     : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
@@ -959,9 +1026,24 @@ export default function App() {
           {/* Before the chips below it: the CSS lifts them out of its way with
               sibling combinators, which only reach forwards. */}
           {!picking && <SupportBanner />}
-          {onDeviation && !picking && !align && fileName && nominalName && (
+          {/* With no card on the stage any more, the step that is still
+              outstanding says so here instead — the reference that has yet to be
+              loaded, or the element that has yet to be chosen. */}
+          {onDeviation && source === 'reference' && !picking && fileName && !nominalName && (
+            <div className="hintchip" data-test="need-reference-chip">
+              Scan loaded — open the reference model in the panel, or drop it anywhere
+            </div>
+          )}
+          {onDeviation && source === 'reference' && !picking && !align && fileName && nominalName && (
             <div className="hintchip" data-test="ready-chip">
               Both models loaded — align to fit the scan onto the reference
+            </div>
+          )}
+          {onDeviation && source === 'element' && !picking && fileName && targetId === null && (
+            <div className="hintchip" data-test="need-element-chip">
+              {elements.some((e) => e.fit && e.kind !== 'point' && e.kind !== 'line')
+                ? 'Choose the element to measure against in the panel'
+                : 'No plane, cylinder or sphere yet — fit one in the Measure workspace'}
             </div>
           )}
           {onThickness && !picking && !hasThicknessMap && fileName && (

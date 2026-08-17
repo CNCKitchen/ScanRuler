@@ -9,7 +9,8 @@ import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
-import { buildDeviationReport } from '../core/deviation/report'
+import { buildDeviationReport, buildElementReport } from '../core/deviation/report'
+import { targetFitOf } from './useElementField'
 
 /** What the status strip says the moment the marking tools come out — the
  *  same tools, and so the same instruction, whichever workspace offered them. */
@@ -193,7 +194,26 @@ export function useDeviationWorkspace({
 
   const handleCopyReport = () => {
     const dev = useDeviation.getState()
-    if (!dev.align || !dev.stats) return
+    if (!dev.stats) return
+    if (dev.source === 'element') {
+      const elements = useStore.getState().elements
+      const target = targetFitOf(elements, dev.targetId)
+      if (!target) return
+      void navigator.clipboard?.writeText(
+        buildElementReport(
+          useStore.getState().fileName ?? '',
+          elements.find((e) => e.id === dev.targetId)?.name ?? 'element',
+          target,
+          dev.targetSide,
+          dev.stats,
+          dev.range,
+          dev.maxDistance,
+          dev.targetFacingDeg,
+        ),
+      )
+      return
+    }
+    if (!dev.align) return
     void navigator.clipboard?.writeText(
       buildDeviationReport(
         useStore.getState().fileName ?? '',

@@ -91,10 +91,17 @@
   box-sizing: border-box;
 }
 
+/* Two heights, deliberately. iOS Safari sizes the initial containing block —
+   and with it every `100%` and `vh` — to the window with the toolbars
+   *retracted*, so on an iPad the status strip sits a toolbar's worth below the
+   fold and the whole instrument scrolls. `dvh` is the height the window
+   actually has at this moment, which makes the shell fill a tablet the way it
+   fills a desktop; the `100%` above it stays as the fallback. */
 html,
 body,
 #root {
   height: 100%;
+  height: 100dvh;
   margin: 0;
 }
 
@@ -104,6 +111,9 @@ body {
   color: var(--ink);
   background: var(--chassis);
   overflow: hidden;
+  /* The window itself never scrolls, so a drag that runs past the end of a
+     panel must not rubber-band the chassis under it either. */
+  overscroll-behavior: none;
 }
 
 :focus-visible {
@@ -402,6 +412,9 @@ select:disabled {
   border-right: 1px solid var(--line);
   overflow-y: auto;
   overflow-x: hidden;
+  /* The panel is the only scroller on the page; a flick that reaches its end
+     stops there rather than handing the rest of the gesture to the window. */
+  overscroll-behavior: contain;
   padding: 15px 15px 22px;
   display: flex;
   flex-direction: column;
@@ -579,6 +592,58 @@ select:disabled {
 
 .checkrow input {
   flex: none;
+}
+
+/* What the deviation is measured against. The first choice of the workspace and
+   the one that decides how much setup follows, so it reads as two keys of a
+   rotary switch rather than as a pair of radio buttons in a list. */
+.sourcerow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.sourcerow button {
+  padding: 8px 6px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--well);
+  box-shadow: var(--inset);
+}
+
+.sourcerow button:hover:not(:disabled):not(.on) {
+  color: var(--accent-d);
+  border-color: var(--accent);
+}
+
+.sourcerow button.on {
+  color: var(--accent-d);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+/* Which side of an element the material is on: a word, because "+1" would mean
+   nothing, and the key that turns it round when the reading comes out inverted. */
+.sidepick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 108px;
+}
+
+.sidepick b {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--dim);
+}
+
+.sidepick button {
+  flex: none;
+  padding: 4px 9px;
 }
 
 /* One key per element type — the whole flow starts with this choice, so they
@@ -893,8 +958,18 @@ button.x:disabled {
   inset: 0;
 }
 
+/* The viewport owns every gesture that lands on it. Left to itself a touch
+   browser reads a drag over the canvas as a page pan and a two-finger spread
+   as a page zoom, so the model never turns and the window moves instead —
+   `touch-action: none` hands the drag to the navigator. The selection and
+   callout suppressions are the same idea for a long press: this is an
+   instrument face, not text. */
 .viewport canvas {
   display: block;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* The window / lasso outline, drawn over the canvas while it is being
@@ -1741,6 +1816,10 @@ button.x:disabled {
 
 .splitview canvas {
   display: block;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
 .splitbar {
@@ -2049,33 +2128,3 @@ button.x:disabled {
   border-color: var(--line-strong);
 }
 
-/* Once one model is in, the prompt gets out of the way of it. */
-.startpane.compact {
-  inset: auto 0 0 0;
-  flex-direction: row;
-  gap: 20px;
-  padding: 14px 18px 16px;
-  background: linear-gradient(to top, var(--chassis) 72%, rgba(231, 230, 225, 0));
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.startpane.compact .starthead {
-  align-items: flex-start;
-  text-align: left;
-  max-width: 260px;
-  padding-bottom: 10px;
-}
-
-.startpane.compact .starthead b {
-  font-size: 12.5px;
-}
-
-.startpane.compact .starttile {
-  width: 210px;
-  padding: 12px 14px 12px;
-}
-
-.startpane.compact .startfoot {
-  display: none;
-}

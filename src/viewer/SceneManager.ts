@@ -209,6 +209,10 @@ export class SceneManager {
         return targets
       },
       onPointerDown: (e) => this.handlePointerDown(e),
+      // A pan or a pinch beginning under a live brush stroke: the stroke keeps
+      // what it took and ends there, rather than being dragged across the part
+      // by a hand that has started navigating.
+      onMultiTouch: () => this.marking.endGesture(),
       onClick: (x, y) => this.handleClick(x, y),
       // The stroke and hover queues are what decide whether this frame has
       // anything new to show at all.
@@ -634,8 +638,10 @@ export class SceneManager {
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     visible: boolean,
+    /** Bare outlines instead of translucent bodies — see Overlays. */
+    outlined = false,
   ): void {
-    this.overlays.updateOverlays(elements, pairs, angles, visible)
+    this.overlays.updateOverlays(elements, pairs, angles, visible, outlined)
   }
 
   setPaused(paused: boolean): void {

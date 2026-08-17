@@ -32,13 +32,16 @@ export function useDragDrop({
       setDragging(false)
       const file = e.dataTransfer?.files?.[0]
       if (!file) return
-      // In the deviation workspace a drop fills whichever slot is still empty,
-      // so the two files can simply be dropped one after the other; only once
-      // both are there does a drop mean "replace the scan". A STEP file is the
-      // exception: it can only ever be the reference, so it goes there however
-      // full the slots are.
+      // While the deviation workspace is measuring against a reference part a
+      // drop fills whichever slot is still empty, so the two files can simply be
+      // dropped one after the other; only once both are there does a drop mean
+      // "replace the scan". A STEP file is the exception: it can only ever be
+      // the reference, so it goes there however full the slots are.
+      //
+      // Measuring against an element wants no second model at all, so there a
+      // drop is always the scan.
       const dev = useDeviation.getState()
-      if (dev.workspace === 'deviation') {
+      if (dev.workspace === 'deviation' && dev.source === 'reference') {
         if (isStepFile(file.name) || (useStore.getState().fileName && !dev.nominalName)) {
           void openNominal(file)
           return

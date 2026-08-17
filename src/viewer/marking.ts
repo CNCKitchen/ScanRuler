@@ -164,6 +164,9 @@ export class SurfaceMarking {
   private paint: PaintBrush | null = null
   private painting = false
   private paintLast: { x: number; y: number } | null = null
+  /** The opening dab of a touch stroke, held back until the finger proves it
+   *  meant to mark — see handlePointerDown. */
+  private pendingDab: { x: number; y: number; erase: boolean } | null = null
   /** Pointer positions a stroke has covered since the last frame. Dabs are
    *  laid from here once per frame rather than per pointermove: a gaming mouse
    *  reports up to a thousand moves a second, each dab is a raycast plus a BVH
@@ -227,9 +230,12 @@ export class SurfaceMarking {
     ctx.partGroup.add(this.brushRing)
 
     // A stroke that runs off the edge of the viewport keeps painting, and one
-    // released outside it still ends — same reasoning as the navigator's.
+    // released outside it still ends — same reasoning as the navigator's. A
+    // cancelled pointer (a finger the system takes back) ends it too, or the
+    // brush would keep laying marking down after the hand has left.
     document.addEventListener('pointermove', this.onPaintMove)
     document.addEventListener('pointerup', this.onPaintUp)
+    document.addEventListener('pointercancel', this.onPaintUp)
   }
 
   /** Whether the brush is armed at all — footprint updates hang off this. */
@@ -266,11 +272,24 @@ export class SurfaceMarking {
     this.painting = true
     if (gesture === 'brush') {
       this.paintLast = null
-      this.stroke(e.clientX, e.clientY, erase)
+      // A finger that has just landed cannot yet say whether it is a stroke or
+      // the first half of a pinch, so its opening dab waits: it lands on the
+      // first move, or on the release if the tap never moved, and a second
+      // finger arriving before either calls the whole gesture off with nothing
+      // marked. A mouse has no such ambiguity and dabs at once.
+      if (e.pointerType === 'touch') this.pendingDab = { x: e.clientX, y: e.clientY, erase }
+      else this.stroke(e.clientX, e.clientY, erase)
     } else {
       this.beginMarquee(gesture, erase, e.clientX, e.clientY)
     }
     return true
+  }
+
+  /** Land the held-back opening dab of a touch stroke, if there is one. */
+  private flushPendingDab(): void {
+    if (!this.pendingDab) return
+    this.strokeQueue.push(this.pendingDab)
+    this.pendingDab = null
   }
 
   /**
@@ -291,6 +310,7 @@ export class SurfaceMarking {
     if (!brush) {
       this.painting = false
       this.paintLast = null
+      this.pendingDab = null
       this.strokeQueue.length = 0
       this.paintErasing = false
       this.brushRing.visible = false
@@ -618,6 +638,7 @@ export class SurfaceMarking {
     // times over, and each dab is a raycast plus a BVH sweep. The rAF loop
     // drains the buffer once per frame — the same coalescing the hover path
     // gets.
+    this.flushPendingDab()
     this.strokeQueue.push({ x: e.clientX, y: e.clientY, erase: erasing })
   }
 
@@ -641,8 +662,34 @@ export class SurfaceMarking {
 
   private onPaintUp = (e: PointerEvent): void => {
     if (!this.painting || (e.button !== 0 && e.button !== 2)) return
-    // A short fast stroke can end with its tail still buffered for the next
-    // frame; land it now, or the mark stops short of where the cursor got to.
+    this.endStroke()
+  }
+
+  /**
+   * Abandon the live gesture: a second finger has landed, so the hand is
+   * navigating and never meant to mark at all.
+   *
+   * Dropped rather than finished — the opening dab is still being held, the
+   * marquee is thrown away instead of committed, and anything the finger did
+   * manage to lay down in the moment before its partner arrived stays, because
+   * marking has no undo finer than the rub-out brush.
+   */
+  endGesture(): void {
+    this.pendingDab = null
+    if (!this.painting) return
+    this.strokeQueue.length = 0
+    this.painting = false
+    this.paintLast = null
+    this.endMarquee()
+    this.ctx.onPaintChange(this.ctx.regions.paintCount)
+  }
+
+  private endStroke(): void {
+    // A tap that never moved still marks: its dab has been waiting for exactly
+    // this. A short fast stroke can likewise end with its tail still buffered
+    // for the next frame — land both now, or the mark stops short of where the
+    // gesture got to.
+    this.flushPendingDab()
     this.drainStroke()
     this.painting = false
     this.paintLast = null
@@ -728,6 +775,7 @@ export class SurfaceMarking {
   dispose(): void {
     document.removeEventListener('pointermove', this.onPaintMove)
     document.removeEventListener('pointerup', this.onPaintUp)
+    document.removeEventListener('pointercancel', this.onPaintUp)
     this.brushRing.geometry.dispose()
     this.brushRingMaterial.dispose()
     this.marqueeSvg.remove()

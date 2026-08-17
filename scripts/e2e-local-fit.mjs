@@ -38,7 +38,7 @@ await loadScan(page, SCAN, {
   timeout: 300_000,
   settle: 0,
 })
-await (await page.$('[data-test=start-reference] input[type=file]')).uploadFile(NOMINAL)
+await (await page.$('[data-test=slot-reference] input[type=file]')).uploadFile(NOMINAL)
 await page.waitForFunction(
   () => document.querySelector('[data-test=align-auto]')?.disabled === false,
   { timeout: 300_000 },

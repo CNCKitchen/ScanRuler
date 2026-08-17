@@ -107,6 +107,13 @@ export class Overlays {
   /** Open-ended so the scan surface stays visible through the tube. */
   private unitCylinder = new THREE.CylinderGeometry(1, 1, 1, 64, 1, true)
   private unitPlane = new THREE.PlaneGeometry(1, 1)
+  /** Just the borders of the two shapes that have any: the four edges of a
+   *  plane patch, the two rims of a tube. Built off the same unit geometries the
+   *  shells are, so an outline can never disagree with the body it outlines.
+   *  A sphere is smooth all over and has none — its label and centre marker say
+   *  where it is instead. */
+  private unitPlaneEdges = new THREE.EdgesGeometry(this.unitPlane)
+  private unitCylinderEdges = new THREE.EdgesGeometry(this.unitCylinder)
   private probeGeometry = new THREE.SphereGeometry(1, 18, 12)
 
   constructor(private ctx: OverlaysContext) {
@@ -128,6 +135,12 @@ export class Overlays {
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     visible: boolean,
+    /** Draw the elements as bare outlines rather than translucent bodies. For an
+     *  element a deviation map is measured against: it sits exactly on the
+     *  surface it was fitted to, so a shell over it would both fight the depth
+     *  buffer along that surface and wash the colour of the reading underneath —
+     *  and on a map the colour *is* the measurement. */
+    outlined = false,
   ): void {
     this.ctx.invalidate()
     for (const fn of this.overlayCleanup) fn()
@@ -143,26 +156,34 @@ export class Overlays {
     }
 
     for (const el of elements) {
-      // The fitted element itself stays on screen — translucent and without
-      // depth writes so the scan surface, centre marker and distance lines
-      // stay readable through it.
-      const shell = new THREE.MeshStandardMaterial({
-        color: el.color,
-        transparent: true,
-        opacity: 0.3,
-        depthWrite: false,
-        roughness: 0.4,
-        metalness: 0,
-        side: THREE.DoubleSide,
-      })
-      const shape = this.buildShape(el.fit, shell)
-      shape.userData.elementId = el.id
-      this.overlayGroup.add(shape)
-      this.overlayPickables.push(shape)
-      const entry = { material: shell, color: el.color }
-      this.shellMaterials.set(el.id, entry)
-      this.applyHighlight(el.id, entry)
-      this.overlayCleanup.push(() => shell.dispose())
+      if (outlined) {
+        const outline = this.buildOutline(el.fit, el.color)
+        if (outline) {
+          this.overlayGroup.add(outline.line)
+          this.overlayCleanup.push(outline.dispose)
+        }
+      } else {
+        // The fitted element itself stays on screen — translucent and without
+        // depth writes so the scan surface, centre marker and distance lines
+        // stay readable through it.
+        const shell = new THREE.MeshStandardMaterial({
+          color: el.color,
+          transparent: true,
+          opacity: 0.3,
+          depthWrite: false,
+          roughness: 0.4,
+          metalness: 0,
+          side: THREE.DoubleSide,
+        })
+        const shape = this.buildShape(el.fit, shell)
+        shape.userData.elementId = el.id
+        this.overlayGroup.add(shape)
+        this.overlayPickables.push(shape)
+        const entry = { material: shell, color: el.color }
+        this.shellMaterials.set(el.id, entry)
+        this.applyHighlight(el.id, entry)
+        this.overlayCleanup.push(() => shell.dispose())
+      }
 
       const dotMat = new THREE.MeshBasicMaterial({ color: el.color })
       const marker = new THREE.Mesh(this.unitSphere, dotMat)
@@ -416,6 +437,38 @@ export class Overlays {
     mesh.position.set(...fit.center)
     mesh.scale.set(Math.max(2 * fit.extentU, 1e-5), Math.max(2 * fit.extentV, 1e-5), 1)
     return mesh
+  }
+
+  /** The border of an element rather than its body: the rectangle a plane patch
+   *  covers, the two rims of a cylinder. Drawn ahead of the depth buffer, so it
+   *  stays a crisp line even where it lies exactly on the surface it was fitted
+   *  to — which, for the element a map is measured against, is everywhere.
+   *
+   *  It is placed by reusing buildShape's own transform, so the outline is the
+   *  edge of the very shape the shell would have drawn. Null for the kinds with
+   *  no border to trace. */
+  private buildOutline(fit: FitData, color: string): { line: THREE.LineSegments; dispose: () => void } | null {
+    const edges =
+      fit.kind === 'plane'
+        ? this.unitPlaneEdges
+        : fit.kind === 'cylinder'
+          ? this.unitCylinderEdges
+          : null
+    if (!edges) return null
+    const material = new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      depthTest: false,
+    })
+    const line = new THREE.LineSegments(edges, material)
+    const placed = this.buildShape(fit, material)
+    line.position.copy(placed.position)
+    line.quaternion.copy(placed.quaternion)
+    line.scale.copy(placed.scale)
+    line.renderOrder = 3
+    return { line, dispose: () => material.dispose() }
   }
 
   /** How far off the element's centre its label should float.

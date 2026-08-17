@@ -67,9 +67,11 @@ export class ExtendGrips {
   constructor(private ctx: ExtendGripsContext) {
     ctx.partGroup.add(this.handleGroup)
     // A grip dragged off the edge of the viewport keeps pulling, and one
-    // released outside it still lets go.
+    // released outside it — or taken back by the system mid-drag — still lets
+    // go rather than staying stuck to the pointer.
     document.addEventListener('pointermove', this.onHandleMove)
     document.addEventListener('pointerup', this.onHandleUp)
+    document.addEventListener('pointercancel', this.onHandleUp)
   }
 
   /**
@@ -289,6 +291,7 @@ export class ExtendGrips {
   dispose(): void {
     document.removeEventListener('pointermove', this.onHandleMove)
     document.removeEventListener('pointerup', this.onHandleUp)
+    document.removeEventListener('pointercancel', this.onHandleUp)
     this.setHandles(null, '#ffffff')
     this.unitCone.dispose()
     this.unitBox.dispose()

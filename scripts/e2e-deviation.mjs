@@ -39,15 +39,15 @@ await loadScan(page, SCAN, {
   timeout: 300_000,
   settle: 600,
 })
-// With one model in, the prompt must get out of the way of it rather than
-// covering the stage.
-const compact = await page.$eval('[data-test=start-pane]', (el) =>
-  el.classList.contains('compact'),
-)
-if (!compact) fail('the start prompt still covers the stage after a model loaded')
+// The prompt is a front door: once there is a part on the stage it clears for
+// good, and the reference still wanted is asked for in the panel and on a chip
+// over the model rather than by a card covering it.
+const cleared = await page.evaluate(() => !document.querySelector('[data-test=start-pane]'))
+if (!cleared) fail('the start prompt still covers the stage after the scan loaded')
+await page.waitForSelector('[data-test=need-reference-chip]')
 await page.screenshot({ path: shotPath('deviation-half-loaded.png') })
 
-await (await page.$('[data-test=start-reference] input[type=file]')).uploadFile(NOMINAL)
+await (await page.$('[data-test=slot-reference] input[type=file]')).uploadFile(NOMINAL)
 await page.waitForFunction(
   () => document.querySelector('[data-test=align-auto]')?.disabled === false,
   { timeout: 300_000 },
@@ -55,10 +55,8 @@ await page.waitForFunction(
 await sleep(900)
 console.log('reference loaded')
 
-// With both models in, the prompt clears and both parts are on the stage
-// together, waiting to be aligned.
-const cleared = await page.evaluate(() => !document.querySelector('[data-test=start-pane]'))
-if (!cleared) fail('the stage prompt did not clear once both models were loaded')
+// With both models in, both parts are on the stage together, waiting to be
+// aligned.
 await page.waitForSelector('[data-test=ready-chip]')
 await page.screenshot({ path: shotPath('deviation-both-loaded.png') })
 

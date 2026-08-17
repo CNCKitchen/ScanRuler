@@ -9,14 +9,19 @@ import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import type { SceneManager } from '../viewer/SceneManager'
 
-/** Hand a built file to the browser. The object URL outlives the click by
- *  long enough for the download to start, then goes. */
+/** Hand a built file to the browser. The link goes into the document for the
+ *  length of the click — WebKit ignores `download` on an anchor that was never
+ *  in the page — and the object URL outlives it by long enough for the
+ *  download to start, then goes. */
 export const saveFile = (name: string, blob: Blob) => {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = name
+  a.style.display = 'none'
+  document.body.appendChild(a)
   a.click()
+  a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 

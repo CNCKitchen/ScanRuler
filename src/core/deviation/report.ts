@@ -1,11 +1,28 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { AlignResult, AlignSource } from './align'
 import type { DeviationStats } from './deviation'
+import { describeTarget, type ElementTarget, type MaterialSide } from './elementField'
 
 const SOURCE: Record<AlignSource, string> = {
   auto: 'automatic',
   points: 'from picked points',
   local: 'local fine fit on marked surface',
+}
+
+const mm = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(4)} mm`
+
+/** The figures every deviation map reports, however it was measured. */
+function statLines(stats: DeviationStats): string[] {
+  const percent = stats.measured ? (stats.withinTolerance / stats.measured) * 100 : 0
+  return [
+    `  min             ${mm(stats.min)}`,
+    `  max             ${mm(stats.max)}`,
+    `  mean            ${mm(stats.mean)}`,
+    `  RMS             ${stats.rms.toFixed(4)} mm`,
+    `  sigma           ${stats.sigma.toFixed(4)} mm`,
+    `  within ±${stats.tolerance} mm   ${percent.toFixed(1)} %`,
+    `  matched         ${stats.measured} of ${stats.total} scan points`,
+  ]
 }
 
 /** Plain-text summary of a deviation measurement, for the clipboard: what was
@@ -19,8 +36,6 @@ export function buildDeviationReport(
   range: number,
   maxDistance: number,
 ): string {
-  const mm = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(4)} mm`
-  const percent = stats.measured ? (stats.withinTolerance / stats.measured) * 100 : 0
   return [
     'ScanRuler — deviation from nominal',
     `Scan:      ${scanName}`,
@@ -42,15 +57,45 @@ export function buildDeviationReport(
       : []),
     '',
     'Deviation, scan to reference surface, signed outwards:',
-    `  min             ${mm(stats.min)}`,
-    `  max             ${mm(stats.max)}`,
-    `  mean            ${mm(stats.mean)}`,
-    `  RMS             ${stats.rms.toFixed(4)} mm`,
-    `  sigma           ${stats.sigma.toFixed(4)} mm`,
-    `  within ±${stats.tolerance} mm   ${percent.toFixed(1)} %`,
-    `  matched         ${stats.measured} of ${stats.total} scan points`,
+    ...statLines(stats),
     '',
     `  max search distance  ${maxDistance} mm`,
+    `  colour scale         ±${range} mm`,
+    '',
+  ].join('\n')
+}
+
+/** The same summary for a map measured against one fitted element. There is no
+ *  alignment to account for — the element was fitted on this scan, in this
+ *  frame — but what bounded the measurement takes its place, because the region
+ *  and the facing limit are what a reading off this map has to be read against. */
+export function buildElementReport(
+  scanName: string,
+  elementName: string,
+  target: ElementTarget,
+  side: MaterialSide,
+  stats: DeviationStats,
+  range: number,
+  maxDistance: number,
+  facingDeg: number | null,
+): string {
+  return [
+    'ScanRuler — deviation from a fitted element',
+    `Scan:    ${scanName}`,
+    `Element: ${elementName} — ${describeTarget(target)}`,
+    '',
+    'Measured in scan coordinates — the element was fitted on this scan, so',
+    'there is no alignment between the two and none has been applied.',
+    `  form deviation of the element itself   ${target.sigma.toFixed(4)} mm sigma`,
+    `  measured on                            ${target.usedPoints} of ${target.regionSize} points`,
+    `  material side                          ${side === 1 ? "the element's outward side" : 'the inner side — a bore or a shell'}`,
+    '',
+    'Deviation, scan to element, signed towards the material:',
+    ...statLines(stats),
+    '',
+    `  region               the element as drawn`,
+    `  max search distance  ${maxDistance} mm`,
+    `  facing limit         ${facingDeg === null ? 'off — any surface within the element counts' : `${facingDeg}°`}`,
     `  colour scale         ±${range} mm`,
     '',
   ].join('\n')

@@ -3,6 +3,12 @@
 // the cursor, screen-space 1:1 pan, and cursor-centric zoom — with WHICH
 // buttons do what coming from the active ControlScheme (navSchemes.ts).
 //
+// Touch drives the same three gestures through a separate reading of the
+// pointer stream (see "touch gestures" below): a finger has no buttons, so no
+// control scheme could describe it, and the tablet convention — one finger
+// turns, two fingers pan and pinch — is the same in every CAD tool that has an
+// iPad client.
+//
 // Ported from meshStep (github.com/CNCKitchen/meshStep) so that both tools
 // navigate identically. Shared by the main viewport and the split-screen point
 // picker, because a navigation habit that only holds in one of them is worse
@@ -59,6 +65,17 @@ export class OrthoNavigator {
   private orbiting = false
   private orbitRaycaster = new THREE.Raycaster()
 
+  /** Fingers currently down on the canvas, in the order they landed — the
+   *  first two are the ones a two-finger gesture is read from, so resting a
+   *  third on the glass mid-pinch changes nothing. */
+  private touches = new Map<number, { x: number; y: number }>()
+  /** Midpoint and spacing of the live two-finger gesture: the next move reads
+   *  the midpoint's travel as a pan and the change in spacing as a pinch. */
+  private pinch: { x: number; y: number; dist: number } | null = null
+  /** Whether the single finger down is turning the model. Separate from
+   *  `action`, which only ever describes a mouse chord. */
+  private touchOrbit = false
+
   // Scratch: this maths runs per pointer event.
   private right = new THREE.Vector3()
   private up = new THREE.Vector3()
@@ -107,6 +124,10 @@ export class OrthoNavigator {
     // the edge of the viewport, over the panel — still tracks the pointer.
     document.addEventListener('pointermove', this.onMove)
     document.addEventListener('pointerup', this.onUp)
+    // A pointer the system takes back never sends pointerup: an iPadOS edge
+    // swipe or a palm landing on the glass would otherwise leave the gesture
+    // latched and the model turning under a finger that has already gone.
+    document.addEventListener('pointercancel', this.onUp)
   }
 
   /** Swap the pointer-button control scheme (dropdown in the status strip). */
@@ -155,7 +176,8 @@ export class OrthoNavigator {
   }
 
   /** Drop any in-flight gesture, so stale state cannot leak across a change of
-   *  what the buttons mean. */
+   *  what the buttons mean. Fingers already on the glass are kept — they are
+   *  physically still there — and simply re-read under the new rules. */
   private cancelGesture(): void {
     this.endOrbit()
     this.action = null
@@ -164,6 +186,9 @@ export class OrthoNavigator {
     this.zoomAnchor = null
     this.chordDown = null
     this.catiaZoomLatch = false
+    this.pinch = null
+    this.touchOrbit = false
+    this.retuneTouch()
   }
 
   /** Bracket the whole model between the clip planes, wherever orbiting and
@@ -214,6 +239,7 @@ export class OrthoNavigator {
     this.canvas.removeEventListener('wheel', this.onWheel)
     document.removeEventListener('pointermove', this.onMove)
     document.removeEventListener('pointerup', this.onUp)
+    document.removeEventListener('pointercancel', this.onUp)
     this.pivotMarker.geometry.dispose()
     ;(this.pivotMarker.material as THREE.Material).dispose()
   }
@@ -221,10 +247,13 @@ export class OrthoNavigator {
   // ---------- chord resolution ----------
 
   private onDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') return this.touchDown(e)
     this.syncButtons(e)
   }
 
+  /** Release, and a cancel taken as a release — see the pointercancel listener. */
   private onUp = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') return this.touchUp(e)
     if (this.mask) this.syncButtons(e)
   }
 
@@ -292,7 +321,7 @@ export class OrthoNavigator {
     if (!action) return
     this.action = action
     if (action === 'orbit') {
-      this.beginOrbit(e)
+      this.beginOrbit(e.clientX, e.clientY)
     } else {
       this.last = { x: e.clientX, y: e.clientY }
       if (action === 'zoom') this.zoomAnchor = { x: e.clientX, y: e.clientY }
@@ -300,35 +329,115 @@ export class OrthoNavigator {
   }
 
   private onMove = (e: PointerEvent): void => {
+    if (e.pointerType === 'touch') return this.touchMove(e)
     // Chorded button changes (a second button pressed or released mid-drag)
     // arrive as pointermove — catch them by the mask changing under a gesture.
     if (this.mask && (e.buttons & 7) !== this.mask) {
       this.syncButtons(e)
       return
     }
-    if (this.action === 'orbit') this.onOrbitMove(e)
+    if (this.action === 'orbit') this.orbitMove(e.clientX, e.clientY)
     else if (this.action === 'pan') this.onPanMove(e)
     else if (this.action === 'zoom') this.onZoomMove(e)
   }
 
+  // ---------- touch gestures ----------
+  //
+  // One finger turns the model, two pan and pinch it. The two-finger reading
+  // is deliberately one gesture and not a mode: the midpoint's travel is the
+  // pan and the fingers' spacing is the zoom, both applied every move, so a
+  // hand that pans and spreads at once does both instead of having to pick.
+
+  private touchDown(e: PointerEvent): void {
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    this.retuneTouch()
+  }
+
+  private touchUp(e: PointerEvent): void {
+    if (!this.touches.delete(e.pointerId)) return
+    this.retuneTouch()
+  }
+
+  private touchMove(e: PointerEvent): void {
+    // Only fingers that landed on the canvas count; one that started on the
+    // panel and wandered over the viewport was never ours.
+    const touch = this.touches.get(e.pointerId)
+    if (!touch) return
+    touch.x = e.clientX
+    touch.y = e.clientY
+    const pair = this.touchPair()
+    if (!pair) {
+      if (this.touchOrbit) this.orbitMove(e.clientX, e.clientY)
+      return
+    }
+    const [a, b] = pair
+    const x = (a.x + b.x) / 2
+    const y = (a.y + b.y) / 2
+    const dist = Math.hypot(a.x - b.x, a.y - b.y)
+    const prev = this.pinch
+    this.pinch = { x, y, dist }
+    if (!prev) return // first move of the gesture: this frame only sets the datum
+    this.panByPixels(x - prev.x, y - prev.y)
+    // Below a finger's width apart the spacing is mostly noise, and dividing by
+    // it would fling the zoom; a two-finger drag with the fingers together
+    // still pans, it just does not scale.
+    if (prev.dist > 24 && dist > 24) this.zoomAt(dist / prev.dist, x, y)
+  }
+
+  /** The two fingers a two-finger gesture is read from, oldest first. */
+  private touchPair(): [{ x: number; y: number }, { x: number; y: number }] | null {
+    if (this.touches.size < 2) return null
+    const [a, b] = [...this.touches.values()]
+    return [a, b]
+  }
+
+  /** Settle on the gesture the fingers now on the glass describe. Called at
+   *  every touch down and up, so lifting one finger out of a pinch hands the
+   *  other straight back to the orbit — re-anchored where it currently is,
+   *  which is what keeps the model from jumping as the second finger goes. */
+  private retuneTouch(): void {
+    if (this.touchPair()) {
+      if (this.touchOrbit) {
+        this.endOrbit()
+        this.touchOrbit = false
+      }
+      // Datum is taken on the next move, by which time both fingers have
+      // reported a position through touchMove.
+      this.pinch = null
+      return
+    }
+    this.pinch = null
+    const [only] = [...this.touches.values()]
+    if (this.touchOrbit) {
+      this.endOrbit()
+      this.touchOrbit = false
+    }
+    // A brush or a grip that has claimed the plain drag keeps the single
+    // finger; two fingers still navigate, exactly as the middle button does
+    // for a mouse.
+    if (!only || this.paintMode) return
+    this.beginOrbit(only.x, only.y)
+    this.touchOrbit = true
+  }
+
   // ---------- the three gestures ----------
 
-  private beginOrbit(e: PointerEvent): void {
+  private beginOrbit(clientX: number, clientY: number): void {
     // Turn about the surface under the cursor; fall back to the previous pivot
     // and then to the view centre, so a drag that starts off the part still
     // rotates about something sensible.
-    const pivot = this.surfaceAt(e) ?? this.lastPivot ?? this.controls.target.clone()
+    const pivot = this.surfaceAt(clientX, clientY) ?? this.lastPivot ?? this.controls.target.clone()
     this.pivot = pivot.clone()
     this.lastPivot = pivot.clone()
-    this.orbitStart = { x: e.clientX, y: e.clientY }
-    this.orbitLast = { x: e.clientX, y: e.clientY }
+    this.orbitStart = { x: clientX, y: clientY }
+    this.orbitLast = { x: clientX, y: clientY }
     this.orbiting = false // promoted once the drag passes the threshold
   }
 
-  private surfaceAt(e: PointerEvent): THREE.Vector3 | null {
+  private surfaceAt(clientX: number, clientY: number): THREE.Vector3 | null {
     const targets = this.orbitTargets()
     if (!targets.length) return null
-    this.setPickRay(this.orbitRaycaster, e.clientX, e.clientY)
+    this.setPickRay(this.orbitRaycaster, clientX, clientY)
     const hits = this.orbitRaycaster.intersectObjects(targets, false)
     return hits.length ? hits[0].point.clone() : null
   }
@@ -342,17 +451,17 @@ export class OrthoNavigator {
     this.pivotMarker.visible = true
   }
 
-  private onOrbitMove(e: PointerEvent): void {
+  private orbitMove(clientX: number, clientY: number): void {
     if (!this.pivot || !this.orbitLast || !this.orbitStart) return
     if (!this.orbiting) {
-      const moved = Math.hypot(e.clientX - this.orbitStart.x, e.clientY - this.orbitStart.y)
+      const moved = Math.hypot(clientX - this.orbitStart.x, clientY - this.orbitStart.y)
       if (moved < 3) return // tolerate a click without flashing the marker
       this.orbiting = true
       this.showPivotMarker()
     }
-    const dx = e.clientX - this.orbitLast.x
-    const dy = e.clientY - this.orbitLast.y
-    this.orbitLast = { x: e.clientX, y: e.clientY }
+    const dx = clientX - this.orbitLast.x
+    const dy = clientY - this.orbitLast.y
+    this.orbitLast = { x: clientX, y: clientY }
     if (dx === 0 && dy === 0) return
 
     const pivot = this.pivot
@@ -394,13 +503,18 @@ export class OrthoNavigator {
     this.onChange?.()
   }
 
-  /** Screen-space pan: translate camera and target along the view plane, so the
-   *  model follows the cursor exactly 1:1. */
   private onPanMove(e: PointerEvent): void {
     if (!this.last) return
     const dx = e.clientX - this.last.x
     const dy = e.clientY - this.last.y
     this.last = { x: e.clientX, y: e.clientY }
+    this.panByPixels(dx, dy)
+  }
+
+  /** Screen-space pan: translate camera and target along the view plane, so the
+   *  model follows the cursor — or the middle of the two fingers — exactly
+   *  1:1. */
+  private panByPixels(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return
     const h = Math.max(1, this.canvas.clientHeight)
     const worldPerPx = (this.camera.top - this.camera.bottom) / this.camera.zoom / h

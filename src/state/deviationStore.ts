@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import type { AlignResult, PointPair } from '../core/deviation/align'
 import type { DeviationStats } from '../core/deviation/deviation'
+import { DEFAULT_FACING_DEG, type MaterialSide } from '../core/deviation/elementField'
 import type { FieldHistogram } from '../core/field/stats'
 import type { StepInfo } from '../core/parsers/step'
 import type { Vec3 } from '../core/types'
@@ -13,6 +14,13 @@ export type { Probe }
 /** The three things this tool does. They share the scan, the scene and the
  *  camera; only what is drawn on top of the part differs. */
 export type Workspace = 'elements' | 'deviation' | 'thickness'
+
+/** What the scan's deviation is measured against. Both produce the same map —
+ *  signed millimetres per scan vertex, read through the same colour scale — and
+ *  differ entirely in what it takes to get there: a reference part has to be
+ *  loaded and best-fitted first, while an element was measured on this scan and
+ *  is already in its frame, so choosing one is the whole setup. */
+export type DeviationSource = 'reference' | 'element'
 
 export type AlignStatus = 'idle' | 'running' | 'done' | 'failed'
 export type MapStatus = 'idle' | 'running' | 'ready'
@@ -32,6 +40,7 @@ export const MARK_COLOR = '#b5179e'
 
 interface DeviationState extends ProbeSlice {
   workspace: Workspace
+  source: DeviationSource
 
   nominalName: string | null
   nominalTriangles: number
@@ -65,6 +74,22 @@ interface DeviationState extends ProbeSlice {
   /** Bumped whenever a fresh deviation field lands, so the view repaints. */
   mapVersion: number
 
+  /** Which fitted element the scan is measured against, in element mode. */
+  targetId: number | null
+  /** Which side of that element the material lies on — detected from the scan
+   *  when the element is chosen, and flippable when the detection is wrong. */
+  targetSide: MaterialSide
+  /** How far a scan normal may be from facing the way the element faces, in
+   *  degrees; null accepts anything within the element. */
+  targetFacingDeg: number | null
+  /** The element map keeps its own status and version, because the two maps are
+   *  held side by side: switching what the scan is measured against must not
+   *  throw away the map that is not on screen. */
+  elementStatus: MapStatus
+  elementVersion: number
+  /** The element being measured against is drawn over the map. */
+  showElement: boolean
+
   /** Half-width of the colour scale, in mm. Zero is always the centre. */
   range: number
   rangeAuto: boolean
@@ -86,6 +111,18 @@ interface DeviationState extends ProbeSlice {
   pendingScan: Vec3 | null
 
   setWorkspace: (w: Workspace) => void
+  setSource: (s: DeviationSource) => void
+  /** Measure against this element, with the material side just detected for it.
+   *  Null when the choice is cleared, or when the element it named is gone. */
+  setTarget: (id: number | null, side?: MaterialSide) => void
+  flipTargetSide: () => void
+  setTargetFacing: (deg: number | null) => void
+  /** A fresh element field has landed. Cheap enough to be computed on the main
+   *  thread, so unlike the reference map there is no running state to pass
+   *  through — it is ready by the time anything can ask. */
+  resolveElementMap: (range: number) => void
+  clearElementMap: () => void
+  setShowElement: (v: boolean) => void
   beginNominalLoad: (name: string) => void
   finishNominalLoad: (
     name: string,
@@ -137,8 +174,28 @@ const CLEARED = {
   maxDistanceAuto: true,
 }
 
+/** The element map and the choice behind it. Cleared on its own: a new
+ *  reference part has nothing to do with a map measured against an element, and
+ *  the other way round. Only a new scan takes both.
+ *
+ *  The figures under the scale and the pinned readings are shared with the
+ *  reference map — whichever is on screen owns them — so they are cleared here
+ *  only when the element map is the one being read. */
+const NO_TARGET = {
+  targetId: null,
+  targetSide: 1 as MaterialSide,
+  elementStatus: 'idle' as MapStatus,
+}
+
+/** The readout belongs to the map on screen; nulling it while the other map is
+ *  being read would blank a legend that is still perfectly good. */
+function clearedReadout(shown: boolean) {
+  return shown ? { stats: null, histogram: null, probes: [] as Probe[] } : {}
+}
+
 export const useDeviation = create<DeviationState>()((set, get) => ({
   workspace: 'elements',
+  source: 'reference',
 
   nominalName: null,
   nominalTriangles: 0,
@@ -149,7 +206,14 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // The pinned readings and their actions, shared with the thickness store.
   ...probeSlice(set),
   ...CLEARED,
+  ...NO_TARGET,
   mapVersion: 0,
+  elementVersion: 0,
+  targetFacingDeg: DEFAULT_FACING_DEG,
+  // On, and it earns its place: the map is measured against a surface that is
+  // nowhere on the part, so without the element drawn there is no way to see
+  // where the zero of the scale actually is.
+  showElement: true,
 
   // A millimetre: further than any residual a global fit leaves behind, closer
   // than the next feature on almost any part.
@@ -169,6 +233,48 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   showScan: true,
 
   setWorkspace: (workspace) => set({ workspace }),
+
+  // Both maps stay measured, so switching back and forth costs nothing. The
+  // pinned readings do not: a reading off one map and a reading off the other
+  // are both millimetres on the same part and look identical on it, so keeping
+  // them would be a way to misread one for the other.
+  setSource: (source) => set({ source, probes: [], stats: null, histogram: null }),
+
+  // A different element is a different measurement — the map on the old one goes
+  // with the choice, and the field itself is recomputed by whoever owns it.
+  setTarget: (targetId, side = 1) =>
+    set((s) => ({
+      ...NO_TARGET,
+      targetId,
+      targetSide: side,
+      ...clearedReadout(s.source === 'element'),
+    })),
+
+  flipTargetSide: () => set((s) => ({ targetSide: s.targetSide === 1 ? -1 : 1 })),
+
+  setTargetFacing: (targetFacingDeg) =>
+    set({
+      targetFacingDeg:
+        targetFacingDeg === null ? null : Math.min(90, Math.max(1, targetFacingDeg)),
+    }),
+
+  // Same bargain as the reference map: the suggested scale only takes effect
+  // while the user has not overridden it.
+  //
+  // The scale and the pins belong to whichever map is being read, and this one
+  // is also recomputed behind the reference map whenever the element it measures
+  // against changes under it — so neither is touched unless it is this map's.
+  resolveElementMap: (range) =>
+    set((s) => ({
+      elementStatus: 'ready',
+      elementVersion: s.elementVersion + 1,
+      ...(s.source === 'element' ? { range: s.rangeAuto ? range : s.range, probes: [] } : {}),
+    })),
+
+  clearElementMap: () =>
+    set((s) => ({ ...NO_TARGET, ...clearedReadout(s.source === 'element') })),
+
+  setShowElement: (showElement) => set({ showElement }),
 
   beginNominalLoad: (name) =>
     set({ nominalBusy: true, nominalName: name, nominalStep: null, ...CLEARED }),

@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// What a workspace shows before it has the models it needs: one tile per
-// model, each its own drop target, on the stage where the files are going to
-// land. Both workspaces use it, so opening a model looks the same whichever
-// one you are in — only the number of tiles differs.
+// The front door: what a workspace shows on an empty stage, before there is any
+// part at all. One tile per model it will need, each its own drop target, where
+// the files are going to land. Every workspace uses it, so opening a model looks
+// the same whichever one you are in — only the number of tiles differs.
+//
+// It goes the moment a scan arrives and does not come back. A card over the
+// model is a card over the thing the user loaded it to look at, and anything the
+// workspace still needs after that has a row of its own in the panel to say so.
 
 import { useRef, useState } from 'react'
 import { MESH_ACCEPT } from '../core/formats'
@@ -74,18 +78,17 @@ export function StartPane({
   blurb: string
   slots: StartSlot[]
 }) {
-  // Once something is loaded the pane stops covering the stage and drops to a
-  // card along the bottom: the model that just arrived is the thing the user
-  // wants to look at, and a full-bleed prompt would hide it.
-  const compact = slots.some((s) => s.name)
+  // A workspace that wants two models can have the second one dropped first —
+  // a STEP file can only ever be the reference — so the prompt says what is
+  // still outstanding rather than repeating the blurb at someone who has
+  // already started.
+  const started = slots.some((s) => s.name)
 
   return (
-    <div className={'startpane' + (compact ? ' compact' : '')} data-test="start-pane">
+    <div className="startpane" data-test="start-pane">
       <div className="starthead">
         <b>{title}</b>
-        <span>
-          {compact ? 'One to go — load the other model to align and measure.' : blurb}
-        </span>
+        <span>{started ? 'One to go — load the scan to measure it.' : blurb}</span>
       </div>
       <div className="starttiles">
         {slots.map((slot) => (

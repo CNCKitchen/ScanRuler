@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The deviation faceplate: both models are loaded from here — the workspace
-// needs a scan and a reference and neither belongs in a top bar shared with
-// the other workspace — then the best fit, then everything that governs how
-// the resulting map is read.
+// The deviation faceplate. What the scan is measured against comes first,
+// because it decides how much setup there is: a reference part has to be loaded
+// and best-fitted here — neither model belongs in a top bar shared with the
+// other workspaces — while a fitted element needs only to be chosen. Everything
+// below the two is the same, because the map they produce is the same map.
 
 import { useShallow } from 'zustand/react/shallow'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
-import { useDeviation } from '../state/deviationStore'
+import { useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
+import { targetFitOf } from '../app/useElementField'
 import { CopyButton } from './CopyButton'
 import { formatSigned } from './format'
 import { InfoDot } from './InfoDot'
@@ -18,6 +20,7 @@ import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
 import { ProbeList } from './ProbeList'
 import { ScaleControls } from './ScaleControls'
+import { TargetSection } from './TargetSection'
 
 /** How the fit in hand was arrived at, for the readout. */
 const SOURCE_LABEL = {
@@ -25,6 +28,11 @@ const SOURCE_LABEL = {
   points: 'from points',
   local: 'local fine fit',
 } as const
+
+const SOURCES: { id: DeviationSource; label: string; what: string }[] = [
+  { id: 'reference', label: 'Reference model', what: 'the nominal CAD part, best-fitted onto the scan' },
+  { id: 'element', label: 'Fitted element', what: 'a plane, cylinder or sphere measured on this scan' },
+]
 
 export function DeviationPanel({
   onOpenScan,
@@ -37,6 +45,8 @@ export function DeviationPanel({
   onClearMarking,
   onLocalFit,
   onRevertLocal,
+  onSelectTarget,
+  onGoToMeasure,
   onCopy,
   onExportStl,
 }: {
@@ -52,6 +62,12 @@ export function DeviationPanel({
   /** Refine the fit on the marked surface only. */
   onLocalFit: () => void
   onRevertLocal: () => void
+  /** Measure against this element — the material side is detected as it is
+   *  chosen, so this cannot be a plain store setter. */
+  onSelectTarget: (id: number | null) => void
+  /** Over to the workspace where elements are made, for a panel that has none
+   *  to offer yet. */
+  onGoToMeasure: () => void
   onCopy: () => void
   /** Save the scan as an STL in the pose it is currently shown in — here, that
    *  means with the best fit onto the reference baked in. */
@@ -70,6 +86,8 @@ export function DeviationPanel({
       alignStatus: s.alignStatus,
       bands: s.bands,
       clearProbes: s.clearProbes,
+      elementStatus: s.elementStatus,
+      flipTargetSide: s.flipTargetSide,
       globalAlign: s.globalAlign,
       localMaxDistance: s.localMaxDistance,
       mapStatus: s.mapStatus,
@@ -86,21 +104,36 @@ export function DeviationPanel({
       setLocalMaxDistance: s.setLocalMaxDistance,
       setMaxDistance: s.setMaxDistance,
       setRange: s.setRange,
+      setShowElement: s.setShowElement,
       setShowHistogram: s.setShowHistogram,
       setShowNominal: s.setShowNominal,
       setShowScan: s.setShowScan,
+      setSource: s.setSource,
+      setTargetFacing: s.setTargetFacing,
       setTolerance: s.setTolerance,
+      showElement: s.showElement,
       showHistogram: s.showHistogram,
       showNominal: s.showNominal,
       showScan: s.showScan,
+      source: s.source,
+      targetFacingDeg: s.targetFacingDeg,
+      targetId: s.targetId,
+      targetSide: s.targetSide,
       tolerance: s.tolerance,
     })),
   )
   const markCount = useMark((s) => s.count)
+  const elements = useStore((s) => s.elements)
 
+  const onElement = d.source === 'element'
   const busy = scanBusy || d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running'
   const ready = Boolean(scanName && d.nominalName)
   const aligned = d.alignStatus === 'done' && d.align !== null
+  // Whichever map this panel is reading. The two are held side by side, so the
+  // scale, the figures and the pins below follow the source rather than
+  // whichever was measured last.
+  const hasMap = onElement ? d.elementStatus === 'ready' : d.mapStatus === 'ready'
+  const target = targetFitOf(elements, d.targetId)
 
   // A fit that lands far from the surface, or that had a near-tie for the best
   // starting pose, is worth saying out loud — it is the one case where the
@@ -118,18 +151,65 @@ export function DeviationPanel({
     <aside className="panel">
       <div className={aside}>
         <div className="sec-head">
-          Models
-          <InfoDot title="Scan and reference">
+          Measure against
+          <InfoDot title="What the deviation is measured from">
             <p>
-              The part as scanned, and the nominal CAD part it should match. Drop either one
-              anywhere in the window. Nothing is uploaded.
+              Both choices paint the same map onto the scan — signed millimetres, warm where there
+              is too much material and cool where there is too little. They differ in what the zero
+              of that scale is.
             </p>
             <p>
-              The scan is an <b>STL</b>, <b>PLY</b> or <b>OBJ</b> in millimetres. The reference
-              takes those too, and also a <b>STEP</b> file straight from CAD — its exact surfaces
-              are tessellated here, finely enough that the conversion sits well below anything the
-              scan can resolve.
+              A <b>reference model</b> is the whole nominal part. It answers "is this the shape it
+              was drawn as", and needs the CAD file loaded and best-fitted onto the scan first.
             </p>
+            <p>
+              A <b>fitted element</b> is one plane, cylinder or sphere you measured on this scan in
+              the Measure workspace. It answers "is this face flat, is this bore round, does this
+              surface sit where the datum says" — and since it was measured on the scan it is
+              already in the scan's frame, so there is no reference file and no alignment.
+            </p>
+          </InfoDot>
+        </div>
+        <div className="sourcerow">
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              data-test={`source-${s.id}`}
+              className={d.source === s.id ? 'on' : undefined}
+              title={`Measure the scan against ${s.what}`}
+              disabled={busy}
+              onClick={() => d.setSource(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={aside}>
+        <div className="sec-head">
+          {onElement ? 'Model' : 'Models'}
+          <InfoDot title={onElement ? 'The scan' : 'Scan and reference'}>
+            {onElement ? (
+              <p>
+                The part as measured — an <b>STL</b>, <b>PLY</b> or <b>OBJ</b> in millimetres. Drop
+                it anywhere in the window. Measuring against an element needs nothing else: the
+                element is measured on this same scan.
+              </p>
+            ) : (
+              <>
+                <p>
+                  The part as scanned, and the nominal CAD part it should match. Drop either one
+                  anywhere in the window. Nothing is uploaded.
+                </p>
+                <p>
+                  The scan is an <b>STL</b>, <b>PLY</b> or <b>OBJ</b> in millimetres. The reference
+                  takes those too, and also a <b>STEP</b> file straight from CAD — its exact
+                  surfaces are tessellated here, finely enough that the conversion sits well below
+                  anything the scan can resolve.
+                </p>
+              </>
+            )}
           </InfoDot>
         </div>
         <ModelSlot
@@ -140,22 +220,39 @@ export function DeviationPanel({
           busy={busy}
           onOpen={onOpenScan}
         />
-        <ModelSlot
-          role="Reference"
-          name={d.nominalName}
-          detail={
-            d.nominalStep
-              ? `${d.nominalTriangles.toLocaleString('en-US')} triangles · STEP at ${d.nominalStep.surfaceDeviation} mm`
-              : `${d.nominalTriangles.toLocaleString('en-US')} triangles`
-          }
-          dotColor="#7f8ba0"
-          busy={busy}
-          accept={REFERENCE_ACCEPT}
-          formats={REFERENCE_FORMATS}
-          onOpen={onOpenNominal}
-        />
+        {!onElement && (
+          <ModelSlot
+            role="Reference"
+            name={d.nominalName}
+            detail={
+              d.nominalStep
+                ? `${d.nominalTriangles.toLocaleString('en-US')} triangles · STEP at ${d.nominalStep.surfaceDeviation} mm`
+                : `${d.nominalTriangles.toLocaleString('en-US')} triangles`
+            }
+            dotColor="#7f8ba0"
+            busy={busy}
+            accept={REFERENCE_ACCEPT}
+            formats={REFERENCE_FORMATS}
+            onOpen={onOpenNominal}
+          />
+        )}
       </div>
 
+      {onElement && (
+        <TargetSection
+          className={aside}
+          elements={elements}
+          targetId={d.targetId}
+          target={target}
+          side={d.targetSide}
+          disabled={!scanName || busy}
+          onSelect={onSelectTarget}
+          onFlip={d.flipTargetSide}
+          onGoToMeasure={onGoToMeasure}
+        />
+      )}
+
+      {!onElement && (
       <div className={aside}>
         <div className="sec-head">
           Best fit
@@ -259,8 +356,9 @@ export function DeviationPanel({
           </>
         )}
       </div>
+      )}
 
-      {aligned && (
+      {!onElement && aligned && (
         <div className="group">
           <div className="sec-head">
             Local fine fit
@@ -369,7 +467,7 @@ export function DeviationPanel({
         </div>
       )}
 
-      {d.mapStatus === 'ready' && (
+      {hasMap && (
         <>
           <div className={aside}>
             <div className="sec-head">
@@ -387,8 +485,8 @@ export function DeviationPanel({
                   easier to read off a screenshot or a printed report.
                 </p>
                 <p>
-                  Showing and hiding the two models changes nothing that was measured — it only
-                  changes what you are looking at.
+                  Showing and hiding what is on the stage changes nothing that was measured — it
+                  only changes what you are looking at.
                 </p>
               </InfoDot>
             </div>
@@ -421,15 +519,27 @@ export function DeviationPanel({
               onShowHistogram={d.setShowHistogram}
               histogramTestId="toggle-histogram"
             />
-            <label className="checkrow">
-              <input
-                type="checkbox"
-                data-test="toggle-ghost"
-                checked={d.showNominal}
-                onChange={(e) => d.setShowNominal(e.target.checked)}
-              />
-              <span>Show reference</span>
-            </label>
+            {onElement ? (
+              <label className="checkrow">
+                <input
+                  type="checkbox"
+                  data-test="toggle-element"
+                  checked={d.showElement}
+                  onChange={(e) => d.setShowElement(e.target.checked)}
+                />
+                <span>Show element</span>
+              </label>
+            ) : (
+              <label className="checkrow">
+                <input
+                  type="checkbox"
+                  data-test="toggle-ghost"
+                  checked={d.showNominal}
+                  onChange={(e) => d.setShowNominal(e.target.checked)}
+                />
+                <span>Show reference</span>
+              </label>
+            )}
             <label className="checkrow">
               <input
                 type="checkbox"
@@ -452,17 +562,70 @@ export function DeviationPanel({
               unit="mm"
               onCommit={d.setMaxDistance}
               hint={
-                <>
-                  <p>How far a scan point may look for reference surface.</p>
-                  <p>
-                    Beyond it there is nothing to deviate from, so that surface is left in plain
-                    grey and kept out of the statistics — which is what stops scan spray and a stray
-                    fixture from being reported as enormous error.
-                  </p>
-                  <p>Display only: it never affects the alignment.</p>
-                </>
+                onElement ? (
+                  <>
+                    <p>How far off the element a scan point may be and still be measured.</p>
+                    <p>
+                      Beyond it the surface is left in plain grey and kept out of the statistics —
+                      which is what keeps a neighbouring feature inside the element's footprint from
+                      being reported as enormous error.
+                    </p>
+                    <p>
+                      Display only, so it can be dialled either way with the map following
+                      immediately. How far the element reaches <i>sideways</i> is set by extending
+                      it in the Measure workspace.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>How far a scan point may look for reference surface.</p>
+                    <p>
+                      Beyond it there is nothing to deviate from, so that surface is left in plain
+                      grey and kept out of the statistics — which is what stops scan spray and a
+                      stray fixture from being reported as enormous error.
+                    </p>
+                    <p>Display only: it never affects the alignment.</p>
+                  </>
+                )
               }
             />
+            {onElement && (
+              <>
+                <label className="checkrow">
+                  <input
+                    type="checkbox"
+                    data-test="toggle-facing"
+                    checked={d.targetFacingDeg !== null}
+                    onChange={(e) => d.setTargetFacing(e.target.checked ? 60 : null)}
+                  />
+                  <span>Surface must face the element</span>
+                  <InfoDot title="Surface must face the element">
+                    <p>
+                      An element is a surface with a side to it, and only the scan surface lying on
+                      that side is the surface being measured. A plane fitted on the top of a 10 mm
+                      plate reaches the underside of it too — and would report it as ten
+                      millimetres of missing material.
+                    </p>
+                    <p>
+                      With this on, a scan point whose own normal points away from the element's is
+                      left out, so the far side of a wall and the back of a rib stay grey.
+                    </p>
+                  </InfoDot>
+                </label>
+                {d.targetFacingDeg !== null && (
+                  <NumberField
+                    label="Max. deviation of normals"
+                    testId="facing-deg"
+                    value={d.targetFacingDeg}
+                    step={5}
+                    min={1}
+                    unit="°"
+                    onCommit={(v) => d.setTargetFacing(v)}
+                    hint="How far the scan may be from facing the way the element faces and still count. Wide enough to keep a genuinely warped surface, tight enough to leave the other side of a wall out."
+                  />
+                )}
+              </>
+            )}
             <NumberField
               label="Tolerance ±"
               value={d.tolerance}
@@ -499,15 +662,17 @@ export function DeviationPanel({
       {scanName && (
         <div className={'tailrow' + (d.marking ? ' muted' : '')}>
           <div className="divider" />
-          {d.mapStatus === 'ready' && (
-            <CopyButton className="block" label="Copy report" onCopy={onCopy} />
-          )}
+          {hasMap && <CopyButton className="block" label="Copy report" onCopy={onCopy} />}
           <button
             className="block"
             data-test="export-stl"
             disabled={scanBusy}
             onClick={onExportStl}
-            title="Save the scan as an STL where it now stands — the best fit onto the reference is baked in"
+            title={
+              onElement
+                ? 'Save the scan as an STL where it now stands'
+                : 'Save the scan as an STL where it now stands — the best fit onto the reference is baked in'
+            }
           >
             Export scan as STL
           </button>

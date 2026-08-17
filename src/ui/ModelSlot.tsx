@@ -28,7 +28,7 @@ export function ModelSlot({
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   return (
-    <div className="slot">
+    <div className="slot" data-test={`slot-${role.toLowerCase()}`}>
       <input
         ref={inputRef}
         type="file"

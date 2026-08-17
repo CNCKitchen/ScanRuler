@@ -13,9 +13,11 @@ Three workspaces share the loaded scan:
   bars and other calibrated artefacts. The measured elements can serve as
   datums for a **3-2-1 alignment** into the global coordinate system, and be
   **exported as a STEP file** of analytic geometry.
-- **Deviation** — best-fit the scan onto a **nominal CAD part**, loaded as a
-  mesh or as a **STEP file** tessellated in the browser, and paint the
-  difference over it as a colour map.
+- **Deviation** — paint how far the scan strays from what it should have been as
+  a colour map over the part, measured either against a **nominal CAD part**
+  (loaded as a mesh or as a **STEP file** tessellated in the browser, and
+  best-fitted onto the scan) or against **one fitted element** — is this face
+  flat, is this bore round, does this surface sit where the datum says.
 - **Thickness** — paint the **wall thickness of the part itself** over it, with
   no reference model and no alignment: load one file and measure.
 
@@ -270,7 +272,10 @@ The viewport uses a **parallel (orthographic) projection** so nothing is
 foreshortened, and rotates freely around the model's bounding-box center with
 no fixed up-axis — you can turn the part all the way over without hitting a
 pole. Left-drag to rotate, right-drag to pan, scroll to zoom; the **XYZ gizmo**
-in the bottom-right corner shows the current orientation.
+in the bottom-right corner shows the current orientation. On a touch screen the
+tablet gestures do the same three things — **one finger turns, two fingers pan
+and pinch to zoom, a tap picks** — and with the marking brush armed the single
+finger paints while two fingers still move the part.
 
 Fitting uses a **Gaussian best-fit** (orthogonal least squares) with GOM-style
 *used points* presets (all / 3σ / 2σ / 1σ, default 3σ). The initial estimate is
@@ -288,11 +293,30 @@ selections and fit sigma. The cylinder and plane fits are covered by unit tests
 against synthetic geometry with known dimensions, since the included scan has
 no such feature.
 
+## Deviation
+
+The **Deviation** workspace paints how far the scan strays from what it should
+have been over the part itself. **Measure against** at the top of the panel
+decides what "should have been" means:
+
+- **Reference model** — the whole nominal part, best-fitted onto the scan.
+  Answers *is this the shape it was drawn as*.
+- **Fitted element** — one plane, cylinder or sphere measured on this same scan
+  in the Elements workspace. Answers *is this face flat, is this bore round,
+  does this surface sit where the datum says*.
+
+Both paint the same map, read through the same colour scale, with the same
+statistics, pinned readings and report underneath. They differ only in what it
+takes to get there — and both maps are kept, so switching between them loses
+neither.
+
 ## Deviation from a nominal part
 
-Switch to the **Deviation** workspace and it asks for the two models it needs,
-in the viewport, each its own drop target — drag and drop works anywhere in the
-window, and whichever slot is still empty takes the file.
+With **Reference model** chosen, an empty stage asks for the two models it needs,
+each its own drop target — drag and drop works anywhere in the window, and
+whichever slot is still empty takes the file. Once a part is on the stage the
+prompt gets out of the way for good: whatever is still missing is asked for by
+its row in the panel and a line above the model.
 
 The scan is a mesh, as always. The reference takes a mesh too, or **a STEP file
 straight from CAD** — see below.
@@ -484,6 +508,57 @@ Validated against the included test pair (`side bracket left.stl` as nominal,
 `block-marius.stl` as the scan, 1.43 M triangles): the fit converges to
 0.072 mm RMS, and a scan displaced by a random rotation and translation comes
 back to within **0.9 µm** of the fit found in place.
+
+## Deviation from a fitted element
+
+Choose **Fitted element** under *Measure against* and pick any plane, cylinder or
+sphere you measured in the Elements workspace. That is the whole setup: **no
+reference file and no alignment**, because the element was fitted on this scan
+and is already in its frame. There is no *Measure* button either — the distance
+to a plane, a cylinder or a sphere is a handful of flops per vertex, so the map
+is computed on the main thread and simply follows every change to it.
+
+A point and a line are not offered. The distance to them is unsigned, so there is
+no zero for a scale that runs warm one way and cool the other.
+
+Three things turn a raw closest distance into a measurement here.
+
+**The region is the element as drawn.** A plane is infinite and a cylinder is an
+endless tube; taken literally, a plane would paint a slab clean through the part.
+So a vertex counts only where it falls within the element's own extent — which
+is the extent the **grips** set, so extending a plane in the Elements workspace
+grows the measured region with it. That is how a plane fitted on one pad becomes
+a flatness map of the whole face it belongs to, and the outline drawn over the
+map is exactly the boundary of what was measured.
+
+**The sign follows the material, not the fit.** Positive deviation is always too
+much material, so the tool has to know which side of the element the part is on.
+It reads that off the **scan's own normals** around the element as you choose it,
+because a fitted plane's normal points whichever way the fit happened to choose,
+and inside a bore the material is on the *inner* side — where a raw radial
+distance runs backwards. **Flip** turns it round when the detection is wrong.
+
+**A surface facing the wrong way is not the surface being measured.** A plane
+fitted on the top of a 10 mm plate reaches the underside of it, which lies
+squarely inside the footprint and would be reported as ten millimetres of missing
+material. **Surface must face the element** leaves it out, the same way the wall
+thickness search steps over a surface that does not face back.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Measure to** | — | The element the map is measured against. Choosing one measures it. |
+| **Material side** | — | Which side of the element the material is on, detected from the scan. **Flip** inverts the whole map. |
+| **Max search distance** | mm | How far off the element a point may be and still be measured. Display only, so it can be dialled either way with the map following immediately. How far the element reaches *sideways* is set by extending it. |
+| **Surface must face the element** | ° | Leave out scan surface whose own normal points away from the element's — the far side of a wall, the back of a rib. |
+
+Everything below that — the colour scale, the bands, the histogram, the tolerance
+tally, hover readings and pinned ones, **Copy report** — is the same instrument
+as for a reference part, because it is the same map.
+
+Validated end-to-end against a generated 20 mm CAD cube
+(`npm run e2e:element-deviation`): a plane fitted on its top face maps the face
+as flat to 0.000 mm, leaves the underside out while the facing filter is on, and
+reports it as exactly −20.000 mm with the filter off.
 
 ## Wall thickness
 

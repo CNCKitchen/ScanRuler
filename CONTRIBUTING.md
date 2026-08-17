@@ -97,7 +97,14 @@ npx license-checker --excludePrivatePackages --summary
   npm run dev &
   node scripts/e2e-smoke.mjs      # element fitting on the ball bar
   node scripts/e2e-deviation.mjs  # load, align, measure, split-screen picking
+  node scripts/e2e-nav.mjs        # mouse orbit / pan / zoom, every scheme
+  node scripts/e2e-touch.mjs      # tablet gestures, with touch emulation on
   ```
+
+  A few generate their own part out of a STEP fixture and so need no scan file —
+  `e2e-element-deviation.mjs` (deviation to a fitted element, checked against a
+  cube of known size) and `e2e-extend.mjs` are the ones to reach for when the
+  large test scans are not to hand.
 
 - `npm run build` type-checks (`tsc --noEmit`) and builds. It must pass.
 - Numerical work belongs in `src/core/` and must be testable without a

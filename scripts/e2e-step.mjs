@@ -59,7 +59,7 @@ await page.waitForSelector('[data-test=start-pane]')
 // CAD, and the picker has to say so.
 const accepts = await page.evaluate(() => ({
   scan: document.querySelector('[data-test=start-scan] input[type=file]').accept,
-  reference: document.querySelector('[data-test=start-reference] input[type=file]').accept,
+  reference: document.querySelector('[data-test=slot-reference] input[type=file]').accept,
 }))
 console.log('accept:', JSON.stringify(accepts))
 if (/step/i.test(accepts.scan)) fail('the scan slot offers STEP, which no scanner produces')
@@ -83,7 +83,7 @@ await page.waitForFunction(
 console.log('scan:', await page.$eval('.file-info', (el) => el.textContent.replace(/\s+/g, ' ')))
 
 // ---- the STEP reference ----------------------------------------------------
-await (await page.$('[data-test=start-reference] input[type=file]')).uploadFile(stepPath)
+await (await page.$('[data-test=slot-reference] input[type=file]')).uploadFile(stepPath)
 await page.waitForFunction(
   () => document.querySelector('[data-test=align-auto]')?.disabled === false,
   { timeout: 300_000 },
