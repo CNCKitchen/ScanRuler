@@ -189,6 +189,43 @@ describe('the marking layer', () => {
   })
 })
 
+describe('the bare-surface colour', () => {
+  it('repaints unowned surface and leaves every reading alone', () => {
+    const { rc, colors } = setup()
+    const SLATE: Rgb = [23, 112, 176]
+    rc.applyRegion(1, RED, Uint32Array.of(1))
+    rc.setPaintColor(GREEN)
+    rc.markVertex(4, false)
+
+    expect(rc.setBaseColor(SLATE)).toBe(true)
+    expect(colorAt(colors, 0)).toEqual(SLATE)
+    expect(colorAt(colors, 1)).toEqual(RED)
+    expect(colorAt(colors, 4)).toEqual(GREEN)
+    // And the new colour is what erasing hands back.
+    rc.markVertex(4, true)
+    expect(colorAt(colors, 4)).toEqual(SLATE)
+  })
+
+  it('is recorded but not painted while a field map owns the surface', () => {
+    const { rc, colors } = setup()
+    const field = new Uint8Array(N * 3)
+    for (let v = 0; v < N; v++) field.set(BLUE, v * 3)
+    rc.setFieldColors(field)
+
+    const SLATE: Rgb = [23, 112, 176]
+    expect(rc.setBaseColor(SLATE)).toBe(false)
+    expect(colorAt(colors, 0)).toEqual(BLUE)
+    // Taking the map off is what shows it.
+    rc.setFieldColors(null)
+    expect(colorAt(colors, 0)).toEqual(SLATE)
+  })
+
+  it('is a no-op when the colour has not changed', () => {
+    const { rc } = setup()
+    expect(rc.setBaseColor([10, 20, 30])).toBe(false)
+  })
+})
+
 describe('lifecycle', () => {
   it('clearAllRegions wipes ownership, tints and the pending preview', () => {
     const { rc, colors } = setup()

@@ -103,6 +103,13 @@ interface DeviationState extends ProbeSlice {
   showHistogram: boolean
   showNominal: boolean
   showScan: boolean
+  /** Whether the measured map is painted onto the scan at all. Off leaves the
+   *  bare surface to be looked at — the shape of the part rather than the
+   *  reading on it — and takes nothing away: the map stays measured, and the
+   *  figures, the hover reading and the pins go on reporting it. */
+  showMap: boolean
+  /** Scan and reference side by side, in two viewports held in one pose. */
+  split: boolean
 
   /** The split-screen point picker is open. */
   picking: boolean
@@ -151,6 +158,8 @@ interface DeviationState extends ProbeSlice {
   setShowHistogram: (v: boolean) => void
   setShowNominal: (v: boolean) => void
   setShowScan: (v: boolean) => void
+  setShowMap: (v: boolean) => void
+  setSplit: (v: boolean) => void
   startPicking: () => void
   stopPicking: () => void
   addPickPoint: (side: 'scan' | 'nominal', point: Vec3) => void
@@ -234,6 +243,8 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // by then the reading is on the scan and the ghost only gets in the way.
   showNominal: true,
   showScan: true,
+  showMap: true,
+  split: false,
 
   setWorkspace: (workspace) => set({ workspace }),
 
@@ -390,6 +401,11 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   setShowHistogram: (showHistogram) => set({ showHistogram }),
   setShowNominal: (showNominal) => set({ showNominal }),
   setShowScan: (showScan) => set({ showScan }),
+  setShowMap: (showMap) => set({ showMap }),
+
+  // The left half is the scan, so opening the split view with the scan switched
+  // off would open onto an empty half — the switch goes back on with it.
+  setSplit: (split) => set(split ? { split, showScan: true } : { split }),
 
   startPicking: () => set({ picking: true, pendingScan: null }),
   stopPicking: () => set({ picking: false, pendingScan: null }),

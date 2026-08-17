@@ -117,6 +117,7 @@ export function DeviationPanel({
       showNominal: s.showNominal,
       showScan: s.showScan,
       source: s.source,
+      split: s.split,
       targetFacingDeg: s.targetFacingDeg,
       targetId: s.targetId,
       targetSide: s.targetSide,
@@ -531,7 +532,10 @@ export function DeviationPanel({
             {/* Showing the elements belongs to the Element section rather than
                 here: they are on the part from the moment this workspace opens,
                 which is before there is any colour scale to put a switch on. */}
-            {!onElement && (
+            {/* The ghost over the scan is what this switches, so it goes away
+                with the split view, where the reference has a viewport of its
+                own and this would switch nothing. */}
+            {!onElement && !d.split && (
               <label className="checkrow">
                 <input
                   type="checkbox"

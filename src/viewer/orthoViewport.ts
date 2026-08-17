@@ -9,8 +9,10 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import type { LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
+import type { ViewTheme } from './viewThemes'
 
 /** Breathing room around a framed part. One value for every viewport: the
  *  split picker used to frame at 1.1 while the main view sat at 1.08, which
@@ -18,10 +20,9 @@ import { OrthoNavigator } from './orthoNav'
 const FRAME_MARGIN = 1.08
 
 export interface OrthoViewportOptions {
-  /** Stage colour behind the parts. */
-  background: number
-  /** The key light rides on the camera; each viewport tunes its strength. */
-  keyLightIntensity: number
+  /** Stage and lights — see viewThemes. One scheme across every viewport: two
+   *  halves of a split view lit differently would read as two instruments. */
+  theme: ViewTheme
   /** Meshes an orbit is allowed to pivot on, re-asked at every drag. */
   navTargets: () => THREE.Object3D[]
   /** A left press-and-release that stayed within the drag threshold — a click,
@@ -52,7 +53,12 @@ export class OrthoViewport {
   readonly controls: OrbitControls
   /** Orbit / pan / zoom, bound to whichever CAD tool's buttons the user picked. */
   readonly nav: OrthoNavigator
+  /** The three lights, kept so the colour scheme can be swapped without
+   *  rebuilding the scene: sky-and-bounce, flat fill, and the key that rides
+   *  on the camera. */
   readonly keyLight: THREE.DirectionalLight
+  private hemiLight: THREE.HemisphereLight
+  private ambientLight: THREE.AmbientLight
   readonly raycaster = new THREE.Raycaster()
   /** Sphere enclosing everything drawn, handed to the navigator by reference so
    *  re-framing a new model just writes to it. */
@@ -96,17 +102,19 @@ export class OrthoViewport {
     labelDom.style.pointerEvents = 'none'
     this.container.appendChild(labelDom)
 
-    this.scene.background = new THREE.Color(opts.background)
     // Parallel projection: metrology views should not foreshorten, and equal
     // features must read the same size wherever they sit in the frame.
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 4000)
     this.camera.position.set(0, 0, 100)
 
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0xb9b6ae, 1.0))
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-    this.keyLight = new THREE.DirectionalLight(0xffffff, opts.keyLightIntensity)
+    this.hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 1)
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 1)
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1)
+    this.scene.add(this.hemiLight)
+    this.scene.add(this.ambientLight)
     this.scene.add(this.keyLight)
     this.scene.add(this.keyLight.target)
+    this.setTheme(opts.theme)
 
     // OrbitControls owns the target and the per-frame lookAt, nothing else:
     // its own rotate/pan/zoom are off because the control scheme decides which
@@ -215,6 +223,19 @@ export class OrthoViewport {
     this.invalidate()
   }
 
+  /** Swap the colour scheme: the stage behind the parts and the lights on them.
+   *  What the parts are made of is their owner's — see applyFinish. */
+  setTheme(theme: ViewTheme): void {
+    this.scene.background = new THREE.Color(theme.stage)
+    const { sky, ground, hemisphere, ambient, key } = theme.lights
+    this.hemiLight.color.setHex(sky)
+    this.hemiLight.groundColor.setHex(ground)
+    this.hemiLight.intensity = hemisphere
+    this.ambientLight.intensity = ambient
+    this.keyLight.intensity = key
+    this.invalidate()
+  }
+
   /** Aim the shared raycaster through the cursor. */
   setPickRay(clientX: number, clientY: number): void {
     this.nav.setPickRay(this.raycaster, clientX, clientY)
@@ -276,6 +297,26 @@ export class OrthoViewport {
     this.applyFrustum()
     this.controls.update()
     this.invalidate()
+  }
+
+  /** Adopt another viewport's framing extents. What makes two halves of a split
+   *  view read at one scale: same extents and same pixel size means the same
+   *  millimetres per pixel, so a feature is the same size in both. */
+  setExtents(halfW: number, halfH: number): void {
+    this.fitExtent = { halfW, halfH }
+    this.applyFrustum()
+    this.invalidate()
+  }
+
+  /** This viewport as one half of a linked pair — see cameraLink.ts. */
+  viewLink(): LinkedView {
+    return {
+      camera: this.camera,
+      target: this.controls.target,
+      extents: () => this.fitExtent,
+      setExtents: (halfW, halfH) => this.setExtents(halfW, halfH),
+      invalidate: this.invalidate,
+    }
   }
 
   /** Rebuild the orthographic frustum for the current viewport aspect,

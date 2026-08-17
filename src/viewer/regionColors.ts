@@ -38,6 +38,18 @@ export class RegionColors {
 
   constructor(private baseColor: Rgb) {}
 
+  /** Repaint bare surface in a new colour — the viewport's colour scheme has
+   *  been switched. Only the unowned, unmeasured vertices move: an element's
+   *  tint and a measured map are readings, and a reading does not change colour
+   *  because the stage did. Returns whether the colour buffer changed. */
+  setBaseColor(rgb: Rgb): boolean {
+    if (rgb.every((c, i) => c === this.baseColor[i])) return false
+    this.baseColor = rgb
+    if (!this.colors || this.fieldColors) return false
+    this.repaintFromElements()
+    return true
+  }
+
   /** Whether a scan's buffers are attached — mirrors the life of the mesh. */
   get ready(): boolean {
     return this.owner !== null

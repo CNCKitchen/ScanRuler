@@ -106,6 +106,35 @@ inside of the wall behind it, and in plain grey that reads as part. Switched
 on, it reads as a hole — which is also how an inverted normal gives itself
 away.
 
+### How the part is shown
+
+**View** in the status strip picks what the part is made of and how it is lit,
+and it is remembered per browser. The stage stays the same grey either way.
+
+**Studio grey** is the default: a matt grey part, evenly lit — the quietest
+thing to lay a coloured map or an element tint over.
+
+**Scanner blue** is the one every handheld scanner's own software puts on
+screen: a glossy blue part under a hard light. It is worth switching to whenever
+you are looking at the *surface* rather than at a measurement. A tight specular
+highlight travelling over the part is the best way there is to see the shape of
+it, and tool marks, print layers, the faceting of a coarse mesh and the ripple
+of a bad scan all show up in that highlight long before they show up in matt
+shading. Every viewport follows — the reference half of the split view and both
+halves of the point picker with it.
+
+Nothing measured changes colour with the scheme. The element tints, the
+deviation and thickness ramps and the grey a map paints where nothing was
+measured are all exactly the same in both: a reading that shifted with the
+lighting would be worth nothing. What does change is the reference *where it is
+overlaid on the scan* — amber against a blue scan instead of blue against a grey
+one, since its whole job there is to not look like the part underneath it.
+
+Given a frame of its own it needs no such contrast, and is better without it: in
+the split view and in both halves of the point picker the reference is the same
+material as the scan, in the scheme's own bare-surface colour, so the only thing
+that differs between the two pictures is the shape.
+
 ### Elements: fitted, picked and constructed
 
 Elements don't have to come from the scan surface. Every element type offers a
@@ -353,6 +382,50 @@ almost everywhere.
 triangle rather than snapped to a vertex, and **click to pin a reading** where
 you want a number to stay.
 
+### Both parts, side by side
+
+**◫ Split view** in the status strip puts the scan and the reference in two
+viewports next to each other with one camera between them: turn, pan or zoom
+either half and the other follows, whichever half the pointer is in. Because the
+fit carries the scan into the reference's coordinates, both halves are showing
+the same world — so a feature on the left sits exactly where its counterpart sits
+on the right, and the only thing that differs between the two pictures is the
+part.
+
+The overlaid ghost stands down while the split is open: the reference has a half
+of its own, and the ghost was only ever a way of getting two parts into one
+frame. Everything the scan carries stays on the left — the map, the reading under
+the cursor, the pinned readings, the marking tools. Nothing is picked or measured
+on the reference half; it is the shape being compared against.
+
+**Both halves are one material under one light** — the scheme's bare-surface
+colour and finish on either side, rather than the ghost's contrasting blue. Two
+pictures of the same part in the same grey leave the shape as the only difference
+between them, which is the comparison you opened the view to make. Switch the
+[colour plot](#the-colour-plot-off) off and it is exactly that; leave it on and
+the map is the one thing marking the scan out from its nominal. Under **Scanner
+blue** it is worth the look on its own: the highlight lies along the same edge in
+both halves, scalloped into mesh facets on the scan and dead straight on the CAD
+part beside it.
+
+It does not wait for an alignment either. Opened on an unfitted pair it shows
+each part where it actually is, which is how you check the reference is the part
+you meant before spending a fit on it.
+
+### The colour plot, off
+
+**▩ Colour plot** in the status strip stops painting the map onto the scan and
+leaves the bare surface. The scale goes with it — histogram, figures and all: it
+is the key to colours that are no longer on the part, and being left with the
+part is the whole point of switching them off. It is there for the times you want
+the shape rather than the reading — the form of a face, a hole in the scan, the
+marks a finish left — which is most of what the reference beside it is for.
+
+Nothing measured is lost by not looking at it. The map is still measured
+underneath, the reading under the cursor still reports it, pinned readings stay
+pinned, and switching it back on brings the scale back reading exactly what it
+read before — nothing is re-measured.
+
 ### The reference straight from CAD
 
 The nominal part is whatever the CAD system says it is, and exporting it to STL
@@ -508,6 +581,7 @@ Reading the map:
 | **Histogram** | — | The distribution, drawn beside the scale and sharing its axis, plus min / max / mean / RMS / sigma. |
 | **Max search distance** | mm | How far a scan point may look for reference surface. Beyond it there is nothing to deviate from, so the surface is left plain grey and kept out of the statistics. Display only — it never affects the alignment, and moving it re-colours instantly. |
 | **Tolerance ±** | mm | The band the *within ± x mm* figure under the scale counts. It does not change the colours. |
+| **▩ Colour plot** | — | Whether the map is painted onto the scan at all (status strip). Off leaves the bare surface and takes the scale with it; the map stays measured, and the reading under the cursor and the pinned readings go on reporting it. |
 
 The ramp is jet — blue through cyan, green, yellow to red — pinned so that
 **zero is a saturated green**, with dark caps beyond each end so a reading that
@@ -670,7 +744,7 @@ it — used by `tests/align.test.ts`. Both files are already aligned in GOM, so
 that test displaces the scan by random rigid transforms first; otherwise the
 automatic match would never be asked a real question.
 
-Eight end-to-end smoke tests drive the real app in headless Chrome against a
+Nine end-to-end smoke tests drive the real app in headless Chrome against a
 running dev server:
 
 ```bash
@@ -681,6 +755,7 @@ node scripts/e2e-local-fit.mjs  # window / brush / lasso marking + local fine fi
 node scripts/e2e-align.mjs      # 3-2-1 datum alignment + STEP export round-trip
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
+node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 ```
 
@@ -690,6 +765,13 @@ fine mesh of the *same* cube with one face raised 0.2 mm and another sunk
 0.15 mm. A correct import has to read those two numbers back off the map — sign
 included — and leave the other four faces flat. It does, to 66.6 % of the scan
 inside ±0.1 mm, which is exactly four faces of six.
+
+`e2e-split.mjs` builds the same pair, and checks the split view the way you would
+by eye: both halves are photographed and reduced to the share of the frame the
+part covers and where that silhouette sits in it. Two viewports in one pose have
+to agree on both numbers, before and after a drag in either half and after a
+zoom — which is a check no amount of asserting on camera matrices would give,
+since the claim being made is about what is on the screen.
 
 ## Deploying to Cloudflare
 

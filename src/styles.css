@@ -1138,64 +1138,139 @@ button.x:disabled {
   z-index: 6;
 }
 
-/* Support banner — bottom-centre pill, capped short of the scale on the right
-   edge of the stage. The chips that also live at the bottom centre step up out
-   of its way; keep these offsets in sync with the paddings below. */
-.supportbanner {
+/* Support card — bottom-left corner of the stage, the one corner the
+   instrument does not use: the colour scale and its statistics own the right
+   edge, the orientation gizmo the bottom right, the hint chip the top centre.
+   A part is looked at from the middle out, so the bottom left is also the
+   quietest place to be asked for something. */
+.supportcard {
   position: absolute;
   bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  max-width: min(560px, calc(100% - 260px));
+  left: 12px;
+  z-index: 7;
+  width: 290px;
+  max-width: calc(100% - 24px);
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.18);
+}
+
+.sc-head {
+  display: flex;
+  align-items: flex-start;
   gap: 6px;
-  padding: 8px 10px 8px 16px;
-  background: linear-gradient(180deg, var(--accent), var(--accent-d));
-  color: #fff;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: center;
-  border-radius: 999px;
-  box-shadow: 0 2px 10px rgba(18, 98, 159, 0.35);
 }
 
-.supportbanner a {
-  color: #fff;
+.sc-head b {
+  flex: 1;
+  font-size: 13.5px;
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  line-height: 1.3;
 }
 
-.supportbanner a:hover {
-  text-decoration: none;
-}
-
-.supportbanner .sb-x {
+.sc-x {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
+  margin: -3px -5px 0 0;
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.18);
-  border: none;
-  border-radius: 50%;
+  color: var(--dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r);
   cursor: pointer;
 }
 
-.supportbanner .sb-x:hover {
-  background: rgba(255, 255, 255, 0.32);
+.sc-x:hover {
+  color: var(--ink);
+  background: var(--well);
+  border-color: var(--line);
 }
 
-.supportbanner ~ .toast {
-  bottom: 56px;
+.supportcard p {
+  margin: 0 0 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+.supportcard p b {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Three keys, stacked and full width, in their own house colours — the store
+   in CNC Kitchen blue, then the two tip jars in theirs. Links, not buttons:
+   each one opens somewhere. */
+.sc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: none;
+  border-radius: var(--r);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+.sc-btn:hover {
+  filter: brightness(1.08);
+}
+
+.sc-btn .sc-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.sc-btn.store {
+  background: var(--accent);
+}
+
+.sc-btn.paypal {
+  background: #0091d4;
+}
+
+.sc-btn.kofi {
+  background: #f0544f;
+}
+
+/* The one thing that does come near the card is an error, which is centred at
+   the bottom of the stage — and an error must never be the thing hidden behind
+   an ask for money. So while the card is up the toast takes the centre of what
+   is left beside it, 302px of stage being the card and its margin. (This is why
+   the card is rendered ahead of the toast in App.tsx: the sibling combinator
+   only reaches forwards, and the rule has to lapse the moment the card is
+   closed.) The toast wraps rather than truncating, so a narrower berth costs it
+   height, not words. */
+.supportcard ~ .toast {
+  left: calc(50% + 151px);
+  max-width: calc(100% - 314px);
+}
+
+/* Narrower than this there is no "beside": what is left of the stage is too
+   thin to read an error in, so the toast keeps the full width and clears the
+   card upwards instead. The offset clears the tallest the card gets — four
+   lines of blurb and the three keys — and has to be revisited if that copy
+   grows. */
+@media (max-width: 1150px) {
+  .supportcard ~ .toast {
+    bottom: 271px;
+    left: 50%;
+    max-width: calc(100% - 24px);
+  }
 }
 
 .drop-overlay {
@@ -1564,6 +1639,20 @@ button.x:disabled {
   .strip .navhint {
     display: none;
   }
+
+  /* The deviation workspace hangs two more keys here than the others do, so
+     those two are what makes the room — glyph only, with the title attribute
+     carrying the name, well before the keys beside them give up their words. */
+  .strip .viewsw .btxt {
+    display: none;
+  }
+
+  /* The colour scheme gives its label up this early too: unlike the navigation
+     dropdown, the option showing in it ("Scanner blue") names the setting on
+     its own. */
+  .strip .nav.view label {
+    display: none;
+  }
 }
 
 @media (max-width: 1040px) {
@@ -1621,8 +1710,92 @@ button.x:disabled {
   inset: 0;
 }
 
+/* ---------------- side by side ---------------- */
+
+/* The scan and the reference in two viewports, one camera between them. The
+   main viewport is not moved into a half — that would unmount it and throw away
+   the mesh and its BVH — it becomes one where it stands, by giving up its
+   absolute fill for a place in a flex row. */
+.viewslot.split {
+  display: flex;
+}
+
+/* Last of the three, and deliberately: it has the same specificity as the split
+   rule above, so being hidden has to be the thing that wins. */
 .viewslot[hidden] {
   display: none;
+}
+
+.viewslot.split .viewport {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.comparehalf {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  /* The only seam on the stage: two parts one beside the other have to read as
+     two views and not as one wide one. */
+  border-left: 1px solid var(--line-strong);
+}
+
+.compareview {
+  position: absolute;
+  inset: 0;
+}
+
+/* Same gesture suppressions as the main viewport — this half turns under the
+   same buttons and the same fingers. */
+.compareview canvas {
+  display: block;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Which part is which, in the bottom corner of the half it names: out of the
+   way of the chips above and of the scale beside them, and close enough to the
+   model to be read without hunting for it. */
+.splitcap {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  max-width: calc(100% - 20px);
+  padding: 3px 9px;
+  background: rgba(252, 252, 250, 0.92);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  pointer-events: none;
+}
+
+.splitcap b {
+  font-family: var(--cond);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.splitcap span {
+  font-size: 11px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The scale reads the scan, so beside the split view it moves to the inner edge
+   of the scan's half rather than staying at the edge of a stage whose right-hand
+   side now belongs to the reference. */
+.stage.split .devlegend {
+  right: calc(50% + 14px);
 }
 
 /* A failed or doubtful result speaks up in the panel rather than vanishing

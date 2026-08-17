@@ -25,6 +25,7 @@
     "e2e:paint": "node scripts/e2e-paint.mjs",
     "e2e:extend": "node scripts/e2e-extend.mjs",
     "e2e:deviation": "node scripts/e2e-deviation.mjs",
+    "e2e:split": "node scripts/e2e-split.mjs",
     "e2e:element-deviation": "node scripts/e2e-element-deviation.mjs",
     "e2e:thickness": "node scripts/e2e-thickness.mjs",
     "e2e:step": "node scripts/e2e-step.mjs",

@@ -18,17 +18,19 @@ import {
 } from './state/store'
 import type { SceneManager, PickHit } from './viewer/SceneManager'
 import { schemeById } from './viewer/navSchemes'
+import { themeById } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
 import { TopBar } from './ui/TopBar'
 import { StatusStrip } from './ui/StatusStrip'
 import { BusyOverlay } from './ui/BusyOverlay'
 import { ImprintModal } from './ui/Imprint'
-import { SupportBanner } from './ui/SupportBanner'
+import { SupportCard } from './ui/SupportCard'
 import { DeviationPanel } from './ui/DeviationPanel'
 import { ThicknessPanel } from './ui/ThicknessPanel'
 import { MapLegend, type LegendStat } from './ui/MapLegend'
 import { StartPane, type StartSlot } from './ui/StartPane'
+import { CompareView } from './ui/CompareView'
 import { formatSigned } from './ui/format'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
@@ -682,6 +684,7 @@ export default function App() {
   const align = useDeviation((s) => s.align)
   const nominalName = useDeviation((s) => s.nominalName)
   const picking = useDeviation((s) => s.picking)
+  const split = useDeviation((s) => s.split)
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
 
   useSceneSync({
@@ -831,6 +834,12 @@ export default function App() {
   const showHistogram = useDeviation((s) => s.showHistogram)
   const stats = useDeviation((s) => s.stats)
   const histogram = useDeviation((s) => s.histogram)
+  // With the colour plot off the scale goes too, and the histogram and the
+  // figures under it with it: it is the key to colours that are not on the part
+  // any more, and the whole point of switching them off is to be left looking at
+  // the part. Nothing is lost — the map is still measured, the reading under the
+  // cursor still reports it, and the scale comes back exactly as it was.
+  const showMap = useDeviation((s) => s.showMap)
   const onDeviation = workspace === 'deviation'
   const onThickness = workspace === 'thickness'
 
@@ -886,6 +895,12 @@ export default function App() {
 
   const scanGeometry = sceneRef.current?.scanGeometry() ?? null
   const nominalGeometry = sceneRef.current?.nominalGeometry() ?? null
+  // Both parts, side by side, in two viewports held in one pose. Only where
+  // there is a second part to stand beside the scan: measuring against a fitted
+  // element there is no reference model in the question at all, and the point
+  // picker has the stage to itself while it is up.
+  const splitOpen =
+    split && onDeviation && source === 'reference' && !picking && Boolean(nominalGeometry)
   // Stable, so the readout's subscription is not torn down every render.
   const registerHover = useRef((fn: ((r: HoverReading | null) => void) | null) => {
     hoverSink.current = fn
@@ -964,14 +979,18 @@ export default function App() {
             onExportStl={handleExportStl}
           />
         )}
-        <div className="stage">
+        <div className={splitOpen ? 'stage split' : 'stage'}>
           {/* The viewport stays mounted behind the picker: unmounting it would
-              throw away the mesh and its BVH, and both are expensive. */}
-          <div className="viewslot" hidden={picking}>
+              throw away the mesh and its BVH, and both are expensive. It keeps
+              its place in the tree when the split view opens for the same
+              reason — it becomes the left half where it stands, rather than
+              being moved into one. */}
+          <div className={splitOpen ? 'viewslot split' : 'viewslot'} hidden={picking}>
             <Viewer
               onReady={(s) => {
                 sceneRef.current = s
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
+                s.setViewTheme(themeById(useStore.getState().viewTheme))
               }}
               onPick={handlePick}
               onHover={handleHover}
@@ -979,6 +998,20 @@ export default function App() {
               onPaintChange={handlePaintChange}
               onExtendDrag={handleExtendDrag}
             />
+            {splitOpen && (
+              <>
+                <div className="splitcap">
+                  <b>Scan</b>
+                  <span>{fileName}</span>
+                </div>
+                <CompareView
+                  scene={sceneRef.current!}
+                  geometry={nominalGeometry!}
+                  role="Reference"
+                  name={nominalName ?? 'reference'}
+                />
+              </>
+            )}
           </div>
           {picking && scanGeometry && nominalGeometry && (
             <SplitPicker
@@ -990,7 +1023,7 @@ export default function App() {
               onCancel={() => useDeviation.getState().stopPicking()}
             />
           )}
-          {!picking && onDeviation && mapReady && (
+          {!picking && onDeviation && mapReady && showMap && (
             <MapLegend
               id="deviation"
               unit="mm"
@@ -1046,9 +1079,9 @@ export default function App() {
             />
           )}
           {(onDeviation || onThickness) && !picking && <HoverReadout register={registerHover} />}
-          {/* Before the chips below it: the CSS lifts them out of its way with
-              sibling combinators, which only reach forwards. */}
-          {!picking && <SupportBanner />}
+          {/* Before the error toast below it: the CSS keeps the toast clear of
+              the card with a sibling combinator, which only reaches forwards. */}
+          {!picking && <SupportCard />}
           {/* With no card on the stage any more, the step that is still
               outstanding says so here instead — the reference that has yet to be
               loaded, or the element that has yet to be chosen. */}

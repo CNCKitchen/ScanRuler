@@ -4,9 +4,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { Vec3 } from '../core/types'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
-
-const STAGE_BG = 0xd7d5cf
-const PART_COLOR = 0x848a92
+import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
 
 /** A point picked on the scan while setting up an alignment. */
 export interface PickMarker {
@@ -40,10 +38,9 @@ export class PickScene {
 
   onPick: ((point: Vec3) => void) | null = null
 
-  constructor(container: HTMLDivElement, geometry: THREE.BufferGeometry) {
+  constructor(container: HTMLDivElement, geometry: THREE.BufferGeometry, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
-      background: STAGE_BG,
-      keyLightIntensity: 1.5,
+      theme,
       navTargets: () => [this.mesh],
       onClick: (x, y) => {
         const point = this.pick(x, y)
@@ -54,14 +51,14 @@ export class PickScene {
 
     // Flat colour, not the scan's vertex colours: in this view both parts have
     // to look like the same kind of object, so the eye is comparing shapes and
-    // not a coloured map against a plain grey reference.
+    // not a coloured map against a plain reference. Bare-surface colour for
+    // both, because that is what an unmeasured part looks like in this scheme.
     this.material = new THREE.MeshStandardMaterial({
-      color: PART_COLOR,
-      roughness: 0.62,
-      metalness: 0.05,
       side: THREE.DoubleSide,
       vertexColors: false,
     })
+    setSurfaceColor(this.material.color, theme)
+    applyFinish(this.material, theme)
     this.mesh = new THREE.Mesh(geometry, this.material)
     this.viewport.scene.add(this.mesh)
 
@@ -80,6 +77,15 @@ export class PickScene {
    *  the model there, so the two must not navigate differently. */
   setNavScheme(scheme: ControlScheme): void {
     this.viewport.setNavScheme(scheme)
+  }
+
+  /** And the same colour scheme: the pose picked here is checked against the
+   *  model in the main viewport, so the two must not look different either. */
+  setViewTheme(theme: ViewTheme): void {
+    this.viewport.setTheme(theme)
+    setSurfaceColor(this.material.color, theme)
+    applyFinish(this.material, theme)
+    this.viewport.invalidate()
   }
 
   private pick(clientX: number, clientY: number): Vec3 | null {

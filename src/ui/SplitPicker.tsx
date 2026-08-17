@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { PickScene, type PickMarker } from '../viewer/PickScene'
 import { schemeById } from '../viewer/navSchemes'
+import { themeById } from '../viewer/viewThemes'
 import { useStore } from '../state/store'
 import { pairColor, useDeviation } from '../state/deviationStore'
 import { absoluteOrientation } from '../core/deviation/absoluteOrientation'
@@ -37,9 +38,14 @@ function Half({
   // The same buttons as the main viewport: turning a part here to find a
   // feature is the same job as turning it there.
   const navScheme = useStore((s) => s.navScheme)
+  const viewTheme = useStore((s) => s.viewTheme)
 
   useEffect(() => {
-    const scene = new PickScene(holder.current!, geometry)
+    const scene = new PickScene(
+      holder.current!,
+      geometry,
+      themeById(useStore.getState().viewTheme),
+    )
     scene.onPick = (p) => pickRef.current(p)
     scene.setNavScheme(schemeById(useStore.getState().navScheme))
     sceneRef.current = scene
@@ -52,6 +58,10 @@ function Half({
   useEffect(() => {
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
+
+  useEffect(() => {
+    sceneRef.current?.setViewTheme(themeById(viewTheme))
+  }, [viewTheme])
 
   useEffect(() => {
     sceneRef.current?.setMarkers(markers)

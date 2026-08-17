@@ -26,6 +26,9 @@ beforeEach(() => {
     maxDistanceAuto: true,
     mapVersion: 0,
     elementVersion: 0,
+    split: false,
+    showMap: true,
+    showScan: true,
   })
 })
 
@@ -56,6 +59,36 @@ describe('deviation store', () => {
     s().clearAlign()
     s().resolveMap(0.4, 2.5)
     expect(s().maxDistance).toBe(2.5)
+  })
+})
+
+describe('how the map is looked at', () => {
+  const s = () => useDeviation.getState()
+
+  it('opens the split view onto a scan that is actually shown', () => {
+    // The left half is the scan, so a hidden one would open onto an empty half.
+    s().setShowScan(false)
+    s().setSplit(true)
+    expect(s().split).toBe(true)
+    expect(s().showScan).toBe(true)
+    // Closing it is no reason to touch what is on the stage.
+    s().setShowScan(false)
+    s().setSplit(false)
+    expect(s().showScan).toBe(false)
+  })
+
+  it('keeps the map measured when the colour plot is switched off', () => {
+    s().resolveAlign(doneAlign())
+    s().resolveMap(0.4, 2.5)
+    s().addProbe([1, 2, 3], 0.12)
+    s().setShowMap(false)
+    // Not looking at a reading is not the same as not having it: the map, the
+    // figures under the scale and the pinned readings all stand.
+    expect(s().showMap).toBe(false)
+    expect(s().mapStatus).toBe('ready')
+    expect(s().probes).toHaveLength(1)
+    s().setShowMap(true)
+    expect(s().showMap).toBe(true)
   })
 })
 

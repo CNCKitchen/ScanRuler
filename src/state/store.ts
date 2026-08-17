@@ -36,6 +36,7 @@ import {
 import { rigidCompose, type Rigid } from '../core/deviation/rigid'
 import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
+import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
 import type { StepStyle } from '../core/exportStep'
 import type {
   ElementKind,
@@ -432,6 +433,10 @@ interface AppState {
    *  browser, because which buttons orbit is a habit from whichever CAD the
    *  user came from, not a property of the part on screen. */
   navScheme: string
+  /** Id of the viewport colour scheme (see viewer/viewThemes). Remembered per
+   *  browser for the same reason as the navigation: which stage a part is
+   *  easiest to read on is the operator's preference, not the part's. */
+  viewTheme: string
   /** Which form the STEP export is written in. Remembered per browser, like
    *  the navigation scheme: whether measured elements should reach CAD as
    *  bodies or as construction geometry is a property of how the user works,
@@ -515,11 +520,13 @@ interface AppState {
   setShowOverlays: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
   setNavScheme: (id: string) => void
+  setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
   openImprint: (v: boolean) => void
 }
 
 const NAV_SCHEME_KEY = 'scanruler.navscheme'
+const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
 
 /** Falls back to the built-in default when storage is unavailable (private
@@ -529,6 +536,14 @@ const storedNavScheme = (): string => {
     return schemeById(localStorage.getItem(NAV_SCHEME_KEY)).id
   } catch {
     return SCHEMES[0].id
+  }
+}
+
+const storedViewTheme = (): string => {
+  try {
+    return themeById(localStorage.getItem(VIEW_THEME_KEY)).id
+  } catch {
+    return DEFAULT_THEME.id
   }
 }
 
@@ -572,6 +587,7 @@ export const useStore = create<AppState>()((set, get) => ({
   showOverlays: true,
   showBackfaces: false,
   navScheme: storedNavScheme(),
+  viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
   imprintOpen: false,
 
@@ -1158,6 +1174,14 @@ export const useStore = create<AppState>()((set, get) => ({
       // Not being able to remember the choice is no reason to refuse it.
     }
     set({ navScheme })
+  },
+  setViewTheme: (viewTheme) => {
+    try {
+      localStorage.setItem(VIEW_THEME_KEY, viewTheme)
+    } catch {
+      // Same as above: the stage still changes for this session.
+    }
+    set({ viewTheme })
   },
   setStepStyle: (stepStyle) => {
     try {

@@ -103,8 +103,9 @@ npx license-checker --excludePrivatePackages --summary
 
   A few generate their own part out of a STEP fixture and so need no scan file —
   `e2e-element-deviation.mjs` (deviation to a fitted element, checked against a
-  cube of known size) and `e2e-extend.mjs` are the ones to reach for when the
-  large test scans are not to hand.
+  cube of known size), `e2e-split.mjs` (the side-by-side compare view and the
+  colour plot) and `e2e-extend.mjs` are the ones to reach for when the large test
+  scans are not to hand.
 
 - `npm run build` type-checks (`tsc --noEmit`) and builds. It must pass.
 - Numerical work belongs in `src/core/` and must be testable without a

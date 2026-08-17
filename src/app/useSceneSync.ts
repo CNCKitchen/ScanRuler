@@ -20,6 +20,7 @@ import type {
   OverlayPair,
 } from '../viewer/SceneManager'
 import { schemeById } from '../viewer/navSchemes'
+import { themeById } from '../viewer/viewThemes'
 import { formatSigned } from '../ui/format'
 import { MARK_COLOR, useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
@@ -366,12 +367,18 @@ export function useSceneSync({
     }
     return null
   }
+  // The colour plot can be switched off to look at the bare scan surface — its
+  // shape, its holes, the marks a finish leaves — with the map still measured
+  // underneath. Everything read off it goes on reading it: the figures under the
+  // scale, the hover label and the pins are unaffected, which is why this gates
+  // the paint below and not shownField itself.
+  const showMap = useDeviation((s) => s.showMap)
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
 
     // Colour the scan from whichever map this workspace is showing.
-    const showing = shownField()
+    const showing = workspace === 'deviation' && !showMap ? null : shownField()
     if (!showing) {
       scene.setFieldColors(null)
       return
@@ -393,6 +400,7 @@ export function useSceneSync({
     range,
     maxDistance,
     bands,
+    showMap,
     thickVersion,
     thickScaleShown,
   ])
@@ -448,16 +456,19 @@ export function useSceneSync({
   // since an aligned reference otherwise sits inside a scan of the same shape
   // and loses the depth test everywhere.
   const showScan = useDeviation((s) => s.showScan)
+  // Side by side, the reference has a viewport of its own — so it comes out of
+  // this one. Two parts in one frame is exactly what the split view undoes.
+  const split = useDeviation((s) => s.split)
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
     // Measuring against an element there is no reference part in the question at
     // all, so one that happens to be loaded stays off the stage.
     const onDev = workspace === 'deviation' && source === 'reference'
-    scene.setNominalVisible(onDev && nominalReady && showNominal)
+    scene.setNominalVisible(onDev && nominalReady && showNominal && !split)
     scene.setNominalGhost(!onDev || showScan)
     scene.setScanVisible(workspace !== 'deviation' || showScan)
-  }, [workspace, source, showNominal, showScan, nominalReady])
+  }, [workspace, source, showNominal, showScan, nominalReady, split])
 
   // Which mouse buttons orbit, pan and zoom. Held in the store rather than the
   // scene so the status strip can show it and remember it.
@@ -465,6 +476,13 @@ export function useSceneSync({
   useEffect(() => {
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
+
+  // What the part is made of and how it is lit, held in the store for the same
+  // reasons: the status strip shows it and remembers it.
+  const viewTheme = useStore((s) => s.viewTheme)
+  useEffect(() => {
+    sceneRef.current?.setViewTheme(themeById(viewTheme))
+  }, [viewTheme])
 
   // Pins belong to the map they were taken off, and only that map: a thickness
   // in millimetres and a deviation in millimetres look identical on the part,

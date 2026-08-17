@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
+import type { LinkedView } from './cameraLink'
 import { OrthoViewport } from './orthoViewport'
 import { AxisGizmo } from './axisGizmo'
 import { RegionColors } from './regionColors'
@@ -12,7 +13,7 @@ import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-
 import type { ExtendSide } from '../core/elements/extend'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
-import { UNMEASURED_RGB } from '../core/field/colormap'
+import { applyFinish, DEFAULT_THEME, type ViewTheme } from './viewThemes'
 
 declare module 'three' {
   interface BufferGeometry {
@@ -24,34 +25,6 @@ declare module 'three' {
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree
 THREE.Mesh.prototype.raycast = acceleratedRaycast
-
-/** Chassis gray, matching --chassis-adjacent `.stage` in the stylesheet — the
- *  canvas has to sit in the instrument, not on top of it. */
-const STAGE_BG = 0xdedcd6
-
-/** Unmeasured scan surface: a machined-aluminium grey. Dark enough that a
- *  brightly lit face still reads as material against the pale stage, quiet
- *  enough to leave the element colours all the contrast. Shared with the
- *  deviation map, where it marks surface the search distance never matched —
- *  the same meaning, that nothing has been measured here. */
-const BASE_COLOR: [number, number, number] = [
-  UNMEASURED_RGB[0],
-  UNMEASURED_RGB[1],
-  UNMEASURED_RGB[2],
-]
-
-/** The reference part: a translucent blue ghost the scan reads through. Blue
- *  rather than another grey, because for most of its life it is overlaid on a
- *  grey scan of very nearly the same shape, and two greys in the same place
- *  read as one washed-out object rather than as two parts being compared. */
-const NOMINAL_COLOR = 0x5c86bd
-
-/** The inside of the surface, when back-face tinting is switched on: a dull
- *  rose that no element colour, no deviation band and no unmeasured grey can
- *  be mistaken for. What it marks is worth seeing — a hole in the scan, an
- *  inverted normal, or simply that you are looking at the far wall of the
- *  part through one. */
-const BACKFACE_COLOR = 0x9c5b70
 
 /** Dominant direction of the vertex cloud (power iteration on the
  *  covariance of a subsample) — used to frame elongated parts broadside. */
@@ -120,8 +93,12 @@ export type { PickMarker }
 export class SceneManager {
   private viewport: OrthoViewport
   private gizmo: AxisGizmo
+  /** Stage, lights and surface colours — see viewThemes. Held here as well as
+   *  in the viewport because a scan or a reference loaded later has to be
+   *  dressed in whatever scheme is current. */
+  private theme: ViewTheme = DEFAULT_THEME
   /** Who owns each vertex's colour, and every tint layered over it. */
-  private regions = new RegionColors(BASE_COLOR)
+  private regions = new RegionColors(DEFAULT_THEME.surface)
   private marking: SurfaceMarking
   private grips: ExtendGrips
   private overlays: Overlays
@@ -167,7 +144,7 @@ export class SceneManager {
    *  instead of a shader recompile mid-session. */
   private backface = {
     uBackfaceTint: { value: 0 },
-    uBackfaceColor: { value: new THREE.Color(BACKFACE_COLOR) },
+    uBackfaceColor: { value: new THREE.Color(DEFAULT_THEME.backface) },
   }
 
   /** Scratch for picking, which runs every frame the cursor moves: the
@@ -196,8 +173,7 @@ export class SceneManager {
 
   constructor(container: HTMLDivElement) {
     this.viewport = new OrthoViewport(container, {
-      background: STAGE_BG,
-      keyLightIntensity: 1.6,
+      theme: this.theme,
       // An orbit pivots on whichever part is actually on screen: in the
       // deviation workspace the scan can be hidden behind the reference, or
       // the other way round, and turning about a surface nobody can see reads
@@ -299,6 +275,38 @@ export class SceneManager {
     this.viewport.setNavScheme(scheme)
   }
 
+  /**
+   * Swap the colour scheme (dropdown in the status strip): stage, lights, the
+   * finish the parts are seen under, and the colours of everything that is not
+   * itself a reading.
+   *
+   * Element tints, the deviation ramp and the unmeasured grey of a map are left
+   * exactly where they are. They are what has been measured, and a measurement
+   * that changed colour with the lighting would be worth nothing.
+   */
+  setViewTheme(theme: ViewTheme): void {
+    this.theme = theme
+    this.viewport.setTheme(theme)
+    this.backface.uBackfaceColor.value.setHex(theme.backface)
+    if (this.regions.setBaseColor(theme.surface) && this.colorAttr)
+      this.colorAttr.needsUpdate = true
+    if (this.mesh) applyFinish(this.mesh.material as THREE.MeshStandardMaterial, theme)
+    if (this.nominalMesh) {
+      const material = this.nominalMesh.material as THREE.MeshStandardMaterial
+      material.color.setHex(theme.nominal)
+      applyFinish(material, theme)
+    }
+    this.invalidate()
+  }
+
+  /** This viewport as the scan half of the deviation split view (cameraLink.ts).
+   *  The pose travels in world coordinates, which are the reference's — the fit
+   *  carries the scan into them, so one camera between the halves is what puts a
+   *  feature and its counterpart in the same place on both screens. */
+  viewLink(): LinkedView {
+    return this.viewport.viewLink()
+  }
+
   /** With the brush armed, a plain press starts a stroke or a marquee; a grip
    *  under the cursor takes the plain left-drag — the navigator has stepped
    *  aside for both. While a marking gesture is live the grips never get a
@@ -365,10 +373,11 @@ export class SceneManager {
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
     const colors = new Uint8Array(vertexCount * 3)
+    const base = this.theme.surface
     for (let i = 0; i < vertexCount; i++) {
-      colors[i * 3] = BASE_COLOR[0]
-      colors[i * 3 + 1] = BASE_COLOR[1]
-      colors[i * 3 + 2] = BASE_COLOR[2]
+      colors[i * 3] = base[0]
+      colors[i * 3 + 1] = base[1]
+      colors[i * 3 + 2] = base[2]
     }
     this.colorAttr = new THREE.BufferAttribute(colors, 3, true)
     geometry.setAttribute('color', this.colorAttr)
@@ -380,10 +389,9 @@ export class SceneManager {
     // visible instead of culling them to black.
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.62,
-      metalness: 0.05,
       side: THREE.DoubleSide,
     })
+    applyFinish(material, this.theme)
     this.tintBackfaces(material)
     this.mesh = new THREE.Mesh(geometry, material)
     this.partGroup.add(this.mesh)
@@ -679,9 +687,7 @@ export class SceneManager {
     geometry.computeBoundsTree()
 
     const material = new THREE.MeshStandardMaterial({
-      color: NOMINAL_COLOR,
-      roughness: 0.55,
-      metalness: 0.05,
+      color: this.theme.nominal,
       side: THREE.DoubleSide,
       transparent: true,
       opacity: 0.5,
@@ -689,6 +695,7 @@ export class SceneManager {
       // behind it, which reads as missing scan data rather than as a ghost.
       depthWrite: false,
     })
+    applyFinish(material, this.theme)
     this.nominalMesh = new THREE.Mesh(geometry, material)
     this.nominalMesh.visible = false
     this.nominalMesh.renderOrder = 1
