@@ -59,8 +59,10 @@ the guidance off outright, and switching it back on starts it over.
 
 Each fitted element reports its size and its **sigma** — the RMS deviation of
 the scan from the ideal geometry, i.e. how round, how cylindrical or how flat
-the scanned surface actually is. Cylinders also report the length and the arc
-of wall the fit rests on, planes the size of the measured patch.
+the scanned surface actually is — plus the **form error**, the peak-to-peak
+deviation over the used points, which is the number GD&T calls flatness,
+cylindricity, sphericity or circularity. Cylinders also report the length and
+the arc of wall the fit rests on, planes the size of the measured patch.
 
 ### Marking the surface by hand
 
@@ -146,12 +148,19 @@ choice of creation methods:
 | **Line** | through two points · a cylinder's axis · intersection of two planes |
 | **Plane** | fit to the scan · through three points · offset from a plane · midplane of two planes · typed-in normal + point |
 | **Sphere, Cylinder** | fit to the scan |
+| **Circle** | through **3 or more picked points** (three give the exact circle, more refine a best fit — a hole rim, a boss edge) · intersection of a plane with a cylinder or a sphere · typed-in diameter + normal + center |
 
-Anywhere a *point* is asked for, a sphere stands in with its center; anywhere
-an *axis* is asked for, a cylinder stands in with its axis — the standard
-metrology reduction. Constructed elements re-evaluate automatically when a
-source element is re-fitted, and deleting an element removes everything built
-on it.
+Anywhere a *point* is asked for, a sphere or a circle stands in with its
+center; anywhere an *axis* is asked for, a cylinder stands in with its axis —
+the standard metrology reduction — and a circle offers its normal in the
+dropdowns too, so a line through two circle centers or a 3-2-1 alignment off a
+bore's rim needs nothing special. Constructed elements re-evaluate
+automatically when a source element is re-fitted, and deleting an element
+removes everything built on it.
+
+The plane–cylinder intersection refuses a cylinder leaning more than 5°
+against the plane: the section is then honestly an ellipse, and this tool does
+not report an ellipse as a circle.
 
 ### Dimensions
 
@@ -648,10 +657,22 @@ squarely inside the footprint and would be reported as ten millimetres of missin
 material. **Surface must face the element** leaves it out, the same way the wall
 thickness search steps over a surface that does not face back.
 
+And when the element's own bounds are still not selective enough, the
+**measured region** can be narrowed by hand. *Measured region → Marked surface
+only* brings out the same window / brush / lasso the fits are marked with; the
+map, its statistics and the report then cover exactly the points you mark —
+one pad, one land, one sector read against the element while the rest of the
+surface stays out of the reading. The map follows the brush stroke by stroke,
+the region survives the tools being put away *and* a change of element (so the
+same patch can be read against several datums in a row), and *Everything the
+element bounds* is one switch away. The report names the region and its point
+count, so a restricted reading can never pass for a whole-face one.
+
 | Control | Unit | What it does |
 | --- | --- | --- |
 | **Measure to** | — | The element the map is measured against. Choosing one measures it — as does clicking it on the part. |
 | **Show elements on the part** | — | The candidates on the model, which is also what makes them clickable. |
+| **Measured region** | — | Everything the element bounds, or only a surface marked by hand with the selection tools. |
 | **Material side** | — | Which side of the element the material is on, detected from the scan. **Flip** inverts the whole map. |
 | **Max search distance** | mm | How far off the element a point may be and still be measured. Display only, so it can be dialled either way with the map following immediately. How far the element reaches *sideways* is set by extending it. |
 | **Surface must face the element** | ° | Leave out scan surface whose own normal points away from the element's — the far side of a wall, the back of a rib. |
@@ -664,7 +685,11 @@ Validated end-to-end against a generated 20 mm CAD cube
 (`npm run e2e:element-deviation`): two planes fitted on two of its faces, chosen
 and swapped by clicking them on the model, and the map on each reading the face as
 flat to 0.000 mm, leaving the underside out while the facing filter is on, and
-reporting it as exactly −20.000 mm with the filter off.
+reporting it as exactly −20.000 mm with the filter off. The circle element and
+the marked-region scope have their own script (`npm run e2e:circle`): a Ø 12
+coordinate circle reading back exactly, three picks previewing a circle on the
+cube's top face, and a marked window measuring only its own points — zero of
+them while nothing is marked.
 
 ## Wall thickness
 
@@ -804,7 +829,8 @@ pull request, so a red suite is visible before Cloudflare ships it.
 ## Roadmap
 
 - More fit methods: Chebyshev (min-zone), min-circumscribed, max-inscribed
-- More element types: cones, circles, slots
+- More element types: cones, slots
+- Circles fitted to a marked surface, and datum-based GD&T (position, runout)
 - Point-cloud (faceless PLY) support
 - Export the coloured scan, and section views through the deviation map
 
