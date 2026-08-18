@@ -41,10 +41,18 @@ export function computeVertexNormals(positions: Float32Array, indices: Uint32Arr
 }
 
 /**
- * Flip every normal in place when the winding decisively encloses its volume
+ * Put an inside-out mesh right, in place: flip every normal and reverse every
+ * triangle's winding when the winding decisively encloses its volume
  * inside-out. The alignment code matches surfaces by the *signed* dot of scan
  * and nominal normals, and wall thickness casts into the material along them,
  * so an STL exported with reversed winding would silently fail both.
+ *
+ * The winding must turn with the normals: the viewer draws the scan
+ * double-sided, and for double-sided materials three.js takes the lit side
+ * from gl_FrontFacing — the winding — negating the vertex normal on back
+ * faces. Corrected normals over uncorrected winding would therefore be
+ * negated right back on every visible fragment, leaving the whole part lit
+ * from behind (uniformly dark, ambient only).
  *
  * The test is the signed volume about the centroid: origin-independent for a
  * closed mesh, and anchoring at the centroid keeps an open scan's spurious
@@ -87,5 +95,10 @@ export function orientNormalsOutward(
   // below that the mesh is a sheet and its orientation is not knowable.
   if (!(bboxVol > 0) || vol6 >= -6e-3 * bboxVol) return false
   for (let v = 0; v < normals.length; v++) normals[v] = -normals[v]
+  for (let t = 0; t < indices.length; t += 3) {
+    const tmp = indices[t + 1]
+    indices[t + 1] = indices[t + 2]
+    indices[t + 2] = tmp
+  }
   return true
 }
