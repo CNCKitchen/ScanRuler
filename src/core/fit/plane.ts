@@ -55,6 +55,8 @@ export interface ClippedPlaneFit {
   plane: Plane
   /** RMS of the point-to-plane distances over the used points. */
   sigma: number
+  /** Peak-to-peak distance over the used points — the patch's flatness. */
+  span: number
   used: Uint32Array
 }
 
@@ -66,7 +68,7 @@ export function fitPlaneClipped(
   k: number,
 ): ClippedPlaneFit | null {
   const r = clippedRefit<Plane>(positions, idx, k, (used) => fitPlaneTLS(positions, used), planeResidual)
-  return r && { plane: r.model, sigma: r.sigma, used: r.used }
+  return r && { plane: r.model, sigma: r.sigma, span: r.span, used: r.used }
 }
 
 export interface RansacPlaneResult {

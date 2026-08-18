@@ -24,6 +24,10 @@ describe('Gaussian plane fit', () => {
     expect(Math.abs(planeResidual(fit.plane, ...POINT))).toBeLessThan(0.002)
     expect(fit.sigma).toBeGreaterThan(0.015)
     expect(fit.sigma).toBeLessThan(0.025)
+    // Peak-to-peak of the kept points: wider than one sigma, no wider than the
+    // full ±3-sigma clip window.
+    expect(fit.span).toBeGreaterThan(fit.sigma)
+    expect(fit.span).toBeLessThanOrEqual(6 * fit.sigma + 1e-9)
   })
 
   it('refuses a collinear point set', () => {

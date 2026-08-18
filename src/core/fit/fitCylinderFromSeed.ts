@@ -105,6 +105,7 @@ export function fitCylinderFromSeed(
       sigma: fin.sigma,
       usedPoints: fin.used.length,
       regionSize: grown.region.length,
+      formError: fin.span,
       region: grown.region,
     }
   }
@@ -153,6 +154,7 @@ export function fitCylinderOnSelection(
     sigma: fin.sigma,
     usedPoints: fin.used.length,
     regionSize: selection.length,
+    formError: fin.span,
     region: selection,
   }
 }

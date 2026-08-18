@@ -47,6 +47,7 @@ export function fitSphereFromSeed(
       sigma: fin.sigma,
       usedPoints: fin.used.length,
       regionSize: grown.region.length,
+      formError: fin.span,
       region: grown.region,
     }
   }
@@ -75,6 +76,7 @@ export function fitSphereOnSelection(
     sigma: fin.sigma,
     usedPoints: fin.used.length,
     regionSize: selection.length,
+    formError: fin.span,
     region: selection,
   }
 }

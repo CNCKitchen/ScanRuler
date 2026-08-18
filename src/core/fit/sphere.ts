@@ -118,6 +118,8 @@ export interface ClippedFit {
   sphere: Sphere
   /** RMS of radial residuals over the used points. */
   sigma: number
+  /** Peak-to-peak radial residual — the surface's sphericity. */
+  span: number
   used: Uint32Array
 }
 
@@ -143,5 +145,5 @@ export function fitSphereClipped(
       return Math.sqrt(dx * dx + dy * dy + dz * dz) - s.r
     },
   )
-  return r && { sphere: r.model, sigma: r.sigma, used: r.used }
+  return r && { sphere: r.model, sigma: r.sigma, span: r.span, used: r.used }
 }

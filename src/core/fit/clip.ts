@@ -4,6 +4,9 @@ export interface ClippedRefit<M> {
   model: M
   /** RMS of the residuals over the used points. */
   sigma: number
+  /** Peak-to-peak residual over the used points — the GD&T form deviation
+   *  (flatness, cylindricity, sphericity) of the surface the fit kept. */
+  span: number
   used: Uint32Array
 }
 
@@ -30,6 +33,8 @@ export function clippedRefit<M>(
 
     let sumSq = 0
     let m = 0
+    let lo = Infinity
+    let hi = -Infinity
     const res = new Float64Array(used.length)
     for (let i = 0; i < used.length; i++) {
       const j = used[i] * 3
@@ -37,11 +42,13 @@ export function clippedRefit<M>(
       res[i] = e
       if (!Number.isFinite(e)) continue
       sumSq += e * e
+      if (e < lo) lo = e
+      if (e > hi) hi = e
       m++
     }
     if (m === 0) return result
     const sigma = Math.sqrt(sumSq / m)
-    result = { model, sigma, used }
+    result = { model, sigma, span: hi - lo, used }
 
     if (k <= 0 || sigma < 1e-9) return result
     const thr = k * sigma

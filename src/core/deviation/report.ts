@@ -88,6 +88,9 @@ export function buildElementReport(
     'Measured in scan coordinates — the element was fitted on this scan, so',
     'there is no alignment between the two and none has been applied.',
     `  form deviation of the element itself   ${target.sigma.toFixed(4)} mm sigma`,
+    ...(target.formError !== undefined
+      ? [`  form error (peak-to-peak)               ${target.formError.toFixed(4)} mm`]
+      : []),
     `  measured on                            ${target.usedPoints} of ${target.regionSize} points`,
     `  material side                          ${side === 1 ? "the element's outward side" : 'the inner side — a bore or a shell'}`,
     '',

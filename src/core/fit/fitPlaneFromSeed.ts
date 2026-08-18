@@ -168,6 +168,7 @@ export function fitPlaneFromSeed(
       sigma: fin.sigma,
       usedPoints: fin.used.length,
       regionSize: grown.region.length,
+      formError: fin.span,
       region: grown.region,
     }
   }
@@ -208,6 +209,7 @@ export function fitPlaneOnSelection(
     sigma: fin.sigma,
     usedPoints: fin.used.length,
     regionSize: selection.length,
+    formError: fin.span,
     region: selection,
   }
 }

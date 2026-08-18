@@ -256,6 +256,8 @@ export interface ClippedCylinderFit {
   cylinder: Cylinder
   /** RMS of the radial residuals over the used points. */
   sigma: number
+  /** Peak-to-peak radial residual — the surface's cylindricity. */
+  span: number
   used: Uint32Array
 }
 
@@ -283,7 +285,7 @@ export function fitCylinderClipped(
     },
     cylinderResidual,
   )
-  return r && { cylinder: r.model, sigma: r.sigma, used: r.used }
+  return r && { cylinder: r.model, sigma: r.sigma, span: r.span, used: r.used }
 }
 
 export interface RansacCylinderResult {
