@@ -163,6 +163,62 @@ describe('computeDatumAlignment', () => {
     expect(Math.abs(movedOrigin.center[0])).toBeLessThan(1e-9)
   })
 
+  it('orients the picked plane the way the scanned surface faces', () => {
+    const picks: Vec3[] = [[0, 0, 4], [10, 0, 5], [0, 10, 4.5]]
+    // Whatever the click order produced, the reported normal agrees with the
+    // surface normals at the picks — here all pointing broadly down.
+    const down: Vec3[] = [[0.1, 0, -1], [0, 0.1, -1], [0, 0, -1]]
+    for (const order of [picks, [picks[2], picks[1], picks[0]]]) {
+      const fit = fitFromAlignPicks('primary', order, 100, down)!
+      expect(fit.kind === 'plane' && fit.normal[2]).toBeLessThan(0)
+    }
+    // …and with normals pointing up, it flips with them.
+    const up = fitFromAlignPicks('primary', picks, 100, [[0, 0, 1], [0, 0, 1], [0, 0, 1]])!
+    expect(up.kind === 'plane' && up.normal[2]).toBeGreaterThan(0)
+  })
+
+  it('centres the open coordinates on centerOf, without touching the constrained ones', () => {
+    const p = planeFit([12, -3, 7], TILTED)
+    const center: Vec3 = [10, 20, 30]
+    const m = computeDatumAlignment({ fit: p, axis: 'z+' }, null, null, center)
+    const movedPlane = transformFit(p, m) as PlaneFit
+    const movedCenter = transformFit(pointFit(center), m) as PointFit
+    // The plane still owns Z and lands at 0; the part centre lands on the
+    // origin in the two coordinates the datum left open.
+    expect(movedPlane.center[2]).toBeCloseTo(0, 9)
+    expect(movedCenter.center[0]).toBeCloseTo(0, 9)
+    expect(movedCenter.center[1]).toBeCloseTo(0, 9)
+  })
+
+  it('an origin point given, centerOf has nothing left to centre', () => {
+    const p = planeFit([0, 0, 10], TILTED)
+    const o = pointFit([25, -8, 11])
+    const withCenter = computeDatumAlignment({ fit: p, axis: 'z+' }, null, o, [1, 2, 3])
+    const moved = transformFit(o, withCenter) as PointFit
+    expect(moved.center[0]).toBeCloseTo(0, 9)
+    expect(moved.center[1]).toBeCloseTo(0, 9)
+  })
+
+  it('a zero point alone previews as a plain move onto the origin', () => {
+    const draft: AlignDraft = {
+      primary: null,
+      primaryPicks: [],
+      primaryPickNormals: [],
+      primaryAxis: 'z-',
+      secondary: null,
+      secondaryPicks: [],
+      secondaryAxis: 'x+',
+      origin: null,
+      originPicks: [[7, -3, 2]],
+      pickSlot: null,
+    }
+    const shown = alignmentPreview(draft, [], 100)
+    expect(shown.error).toBeNull()
+    expect(shown.preview!.rotationDeg).toBeCloseTo(0, 12)
+    const moved = transformFit(pointFit([7, -3, 2]), shown.preview!.rigid)
+    expect(Math.hypot(...moved.center)).toBeLessThan(1e-12)
+  })
+
   it('picked points return null while incomplete and reject degenerate sets', () => {
     expect(fitFromAlignPicks('primary', [[0, 0, 0], [1, 0, 0]], 100)).toBeNull()
     expect(fitFromAlignPicks('origin', [], 100)).toBeNull()
@@ -201,6 +257,7 @@ describe('computeDatumAlignment', () => {
     const draft: AlignDraft = {
       primary: null,
       primaryPicks: [[0, 0, 4], [10, 0, 5], [0, 10, 4.5]],
+      primaryPickNormals: [],
       primaryAxis: 'z+',
       secondary: null,
       secondaryPicks: [],
@@ -231,6 +288,7 @@ describe('computeDatumAlignment', () => {
     const empty: AlignDraft = {
       primary: null,
       primaryPicks: [[0, 0, 0], [1, 0, 0]],
+      primaryPickNormals: [],
       primaryAxis: 'z+',
       secondary: null,
       secondaryPicks: [],

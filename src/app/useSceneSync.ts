@@ -9,6 +9,7 @@ import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
 import { evaluateDimensions } from '../core/dimensions'
 import {
+  alignCenterOf,
   alignmentPreview,
   draftColorOf,
   useStore,
@@ -299,10 +300,13 @@ export function useSceneSync({
   // enough to follow the controls, and picking still reports scan coordinates
   // underneath it. Applying (or cancelling) lifts it again.
   const modelSize = useStore((s) => s.modelSize)
+  const centerOf = useStore(alignCenterOf)
   useEffect(() => {
-    const rigid = alignDraft ? alignmentPreview(alignDraft, elements, modelSize).preview : null
+    const rigid = alignDraft
+      ? alignmentPreview(alignDraft, elements, modelSize, centerOf).preview
+      : null
     sceneRef.current?.setAlignPreview(rigid ? rigidToColumnMajor(rigid.rigid) : null)
-  }, [alignDraft, elements, modelSize])
+  }, [alignDraft, elements, modelSize, centerOf])
 
   // A viewport click selects elements whenever a dimension is being assembled
   // or a construction has reference slots — but never while clicks are picking

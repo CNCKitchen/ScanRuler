@@ -30,10 +30,11 @@ import {
   describeRigid,
   fitFromAlignPicks,
   transformFit,
+  translationToOrigin,
   type AlignSlot,
   type AxisDir,
 } from '../core/alignment'
-import { rigidCompose, type Rigid } from '../core/deviation/rigid'
+import { rigidApply, rigidCompose, type Rigid } from '../core/deviation/rigid'
 import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
@@ -120,6 +121,9 @@ export type SelectMode = 'auto' | 'paint'
 export interface AlignDraft {
   primary: number | null
   primaryPicks: Vec3[]
+  /** Surface normal at each primary pick, so the levelling plane knows which
+   *  side of it is outside the part — see fitFromAlignPicks. */
+  primaryPickNormals: Vec3[]
   primaryAxis: AxisDir
   secondary: number | null
   secondaryPicks: Vec3[]
@@ -134,6 +138,17 @@ export type { AlignSlot }
 
 export function alignSlotPicks(ad: AlignDraft, slot: AlignSlot): Vec3[] {
   return slot === 'primary' ? ad.primaryPicks : slot === 'secondary' ? ad.secondaryPicks : ad.originPicks
+}
+
+/** The point a datum alignment centres on the origin, or null for none: only
+ *  the *first* alignment centres, because a part fresh from the scanner sits
+ *  at an arbitrary offset nobody wants to keep — while a part that has already
+ *  been aligned or moved is exactly where its user put it. */
+export function alignCenterOf(s: {
+  appliedAlignment: Rigid | null
+  modelCenter: Vec3
+}): Vec3 | null {
+  return s.appliedAlignment === null ? s.modelCenter : null
 }
 
 /** What an alignment draft would do to the part right now: the transform and
@@ -151,20 +166,34 @@ export function alignmentPreview(
   ad: AlignDraft,
   elements: Element[],
   modelSize: number,
+  centerOf: Vec3 | null = null,
 ): { preview: AlignPreview | null; error: string | null } {
   const slotFit = (slot: AlignSlot, ref: number | null): FitData | null => {
     if (ref !== null) return elements.find((e) => e.id === ref)?.fit ?? null
-    return fitFromAlignPicks(slot, alignSlotPicks(ad, slot), modelSize)
+    return fitFromAlignPicks(
+      slot,
+      alignSlotPicks(ad, slot),
+      modelSize,
+      slot === 'primary' ? ad.primaryPickNormals : undefined,
+    )
   }
   try {
     const primary = slotFit('primary', ad.primary)
-    if (!primary) return { preview: null, error: null }
+    if (!primary) {
+      // A zero point on its own is a valid alignment: the part keeps its
+      // orientation and that point becomes 0, 0, 0.
+      const origin = slotFit('origin', ad.origin)
+      if (!origin) return { preview: null, error: null }
+      const rigid = translationToOrigin(origin.center)
+      return { preview: { rigid, ...describeRigid(rigid) }, error: null }
+    }
     const secondary = slotFit('secondary', ad.secondary)
     const origin = slotFit('origin', ad.origin)
     const rigid = computeDatumAlignment(
       { fit: primary, axis: ad.primaryAxis },
       secondary ? { fit: secondary, axis: ad.secondaryAxis } : null,
       origin,
+      centerOf,
     )
     return { preview: { rigid, ...describeRigid(rigid) }, error: null }
   } catch (e) {
@@ -179,13 +208,20 @@ export function alignmentPreview(
  *  two ways of filling a slot are exclusive. */
 function withSlotRef(ad: AlignDraft, slot: AlignSlot, id: number | null): AlignDraft {
   const base = { ...ad, pickSlot: ad.pickSlot === slot ? null : ad.pickSlot }
-  if (slot === 'primary') return { ...base, primary: id, primaryPicks: [] }
+  if (slot === 'primary')
+    return { ...base, primary: id, primaryPicks: [], primaryPickNormals: [] }
   if (slot === 'secondary') return { ...base, secondary: id, secondaryPicks: [] }
   return { ...base, origin: id, originPicks: [] }
 }
 
-function withSlotPicks(ad: AlignDraft, slot: AlignSlot, picks: Vec3[]): AlignDraft {
-  if (slot === 'primary') return { ...ad, primary: null, primaryPicks: picks }
+function withSlotPicks(
+  ad: AlignDraft,
+  slot: AlignSlot,
+  picks: Vec3[],
+  normals: Vec3[] = [],
+): AlignDraft {
+  if (slot === 'primary')
+    return { ...ad, primary: null, primaryPicks: picks, primaryPickNormals: normals }
   if (slot === 'secondary') return { ...ad, secondary: null, secondaryPicks: picks }
   return { ...ad, origin: null, originPicks: picks }
 }
@@ -403,6 +439,9 @@ interface AppState {
   /** Half the scan's bounding-box diagonal — the scale constructed elements
    *  without an inherent size are drawn at. */
   modelSize: number
+  /** Centre of the scan's bounding box, carried through every applied
+   *  alignment — what a first alignment centres on the origin. */
+  modelCenter: Vec3
   busy: boolean
   statusText: string
   errorText: string | null
@@ -448,7 +487,12 @@ interface AppState {
   setStatus: (text: string) => void
   setError: (text: string | null) => void
   beginLoad: (name: string) => void
-  finishLoad: (vertexCount: number, triangleCount: number, modelSize: number) => void
+  finishLoad: (
+    vertexCount: number,
+    triangleCount: number,
+    modelSize: number,
+    modelCenter: Vec3,
+  ) => void
   loadFailed: (message: string) => void
   markFitting: (id: number, seeds: number[], selection?: Uint32Array) => void
   resolveFit: (id: number, r: FitOutput) => void
@@ -485,9 +529,9 @@ interface AppState {
   setAlignmentAxis: (slot: 'primary' | 'secondary', axis: AxisDir) => void
   /** Start filling a slot by clicking points on the scan. */
   beginAlignmentPick: (slot: AlignSlot) => void
-  /** A click on the scan while a slot is collecting points. The slot closes
-   *  itself once it has enough. */
-  addAlignmentPick: (point: Vec3) => void
+  /** A click on the scan while a slot is collecting points, with the surface
+   *  normal under it. The slot closes itself once it has enough. */
+  addAlignmentPick: (point: Vec3, normal: Vec3) => void
   undoAlignmentPick: () => void
   cancelAlignmentPick: () => void
   /** A click on an element in the viewport while the alignment is being set
@@ -568,6 +612,7 @@ export const useStore = create<AppState>()((set, get) => ({
   vertexCount: 0,
   triangleCount: 0,
   modelSize: 1,
+  modelCenter: [0, 0, 0],
   busy: false,
   statusText: '',
   errorText: null,
@@ -615,8 +660,8 @@ export const useStore = create<AppState>()((set, get) => ({
 
   // The brush is sized to the part it will be used on — see markStore, which
   // holds it for both workspaces.
-  finishLoad: (vertexCount, triangleCount, modelSize) =>
-    set({ busy: false, vertexCount, triangleCount, modelSize }),
+  finishLoad: (vertexCount, triangleCount, modelSize, modelCenter) =>
+    set({ busy: false, vertexCount, triangleCount, modelSize, modelCenter }),
 
   loadFailed: (message) =>
     set({ busy: false, fileName: null, statusText: '', errorText: message }),
@@ -905,7 +950,10 @@ export const useStore = create<AppState>()((set, get) => ({
       alignDraft: {
         primary: null,
         primaryPicks: [],
-        primaryAxis: 'z+',
+        primaryPickNormals: [],
+        // The face the part stands on is the one beginners are told to pick,
+        // so "bottom" — outward normal down — is the default reading of it.
+        primaryAxis: 'z-',
         secondary: null,
         secondaryPicks: [],
         secondaryAxis: 'x+',
@@ -930,14 +978,17 @@ export const useStore = create<AppState>()((set, get) => ({
         : {},
     ),
 
-  addAlignmentPick: (point) =>
+  addAlignmentPick: (point, normal) =>
     set((s) => {
       const ad = s.alignDraft
       if (!ad || ad.pickSlot === null) return {}
       const slot = ad.pickSlot
       const picks = [...alignSlotPicks(ad, slot), point]
+      const normals = slot === 'primary' ? [...ad.primaryPickNormals, normal] : []
       const full = picks.length >= ALIGN_PICK_COUNT[slot]
-      return { alignDraft: { ...withSlotPicks(ad, slot, picks), pickSlot: full ? null : slot } }
+      return {
+        alignDraft: { ...withSlotPicks(ad, slot, picks, normals), pickSlot: full ? null : slot },
+      }
     }),
 
   undoAlignmentPick: () =>
@@ -948,7 +999,12 @@ export const useStore = create<AppState>()((set, get) => ({
       if (picks.length === 0) return {}
       return {
         alignDraft: {
-          ...withSlotPicks(ad, ad.pickSlot, picks.slice(0, -1)),
+          ...withSlotPicks(
+            ad,
+            ad.pickSlot,
+            picks.slice(0, -1),
+            ad.pickSlot === 'primary' ? ad.primaryPickNormals.slice(0, -1) : [],
+          ),
           pickSlot: ad.pickSlot,
         },
       }
@@ -995,18 +1051,23 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
 
   applyAlignment: (m) =>
-    set((s) => ({
-      alignDraft: null,
-      appliedAlignment: s.appliedAlignment ? rigidCompose(m, s.appliedAlignment) : m,
-      elements: reevaluateConstructions(
-        s.elements.map((el) => ({
-          ...el,
-          source: transformSource(el.source, m),
-          fit: el.fit ? transformFit(el.fit, m) : el.fit,
-        })),
-        s.modelSize,
-      ),
-    })),
+    set((s) => {
+      const moved = new Float64Array(3)
+      rigidApply(m, s.modelCenter[0], s.modelCenter[1], s.modelCenter[2], moved)
+      return {
+        alignDraft: null,
+        appliedAlignment: s.appliedAlignment ? rigidCompose(m, s.appliedAlignment) : m,
+        modelCenter: [moved[0], moved[1], moved[2]] as Vec3,
+        elements: reevaluateConstructions(
+          s.elements.map((el) => ({
+            ...el,
+            source: transformSource(el.source, m),
+            fit: el.fit ? transformFit(el.fit, m) : el.fit,
+          })),
+          s.modelSize,
+        ),
+      }
+    }),
 
   clearAppliedAlignment: () => set({ appliedAlignment: null }),
 

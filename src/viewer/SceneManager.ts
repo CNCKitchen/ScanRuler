@@ -73,6 +73,10 @@ export interface PickHit {
   vertices: [number, number, number]
   weights: [number, number, number]
   point: Vec3
+  /** Which way the scanned surface faces at the hit (unit vector, scan
+   *  coordinates) — what tells an alignment which side of a picked face is
+   *  outside. */
+  normal: Vec3
   /** Cursor position that produced the hit, so a readout can follow it. */
   clientX: number
   clientY: number
@@ -475,10 +479,24 @@ export class SceneManager {
     // hover readout is on.
     this.partGroup.updateWorldMatrix(true, false)
     const local = this.partGroup.worldToLocal(this.scratchD.copy(hit.point))
+    const weights = this.barycentric(vertices, local)
+    // The surface direction at the hit, interpolated the same way the fields
+    // are read. The normal attribute lives in scan coordinates, like the point
+    // handed back. Scratch registers are free again after barycentric().
+    const normalAttr = (this.mesh.geometry as THREE.BufferGeometry).getAttribute(
+      'normal',
+    ) as THREE.BufferAttribute
+    const n = this.scratchA.set(0, 0, 0)
+    for (let i = 0; i < 3; i++) {
+      n.addScaledVector(this.scratchB.fromBufferAttribute(normalAttr, vertices[i]), weights[i])
+    }
+    if (n.lengthSq() < 1e-12) n.set(0, 0, 1)
+    n.normalize()
     return {
       vertices,
-      weights: this.barycentric(vertices, local),
+      weights,
       point: [local.x, local.y, local.z],
+      normal: [n.x, n.y, n.z],
       clientX,
       clientY,
     }
@@ -667,6 +685,15 @@ export class SceneManager {
    *  (coordinate planes, picked points) are drawn at. */
   modelSize(): number {
     return this.modelRadius
+  }
+
+  /** Centre of the scan's bounding box, in scan coordinates — the point a
+   *  first alignment centres on the origin. */
+  modelCenter(): Vec3 {
+    const box = (this.mesh?.geometry as THREE.BufferGeometry | undefined)?.boundingBox
+    if (!box) return [0, 0, 0]
+    const c = box.getCenter(this.scratchA)
+    return [c.x, c.y, c.z]
   }
 
   nominalGeometry(): THREE.BufferGeometry | null {

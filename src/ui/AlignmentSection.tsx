@@ -13,7 +13,13 @@ import {
 } from '../core/alignment'
 import type { Rigid } from '../core/deviation/rigid'
 import type { RefRole } from '../core/elements/refs'
-import { alignmentPreview, alignSlotPicks, useStore, type Element } from '../state/store'
+import {
+  alignCenterOf,
+  alignmentPreview,
+  alignSlotPicks,
+  useStore,
+  type Element,
+} from '../state/store'
 import { InfoDot } from './InfoDot'
 import { providersFor } from './RefSelect'
 
@@ -131,12 +137,13 @@ export function AlignmentSection({
   // computed yet — the same reading the viewport is previewing the part with.
   // Memoised for the same reason as the dimensions: it is a whole datum
   // alignment, recomputed only when one of its inputs actually moves.
+  const centerOf = useStore(alignCenterOf)
   const { preview: alignReady, error: alignError } = useMemo(
     () =>
       alignDraft
-        ? alignmentPreview(alignDraft, elements, modelSize)
+        ? alignmentPreview(alignDraft, elements, modelSize, centerOf)
         : { preview: null, error: null },
-    [alignDraft, elements, modelSize],
+    [alignDraft, elements, modelSize, centerOf],
   )
 
   return (

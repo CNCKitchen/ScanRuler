@@ -40,7 +40,7 @@ const elementById = (id: number) => store().elements.find((e) => e.id === id)!
 
 beforeEach(() => {
   store().beginLoad('test.stl')
-  store().finishLoad(0, 0, 100)
+  store().finishLoad(0, 0, 100, [0, 0, 0])
 })
 
 describe('editing an element', () => {

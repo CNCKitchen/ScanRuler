@@ -141,7 +141,12 @@ export default function App() {
       sceneRef.current?.setMesh(mesh.positions, mesh.indices, mesh.normals)
       useStore
         .getState()
-        .finishLoad(mesh.vertexCount, mesh.triangleCount, sceneRef.current?.modelSize() ?? 1)
+        .finishLoad(
+          mesh.vertexCount,
+          mesh.triangleCount,
+          sceneRef.current?.modelSize() ?? 1,
+          sceneRef.current?.modelCenter() ?? [0, 0, 0],
+        )
       // The brush is sized to the part it will be used on, in both workspaces.
       useMark.getState().sizeToModel(sceneRef.current?.modelSize() ?? 1)
       // How thick a wall to look for is a property of the part, so the search
@@ -417,7 +422,7 @@ export default function App() {
     if (!store.fileName || store.busy) return
     // A slot of the alignment editor collecting points takes the raw click.
     if (store.alignDraft?.pickSlot) {
-      store.addAlignmentPick(hit.point)
+      store.addAlignmentPick(hit.point, hit.normal)
       return
     }
     if (!store.draft) {

@@ -191,7 +191,7 @@ describe('an extension in the store', () => {
 
   beforeEach(() => {
     store().beginLoad('test.stl')
-    store().finishLoad(0, 0, 100)
+    store().finishLoad(0, 0, 100, [0, 0, 0])
   })
 
   /** A fitted cylinder, the way a click on the scan makes one. */

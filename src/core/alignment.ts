@@ -5,7 +5,7 @@
 // secondary datum clocks the remaining rotation, and an origin point (or the
 // datums themselves) fixes the translation.
 
-import type { FitData, Vec3 } from './types'
+import type { FitData, PlaneFit, Vec3 } from './types'
 import {
   identityRigid,
   reorthonormalize,
@@ -37,11 +37,18 @@ export const ALIGN_PICK_COUNT: Record<AlignSlot, number> = {
 
 /** The stand-in geometry for a slot filled by picking on the scan: a plane
  *  through three points, a line through two, the point itself. Null while the
- *  picks are still incomplete. */
+ *  picks are still incomplete.
+ *
+ *  The three-point plane's normal sign would otherwise depend on the order the
+ *  points were clicked in — so when the surface normals at the picks come
+ *  along (`towards`), the plane is turned to face the way the scanned surface
+ *  does. That is what lets the UI talk about the picked face becoming the
+ *  bottom or the top of the part and be right every time. */
 export function fitFromAlignPicks(
   slot: AlignSlot,
   picks: Vec3[],
   modelSize: number,
+  towards?: Vec3[],
 ): FitData | null {
   if (picks.length < ALIGN_PICK_COUNT[slot]) return null
   const pts: FitData[] = picks.map((center) => ({
@@ -52,7 +59,20 @@ export function fitFromAlignPicks(
     regionSize: 0,
   }))
   try {
-    if (slot === 'primary') return evaluateConstruction('plane-three-points', pts, [], modelSize)
+    if (slot === 'primary') {
+      const plane = evaluateConstruction('plane-three-points', pts, [], modelSize) as PlaneFit
+      const out: Vec3 = (towards ?? []).reduce<Vec3>(
+        (acc, n) => [acc[0] + n[0], acc[1] + n[1], acc[2] + n[2]],
+        [0, 0, 0],
+      )
+      if (dot(plane.normal, out) >= 0) return plane
+      // Flip the normal and one basis vector together, so U × V stays N.
+      return {
+        ...plane,
+        normal: [-plane.normal[0], -plane.normal[1], -plane.normal[2]],
+        basisV: [-plane.basisV[0], -plane.basisV[1], -plane.basisV[2]],
+      }
+    }
     if (slot === 'secondary') return evaluateConstruction('line-two-points', pts, [], modelSize)
     return pts[0]
   } catch (e) {
@@ -115,13 +135,18 @@ const MIN_CLOCK_ANGLE = 0.2
  *   coordinates the primary left open the same way.
  * - The origin point sets the zero of every coordinate the datums left open.
  *
- * Anything still unconstrained keeps its position: the rotation pivots about
- * the primary datum's centre so the part does not fly off screen.
+ * With `centerOf` given (the part's bounding-box centre), any coordinate still
+ * open after that is moved so the part ends up centred on it — a part fresh
+ * from the scanner lands on the coordinate planes instead of keeping an
+ * arbitrary offset. Without it, anything unconstrained keeps its position:
+ * the rotation pivots about the primary datum's centre so the part does not
+ * fly off screen.
  */
 export function computeDatumAlignment(
   primary: DatumSpec,
   secondary: DatumSpec | null,
   origin: FitData | null,
+  centerOf?: Vec3 | null,
 ): Rigid {
   const d1raw = datumDirection(primary.fit)
   if (!d1raw)
@@ -199,8 +224,17 @@ export function computeDatumAlignment(
   zeroAt(c1, datumCoords(primary))
   if (secondary) zeroAt(secondary.fit.center, datumCoords(secondary))
   if (origin) zeroAt(origin.center, [0, 1, 2])
+  if (centerOf) zeroAt(centerOf, [0, 1, 2])
 
   return rigid
+}
+
+/** The translation that puts the given point at 0, 0, 0 — an alignment made of
+ *  nothing but a zero point, for the user who only wants to say where zero is. */
+export function translationToOrigin(point: Vec3): Rigid {
+  const m = identityRigid()
+  m.t.set([-point[0], -point[1], -point[2]])
+  return m
 }
 
 function setRotationAxisAngle(m: Rigid, axis: Vec3, angle: number): void {
