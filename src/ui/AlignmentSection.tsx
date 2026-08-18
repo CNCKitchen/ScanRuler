@@ -5,8 +5,6 @@
 import { useMemo, useState } from 'react'
 import {
   ALIGN_PICK_COUNT,
-  AXIS_DIRS,
-  axisDirLabel,
   axisIndex,
   manualRigid,
   type AxisDir,
@@ -22,6 +20,41 @@ import {
 } from '../state/store'
 import { InfoDot } from './InfoDot'
 import { providersFor } from './RefSelect'
+
+/** What the levelled direction becomes, said the way a person holds a part:
+ *  which side of it the picked face is. The face's outward direction maps onto
+ *  the signed axis — a bottom face faces down, so it lands on the floor plane.
+ *  Ordered by how often each is what the user means. */
+const FACE_CHOICES: { axis: AxisDir; label: string }[] = [
+  { axis: 'z-', label: 'Bottom — points down (−Z)' },
+  { axis: 'z+', label: 'Top — points up (+Z)' },
+  { axis: 'y-', label: 'Front — points at you (−Y)' },
+  { axis: 'y+', label: 'Back — points away (+Y)' },
+  { axis: 'x+', label: 'Right — points right (+X)' },
+  { axis: 'x-', label: 'Left — points left (−X)' },
+]
+
+/** Which way the step-2 edge runs, in the same on-screen words. The stage's
+ *  origin arrows show the same directions in the viewport. */
+const EDGE_CHOICES: { axis: AxisDir; label: string }[] = [
+  { axis: 'x+', label: '+X — to the right' },
+  { axis: 'x-', label: '−X — to the left' },
+  { axis: 'y+', label: '+Y — away from you' },
+  { axis: 'y-', label: '−Y — toward you' },
+  { axis: 'z+', label: '+Z — up' },
+  { axis: 'z-', label: '−Z — down' },
+]
+
+/** Numbered heading of one alignment step. */
+function StepHead({ n, text, optional }: { n: number; text: string; optional?: boolean }) {
+  return (
+    <div className="stephead">
+      <span className="stepno">{n}</span>
+      {text}
+      {optional && <span className="step-opt">optional</span>}
+    </div>
+  )
+}
 
 /** The six inputs of the manual move / rotate box, in the order the values
  *  are stored. */
@@ -157,9 +190,10 @@ export function AlignmentSection({
             against an axis mean nothing.
           </p>
           <p>
-            <b>Align part (3-2-1)</b> builds the frame the way a drawing does: one datum levels
-            the part, a second stops it spinning, a third sets the origin. Each can be a measured
-            element or points clicked straight on the scan.
+            <b>Align part</b> places it in up to three steps — set a face on a coordinate plane,
+            run an edge along an axis, put the zero point on a corner. Each step takes a measured
+            element or points clicked straight on the scan, and the viewport previews every choice
+            against the coordinate planes before anything is applied.
           </p>
           <p>
             <b>Move / rotate by numbers</b> applies a transform you already know instead. Both are
@@ -232,7 +266,7 @@ export function AlignmentSection({
             disabled={!fileName || busy}
             onClick={onStartAlignment}
           >
-            Align part (3-2-1)
+            Align part
           </button>
           <button
             className="block"
@@ -257,24 +291,35 @@ export function AlignmentSection({
         <div className="draftbox">
           <div className="sec-head">
             Align part
-            <InfoDot title="3-2-1 alignment">
+            <InfoDot title="Align part">
               <p>
-                <b>Level with</b> sets the first direction: a flat face, a cylinder axis, or 3
-                points picked on the scan. <i>Points along</i> says which axis that direction
-                becomes.
+                Three steps, and only the first is required. The coordinate planes in the viewport
+                are where the part is going; it moves live with every choice, and nothing is
+                applied until <b>Align part</b> is pressed.
               </p>
               <p>
-                <b>Rotate with</b> is optional and adds a second direction, so the part cannot
-                spin about the first. <b>Zero point</b> is optional too and becomes 0, 0, 0.
+                <b>1 · Set on a plane</b> — pick 3 points on one face of the part (or use a
+                measured plane or cylinder). Then say which side of the part that face is: the
+                bottom lands on the floor plane, a front lands on the front plane, and so on.
               </p>
               <p>
-                Whatever levels or rotates also sets its own zero along that axis — a levelling
-                face ends up at height 0 — so the origin slot only has to supply what is left.
+                <b>2 · Align with an axis</b> — pick 2 points along an edge (or use an element)
+                and say which way that edge should run, so the part cannot spin on the plane. The
+                edge runs from your 1st point to your 2nd.
+              </p>
+              <p>
+                <b>3 · Move to zero point</b> — pick the corner or feature that becomes X0 Y0 Z0.
+                A zero point on its own works too, if all you want is to move the origin.
+              </p>
+              <p>
+                Whatever a step already fixes it also zeroes — a face set on the floor sits at
+                height 0 — and the first alignment centres the part on whatever is still free.
               </p>
             </InfoDot>
           </div>
+          <StepHead n={1} text="Set on a plane" />
           <AlignSelect
-            label="Level with"
+            label="Face"
             roles={['plane', 'axis']}
             value={alignDraft.primary}
             picks={alignDraft.primaryPicks.length}
@@ -286,21 +331,22 @@ export function AlignmentSection({
             onPick={() => beginAlignmentPick('primary')}
           />
           <label className="field">
-            <span>Points along</span>
+            <span>It is the part’s</span>
             <select
               data-test="align-primary-axis"
               value={alignDraft.primaryAxis}
               onChange={(e) => setAlignmentAxis('primary', e.target.value as AxisDir)}
             >
-              {AXIS_DIRS.map((a) => (
-                <option key={a} value={a}>
-                  {axisDirLabel(a)}
+              {FACE_CHOICES.map((c) => (
+                <option key={c.axis} value={c.axis}>
+                  {c.label}
                 </option>
               ))}
             </select>
           </label>
+          <StepHead n={2} text="Align with an axis" optional />
           <AlignSelect
-            label="Rotate with"
+            label="Edge"
             roles={['plane', 'axis']}
             value={alignDraft.secondary}
             picks={alignDraft.secondaryPicks.length}
@@ -313,22 +359,23 @@ export function AlignmentSection({
           />
           {(alignDraft.secondary !== null || alignDraft.secondaryPicks.length > 0) && (
             <label className="field">
-              <span>Points along</span>
+              <span>It runs</span>
               <select
                 data-test="align-secondary-axis"
                 value={alignDraft.secondaryAxis}
                 onChange={(e) => setAlignmentAxis('secondary', e.target.value as AxisDir)}
               >
-                {AXIS_DIRS.filter((a) => axisIndex(a) !== axisIndex(alignDraft.primaryAxis)).map(
-                  (a) => (
-                    <option key={a} value={a}>
-                      {axisDirLabel(a)}
-                    </option>
-                  ),
-                )}
+                {EDGE_CHOICES.filter(
+                  (c) => axisIndex(c.axis) !== axisIndex(alignDraft.primaryAxis),
+                ).map((c) => (
+                  <option key={c.axis} value={c.axis}>
+                    {c.label}
+                  </option>
+                ))}
               </select>
             </label>
           )}
+          <StepHead n={3} text="Move to zero point" optional />
           <AlignSelect
             label="Zero point"
             roles={['point']}
@@ -365,7 +412,7 @@ export function AlignmentSection({
                     color: 'var(--dim)',
                   }}
                 >
-                  Choose what levels the part
+                  Pick the face the part stands on
                 </b>
               )}
             </div>

@@ -950,6 +950,39 @@ button.x:disabled {
   padding-bottom: 0;
 }
 
+/* Numbered step headings of the alignment editor: set on a plane, align with
+   an axis, move to zero point. */
+.stephead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 3px;
+}
+
+.stephead .stepno {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: #fff;
+  background: var(--accent);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.stephead .step-opt {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--dim);
+}
+
 .draftbox .dro {
   background: var(--panel);
 }

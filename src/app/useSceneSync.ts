@@ -274,12 +274,12 @@ export function useSceneSync({
         : [
             ...alignDraft.primaryPicks.map((p, i) => ({
               point: p,
-              label: `Point ${i + 1}`,
+              label: `Plane ${i + 1}`,
               color: '#1877c0',
             })),
             ...alignDraft.secondaryPicks.map((p, i) => ({
               point: p,
-              label: `Rotate ${i + 1}`,
+              label: `Axis ${i + 1}`,
               color: '#e8590c',
             })),
             ...alignDraft.originPicks.map((p) => ({

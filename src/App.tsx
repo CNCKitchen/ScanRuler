@@ -286,7 +286,9 @@ export default function App() {
     useStore.getState().startAlignment()
     useStore
       .getState()
-      .setStatus('Level the part first — use a measured element or pick points on the scan.')
+      .setStatus(
+        'Step 1 — pick 3 points on the face the part stands on, or choose a measured element.',
+      )
   }
 
   const handleApplyAlignment = async (m: Rigid) => {
@@ -752,15 +754,15 @@ export default function App() {
         const have = alignSlotPicks(alignDraft, alignDraft.pickSlot).length
         const what =
           alignDraft.pickSlot === 'primary'
-            ? 'for levelling'
+            ? 'on the face to set on a plane'
             : alignDraft.pickSlot === 'secondary'
-              ? 'for the rotation'
-              : 'as the zero point'
+              ? 'along the edge to align with the axis'
+              : 'for the zero point'
         return `Click the scan — point ${have + 1} of ${need} ${what} · Esc to stop picking`
       }
       return alignDraft.primary === null && alignDraft.primaryPicks.length === 0
-        ? 'Click the element that should level the part — or pick points via the panel'
-        : 'Add a rotation direction or a zero point — then apply the alignment in the panel'
+        ? 'The coordinate planes show where the part is going — set a face on one of them via the panel'
+        : 'Add an axis (step 2) or a zero point (step 3) if you need them — then press Align part'
     }
     if (draft && draftMode === 'construct') {
       const method = creationMethod(draft.kind, draft.method)
