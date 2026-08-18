@@ -122,31 +122,58 @@ await awaitStatus('Alignment reset', 'alignment reset')
 await sleep(300)
 
 // Second pass, mix and match: level with 3 points picked straight on the
-// scan, zero on the existing Sphere 1 element.
+// scan, zero on the existing Sphere 1 element. Opening the editor re-frames
+// the viewport around the datum stage and centres the part on it, so the
+// click positions recorded while fitting are stale — the balls are found
+// again through their element labels, which ride on the part.
 const primaryState = () =>
   page.$eval('[data-test="align-primary"]', (el) => el.selectedOptions[0]?.textContent ?? '')
-/** Click the scan for an alignment pick, sweeping offsets until it lands. */
+/** Screen centre of a named element's viewport label. */
+const labelCenter = (name) =>
+  page.$$eval(
+    '.viewport-label.element-label',
+    (els, n) => {
+      const el = els.find((e) => e.querySelector('.label-title')?.textContent.trim() === n)
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return [r.x + r.width / 2, r.y + r.height / 2]
+    },
+    name,
+  )
+/** Click the scan for an alignment pick, sweeping offsets until it lands.
+ *  Returns the offset that landed, so a later pick can steer clear of it. */
 async function alignPick([x, y], offsets = [[0, 0]]) {
   const before = await primaryState()
   for (const [dx, dy] of offsets) {
     await page.mouse.click(x + dx, y + dy)
     await sleep(250)
-    if ((await primaryState()) !== before) return true
+    if ((await primaryState()) !== before) return [dx, dy]
   }
-  return false
+  return null
 }
+// The label floats a little off its ball, so sweep a ring around it.
+const AROUND_BALL = [
+  [0, 0], [0, 25], [0, -25], [25, 0], [-25, 0],
+  [0, 45], [45, 0], [-45, 0], [0, -45],
+  [30, 30], [-30, 30], [30, -30], [-30, -30],
+]
 await click(page, '[data-test="start-alignment"]')
+await sleep(500)
+const ballA = await labelCenter('Sphere 1')
+const ballB = await labelCenter('Sphere 2')
+check(Boolean(ballA) && Boolean(ballB), 'both ball labels found on the re-framed stage')
 await page.select('[data-test="align-primary"]', '__pick__')
 await sleep(150)
-check(await alignPick(posA), 'pick 1 of 3 landed')
-check(await alignPick(posB), 'pick 2 of 3 landed')
+const first = await alignPick(ballA, AROUND_BALL)
+check(Boolean(first), 'pick 1 of 3 landed')
+check(Boolean(await alignPick(ballB, AROUND_BALL)), 'pick 2 of 3 landed')
 // The third point elsewhere on ball A's surface — millimetres off the first
 // pick is plenty against the 148 mm baseline, and the ball is scanned solid
-// where the thin rod may have holes.
-check(
-  await alignPick(posA, [[28, 0], [0, 28], [-28, 0], [0, -28], [20, 20], [-20, 20]]),
-  'pick 3 of 3 landed',
+// where the thin rod may have holes. Same sweep, minus where pick 1 landed.
+const elsewhere = AROUND_BALL.filter(
+  ([dx, dy]) => !first || Math.hypot(dx - first[0], dy - first[1]) > 20,
 )
+check(Boolean(await alignPick(ballA, elsewhere)), 'pick 3 of 3 landed')
 check((await primaryState()).includes('3 picked points'), `level slot filled (${await primaryState()})`)
 await selectByLabel(page, '[data-test="align-origin"]', 'Sphere 1')
 await page.waitForSelector('[data-test="apply-alignment"]:not([disabled])', { timeout: 10_000 })

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // End-to-end test for the live alignment preview: drives the real app in
-// headless Chrome — starts a 3-2-1 alignment, picks three points on the scan,
-// and checks that the part actually swings onto the chosen axis as soon as the
-// third point lands, swings again when the axis it points along is changed,
-// and holds the camera still while it does, so a slot picked with the part
-// zoomed in stays pickable.
+// headless Chrome — starts an alignment (which centres the part on the datum
+// stage), picks three points on the scan, and checks that the part actually
+// swings onto the chosen plane as soon as the third point lands, swings again
+// when the face it stands for is changed, and holds the camera still while it
+// does, so a slot picked with the part zoomed in stays pickable.
 //
-// The picked points are checked to be labelled "Point 1…3" as well: they are
+// The picked points are checked to be labelled "Plane 1…3" as well: they are
 // three clicks on one face, not three heights.
 //
 // Frames are compared by decoding both screenshots back in the page and
@@ -58,6 +58,19 @@ const idle = await diff(idleA, await shot())
 check(idle < 0.05, `an untouched viewport repaints identically (${idle.toFixed(3)}% differ)`)
 
 await page.click('[data-test="start-alignment"]')
+await sleep(500)
+// Opening the editor puts the target frame on the stage — the coordinate
+// planes and axes — and centres the part on it, which repaints most pixels.
+const staged = await diff(idleA, await shot())
+check(staged > 5, `opening the editor centres the part on the datum stage (${staged.toFixed(1)}%)`)
+const stageLabels = await page.$$eval('.stage-label .label-title', (els) =>
+  els.map((e) => e.textContent.trim()),
+)
+check(
+  ['X = 0', 'Y = 0', 'Z = 0', '+X', '+Y', '+Z'].every((t) => stageLabels.includes(t)),
+  `the coordinate planes and axes are labelled (${JSON.stringify(stageLabels)})`,
+)
+
 await page.select('[data-test="align-primary"]', '__pick__')
 await sleep(200)
 
@@ -72,38 +85,38 @@ async function alignPick(fx, fy, offsets = [[0, 0], [30, 0], [0, 30], [-30, 0], 
   return false
 }
 
-check(await alignPick(0.42, 0.42), 'pick 1 landed')
-check(await alignPick(0.6, 0.5), 'pick 2 landed')
+check(await alignPick(0.5, 0.45), 'pick 1 landed')
+check(await alignPick(0.58, 0.52), 'pick 2 landed')
 const picking = await shot('1-picking')
 // Two points cannot span a plane, so nothing may have moved yet.
 const still = await diff(picking, await shot())
 check(still < 0.05, `the part stands still while the picks are incomplete (${still.toFixed(3)}%)`)
 
-check(await alignPick(0.5, 0.62), 'pick 3 landed')
+check(await alignPick(0.5, 0.58), 'pick 3 landed')
 const labels = await pickLabels()
 check(
-  JSON.stringify(labels) === JSON.stringify(['Point 1', 'Point 2', 'Point 3']),
-  `picked points are labelled Point 1…3 (${JSON.stringify(labels)})`,
+  JSON.stringify(labels) === JSON.stringify(['Plane 1', 'Plane 2', 'Plane 3']),
+  `picked points are labelled Plane 1…3 (${JSON.stringify(labels)})`,
 )
 const levelled = await shot('2-levelled')
 const swing = await diff(picking, levelled)
-check(swing > 5, `the part swings onto the axis as the third point lands (${swing.toFixed(1)}%)`)
+check(swing > 5, `the part swings onto the plane as the third point lands (${swing.toFixed(1)}%)`)
 check(
   await page.$eval('[data-test="align-preview"]', (el) => /\d/.test(el.textContent)),
   `the panel agrees a transform is ready (${await page.$eval('[data-test="align-preview"]', (el) => el.textContent.trim())})`,
 )
 
-// The axis the levelled direction points along is a live control too.
+// Which side of the part the picked face is — a live control too.
 await page.select('[data-test="align-primary-axis"]', 'y-')
 await sleep(500)
 const reaxed = await shot('3-axis-changed')
 const turn = await diff(levelled, reaxed)
-check(turn > 5, `the part swings again when the axis it points along changes (${turn.toFixed(1)}%)`)
+check(turn > 5, `the part swings again when the face is read differently (${turn.toFixed(1)}%)`)
 
-await page.select('[data-test="align-primary-axis"]', 'z+')
+await page.select('[data-test="align-primary-axis"]', 'z-')
 await sleep(500)
 const back = await diff(levelled, await shot())
-check(back < 0.05, `and swings back when the first axis is chosen again (${back.toFixed(3)}%)`)
+check(back < 0.05, `and swings back when the bottom is chosen again (${back.toFixed(3)}%)`)
 
 // Applying only makes the preview real. The camera re-frames the part as it
 // always has, so what is checked here is that it ends up on screen and that
