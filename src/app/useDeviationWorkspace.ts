@@ -209,6 +209,7 @@ export function useDeviationWorkspace({
           dev.range,
           dev.maxDistance,
           dev.targetFacingDeg,
+          dev.targetScope === 'marked' ? dev.scopeCount : null,
         ),
       )
       return

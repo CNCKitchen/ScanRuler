@@ -57,6 +57,10 @@ export interface ElementFieldOptions {
   side: MaterialSide
   /** Facing limit in radians; null accepts whatever lies within the element. */
   maxNormalDeviation: number | null
+  /** Restrict the map to these scan vertices — a surface marked by hand with
+   *  the selection tools. Everything else reads as unmeasured, exactly like a
+   *  vertex outside the element's own bounds. Null measures the whole scan. */
+  subset?: Uint32Array | null
 }
 
 /** Where one scan vertex sits relative to the element. Filled in place: this is
@@ -183,18 +187,18 @@ export function computeElementDeviation(
   fit: ElementTarget,
   positions: Float32Array,
   normals: Float32Array,
-  { side, maxNormalDeviation }: ElementFieldOptions,
+  { side, maxNormalDeviation, subset }: ElementFieldOptions,
 ): Float32Array {
   const n = positions.length / 3
   const values = new Float32Array(n)
   const probe = emptyProbe()
   const minFacing = maxNormalDeviation === null ? -Infinity : Math.cos(maxNormalDeviation)
 
-  for (let v = 0; v < n; v++) {
+  const measure = (v: number): void => {
     probeElement(fit, positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2], probe)
     if (!probe.inside) {
       values[v] = NaN
-      continue
+      return
     }
     // The material's outward normal is the element's, turned round when the
     // material is on the far side of it — inside a bore, out of a shell.
@@ -203,6 +207,13 @@ export function computeElementDeviation(
       (normals[v * 3] * probe.ox + normals[v * 3 + 1] * probe.oy + normals[v * 3 + 2] * probe.oz)
     values[v] = facing >= minFacing ? side * probe.offset : NaN
   }
+
+  if (subset) {
+    values.fill(NaN)
+    for (let i = 0; i < subset.length; i++) measure(subset[i])
+    return values
+  }
+  for (let v = 0; v < n; v++) measure(v)
   return values
 }
 

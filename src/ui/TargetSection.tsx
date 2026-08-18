@@ -10,6 +10,7 @@ import { elementKindInfo } from '../core/elements/kinds'
 import type { Element } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { InfoDot } from './InfoDot'
+import { MarkTools } from './MarkTools'
 
 /** Which side of the element the material is on, said in words rather than as a
  *  sign — what "outward" means depends on the shape, and a bore is the case
@@ -27,9 +28,16 @@ export function TargetSection({
   side,
   shown,
   disabled,
+  scope,
+  scopeMarking,
+  scopeCount,
+  markCount,
   onSelect,
   onShown,
   onFlip,
+  onScope,
+  onScopeDone,
+  onScopeClear,
   onGoToMeasure,
 }: {
   className: string
@@ -41,9 +49,21 @@ export function TargetSection({
   /** The elements are on the part — which is also what makes them clickable. */
   shown: boolean
   disabled: boolean
+  /** Which part of the scan the map covers — everything the element bounds,
+   *  or only a hand-marked region of it. */
+  scope: 'all' | 'marked'
+  /** The marking tools are out, collecting that region. */
+  scopeMarking: boolean
+  /** Points in the region the map is currently restricted to. */
+  scopeCount: number
+  /** Points currently marked on the part (live, while the tools are out). */
+  markCount: number
   onSelect: (id: number | null) => void
   onShown: (v: boolean) => void
   onFlip: () => void
+  onScope: (scope: 'all' | 'marked') => void
+  onScopeDone: () => void
+  onScopeClear: () => void
   onGoToMeasure: () => void
 }) {
   // Only the kinds with a surface, and only the ones that have actually been
@@ -144,6 +164,72 @@ export function TargetSection({
               <p className="hint" data-test="target-detail">
                 {describeTarget(target)}
               </p>
+
+              <label className="field">
+                <span>
+                  Measured region
+                  <InfoDot title="Which part of the scan is measured">
+                    <p>
+                      <b>Everything the element bounds</b> maps every scan point within the element
+                      as drawn — the whole face a plane covers, all the way around a cylinder.
+                    </p>
+                    <p>
+                      <b>Marked surface only</b> restricts the map to a region you mark by hand,
+                      with the same window, brush and lasso the fits are marked with. Use it to read
+                      one pad, one land or one sector against the element while the rest of the
+                      surface stays out of the map and its statistics.
+                    </p>
+                    <p>
+                      The region is yours until you clear it: it survives switching elements, so the
+                      same patch can be read against several datums in a row.
+                    </p>
+                  </InfoDot>
+                </span>
+                <select
+                  data-test="target-scope"
+                  disabled={disabled}
+                  value={scope}
+                  onChange={(e) => onScope(e.target.value as 'all' | 'marked')}
+                >
+                  <option value="all">Everything the element bounds</option>
+                  <option value="marked">Marked surface only</option>
+                </select>
+              </label>
+
+              {scope === 'marked' &&
+                (scopeMarking ? (
+                  <>
+                    <MarkTools
+                      escapeNote="The region you have marked stays measured."
+                      onClear={onScopeClear}
+                    />
+                    <button className="block" data-test="scope-done" onClick={onScopeDone}>
+                      Put the marking tools away
+                    </button>
+                    {markCount === 0 && (
+                      <p className="hint">
+                        Nothing marked yet — the map is empty until you mark the surface to
+                        measure.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="hint" data-test="scope-count">
+                      {scopeCount.toLocaleString('en-US')} point{scopeCount === 1 ? '' : 's'} in
+                      the marked region.
+                    </p>
+                    <button
+                      className="block"
+                      data-test="scope-edit"
+                      disabled={disabled}
+                      onClick={() => onScope('marked')}
+                    >
+                      Edit marked region…
+                    </button>
+                  </>
+                ))}
+
               <div className="field">
                 <span>
                   Material side

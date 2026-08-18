@@ -47,6 +47,9 @@ export function DeviationPanel({
   onLocalFit,
   onRevertLocal,
   onSelectTarget,
+  onScopeChange,
+  onScopeDone,
+  onScopeClear,
   onGoToMeasure,
   onCopy,
   onExportStl,
@@ -66,6 +69,13 @@ export function DeviationPanel({
   /** Measure against this element — the material side is detected as it is
    *  chosen, so this cannot be a plain store setter. */
   onSelectTarget: (id: number | null) => void
+  /** Whole scan or a hand-marked region — switching to the marked scope opens
+   *  the marking tools. */
+  onScopeChange: (scope: 'all' | 'marked') => void
+  /** Tools away, region kept. */
+  onScopeDone: () => void
+  /** Region rubbed out, tools stay out. */
+  onScopeClear: () => void
   /** Over to the workspace where elements are made, for a panel that has none
    *  to offer yet. */
   onGoToMeasure: () => void
@@ -101,6 +111,8 @@ export function DeviationPanel({
       probes: s.probes,
       range: s.range,
       removeProbe: s.removeProbe,
+      scopeCount: s.scopeCount,
+      targetScope: s.targetScope,
       setBands: s.setBands,
       setLocalMaxDistance: s.setLocalMaxDistance,
       setMaxDistance: s.setMaxDistance,
@@ -243,17 +255,26 @@ export function DeviationPanel({
       </div>
 
       {onElement && (
+        /* Not `aside`: in element mode the marking tools live inside this very
+           section, so it stays at full strength while they are out. */
         <TargetSection
-          className={aside}
+          className="group"
           elements={elements}
           targetId={d.targetId}
           target={target}
           side={d.targetSide}
           shown={d.showElement}
           disabled={!scanName || busy}
+          scope={d.targetScope}
+          scopeMarking={d.marking}
+          scopeCount={d.scopeCount}
+          markCount={markCount}
           onSelect={onSelectTarget}
           onShown={d.setShowElement}
           onFlip={d.flipTargetSide}
+          onScope={onScopeChange}
+          onScopeDone={onScopeDone}
+          onScopeClear={onScopeClear}
           onGoToMeasure={onGoToMeasure}
         />
       )}

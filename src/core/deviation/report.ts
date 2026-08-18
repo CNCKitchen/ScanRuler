@@ -79,6 +79,9 @@ export function buildElementReport(
   range: number,
   maxDistance: number,
   facingDeg: number | null,
+  /** Scan points in the hand-marked region the map was restricted to, or null
+   *  when it covered everything the element bounds. */
+  markedPoints: number | null = null,
 ): string {
   return [
     'ScanRuler — deviation from a fitted element',
@@ -98,7 +101,11 @@ export function buildElementReport(
     '  positive = too much material, negative = too little',
     ...statLines(stats),
     '',
-    `  region               the element as drawn`,
+    `  region               ${
+      markedPoints === null
+        ? 'the element as drawn'
+        : `a hand-marked surface (${markedPoints} scan points), within the element as drawn`
+    }`,
     `  max search distance  ${maxDistance} mm`,
     `  facing limit         ${facingDeg === null ? 'off — any surface within the element counts' : `${facingDeg}°`}`,
     `  colour scale         ±${range} mm`,

@@ -87,6 +87,15 @@ interface DeviationState extends ProbeSlice {
    *  throw away the map that is not on screen. */
   elementStatus: MapStatus
   elementVersion: number
+  /** Which part of the scan the element map covers: everything the element
+   *  bounds, or only a surface marked by hand with the selection tools. The
+   *  marked vertices themselves live in a ref beside the field (they are one
+   *  large typed array); this is the choice, the count for the panel, and a
+   *  version to recompute off. The scope survives a change of target — the
+   *  same region measured against several elements is the point of it. */
+  targetScope: 'all' | 'marked'
+  scopeCount: number
+  scopeVersion: number
   /** The element being measured against is drawn over the map. */
   showElement: boolean
 
@@ -130,6 +139,12 @@ interface DeviationState extends ProbeSlice {
   resolveElementMap: (range: number) => void
   clearElementMap: () => void
   setShowElement: (v: boolean) => void
+  setTargetScope: (scope: 'all' | 'marked') => void
+  /** The marked region changed — whoever owns the vertex array has updated it;
+   *  this records how many vertices it holds and triggers the recompute. */
+  markScope: (count: number) => void
+  /** Back to measuring everywhere, marked region discarded. */
+  clearScope: () => void
   beginNominalLoad: (name: string) => void
   finishNominalLoad: (
     name: string,
@@ -218,6 +233,9 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   ...NO_TARGET,
   mapVersion: 0,
   elementVersion: 0,
+  targetScope: 'all',
+  scopeCount: 0,
+  scopeVersion: 0,
   targetFacingDeg: DEFAULT_FACING_DEG,
   // On, and it earns its place: the map is measured against a surface that is
   // nowhere on the part, so without the element drawn there is no way to see
@@ -298,6 +316,14 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
     set((s) => ({ ...NO_TARGET, ...clearedReadout(s.source === 'element') })),
 
   setShowElement: (showElement) => set({ showElement }),
+
+  setTargetScope: (targetScope) => set({ targetScope }),
+
+  markScope: (scopeCount) =>
+    set((s) => ({ scopeCount, scopeVersion: s.scopeVersion + 1 })),
+
+  clearScope: () =>
+    set((s) => ({ targetScope: 'all', scopeCount: 0, scopeVersion: s.scopeVersion + 1 })),
 
   beginNominalLoad: (name) =>
     set({ nominalBusy: true, nominalName: name, nominalStep: null, ...CLEARED }),

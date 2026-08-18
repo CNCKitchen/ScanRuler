@@ -290,3 +290,64 @@ describe('the report', () => {
     expect(text).toContain('any surface within the element counts')
   })
 })
+
+describe('restricting the map to a marked region', () => {
+  it('measures only the subset and leaves the rest unmeasured', () => {
+    const { positions, normals } = scan([
+      [[0, 0, 0.1], [0, 0, 1]],
+      [[1, 0, -0.2], [0, 0, 1]],
+      [[2, 0, 0.3], [0, 0, 1]],
+      [[3, 0, 0.4], [0, 0, 1]],
+    ])
+    const values = computeElementDeviation(zPlane(), positions, normals, {
+      ...ANY_FACING,
+      subset: new Uint32Array([1, 3]),
+    })
+    expect(Number.isNaN(values[0])).toBe(true)
+    expect(values[1]).toBeCloseTo(-0.2, 6)
+    expect(Number.isNaN(values[2])).toBe(true)
+    expect(values[3]).toBeCloseTo(0.4, 6)
+  })
+
+  it('still bounds and filters within the subset', () => {
+    const { positions, normals } = scan([
+      // Inside the patch, facing along the plane normal: measured.
+      [[0, 0, 0.1], [0, 0, 1]],
+      // In the subset but outside the 20 mm patch: unmeasured.
+      [[50, 0, 0.1], [0, 0, 1]],
+      // In the subset but facing the wrong way: unmeasured under the filter.
+      [[1, 0, 0.1], [0, 0, -1]],
+    ])
+    const values = computeElementDeviation(zPlane(), positions, normals, {
+      ...FACING,
+      subset: new Uint32Array([0, 1, 2]),
+    })
+    expect(values[0]).toBeCloseTo(0.1, 6)
+    expect(Number.isNaN(values[1])).toBe(true)
+    expect(Number.isNaN(values[2])).toBe(true)
+  })
+
+  it('an empty subset measures nothing', () => {
+    const { positions, normals } = scan([[[0, 0, 0.1], [0, 0, 1]]])
+    const values = computeElementDeviation(zPlane(), positions, normals, {
+      ...ANY_FACING,
+      subset: new Uint32Array(0),
+    })
+    expect(Number.isNaN(values[0])).toBe(true)
+  })
+
+  it('the report names the marked region and its size', () => {
+    const text = buildElementReport(
+      'part.stl',
+      'Plane 1',
+      zPlane(),
+      1,
+      deviationStats(new Float32Array([0.1]), 3, 0.1),
+      0.2,
+      3,
+      DEFAULT_FACING_DEG,
+      1234,
+    )
+    expect(text).toContain('a hand-marked surface (1234 scan points)')
+  })
+})

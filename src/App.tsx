@@ -36,7 +36,7 @@ import { formatSigned } from './ui/format'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
 import { markChipText } from './ui/MarkTools'
-import { useDeviation } from './state/deviationStore'
+import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
 import type { FieldScale } from './core/field/colormap'
@@ -75,6 +75,10 @@ export default function App() {
   // scan is measured against without either map losing what it had.
   const elementField = useRef<Float32Array | null>(null)
   const elementRgb = useRef<Uint8Array | null>(null)
+  // The hand-marked scan region an element map can be restricted to. A snapshot
+  // rather than the live paint mask, so the region survives the paint layer
+  // being cleared by other workflows — the map keeps showing what was chosen.
+  const elementScope = useRef<Uint32Array | null>(null)
   // The wall thickness field, kept the same way and for the same reasons: one
   // float per scan vertex, and the two ends of its scale move it immediately
   // rather than going back to the worker.
@@ -125,10 +129,13 @@ export default function App() {
     deviationRgb.current = null
     elementField.current = null
     elementRgb.current = null
+    // The marked region is vertex indices into the scan being replaced.
+    elementScope.current = null
     thickness.current = null
     thicknessRgb.current = null
     useDeviation.getState().clearAlign()
     useDeviation.getState().clearElementMap()
+    useDeviation.getState().clearScope()
     useThickness.getState().clear()
     // Nothing is marked on a part that is being replaced, and no gesture should
     // survive the swap.
@@ -253,9 +260,18 @@ export default function App() {
   const handlePaintChange = (count: number) => {
     // The same marking layer and the same tools serve both workspaces; only who
     // is listening differs — an element re-fits on every stroke, a local best
-    // fit waits to be asked.
+    // fit waits to be asked, and the measured region of an element map follows
+    // the brush stroke by stroke.
     useMark.getState().setCount(count)
-    if (useDeviation.getState().marking) return
+    const dev = useDeviation.getState()
+    if (dev.marking) {
+      if (dev.workspace === 'deviation' && dev.source === 'element' && dev.targetScope === 'marked') {
+        const marked = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
+        elementScope.current = marked
+        dev.markScope(marked.length)
+      }
+      return
+    }
     const store = useStore.getState()
     const draft = store.draft
     if (!draft || creationMethod(draft.kind, draft.method).mode !== 'fit') return
@@ -362,7 +378,7 @@ export default function App() {
 
   // ---- Deviation from a fitted element -------------------------------------
 
-  useElementField({ sceneRef, elementField, elementRgb })
+  useElementField({ sceneRef, elementField, elementRgb, elementScope })
 
   /** Measure against this element. The material side is read off the scan as the
    *  element is chosen — see detectMaterialSide for why it is decided here and
@@ -385,6 +401,50 @@ export default function App() {
     )
     const name = useStore.getState().elements.find((e) => e.id === id)?.name ?? 'element'
     useStore.getState().setStatus(`Deviation measured against ${name}.`)
+  }
+
+  /** Switch the element map between measuring the whole scan and measuring a
+   *  hand-marked region of it. Choosing the marked scope opens the marking
+   *  tools with whatever region was chosen before back on the part. */
+  const handleScopeChange = (scope: 'all' | 'marked') => {
+    const dev = useDeviation.getState()
+    if (scope === 'marked') {
+      dev.setTargetScope('marked')
+      useMark.getState().reset()
+      dev.startMarking()
+      const region = elementScope.current
+      if (region && region.length > 0) {
+        sceneRef.current?.setPaintedVertices(region, MARK_COLOR)
+        useMark.getState().setCount(region.length)
+      }
+      dev.markScope(region?.length ?? 0)
+      useStore.getState().setStatus(PICK_MARK_TOOL_STATUS)
+      return
+    }
+    dev.setTargetScope('all')
+    dev.stopMarking()
+    sceneRef.current?.clearPaint()
+    useMark.getState().reset()
+    elementScope.current = null
+    dev.clearScope()
+    useStore.getState().setStatus('')
+  }
+
+  /** Put the marking tools away, keeping the region: the map goes on showing
+   *  what was chosen, and the pointer goes back to pinning readings. */
+  const handleScopeDone = () => {
+    useDeviation.getState().stopMarking()
+    sceneRef.current?.clearPaint()
+    useMark.getState().reset()
+    useStore.getState().setStatus('')
+  }
+
+  /** Rub the whole region out and start marking it afresh. */
+  const handleScopeClear = () => {
+    sceneRef.current?.clearPaint()
+    useMark.getState().setCount(0)
+    elementScope.current = new Uint32Array(0)
+    useDeviation.getState().markScope(0)
   }
 
   // ---- Wall thickness workspace --------------------------------------------
@@ -865,12 +925,19 @@ export default function App() {
               ? `Point ${draft.picks.length} of ${creationMethod(draft.kind, draft.method).minPicks ?? 1} — keep clicking around the ${elementKindInfo(draft.kind).noun}`
               : null
 
+  // The same tools mark two different things in this workspace: the surface a
+  // local fine fit runs on, and the region an element map is restricted to.
   const markHint = !marking
     ? null
-    : markChipText(markGesture, markCount, 'the surface to fit on', {
-        idle: 'Esc closes',
-        live: 'Esc to navigate, twice to close',
-      })
+    : markChipText(
+        markGesture,
+        markCount,
+        useDeviation.getState().source === 'element' ? 'the surface to measure' : 'the surface to fit on',
+        {
+          idle: 'Esc closes',
+          live: 'Esc to navigate, twice to close',
+        },
+      )
 
   // The guided hints: which control is ringing is the control's own business
   // (usePulse), but the sentence that goes with it belongs on the stage, and
@@ -1003,6 +1070,9 @@ export default function App() {
             onLocalFit={() => void runLocalAlign()}
             onRevertLocal={handleRevertLocal}
             onSelectTarget={handleSelectTarget}
+            onScopeChange={handleScopeChange}
+            onScopeDone={handleScopeDone}
+            onScopeClear={handleScopeClear}
             onGoToMeasure={() => useDeviation.getState().setWorkspace('elements')}
             onCopy={handleCopyReport}
             onExportStl={handleExportStl}

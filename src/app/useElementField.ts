@@ -52,14 +52,21 @@ export function useElementField({
   sceneRef,
   elementField,
   elementRgb,
+  elementScope,
 }: {
   sceneRef: RefObject<SceneManager | null>
   elementField: RefObject<Float32Array | null>
   elementRgb: RefObject<Uint8Array | null>
+  /** The hand-marked scan region the map is restricted to, when the scope says
+   *  so — held in a ref like the field itself, because it is one large typed
+   *  array only this computation reads. */
+  elementScope: RefObject<Uint32Array | null>
 }) {
   const targetId = useDeviation((s) => s.targetId)
   const targetSide = useDeviation((s) => s.targetSide)
   const targetFacingDeg = useDeviation((s) => s.targetFacingDeg)
+  const targetScope = useDeviation((s) => s.targetScope)
+  const scopeVersion = useDeviation((s) => s.scopeVersion)
   const elements = useStore((s) => s.elements)
 
   // Held stable across renders: applyExtension builds a fresh object every call,
@@ -91,6 +98,9 @@ export function useElementField({
     const values = computeElementDeviation(target, scan.positions, scan.normals, {
       side: targetSide,
       maxNormalDeviation: targetFacingDeg === null ? null : (targetFacingDeg * Math.PI) / 180,
+      // A marked scope with nothing marked yet is an empty map, not the whole
+      // scan: the hint in the panel says to mark, and the map follows the brush.
+      subset: targetScope === 'marked' ? (elementScope.current ?? new Uint32Array(0)) : null,
     })
     elementField.current = values
     elementRgb.current = null
@@ -98,5 +108,5 @@ export function useElementField({
       suggestRange(values, useDeviation.getState().maxDistance),
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, targetSide, targetFacingDeg])
+  }, [target, targetSide, targetFacingDeg, targetScope, scopeVersion])
 }

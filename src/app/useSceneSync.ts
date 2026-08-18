@@ -545,11 +545,12 @@ export function useSceneSync({
   // A half-finished element fit or alignment has no meaning in the other
   // workspaces.
   useEffect(() => {
-    // Leaving the deviation workspace drops the marking with it — the scene
-    // clears it when the tools are put away, and a count left standing for a
-    // marking that no longer exists would offer a fit of nothing. Switching to
-    // an element counts as leaving: there is no alignment there to fine-fit.
-    if ((workspace !== 'deviation' || source === 'element') && useDeviation.getState().marking) {
+    // A marking session belongs to the workspace and source it was opened in —
+    // the local fine fit's surface in reference mode, the measured region in
+    // element mode. Whichever it was, changing either closes the tools and
+    // clears the paint layer; the element map's chosen region itself survives
+    // in its snapshot and stays measured.
+    if (useDeviation.getState().marking) {
       sceneRef.current?.clearPaint()
       useDeviation.getState().stopMarking()
     }
