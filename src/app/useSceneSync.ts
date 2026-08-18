@@ -5,6 +5,7 @@
 // truth; these effects repeat it to the viewport.
 import { useEffect, useMemo } from 'react'
 import { creationMethod } from '../core/elements/construct'
+import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
 import { evaluateDimensions } from '../core/dimensions'
@@ -302,11 +303,32 @@ export function useSceneSync({
   const modelSize = useStore((s) => s.modelSize)
   const centerOf = useStore(alignCenterOf)
   useEffect(() => {
+    // Before anything is picked, a first alignment already centres the part on
+    // the datum stage — the "here is where your part is going" opening move.
+    // The computed preview then takes over and keeps the same centring rule.
     const rigid = alignDraft
-      ? alignmentPreview(alignDraft, elements, modelSize, centerOf).preview
+      ? (alignmentPreview(alignDraft, elements, modelSize, centerOf).preview?.rigid ??
+        (centerOf ? translationToOrigin(centerOf) : null))
       : null
-    sceneRef.current?.setAlignPreview(rigid ? rigidToColumnMajor(rigid.rigid) : null)
+    sceneRef.current?.setAlignPreview(rigid ? rigidToColumnMajor(rigid) : null)
   }, [alignDraft, elements, modelSize, centerOf])
+
+  // The datum stage — the coordinate planes and origin axes the part is being
+  // aligned onto — stands exactly as long as the alignment editor is open.
+  // Opening frames the stage and the part together; closing re-frames the part
+  // alone, in the stage's reading pose if an alignment is in effect (the part
+  // was just placed) and in the plain broadside pose otherwise.
+  const alignOpen = alignDraft !== null
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    scene.setDatumStage(alignOpen)
+    if (!alignOpen) {
+      if (useStore.getState().appliedAlignment) scene.frameAligned()
+      else scene.frameAll()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alignOpen])
 
   // A viewport click selects elements whenever a dimension is being assembled
   // or a construction has reference slots — but never while clicks are picking

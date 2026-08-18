@@ -1354,6 +1354,20 @@ button.x:disabled {
   color: var(--accent-d);
 }
 
+/* Labels of the datum stage — the coordinate planes and axes an alignment is
+   aimed at. Quieter than the measured pins: they are scenery, not results,
+   and each wears its own axis colour on a barely-there chip. */
+.viewport-label.stage-label {
+  background: rgba(252, 252, 250, 0.78);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.stage-label .label-title {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
 /* ---------------- machine status strip ---------------- */
 
 .strip {

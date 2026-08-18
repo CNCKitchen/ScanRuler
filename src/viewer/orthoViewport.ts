@@ -251,20 +251,29 @@ export class OrthoViewport {
    * plain three-quarter view: its parts sit in arbitrary poses and each half
    * is about to be turned by hand anyway. Either way a rolled camera makes
    * orbiting feel inverted, so screen-up stays world-up.
+   *
+   * A `view` overrides both choices at once: the datum stage frames its
+   * coordinate corner from the front-top-right with Z up, the way the target
+   * frame is meant to be read, and that intent beats the part's long axis.
    */
-  frameCamera(box: THREE.Box3, axis: THREE.Vector3 | null): void {
+  frameCamera(
+    box: THREE.Box3,
+    axis: THREE.Vector3 | null,
+    view?: { dir: THREE.Vector3; up: THREE.Vector3 },
+  ): void {
     const center = box.getCenter(new THREE.Vector3())
     const radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 1e-3)
 
-    const dir = new THREE.Vector3(0.62, 0.42, 1).normalize()
-    if (axis) {
+    const dir = view ? view.dir.clone().normalize() : new THREE.Vector3(0.62, 0.42, 1).normalize()
+    if (axis && !view) {
       dir.addScaledVector(axis, -dir.dot(axis))
       if (dir.lengthSq() < 1e-6) dir.set(-axis.y, axis.x, 0)
       if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0)
       dir.normalize()
     }
 
-    this.camera.up.set(0, 1, 0)
+    if (view) this.camera.up.copy(view.up)
+    else this.camera.up.set(0, 1, 0)
     this.controls.target.copy(center)
     const dist = radius * 4 + 1
     this.camera.position.copy(center).addScaledVector(dir, dist)

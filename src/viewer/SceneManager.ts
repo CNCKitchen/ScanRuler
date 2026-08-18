@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
 import { OrthoViewport } from './orthoViewport'
 import { AxisGizmo } from './axisGizmo'
+import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
 import { ExtendGrips } from './extendGrips'
@@ -94,9 +95,18 @@ export type { PickMarker }
  *  compositor, the marking gestures, the extend grips, the overlay drawing
  *  and the axis gizmo each live in their own module, and this class wires
  *  them to each other and keeps the public face the app talks to. */
+/** The view the datum stage is read from: front-top-right with Z up — the
+ *  pose a part standing on the floor plane looks upright in. */
+const STAGE_VIEW = {
+  dir: new THREE.Vector3(0.72, -0.95, 0.55),
+  up: new THREE.Vector3(0, 0, 1),
+}
+
 export class SceneManager {
   private viewport: OrthoViewport
   private gizmo: AxisGizmo
+  /** The target coordinate frame, shown while an alignment is being set up. */
+  private stage: DatumStage
   /** Stage, lights and surface colours — see viewThemes. Held here as well as
    *  in the viewport because a scan or a reference loaded later has to be
    *  dressed in whatever scheme is current. */
@@ -204,6 +214,7 @@ export class SceneManager {
         this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h),
     })
     this.gizmo = new AxisGizmo()
+    this.stage = new DatumStage(this.scene)
 
     this.partGroup.matrixAutoUpdate = false
     this.scene.add(this.partGroup)
@@ -447,10 +458,54 @@ export class SceneManager {
 
   /** Frame the part broadside, and remember what was framed so the alignment
    *  preview can bound its clip range absolutely. */
-  private frameCamera(box: THREE.Box3, axis: THREE.Vector3): void {
-    this.viewport.frameCamera(box, axis)
+  private frameCamera(
+    box: THREE.Box3,
+    axis: THREE.Vector3 | null,
+    view?: { dir: THREE.Vector3; up: THREE.Vector3 },
+  ): void {
+    this.viewport.frameCamera(box, axis, view)
     this.framedClip.center.copy(this.clipSphere.center)
     this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** The scan's bounding box in world coordinates — wherever the alignment
+   *  preview currently holds the part. Null with no scan loaded. */
+  private movedScanBox(): THREE.Box3 | null {
+    const geometry = this.mesh?.geometry as THREE.BufferGeometry | undefined
+    if (!geometry?.boundingBox) return null
+    this.partGroup.updateMatrixWorld(true)
+    return geometry.boundingBox.clone().applyMatrix4(this.partGroup.matrixWorld)
+  }
+
+  /**
+   * Show or hide the datum stage — the coordinate planes and origin axes an
+   * alignment is aimed at. Turning it on frames the camera front-top-right,
+   * Z up, around both the stage and wherever the part currently sits, so the
+   * target frame and the part are on screen together; while it stays on, the
+   * camera is the operator's.
+   */
+  setDatumStage(on: boolean): void {
+    if (on === this.stage.active()) return
+    this.stage.set(on ? this.modelRadius : null)
+    if (on) {
+      const e = this.stage.extent()
+      const box = new THREE.Box3(
+        new THREE.Vector3(-e, -e, -e),
+        new THREE.Vector3(e, e, e),
+      )
+      const moved = this.movedScanBox()
+      if (moved) box.union(moved)
+      this.frameCamera(box, null, STAGE_VIEW)
+    }
+    this.invalidate()
+  }
+
+  /** Frame the part the way the datum stage was read — front-top-right, Z up —
+   *  after an alignment has been applied, so the pose just chosen is the pose
+   *  on screen. */
+  frameAligned(): void {
+    const moved = this.movedScanBox()
+    if (moved) this.frameCamera(moved, null, STAGE_VIEW)
   }
 
   private setPickRay(clientX: number, clientY: number): void {
@@ -917,6 +972,7 @@ export class SceneManager {
     this.marking.dispose()
     this.grips.dispose()
     this.overlays.dispose()
+    this.stage.dispose()
     this.gizmo.dispose()
     this.disposeNominal()
     this.disposeMesh()
