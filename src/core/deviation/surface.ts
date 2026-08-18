@@ -135,10 +135,16 @@ export class NominalSurface {
   readonly bboxDiagonal: number
 
   private bvh: MeshBVH
-  private faceNormal: Float64Array
-  private vertexNormal: Float64Array
-  private edgeNormal: Float64Array
-  private edgeId: Map<number, number>
+  private faceNormal: Float32Array
+  private vertexNormal: Float32Array
+  private edgeNormal: Float32Array
+  /** Unique edges in CSR form, bucketed by the smaller vertex index: bucket v
+   *  holds the larger endpoints of every edge (v, >v), and an edge's position
+   *  in `edgeOther` is its id into `edgeNormal`. A JS Map cannot hold this
+   *  table — V8 caps a Map at 2^24 entries, and a scan-sized reference mesh
+   *  (~11M+ triangles) has more edges than that. */
+  private edgeOffsets: Uint32Array
+  private edgeOther: Uint32Array
   private probe = new THREE.Vector3()
   private target = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
   private scratch = new Float64Array(4)
@@ -166,21 +172,29 @@ export class NominalSurface {
     this.bboxMax = [box.max.x, box.max.y, box.max.z]
     this.bboxDiagonal = box.min.distanceTo(box.max)
 
-    this.faceNormal = new Float64Array(this.triangleCount * 3)
-    this.vertexNormal = new Float64Array(this.vertexCount * 3)
-    this.edgeId = new Map()
-    const edgeAccum: number[] = []
-    this.buildNormals(edgeAccum)
-    this.edgeNormal = Float64Array.from(edgeAccum)
+    this.faceNormal = new Float32Array(this.triangleCount * 3)
+    this.vertexNormal = new Float32Array(this.vertexCount * 3)
+    this.buildFaceAndVertexNormals()
+    const edges = this.buildEdgeTable()
+    this.edgeOffsets = edges.offsets
+    this.edgeOther = edges.other
+    this.edgeNormal = edges.normals
     normalizeTriples(this.vertexNormal)
     normalizeTriples(this.edgeNormal)
   }
 
-  private edgeKey(a: number, b: number): number {
-    return a < b ? a * this.vertexCount + b : b * this.vertexCount + a
+  /** Id of the undirected edge (a, b), or -1 if no face uses it. */
+  private edgeIndex(a: number, b: number): number {
+    const m = a < b ? a : b
+    const other = a < b ? b : a
+    const end = this.edgeOffsets[m + 1]
+    for (let i = this.edgeOffsets[m]; i < end; i++) {
+      if (this.edgeOther[i] === other) return i
+    }
+    return -1
   }
 
-  private buildNormals(edgeAccum: number[]): void {
+  private buildFaceAndVertexNormals(): void {
     const p = this.positions
     const idx = this.index
     for (let f = 0; f < this.triangleCount; f++) {
@@ -205,36 +219,84 @@ export class NominalSurface {
 
       // Vertex pseudonormal: weighted by the angle the face subtends there, so
       // the result is independent of how finely the surface is triangulated.
-      const corners: [number, number, number, number, number, number, number][] = [
-        [ia, bx - ax, by - ay, bz - az, cx - ax, cy - ay, cz - az],
-        [ib, ax - bx, ay - by, az - bz, cx - bx, cy - by, cz - bz],
-        [ic, ax - cx, ay - cy, az - cz, bx - cx, by - cy, bz - cz],
-      ]
-      for (const [vi, e1x, e1y, e1z, e2x, e2y, e2z] of corners) {
-        const l1 = Math.hypot(e1x, e1y, e1z)
-        const l2 = Math.hypot(e2x, e2y, e2z)
-        if (!(l1 > 1e-20 && l2 > 1e-20)) continue
-        const cos = Math.min(1, Math.max(-1, (e1x * e2x + e1y * e2y + e1z * e2z) / (l1 * l2)))
-        const w = Math.acos(cos)
-        this.vertexNormal[vi * 3] += nx * w
-        this.vertexNormal[vi * 3 + 1] += ny * w
-        this.vertexNormal[vi * 3 + 2] += nz * w
-      }
-
-      // Edge pseudonormal: the plain sum of the (here, two) adjacent faces.
-      for (const [u, v] of [[ia, ib], [ia, ic], [ib, ic]]) {
-        const key = this.edgeKey(u, v)
-        let id = this.edgeId.get(key)
-        if (id === undefined) {
-          id = edgeAccum.length / 3
-          this.edgeId.set(key, id)
-          edgeAccum.push(0, 0, 0)
-        }
-        edgeAccum[id * 3] += nx
-        edgeAccum[id * 3 + 1] += ny
-        edgeAccum[id * 3 + 2] += nz
-      }
+      // Spelled out per corner: this loop runs once per face of a scan-sized
+      // mesh, where even a small tuple array per corner would swamp the GC.
+      this.accumulateVertexNormal(ia, bx - ax, by - ay, bz - az, cx - ax, cy - ay, cz - az, nx, ny, nz)
+      this.accumulateVertexNormal(ib, ax - bx, ay - by, az - bz, cx - bx, cy - by, cz - bz, nx, ny, nz)
+      this.accumulateVertexNormal(ic, ax - cx, ay - cy, az - cz, bx - cx, by - cy, bz - cz, nx, ny, nz)
     }
+  }
+
+  private accumulateVertexNormal(
+    vi: number,
+    e1x: number, e1y: number, e1z: number,
+    e2x: number, e2y: number, e2z: number,
+    nx: number, ny: number, nz: number,
+  ): void {
+    const l1 = Math.hypot(e1x, e1y, e1z)
+    const l2 = Math.hypot(e2x, e2y, e2z)
+    if (!(l1 > 1e-20 && l2 > 1e-20)) return
+    const cos = Math.min(1, Math.max(-1, (e1x * e2x + e1y * e2y + e1z * e2z) / (l1 * l2)))
+    const w = Math.acos(cos)
+    this.vertexNormal[vi * 3] += nx * w
+    this.vertexNormal[vi * 3 + 1] += ny * w
+    this.vertexNormal[vi * 3 + 2] += nz * w
+  }
+
+  /** Edge pseudonormals: for each unique edge, the plain sum of the (usually
+   *  two) adjacent face normals. Three passes over the faces — count, dedup,
+   *  accumulate — all into flat typed arrays sized by the incidence count, so
+   *  the only per-edge cost is a short scan of one vertex's bucket. */
+  private buildEdgeTable(): { offsets: Uint32Array; other: Uint32Array; normals: Float32Array } {
+    const idx = this.index
+    const vcount = this.vertexCount
+
+    // Count edge incidences per smaller endpoint; prefix-sum into bucket
+    // bounds. Each bucket is sized for its incidences (3 per face), an upper
+    // bound on its unique edges.
+    const dupOffsets = new Uint32Array(vcount + 1)
+    for (let f = 0; f < this.triangleCount; f++) {
+      const ia = idx[f * 3], ib = idx[f * 3 + 1], ic = idx[f * 3 + 2]
+      dupOffsets[(ia < ib ? ia : ib) + 1]++
+      dupOffsets[(ia < ic ? ia : ic) + 1]++
+      dupOffsets[(ib < ic ? ib : ic) + 1]++
+    }
+    for (let v = 0; v < vcount; v++) dupOffsets[v + 1] += dupOffsets[v]
+
+    // Dedup within each bucket: append the larger endpoint unless present.
+    const dupOther = new Uint32Array(dupOffsets[vcount])
+    const cursor = dupOffsets.slice(0, vcount)
+    for (let f = 0; f < this.triangleCount; f++) {
+      const ia = idx[f * 3], ib = idx[f * 3 + 1], ic = idx[f * 3 + 2]
+      insertEdge(dupOffsets, dupOther, cursor, ia, ib)
+      insertEdge(dupOffsets, dupOther, cursor, ia, ic)
+      insertEdge(dupOffsets, dupOther, cursor, ib, ic)
+    }
+
+    // Compact the partly-filled buckets into exact-size CSR arrays.
+    const offsets = new Uint32Array(vcount + 1)
+    for (let v = 0; v < vcount; v++) {
+      offsets[v + 1] = offsets[v] + (cursor[v] - dupOffsets[v])
+    }
+    const other = new Uint32Array(offsets[vcount])
+    for (let v = 0; v < vcount; v++) {
+      let w = offsets[v]
+      for (let i = dupOffsets[v]; i < cursor[v]; i++) other[w++] = dupOther[i]
+    }
+    this.edgeOffsets = offsets
+    this.edgeOther = other
+
+    const normals = new Float32Array(offsets[vcount] * 3)
+    for (let f = 0; f < this.triangleCount; f++) {
+      const ia = idx[f * 3], ib = idx[f * 3 + 1], ic = idx[f * 3 + 2]
+      const nx = this.faceNormal[f * 3]
+      const ny = this.faceNormal[f * 3 + 1]
+      const nz = this.faceNormal[f * 3 + 2]
+      accumulate3(normals, this.edgeIndex(ia, ib), nx, ny, nz)
+      accumulate3(normals, this.edgeIndex(ia, ic), nx, ny, nz)
+      accumulate3(normals, this.edgeIndex(ib, ic), nx, ny, nz)
+    }
+    return { offsets, other, normals }
   }
 
   /** Signed distance from a point to the surface. Returns false only when the
@@ -276,8 +338,8 @@ export class NominalSurface {
         // two-element array here would dominate the allocator.
         const e0 = s[3] === Feature.EdgeBC ? ib : ia
         const e1 = s[3] === Feature.EdgeAB ? ib : ic
-        const id = this.edgeId.get(this.edgeKey(e0, e1))
-        if (id === undefined) {
+        const id = this.edgeIndex(e0, e1)
+        if (id < 0) {
           nx = this.faceNormal[f * 3]
           ny = this.faceNormal[f * 3 + 1]
           nz = this.faceNormal[f * 3 + 2]
@@ -307,7 +369,31 @@ export class NominalSurface {
   }
 }
 
-function normalizeTriples(a: Float64Array): void {
+/** Append edge (a, b) to the smaller endpoint's bucket unless already there. */
+function insertEdge(
+  offsets: Uint32Array,
+  other: Uint32Array,
+  cursor: Uint32Array,
+  a: number,
+  b: number,
+): void {
+  const m = a < b ? a : b
+  const o = a < b ? b : a
+  const end = cursor[m]
+  for (let i = offsets[m]; i < end; i++) {
+    if (other[i] === o) return
+  }
+  other[end] = o
+  cursor[m] = end + 1
+}
+
+function accumulate3(a: Float32Array, id: number, x: number, y: number, z: number): void {
+  a[id * 3] += x
+  a[id * 3 + 1] += y
+  a[id * 3 + 2] += z
+}
+
+function normalizeTriples(a: Float32Array): void {
   for (let i = 0; i < a.length; i += 3) {
     const len = Math.hypot(a[i], a[i + 1], a[i + 2])
     if (len > 1e-20) {
