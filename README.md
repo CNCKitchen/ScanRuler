@@ -11,7 +11,7 @@ Three workspaces share the loaded scan:
   and create the **distance and angle dimensions** you actually need between
   them, the way metrology software like GOM Inspect does it. Aimed at ball
   bars and other calibrated artefacts. The measured elements can serve as
-  datums for a **3-2-1 alignment** into the global coordinate system, and be
+  datums for a guided **3-2-1 alignment** into the global coordinate system, and be
   **exported as a STEP file** of analytic geometry.
 - **Deviation** — paint how far the scan strays from what it should have been as
   a colour map over the part, measured either against a **nominal CAD part**
@@ -235,33 +235,42 @@ be created. *Cancel* or `Esc` leaves the original untouched.
 A dimension that changes group in the process — a distance turned into an angle
 — takes the next name of the group it has become, unless you named it yourself.
 
-### Aligning the part (3-2-1)
+### Aligning the part
 
 A scan arrives in whatever coordinates the scanner happened to use. **Align
-part (3-2-1)** sets where X, Y, Z and the zero point sit on the part instead.
-Three steps, each after the first optional:
+part** sets where X, Y, Z and the zero point sit on the part instead — the
+classic 3-2-1 datum alignment, told as three steps in plain words. Opening
+the editor puts the **datum stage** on screen: the three coordinate planes,
+sized to the part and labelled with the axes, with the part centred between
+them so you can see exactly where it is going.
 
-1. **Level with** — a flat face, a cylinder, a line, **or 3 points picked
-   straight on the scan**. Its direction is turned exactly onto the chosen
-   axis (+Z by default) and levels the part.
-2. **Rotate with** *(optional)* — a second direction (element or **2 picked
-   points**) so the part cannot spin around the first axis.
-3. **Zero point** *(optional)* — a point, a sphere center, or **1 picked
-   point** that becomes the origin.
+1. **Set on a plane** — pick **3 points on one face** of the part (or use a
+   measured plane or cylinder), then say which side of the part that face is:
+   the *bottom* lands on the floor plane, a *front* on the front plane, and
+   so on. The picked points remember which way the scanned surface faces, so
+   the choice reads the same no matter the order you clicked in.
+2. **Align with an axis** *(optional)* — **2 points along an edge** (or an
+   element), and which way that edge should run (+X to the right, …), so the
+   part cannot spin on its plane. The edge runs from your 1st point to your
+   2nd.
+3. **Move to zero point** *(optional)* — a point, a sphere center, or **1
+   picked point** that becomes X0 Y0 Z0. A zero point on its own works too,
+   when all you want is to move the origin.
 
-The slots mix and match freely — a fitted plane for levelling, two picked
-points for the rotation, an existing point for zero all in one alignment.
-Whatever levels or rotates also sets its own zero: a levelling face ends up
-at height 0, a cylinder lands on the axis it points along, and the zero point
-covers whatever is left. Fill the slots by clicking elements in the 3D view
-or picking points on the scan (they stay marked as *Point 1, 2, 3* while you
-work). The part swings into the pose it would take as soon as a slot has what
-it needs, and again whenever you change the axis it points along, so the
-alignment is judged by looking at the part rather than by applying it to find
-out — with the panel reading how far it would rotate and move. Measured
-elements make the most accurate references — each one averages the thousands
-of scan points behind its fit, where a picked point is a single spot of scan
-noise.
+The slots mix and match freely — a fitted plane for step 1, two picked points
+for step 2, an existing point for zero all in one alignment. Whatever a step
+fixes it also zeroes: a face set on the floor ends up at height 0, a cylinder
+lands on the axis it runs along, and the zero point covers whatever is left —
+as does the **first** alignment itself, which centres the part on the origin
+along any coordinate still free. Fill the slots by clicking elements in the
+3D view or picking points on the scan (they stay marked as *Plane 1…3, Axis
+1…2, Zero* while you work). The part swings into the pose it would take as
+soon as a step has what it needs, and again whenever you change a choice, so
+the alignment is judged by looking at the part against the coordinate planes
+rather than by applying it to find out — with the panel reading how far it
+would rotate and move. Measured elements make the most accurate references —
+each one averages the thousands of scan points behind its fit, where a picked
+point is a single spot of scan noise.
 
 **Move / rotate by numbers** does the same thing by hand: type how far to
 move (mm) and turn (°) along the global axes. The part turns about the zero
