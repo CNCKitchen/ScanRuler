@@ -389,40 +389,14 @@ export function AlignmentSection({
             onPick={() => beginAlignmentPick('origin')}
           />
 
-          <div className="dro">
-            <div className="dro-label">
-              <span>Preview</span>
-            </div>
-            <div
-              className={'dro-window' + (alignError ? ' alarm' : '')}
-              data-test="align-preview"
-            >
-              {alignError ? (
-                <b>{alignError}</b>
-              ) : alignReady ? (
-                <>
-                  <b>{alignReady.rotationDeg.toFixed(2)}</b>
-                  <span>DEG</span>
-                </>
-              ) : (
-                <b
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    color: 'var(--dim)',
-                  }}
-                >
-                  Pick the face the part stands on
-                </b>
-              )}
-            </div>
-            {alignReady && (
-              <div className="dro-note">
-                rotates {alignReady.rotationDeg.toFixed(2)}° · moves{' '}
-                {alignReady.translation.toFixed(3)} mm
-              </div>
-            )}
-          </div>
+          {/* The pose itself is previewed on the part, against the coordinate
+              planes — the panel only has to speak up when the chosen datums
+              cannot make an alignment at all. */}
+          {alignError && (
+            <p className="alarmtext" data-test="align-error">
+              {alignError}
+            </p>
+          )}
 
           <button
             className="primary block"

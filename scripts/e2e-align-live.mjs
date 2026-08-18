@@ -102,8 +102,8 @@ const levelled = await shot('2-levelled')
 const swing = await diff(picking, levelled)
 check(swing > 5, `the part swings onto the plane as the third point lands (${swing.toFixed(1)}%)`)
 check(
-  await page.$eval('[data-test="align-preview"]', (el) => /\d/.test(el.textContent)),
-  `the panel agrees a transform is ready (${await page.$eval('[data-test="align-preview"]', (el) => el.textContent.trim())})`,
+  await page.$eval('[data-test="apply-alignment"]', (el) => !el.disabled),
+  'the panel agrees a transform is ready (Align part is enabled)',
 )
 
 // Which side of the part the picked face is — a live control too.
