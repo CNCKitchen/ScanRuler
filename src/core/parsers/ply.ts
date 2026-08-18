@@ -101,7 +101,7 @@ function parseBinaryBody(
   const dv = new DataView(buffer)
   let off = bodyStart
   let positions: Float32Array | null = null
-  const indices: number[] = []
+  let indices = new Uint32Array(0)
 
   for (const el of elements) {
     if (el.name === 'vertex') {
@@ -147,6 +147,28 @@ function parseBinaryBody(
         }
       }
     } else if (el.name === 'face') {
+      // Two passes: total the triangles first, then fill an exact-size index
+      // buffer. A scan-sized file fans out to tens of millions of indices,
+      // which a growing JS number array both crawls through and triples in
+      // memory. The sizing pass only touches each face's list count.
+      const faceStart = off
+      let triTotal = 0
+      for (let i = 0; i < el.count; i++) {
+        for (const prop of el.props) {
+          if (prop.isList) {
+            const n = readScalar(dv, off, prop.countType!, little)
+            off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
+            if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
+              if (n >= 3) triTotal += n - 2
+            }
+          } else {
+            off += TYPE_SIZE[prop.type]
+          }
+        }
+      }
+      indices = new Uint32Array(triTotal * 3)
+      off = faceStart
+      let w = 0
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.isList) {
@@ -158,7 +180,10 @@ function parseBinaryBody(
               let prev = readScalar(dv, off + itemSize, prop.itemType!, little)
               for (let k = 2; k < n; k++) {
                 const cur = readScalar(dv, off + k * itemSize, prop.itemType!, little)
-                indices.push(first, prev, cur)
+                indices[w] = first
+                indices[w + 1] = prev
+                indices[w + 2] = cur
+                w += 3
                 prev = cur
               }
             }
@@ -183,7 +208,7 @@ function parseBinaryBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return { kind: 'indexed', positions, indices: Uint32Array.from(indices) }
+  return { kind: 'indexed', positions, indices }
 }
 
 function parseAsciiBody(
