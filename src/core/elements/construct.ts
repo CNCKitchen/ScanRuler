@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { ElementKind, FitData, LineFit, PlaneFit, PointFit, Vec3 } from '../types'
+import type { CircleFit, ElementKind, FitData, LineFit, PlaneFit, PointFit, Vec3 } from '../types'
 import {
   acuteAngle,
   add,
@@ -23,6 +23,9 @@ export class ConstructionError extends Error {}
 export interface SlotSpec {
   role: RefRole
   label: string
+  /** Narrows the slot beyond its role to specific element kinds — an
+   *  intersection with a cylinder needs the cylinder itself, not any axis. */
+  kinds?: readonly ElementKind[]
 }
 
 export interface ParamSpec {
@@ -42,6 +45,9 @@ export interface CreationMethod {
   hint: string
   slots: SlotSpec[]
   params: ParamSpec[]
+  /** Picks needed before a pick-mode method has a result — one for a point,
+   *  three for a circle. Further picks refine rather than replace. */
+  minPicks?: number
 }
 
 const XYZ: ParamSpec[] = [
@@ -205,6 +211,56 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     slots: [],
     params: [],
   },
+  // ---- Circle ----------------------------------------------------------------
+  {
+    id: 'circle-points',
+    kind: 'circle',
+    mode: 'pick',
+    label: 'Through picked points (3+)',
+    hint: 'Click three or more points around the feature — a hole rim, a boss edge. More points refine the fit.',
+    slots: [],
+    params: [],
+    minPicks: 3,
+  },
+  {
+    id: 'circle-plane-cylinder',
+    kind: 'circle',
+    mode: 'construct',
+    label: 'Plane–cylinder intersection',
+    hint: "The circle where a cylinder crosses a plane — a bore's rim, a boss at its base.",
+    slots: [
+      { role: 'plane', label: 'Plane' },
+      { role: 'axis', label: 'Cylinder', kinds: ['cylinder'] },
+    ],
+    params: [],
+  },
+  {
+    id: 'circle-plane-sphere',
+    kind: 'circle',
+    mode: 'construct',
+    label: 'Plane–sphere intersection',
+    hint: 'The circle where a sphere crosses a plane.',
+    slots: [
+      { role: 'plane', label: 'Plane' },
+      { role: 'point', label: 'Sphere', kinds: ['sphere'] },
+    ],
+    params: [],
+  },
+  {
+    id: 'circle-coords',
+    kind: 'circle',
+    mode: 'construct',
+    label: 'From coordinates',
+    hint: 'A fixed reference circle: its diameter, the normal of its plane and its center.',
+    slots: [],
+    params: [
+      { key: 'd', label: 'Diameter', unit: 'mm' },
+      { key: 'nx', label: 'Normal X' },
+      { key: 'ny', label: 'Normal Y' },
+      { key: 'nz', label: 'Normal Z' },
+      ...XYZ.map((p) => ({ ...p, key: 'c' + p.key, label: 'Center ' + p.label })),
+    ],
+  },
 ]
 
 export function methodsForKind(kind: ElementKind): CreationMethod[] {
@@ -231,6 +287,12 @@ function pointOf(fit: FitData, label: string): Vec3 {
 
 /** Two planes are "parallel" for construction purposes below this angle. */
 const INTERSECT_MIN_ANGLE = 0.2
+
+/** How far a cylinder may lean against a plane before their intersection stops
+ *  being reported as a circle. It is an ellipse the moment there is any tilt at
+ *  all, but below this the major axis is within 0.4 % of the radius — inside
+ *  the noise of any fit — while past it the "circle" would be a lie. */
+const SECTION_MAX_TILT = 5
 
 /**
  * Build the geometry of a constructed element from its already-resolved
@@ -420,6 +482,66 @@ export function evaluateConstruction(
       } satisfies PlaneFit
     }
 
+    case 'circle-plane-cylinder': {
+      const pl = need(refPlane(refs[0]), 'the plane')
+      const cyl = refs[1]
+      if (cyl.kind !== 'cylinder')
+        throw new ConstructionError('The second reference must be a cylinder.')
+      const tilt = acuteAngle(cyl.axis, pl.normal)
+      if (90 - tilt < INTERSECT_MIN_ANGLE)
+        throw new ConstructionError('The cylinder runs parallel to the plane — they never meet.')
+      if (tilt > SECTION_MAX_TILT)
+        throw new ConstructionError(
+          `The cylinder leans ${tilt.toFixed(1)}° against the plane — the section is an ellipse, not a circle.`,
+        )
+      const t = dot(sub(pl.center, cyl.center), pl.normal) / dot(cyl.axis, pl.normal)
+      return {
+        kind: 'circle',
+        center: addScaled(cyl.center, cyl.axis, t),
+        normal: pl.normal,
+        radius: cyl.radius,
+        ...NO_FIT_STATS,
+      } satisfies CircleFit
+    }
+
+    case 'circle-plane-sphere': {
+      const pl = need(refPlane(refs[0]), 'the plane')
+      const sph = refs[1]
+      if (sph.kind !== 'sphere')
+        throw new ConstructionError('The second reference must be a sphere.')
+      const d = dot(sub(sph.center, pl.center), pl.normal)
+      if (Math.abs(d) >= sph.radius) {
+        throw new ConstructionError(
+          Math.abs(d) - sph.radius < sph.radius * 1e-6
+            ? 'The plane only touches the sphere — the circle would have no size.'
+            : 'The plane misses the sphere — there is no intersection.',
+        )
+      }
+      return {
+        kind: 'circle',
+        center: addScaled(sph.center, pl.normal, -d),
+        normal: pl.normal,
+        radius: Math.sqrt(sph.radius * sph.radius - d * d),
+        ...NO_FIT_STATS,
+      } satisfies CircleFit
+    }
+
+    case 'circle-coords': {
+      const [d, nx, ny, nz, cx, cy, cz] = params
+      if (![d, nx, ny, nz, cx, cy, cz].every(Number.isFinite))
+        throw new ConstructionError('Enter the diameter, the normal direction and the center.')
+      if (!(d > 0)) throw new ConstructionError('The diameter must be positive.')
+      const normal = normalize([nx, ny, nz])
+      if (!normal) throw new ConstructionError('The normal direction must not be zero.')
+      return {
+        kind: 'circle',
+        center: [cx, cy, cz],
+        normal,
+        radius: d / 2,
+        ...NO_FIT_STATS,
+      } satisfies CircleFit
+    }
+
     default:
       throw new ConstructionError(`Unknown construction "${method}".`)
   }
@@ -456,6 +578,14 @@ export function describeConstruction(
         .slice(3)
         .map((v) => v.toFixed(3))
         .join(', ')})`
+    case 'circle-plane-cylinder':
+    case 'circle-plane-sphere':
+      return `where ${b} crosses ${a}`
+    case 'circle-coords':
+      return `Ø ${params[0]?.toFixed(3)} mm, normal (${params
+        .slice(1, 4)
+        .map((v) => v.toFixed(3))
+        .join(', ')}) at (${params.slice(4).map((v) => v.toFixed(3)).join(', ')})`
     default:
       return method
   }

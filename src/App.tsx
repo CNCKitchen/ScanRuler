@@ -5,10 +5,11 @@ import { buildSummary } from './core/summary'
 import { isMeshFile, isStepFile, REFERENCE_ACCEPT } from './core/formats'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
+import { circleFromPoints } from './core/fit/circle'
 import { extensionOf, isExtendable, sideValue, type ExtendSide } from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
-import type { ElementKind, FitData, PointFit } from './core/types'
+import type { ElementKind, FitData, PointFit, Vec3 } from './core/types'
 import {
   alignSlotPicks,
   blockedRefs,
@@ -205,6 +206,27 @@ export default function App() {
       sceneRef.current?.setPreviewRegion(null)
       useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
     }
+  }
+
+  /** Fit a pick-mode draft that needs several points — a circle. Pure math on
+   *  a handful of coordinates, so it runs right here rather than in the
+   *  worker, and the preview is ready before the click has been let go of. */
+  const runPickFit = (points: Vec3[]) => {
+    clearPreviewShapeOnly()
+    try {
+      const fit = circleFromPoints(points)
+      useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
+    } catch (e) {
+      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** Drop a stale fit preview without touching the draft itself — the picks
+   *  are being re-fitted, not abandoned. */
+  const clearPreviewShapeOnly = () => {
+    draftSeq.current++
+    draftRegion.current = null
+    sceneRef.current?.setPreviewRegion(null)
   }
 
   /** Fit the draft to the surface the user has marked by hand. The marked
@@ -440,17 +462,26 @@ export default function App() {
     // theirs to consume.
     if (method.mode === 'construct') return
     if (method.mode === 'pick') {
-      // A picked point is the exact raycast hit — no worker round-trip, and
-      // clicking again moves it rather than adding to it.
-      store.setDraftPicks([faceVertices])
-      const fit: PointFit = {
-        kind: 'point',
-        center: hit.point,
-        sigma: 0,
-        usedPoints: 0,
-        regionSize: 0,
+      if (store.draft.kind === 'point') {
+        // A picked point is the exact raycast hit — no worker round-trip, and
+        // clicking again moves it rather than adding to it.
+        store.setDraftPicks([faceVertices], [hit.point])
+        const fit: PointFit = {
+          kind: 'point',
+          center: hit.point,
+          sigma: 0,
+          usedPoints: 0,
+          regionSize: 0,
+        }
+        useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
+        return
       }
-      useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
+      // A multi-point pick method (a circle): every click adds a point, and
+      // the fit follows as soon as there are enough of them.
+      const picks: [number, number, number][] = [...store.draft.picks, faceVertices]
+      const points = [...store.draft.pickPoints, hit.point]
+      store.setDraftPicks(picks, points)
+      if (points.length >= (method.minPicks ?? 1)) runPickFit(points)
       return
     }
     const picks: [number, number, number][] = [...store.draft.picks, faceVertices]
@@ -487,9 +518,15 @@ export default function App() {
         store.setDraftRef(usedSlot, null)
         return
       }
-      const role = roleOf(el.kind)
+      // A slot takes the click when the element plays its role — and, for the
+      // slots narrowed to specific kinds (the cylinder of an intersection
+      // circle), when it is one of those kinds. A circle plays the point role
+      // on a click but also provides an axis, so slots of either kind take it.
       const slot = method.slots.findIndex(
-        (sl, i) => store.draft!.refs[i] === null && sl.role === role,
+        (sl, i) =>
+          store.draft!.refs[i] === null &&
+          (sl.role === roleOf(el.kind) || (sl.role === 'axis' && el.kind === 'circle')) &&
+          (!sl.kinds || sl.kinds.includes(el.kind)),
       )
       if (slot >= 0) store.setDraftRef(slot, id)
       else store.setStatus(`No open slot takes ${el.name} in this construction.`)
@@ -547,7 +584,9 @@ export default function App() {
         : draft.selection
           ? `Editing ${el.name} — add to or rub out the marked surface, then save.`
           : method.mode === 'pick'
-            ? `Editing ${el.name} — click the scan to move the point, then save.`
+            ? draft.kind === 'point'
+              ? `Editing ${el.name} — click the scan to move the point, then save.`
+              : `Editing ${el.name} — click the scan to pick a fresh set of points, then save.`
             : `Editing ${el.name} — click the scan to re-pick the surface, then save.`,
     )
   }
@@ -579,10 +618,17 @@ export default function App() {
     const store = useStore.getState()
     if (!store.draft || store.draft.picks.length === 0) return
     const kind = store.draft.kind
+    const method = creationMethod(kind, store.draft.method)
     const picks = store.draft.picks.slice(0, -1)
-    store.setDraftPicks(picks)
+    const points = store.draft.pickPoints.slice(0, -1)
+    store.setDraftPicks(picks, points)
     clearPreview()
-    if (picks.length > 0) void runDraftFit(kind, picks)
+    if (picks.length === 0) return
+    if (method.mode === 'pick') {
+      if (points.length >= (method.minPicks ?? 1)) runPickFit(points)
+    } else {
+      void runDraftFit(kind, picks)
+    }
   }
 
   const handleCancelDraft = () => {
@@ -808,14 +854,16 @@ export default function App() {
       : painting
         ? paintHint
         : draft.picks.length === 0 && draft.status !== 'ready'
-          ? draftMode === 'pick'
+          ? draftMode === 'pick' && draft.kind === 'point'
             ? 'Click the point on the scan you want to measure to'
             : `Click a point on the ${elementKindInfo(draft.kind).noun} you want to measure`
           : draft.status === 'ready'
             ? `Enter or middle-click to ${editingDraft ? 'save' : 'create'} · Esc to discard · click again to ${
-                draftMode === 'pick' ? 'move the point' : 'add points'
+                draftMode === 'pick' && draft.kind === 'point' ? 'move the point' : 'add points'
               }`
-            : null
+            : draftMode === 'pick' && draft.picks.length > 0 && draft.status === 'empty'
+              ? `Point ${draft.picks.length} of ${creationMethod(draft.kind, draft.method).minPicks ?? 1} — keep clicking around the ${elementKindInfo(draft.kind).noun}`
+              : null
 
   const markHint = !marking
     ? null

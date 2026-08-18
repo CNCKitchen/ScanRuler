@@ -88,7 +88,8 @@ function pinLabel(kind: string, title: string, value: string, titleColor?: strin
 /** What an element's viewport pin says under its name: the diameter where
  *  there is one, nothing otherwise — sigma and coordinates stay in the panel. */
 function pinValue(fit: FitData): string {
-  if (fit.kind === 'sphere' || fit.kind === 'cylinder') return `Ø ${(fit.radius * 2).toFixed(3)} mm`
+  if (fit.kind === 'sphere' || fit.kind === 'cylinder' || fit.kind === 'circle')
+    return `Ø ${(fit.radius * 2).toFixed(3)} mm`
   return ''
 }
 
@@ -124,6 +125,10 @@ export class Overlays {
   /** Open-ended so the scan surface stays visible through the tube. */
   private unitCylinder = new THREE.CylinderGeometry(1, 1, 1, 64, 1, true)
   private unitPlane = new THREE.PlaneGeometry(1, 1)
+  /** A circle element is drawn as a thin ring in its plane (axis along Z, like
+   *  the torus itself). The tube is a fixed fraction of the ring radius so a
+   *  uniform scale to the element's radius keeps it a crisp line at any size. */
+  private unitRing = new THREE.TorusGeometry(1, 0.02, 12, 96)
   /** Just the borders of the two shapes that have any: the four edges of a
    *  plane patch, the two rims of a tube. Built off the same unit geometries the
    *  shells are, so an outline can never disagree with the body it outlines.
@@ -388,7 +393,7 @@ export class Overlays {
       depthWrite: false,
     })
     const mesh = this.buildShape(fit, mat)
-    if (fit.kind === 'sphere') {
+    if (fit.kind === 'sphere' || fit.kind === 'circle') {
       mesh.scale.setScalar(Math.max(fit.radius, 1e-5) + t)
     } else if (fit.kind === 'point') {
       mesh.scale.setScalar(Math.max(this.ctx.modelRadius() * 0.012, 1e-5) + t)
@@ -439,6 +444,16 @@ export class Overlays {
       )
       const r = Math.max(fit.radius, 1e-5)
       mesh.scale.set(r, Math.max(fit.length, 1e-5), r)
+      return mesh
+    }
+    if (fit.kind === 'circle') {
+      const mesh = new THREE.Mesh(this.unitRing, material)
+      mesh.position.set(...fit.center)
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(...fit.normal).normalize(),
+      )
+      mesh.scale.setScalar(Math.max(fit.radius, 1e-5))
       return mesh
     }
     const mesh = new THREE.Mesh(this.unitPlane, material)
@@ -502,6 +517,13 @@ export class Overlays {
       const lift = fit.radius * 1.15
       return [out.x * lift, out.y * lift, out.z * lift]
     }
+    if (fit.kind === 'circle') {
+      // Just outside the ring, across its axis — the same reasoning as the
+      // cylinder: the label belongs beside the curve that was measured.
+      const out = this.acrossAxis(fit.normal)
+      const lift = fit.radius * 1.2
+      return [out.x * lift, out.y * lift, out.z * lift]
+    }
     if (fit.kind === 'point' || fit.kind === 'line') return [0, this.ctx.modelRadius() * 0.03, 0]
     const lift = Math.max(fit.extentU, fit.extentV) * 0.12
     return [fit.normal[0] * lift, fit.normal[1] * lift, fit.normal[2] * lift]
@@ -528,7 +550,8 @@ export class Overlays {
     return fit.radius * 0.07
   }
 
-  /** A cylinder's axis, or a plane's normal, drawn as a line from the centre. */
+  /** A cylinder's axis, or a plane's or circle's normal, drawn as a line from
+   *  the centre. */
   private buildGuide(fit: FitData, color: string): { line: THREE.Line; dispose: () => void } | null {
     if (fit.kind === 'sphere' || fit.kind === 'point' || fit.kind === 'line') return null
     const center = new THREE.Vector3(...fit.center)
@@ -539,6 +562,10 @@ export class Overlays {
       const half = fit.length / 2 + fit.radius * 0.6
       a = center.clone().addScaledVector(dir, -half)
       b = center.clone().addScaledVector(dir, half)
+    } else if (fit.kind === 'circle') {
+      const dir = new THREE.Vector3(...fit.normal).normalize()
+      a = center
+      b = center.clone().addScaledVector(dir, fit.radius * 0.6)
     } else {
       const dir = new THREE.Vector3(...fit.normal).normalize()
       a = center
@@ -638,5 +665,6 @@ export class Overlays {
     this.unitSphere.dispose()
     this.unitCylinder.dispose()
     this.unitPlane.dispose()
+    this.unitRing.dispose()
   }
 }

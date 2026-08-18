@@ -85,6 +85,10 @@ export interface Draft {
   /** Creation method id — see CREATION_METHODS. */
   method: string
   picks: [number, number, number][]
+  /** The exact raycast hit of each pick, for the pick-mode methods that fit
+   *  geometry through several of them (a circle). The vertex triples above
+   *  stay the durable record; these are draft-lifetime working data. */
+  pickPoints: Vec3[]
   /** The surface marked by hand, when the fit came from the brush rather than
    *  from a click. Carried into the element so a change of outlier cut-off
    *  re-fits on exactly the same points. */
@@ -252,6 +256,7 @@ function freshDraft(kind: ElementKind, method: string, edit?: Pick<Draft, 'editI
     kind,
     method,
     picks: [],
+    pickPoints: [],
     refs: m.slots.map(() => null),
     params: m.params.map(() => NaN),
     status: 'empty',
@@ -259,11 +264,16 @@ function freshDraft(kind: ElementKind, method: string, edit?: Pick<Draft, 'editI
   }
 }
 
+/** The pick-mode method of a kind — the one a picked element re-opens on. */
+function pickMethodOf(kind: ElementKind): string {
+  return kind === 'circle' ? 'circle-points' : 'pick'
+}
+
 /** The creation method an existing element was made with — the one its draft
  *  re-opens on. */
 function methodOf(el: Element): string {
   if (el.source.type === 'constructed') return el.source.method
-  return el.source.type === 'picked' ? 'pick' : 'fit'
+  return el.source.type === 'picked' ? pickMethodOf(el.kind) : 'fit'
 }
 
 /** Re-open an element as a draft: everything it was built from, ready to be
@@ -276,6 +286,7 @@ function draftFromElement(el: Element, elements: Element[], modelSize: number): 
     kind: el.kind,
     method: methodOf(el),
     picks: [],
+    pickPoints: [],
     refs: [],
     params: [],
     status: el.fit ? 'ready' : 'empty',
@@ -321,6 +332,7 @@ export function draftColorOf(s: {
 function defaultMethod(kind: ElementKind): string {
   if (kind === 'point') return 'pick'
   if (kind === 'line') return 'line-two-points'
+  if (kind === 'circle') return 'circle-points'
   return 'fit'
 }
 
@@ -411,6 +423,15 @@ function transformSource(source: ElementSource, m: Rigid): ElementSource {
     )
     if (moved.kind !== 'line') return source
     return { ...source, params: [...moved.dir, ...moved.center] }
+  }
+  if (source.method === 'circle-coords') {
+    const [d, nx, ny, nz, cx, cy, cz] = source.params
+    const moved = transformFit(
+      { kind: 'line', center: [cx, cy, cz], dir: [nx, ny, nz], length: 0, sigma: 0, usedPoints: 0, regionSize: 0 },
+      m,
+    )
+    if (moved.kind !== 'line') return source
+    return { ...source, params: [d, ...moved.dir, ...moved.center] }
   }
   return source
 }
@@ -505,7 +526,10 @@ interface AppState {
   editElement: (id: number) => void
   setDraftName: (name: string) => void
   setDraftMethod: (method: string) => void
-  setDraftPicks: (picks: [number, number, number][]) => void
+  /** The picked surface points of the open draft — vertex triples for the
+   *  fit pipeline, plus the exact hit points for the pick-mode methods that
+   *  need coordinates (a circle through picked points). */
+  setDraftPicks: (picks: [number, number, number][], points?: Vec3[]) => void
   /** The hand-marked surface a draft's fit is running on, or null when the
    *  marking has been cleared. */
   setDraftSelection: (selection: Uint32Array | null) => void
@@ -605,6 +629,7 @@ const freshCounters = (): Record<ElementKind, number> => ({
   plane: 1,
   sphere: 1,
   cylinder: 1,
+  circle: 1,
 })
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -777,20 +802,23 @@ export const useStore = create<AppState>()((set, get) => ({
       }
     }),
 
-  setDraftPicks: (picks) =>
-    set((s) =>
-      s.draft
-        ? {
-            draft: {
-              ...s.draft,
-              picks,
-              fit: undefined,
-              message: undefined,
-              status: picks.length ? ('fitting' as const) : ('empty' as const),
-            },
-          }
-        : {},
-    ),
+  setDraftPicks: (picks, points) =>
+    set((s) => {
+      if (!s.draft) return {}
+      // Below a method's minimum there is nothing to fit yet — the draft shows
+      // its progress rather than a spinner that cannot resolve.
+      const min = creationMethod(s.draft.kind, s.draft.method).minPicks ?? 1
+      return {
+        draft: {
+          ...s.draft,
+          picks,
+          pickPoints: points ?? [],
+          fit: undefined,
+          message: undefined,
+          status: picks.length >= min ? ('fitting' as const) : ('empty' as const),
+        },
+      }
+    }),
 
   setDraftSelection: (selection) =>
     set((s) =>

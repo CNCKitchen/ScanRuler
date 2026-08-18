@@ -43,6 +43,7 @@ export function formatPrimary(fit: FitData): string {
   switch (fit.kind) {
     case 'sphere':
     case 'cylinder':
+    case 'circle':
       return `Ø ${(fit.radius * 2).toFixed(3)} mm`
     case 'plane':
       return isFitted(fit) ? `σ ${fit.sigma.toFixed(4)} mm` : ''
@@ -53,18 +54,42 @@ export function formatPrimary(fit: FitData): string {
   }
 }
 
+/** What the peak-to-peak form deviation of a kind is called in GD&T — the
+ *  name the summary and the report label it with. Null for the kinds that
+ *  have no surface form to speak of. */
+export function formErrorLabel(kind: ElementKind): string | null {
+  switch (kind) {
+    case 'plane':
+      return 'flatness'
+    case 'cylinder':
+      return 'cylindricity'
+    case 'sphere':
+      return 'sphericity'
+    case 'circle':
+      return 'circularity'
+    default:
+      return null
+  }
+}
+
 /** The supporting numbers, for the panel's detail line and the summary. */
 export function formatDetail(fit: FitData): string {
   const points = `${fit.usedPoints.toLocaleString('en-US')} of ${fit.regionSize.toLocaleString('en-US')} points`
+  const form =
+    fit.formError !== undefined ? ` · ${formErrorLabel(fit.kind) ?? 'form'} ${fit.formError.toFixed(4)} mm` : ''
   switch (fit.kind) {
     case 'sphere':
-      return `σ ${fit.sigma.toFixed(4)} mm · ${points}`
+      return `σ ${fit.sigma.toFixed(4)} mm${form} · ${points}`
     case 'cylinder':
-      return `σ ${fit.sigma.toFixed(4)} mm · length ${fit.length.toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
+      return `σ ${fit.sigma.toFixed(4)} mm${form} · length ${fit.length.toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
     case 'plane':
       return isFitted(fit)
-        ? `${(fit.extentU * 2).toFixed(2)} × ${(fit.extentV * 2).toFixed(2)} mm patch · ${points}`
+        ? `${(fit.extentU * 2).toFixed(2)} × ${(fit.extentV * 2).toFixed(2)} mm patch${form} · ${points}`
         : `${(fit.extentU * 2).toFixed(2)} × ${(fit.extentV * 2).toFixed(2)} mm patch`
+    case 'circle':
+      return isFitted(fit)
+        ? `σ ${fit.sigma.toFixed(4)} mm${form} · from ${fit.usedPoints} points`
+        : `center (${fit.center.map((v) => v.toFixed(3)).join(', ')})`
     case 'point':
       return `at (${fit.center.map((v) => v.toFixed(3)).join(', ')})`
     case 'line':
@@ -120,6 +145,10 @@ export function buildSummary(
       lines.push(`  point: ${formatVec(f.center)}`)
       lines.push(`  normal: ${formatVec(f.normal)}`)
       lines.push(`  patch: ${(f.extentU * 2).toFixed(2)} × ${(f.extentV * 2).toFixed(2)} mm`)
+    } else if (f.kind === 'circle') {
+      lines.push(`  diameter: ${(f.radius * 2).toFixed(4)} mm`)
+      lines.push(`  center: ${formatVec(f.center)}`)
+      lines.push(`  normal: ${formatVec(f.normal)}`)
     } else if (f.kind === 'point') {
       lines.push(`  point: ${formatVec(f.center)}`)
     } else {
@@ -130,6 +159,9 @@ export function buildSummary(
       lines.push(
         `  sigma: ${f.sigma.toFixed(4)} mm, used points: ${f.usedPoints} of ${f.regionSize}`,
       )
+      if (f.formError !== undefined) {
+        lines.push(`  ${formErrorLabel(f.kind) ?? 'form'} (peak-to-peak): ${f.formError.toFixed(4)} mm`)
+      }
     }
     // What is on screen and in the STEP file, when that is no longer the same
     // as what was measured.

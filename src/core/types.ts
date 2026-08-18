@@ -34,7 +34,7 @@ export interface FitSettings {
   sigma: SigmaPreset
 }
 
-export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder'
+export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'circle'
 
 /** The kinds that are measured by fitting to the scan surface. Points are
  *  picked, lines only constructed; these three run the worker pipeline. */
@@ -73,6 +73,11 @@ export interface FitBase {
   sigma: number
   usedPoints: number
   regionSize: number
+  /** Peak-to-peak form deviation over the used points — max minus min
+   *  residual, the number GD&T calls flatness / circularity / cylindricity /
+   *  sphericity. Absent on picked and constructed geometry, which has no
+   *  residuals to span. */
+  formError?: number
 }
 
 /** A reference point: picked on the scan surface or constructed. */
@@ -124,9 +129,19 @@ export interface PlaneFit extends FitBase {
   extentV: number
 }
 
+/** A circle: a center, the unit normal of the plane it lies in, a radius.
+ *  Fitted through picked points, or constructed — a plane–cylinder or
+ *  plane–sphere intersection, or typed-in coordinates. */
+export interface CircleFit extends FitBase {
+  kind: 'circle'
+  center: Vec3
+  normal: Vec3
+  radius: number
+}
+
 /** The geometry of one element — everything except the (large) list of mesh
  *  vertices a fitted one was measured on. */
-export type FitData = SphereFit | CylinderFit | PlaneFit | PointFit | LineFit
+export type FitData = SphereFit | CylinderFit | PlaneFit | PointFit | LineFit | CircleFit
 
 /** How an element came to be, and what is needed to rebuild it: fitted
  *  elements re-fit from their seeds when the sigma preset changes, picked

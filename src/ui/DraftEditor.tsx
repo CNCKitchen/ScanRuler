@@ -73,7 +73,13 @@ export function DraftEditor({
         : draft.picks.length === 0 && draft.status !== 'ready'
           ? method.hint
           : method.mode === 'pick'
-            ? `Click again to move the point, or ${edited ? 'save it' : 'create it'}.`
+            ? draft.kind === 'point'
+              ? `Click again to move the point, or ${edited ? 'save it' : 'create it'}.`
+              : draft.picks.length < (method.minPicks ?? 1)
+                ? `${(method.minPicks ?? 1) - draft.picks.length} more point${
+                    (method.minPicks ?? 1) - draft.picks.length === 1 ? '' : 's'
+                  } to go — spread them around the ${draftKind.noun}.`
+                : `More points refine the fit, or ${edited ? 'save it' : 'create it'}.`
             : `Add more points if the ${draftKind.noun} is split across unconnected patches.`
 
   if (draft === null) return null
@@ -163,6 +169,7 @@ export function DraftEditor({
                   key={i}
                   label={slot.label}
                   roles={[slot.role]}
+                  kinds={slot.kinds}
                   value={draft.refs[i]}
                   elements={elements}
                   blocked={blocked}
@@ -227,7 +234,9 @@ export function DraftEditor({
                     ? 'Incomplete'
                     : paintingSurface
                       ? 'Nothing marked'
-                      : 'No points picked'}
+                      : draft.picks.length > 0
+                        ? `${draft.picks.length} of ${method.minPicks ?? 1} points`
+                        : 'No points picked'}
                 </b>
               )}
               {draft.status === 'fitting' && (

@@ -191,3 +191,81 @@ describe('plane constructions', () => {
     expect(p.extentU).toBeGreaterThan(0)
   })
 })
+
+describe('circle constructions', () => {
+  const floor = () => planeZ([0, 0, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0])
+
+  it('intersects a perpendicular cylinder with a plane', () => {
+    const cyl = cylinder([2, 3, 10], [0, 0, 1], 20)
+    const c = evaluateConstruction('circle-plane-cylinder', [floor(), cyl], [], SIZE)
+    if (c.kind !== 'circle') throw new Error('not a circle')
+    expect(c.center[0]).toBeCloseTo(2, 9)
+    expect(c.center[1]).toBeCloseTo(3, 9)
+    expect(c.center[2]).toBeCloseTo(0, 9)
+    expect(c.radius).toBeCloseTo(4, 9)
+    expect(Math.abs(c.normal[2])).toBeCloseTo(1, 9)
+  })
+
+  it('accepts a slightly leaning cylinder and keeps its radius', () => {
+    // 2° lean — well inside any fitted pair of real datums.
+    const a = Math.sin((2 * Math.PI) / 180)
+    const axis: Vec3 = [a, 0, Math.sqrt(1 - a * a)]
+    const cyl = cylinder([0, 0, 10], axis, 20)
+    const c = evaluateConstruction('circle-plane-cylinder', [floor(), cyl], [], SIZE)
+    if (c.kind !== 'circle') throw new Error('not a circle')
+    expect(c.radius).toBeCloseTo(4, 9)
+  })
+
+  it('refuses a cylinder leaning past the ellipse threshold', () => {
+    const s = Math.SQRT1_2
+    const cyl = cylinder([0, 0, 10], [s, 0, s], 20)
+    expect(() => evaluateConstruction('circle-plane-cylinder', [floor(), cyl], [], SIZE)).toThrow(
+      'ellipse',
+    )
+  })
+
+  it('refuses a cylinder parallel to the plane', () => {
+    const cyl = cylinder([0, 0, 10], [1, 0, 0], 20)
+    expect(() => evaluateConstruction('circle-plane-cylinder', [floor(), cyl], [], SIZE)).toThrow(
+      ConstructionError,
+    )
+  })
+
+  it('intersects a sphere with a plane', () => {
+    // Sphere r = 5 centred 3 above the plane: circle of radius 4 under it.
+    const c = evaluateConstruction('circle-plane-sphere', [floor(), sphere([1, 2, 3])], [], SIZE)
+    if (c.kind !== 'circle') throw new Error('not a circle')
+    expect(c.center[0]).toBeCloseTo(1, 9)
+    expect(c.center[1]).toBeCloseTo(2, 9)
+    expect(c.center[2]).toBeCloseTo(0, 9)
+    expect(c.radius).toBeCloseTo(4, 9)
+  })
+
+  it('refuses a plane that misses the sphere', () => {
+    expect(() =>
+      evaluateConstruction('circle-plane-sphere', [floor(), sphere([0, 0, 9])], [], SIZE),
+    ).toThrow('misses')
+  })
+
+  it('builds a circle from coordinates', () => {
+    const c = evaluateConstruction('circle-coords', [], [12, 0, 0, 2, 5, 6, 7], SIZE)
+    if (c.kind !== 'circle') throw new Error('not a circle')
+    expect(c.radius).toBeCloseTo(6, 9)
+    expect(c.normal).toEqual([0, 0, 1])
+    expect(c.center).toEqual([5, 6, 7])
+  })
+
+  it('refuses a zero or negative diameter', () => {
+    expect(() => evaluateConstruction('circle-coords', [], [0, 0, 0, 1, 0, 0, 0], SIZE)).toThrow(
+      ConstructionError,
+    )
+  })
+
+  it('uses circle centers as points in other constructions', () => {
+    const a = evaluateConstruction('circle-coords', [], [10, 0, 0, 1, 0, 0, 0], SIZE)
+    const b = evaluateConstruction('circle-coords', [], [10, 0, 0, 1, 8, 0, 0], SIZE)
+    const l = evaluateConstruction('line-two-points', [a, b], [], SIZE) as LineFit
+    expect(l.length).toBeCloseTo(8, 9)
+    expect(Math.abs(l.dir[0])).toBeCloseTo(1, 9)
+  })
+})

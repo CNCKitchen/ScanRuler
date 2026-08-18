@@ -79,6 +79,13 @@ function writeElement(w: StepWriter, name: string, fit: FitData): number {
         `RECTANGULAR_TRIMMED_SURFACE('${label}',#${surf},0.,${num(TWO_PI)},${num(-HALF_PI)},${num(HALF_PI)},.T.,.T.)`,
       )
     }
+
+    // A circle is a curve in either form, the way a line is: reference
+    // geometry to sketch against, not a body.
+    case 'circle': {
+      const pl = placement(w, fit.center, fit.normal, orthoBasis(fit.normal)[0])
+      return w.add(`CIRCLE('${label}',#${pl},${num(Math.max(fit.radius, 1e-6))})`)
+    }
   }
 }
 

@@ -266,12 +266,17 @@ export function useSceneSync({
   }, [highlightKey])
 
   // Points picked for the alignment stay marked on the part, numbered in the
-  // order they were clicked so the count is readable at a glance.
+  // order they were clicked so the count is readable at a glance. A multi-point
+  // pick draft (a circle) marks its points the same way — with several clicks
+  // going into one element, seeing which have landed is half the workflow.
+  const pickDraftPoints =
+    draft && creationMethod(draft.kind, draft.method).mode === 'pick' && draft.kind !== 'point'
+      ? draft.pickPoints
+      : null
   useEffect(() => {
     sceneRef.current?.setPickMarkers(
-      !alignDraft
-        ? []
-        : [
+      alignDraft
+        ? [
             ...alignDraft.primaryPicks.map((p, i) => ({
               point: p,
               label: `Plane ${i + 1}`,
@@ -287,9 +292,14 @@ export function useSceneSync({
               label: 'Zero',
               color: '#2e7d46',
             })),
-          ],
+          ]
+        : (pickDraftPoints ?? []).map((p, i) => ({
+            point: p,
+            label: `${i + 1}`,
+            color: draftColor,
+          })),
     )
-  }, [alignDraft])
+  }, [alignDraft, pickDraftPoints, draftColor])
 
   // The alignment being set up is shown on the part, not just described in the
   // panel: the moment a slot has what it needs the scan swings onto the axis

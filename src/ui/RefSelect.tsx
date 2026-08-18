@@ -4,17 +4,24 @@
 // field of whatever is being edited.
 
 import { providesRole, type RefRole } from '../core/elements/refs'
+import type { ElementKind } from '../core/types'
 import type { Element } from '../state/store'
 
 /** Elements that can fill a reference slot of one of the given roles, minus
- *  any that would close a loop (an edited element and its dependents). */
+ *  any that would close a loop (an edited element and its dependents). `kinds`
+ *  narrows further, for slots that need one specific element kind. */
 export function providersFor(
   roles: readonly RefRole[],
   elements: Element[],
   blocked?: ReadonlySet<number>,
+  kinds?: readonly ElementKind[],
 ): Element[] {
   return elements.filter(
-    (e) => e.fit && !blocked?.has(e.id) && roles.some((role) => providesRole(e.kind, role)),
+    (e) =>
+      e.fit &&
+      !blocked?.has(e.id) &&
+      roles.some((role) => providesRole(e.kind, role)) &&
+      (!kinds || kinds.includes(e.kind)),
   )
 }
 
@@ -42,6 +49,7 @@ export function NameField({
 export function RefSelect({
   label,
   roles,
+  kinds,
   value,
   elements,
   blocked,
@@ -52,6 +60,8 @@ export function RefSelect({
 }: {
   label: string
   roles: readonly RefRole[]
+  /** Narrows the slot beyond its roles to specific element kinds. */
+  kinds?: readonly ElementKind[]
   value: number | null
   elements: Element[]
   /** Elements this slot must not offer — see providersFor. */
@@ -63,7 +73,7 @@ export function RefSelect({
   /** Offered on point slots: create the point by clicking the scan. */
   onPickNew?: () => void
 }) {
-  const options = providersFor(roles, elements, blocked)
+  const options = providersFor(roles, elements, blocked, kinds)
   return (
     <label className="field">
       <span>{label}</span>
