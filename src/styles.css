@@ -1031,6 +1031,37 @@ button.x:disabled {
   -webkit-touch-callout: none;
 }
 
+/* WebGL could not be started: the one state where the stage has nothing to
+   show. A plain card in the middle of it, so the failure reads as a message
+   from the tool rather than a page that never loaded. */
+.webgl-missing {
+  position: absolute;
+  left: 50%;
+  top: 18px;
+  transform: translateX(-50%);
+  /* Above the start pane, which fills the stage with an opaque card of its
+     own — an invitation to load a file the tool could not show anyway. */
+  z-index: 20;
+  max-width: 30rem;
+  padding: 1rem 1.25rem;
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid rgba(18, 22, 26, 0.18);
+  border-radius: 6px;
+  box-shadow: 0 6px 24px rgba(18, 22, 26, 0.12);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.webgl-missing p {
+  margin: 0.5rem 0 0;
+}
+
+.webgl-missing-detail {
+  opacity: 0.6;
+  font-size: 0.78rem;
+}
+
 /* The window / lasso outline, drawn over the canvas while it is being
    dragged. Dashed and unfilled-but-for-a-wash, so the surface it is about to
    take stays readable underneath it. */
