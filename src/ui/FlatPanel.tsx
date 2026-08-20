@@ -6,11 +6,18 @@
 
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
+import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
+import { FLAT_KIND_LABELS } from '../core/flat/elements'
+import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
+import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
+import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
 import { useFlat } from '../state/flatStore'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
+
+const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc']
 
 export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }) {
   const imageName = useFlat((s) => s.imageName)
@@ -27,6 +34,10 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
   const edgeCount = useFlat((s) => s.edgeCount)
   const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
   const showEdges = useFlat((s) => s.showEdges)
+  const elements = useFlat((s) => s.elements)
+  const draft = useFlat((s) => s.draft)
+  const selectedId = useFlat((s) => s.selectedId)
+  const unit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
   const flat = useFlat
 
   // The reference's true size, and what applying against it last said. Local:
@@ -242,6 +253,151 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
               >
                 Save
               </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {imageName && (
+        <div className="group">
+          <div className="sec-head">
+            Elements
+            <InfoDot title="Elements">
+              <p>
+                Pick a shape, then click it on the image. Clicks <b>snap to the nearest detected
+                edge</b> (subpixel) — hold <b>Alt</b> to place the raw click instead. More points
+                than the minimum give a best fit, with the form error reported.
+              </p>
+              <p>
+                Points can also be constructed: the midpoint of two, the intersection of two
+                lines — the corner two edges meet at, however rounded the part is there — or a
+                circle's center.
+              </p>
+            </InfoDot>
+          </div>
+          <div className="kindrow">
+            {FLAT_KINDS.map((k) => (
+              <button
+                key={k}
+                data-test={`flat-fit-${k}`}
+                disabled={draft !== null || calibrating !== null}
+                onClick={() => flat.getState().startDraft(k, flatMethodsForKind(k)[0].id)}
+              >
+                {FLAT_KIND_LABELS[k]}
+              </button>
+            ))}
+          </div>
+
+          {draft && (
+            <>
+              {flatMethodsForKind(draft.kind).length > 1 && (
+                <label className="field">
+                  <span>Method</span>
+                  <select
+                    data-test="flat-draft-method"
+                    value={draft.method}
+                    onChange={(e) => flat.getState().setDraftMethod(e.target.value)}
+                  >
+                    {flatMethodsForKind(draft.kind).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <p className="hint" data-test="flat-draft-hint">
+                {flatMethod(draft.method).hint}
+              </p>
+              {flatMethod(draft.method).slots?.map((slot, i) => (
+                <label className="field" key={slot.label + i}>
+                  <span>{slot.label}</span>
+                  <select
+                    data-test={`flat-draft-slot-${i}`}
+                    value={draft.refs[i] ?? ''}
+                    onChange={(e) =>
+                      flat
+                        .getState()
+                        .setDraftRef(i, e.target.value === '' ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="">Choose…</option>
+                    {elements
+                      .filter(
+                        (el) =>
+                          el.fit &&
+                          FLAT_ROLE_PROVIDERS[slot.role].includes(el.kind) &&
+                          !draft.refs.some((r, j) => j !== i && r === el.id),
+                      )
+                      .map((el) => (
+                        <option key={el.id} value={el.id}>
+                          {el.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              ))}
+              {flatMethod(draft.method).mode === 'pick' && (
+                <p className="hint" data-test="flat-draft-picks">
+                  {draft.picks.length} point{draft.picks.length === 1 ? '' : 's'} picked
+                  {draft.fit ? ' — fit ready' : ` (need ${flatMethod(draft.method).minPicks})`}
+                </p>
+              )}
+              {draft.error && <p className="alarmtext">{draft.error}</p>}
+              <button
+                className="primary block"
+                data-test="flat-create-element"
+                disabled={!draft.fit}
+                onClick={() => flat.getState().commitDraft()}
+              >
+                Create element
+              </button>
+              <div className="toolrow">
+                <button
+                  data-test="flat-draft-undo"
+                  disabled={draft.picks.length === 0}
+                  onClick={() => flat.getState().undoDraftPick()}
+                >
+                  Undo pick
+                </button>
+                <button data-test="flat-draft-cancel" onClick={() => flat.getState().cancelDraft()}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+
+          {elements.length > 0 && (
+            <div className="rows">
+              {elements.map((el) => (
+                <div
+                  key={el.id}
+                  className={'kv' + (el.visible ? '' : ' ghost') + (selectedId === el.id ? ' sel' : '')}
+                  data-test="flat-element-row"
+                  onClick={() => flat.getState().selectElement(selectedId === el.id ? null : el.id)}
+                >
+                  <span className="dot" style={{ background: el.color }} />
+                  <span className="name">{el.name}</span>
+                  {el.fit ? (
+                    <b title={formatFlatDetail(el.fit, unit)}>{formatFlatPrimary(el.fit, unit)}</b>
+                  ) : (
+                    <b className="warn" title={el.error ?? undefined}>
+                      no fit
+                    </b>
+                  )}
+                  <button
+                    className="iconbtn"
+                    data-test="flat-element-delete"
+                    title="Delete element"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      flat.getState().deleteElement(el.id)
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>

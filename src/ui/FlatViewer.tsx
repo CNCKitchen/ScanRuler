@@ -18,7 +18,7 @@ export function FlatViewer({
   /** The scene when it comes up, null when the viewport unmounts — so the
    *  owner never holds a disposed scene. */
   onReady: (scene: FlatScene | null) => void
-  onPick: (p: Vec2) => void
+  onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const pickRef = useRef(onPick)
@@ -42,7 +42,7 @@ export function FlatViewer({
       return
     }
     scene.setNavScheme(schemeById(useStore.getState().navScheme))
-    scene.onPick = (p) => pickRef.current(p)
+    scene.onPick = (p, meta) => pickRef.current(p, meta)
     sceneRef.current = scene
     readyRef.current(scene)
     return () => {

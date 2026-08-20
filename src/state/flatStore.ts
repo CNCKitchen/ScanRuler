@@ -11,9 +11,19 @@
 
 import { create } from 'zustand'
 import { distanceCalibration, diameterCalibration } from '../core/flat/calibration'
+import { flatMethod } from '../core/flat/construct'
+import {
+  evaluateFlatElements,
+  evaluateFlatSource,
+  flatPicksReady,
+  FLAT_KIND_LABELS,
+  type FlatElement,
+  type FlatSource,
+} from '../core/flat/elements'
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
-import type { Vec2 } from '../core/flat/types'
+import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
+import { PALETTE } from './palette'
 
 /** What the numbers on screen rest on. `metadata` is the file's own claim —
  *  honest to measure with, nominal until verified; `measured` is a
@@ -25,6 +35,18 @@ export type CalMode = 'distance' | 'diameter'
 export interface CalibrationProfile {
   name: string
   pxPerMm: PixelsPerMm
+}
+
+/** A flat element being built: picks and references accumulate, and the fit
+ *  (or the reason there is none) follows every change. Picks are image
+ *  pixels, like the elements' own sources. */
+export interface FlatDraft {
+  kind: FlatElementKind
+  method: string
+  picks: Vec2[]
+  refs: (number | null)[]
+  fit: FlatFit | null
+  error: string | null
 }
 
 const PROFILE_KEY = 'scanruler.flat.profiles.v1'
@@ -55,6 +77,48 @@ function storeProfiles(profiles: CalibrationProfile[]): void {
     // Storage full or blocked — the profiles still work for this session.
   }
 }
+
+/** The draft's fit, following every change: null-and-no-error while picks or
+ *  slots are still missing, null-with-reason when the geometry refuses. */
+function evaluateDraft(
+  draft: Pick<FlatDraft, 'kind' | 'method' | 'picks' | 'refs'>,
+  elements: readonly FlatElement[],
+  pxPerMm: PixelsPerMm | null,
+): { fit: FlatFit | null; error: string | null } {
+  const m = flatMethod(draft.method)
+  try {
+    if (m.mode === 'pick') {
+      if (!flatPicksReady(draft.method, draft.picks)) return { fit: null, error: null }
+      return {
+        fit: evaluateFlatSource(
+          { type: 'picks', method: draft.method, picks: draft.picks },
+          pxPerMm,
+          () => null,
+        ),
+        error: null,
+      }
+    }
+    const slots = m.slots?.length ?? 0
+    if (draft.refs.length < slots || draft.refs.some((r) => r === null)) {
+      return { fit: null, error: null }
+    }
+    return {
+      fit: evaluateFlatSource(
+        { type: 'construct', method: draft.method, refs: draft.refs as number[] },
+        pxPerMm,
+        (id) => elements.find((e) => e.id === id)?.fit ?? null,
+      ),
+      error: null,
+    }
+  } catch (e) {
+    if (e instanceof FitError) return { fit: null, error: e.message }
+    throw e
+  }
+}
+
+/** Per-kind name counters: "Circle 3" is the third circle ever made this
+ *  session, and deletions never make a name come back to mean something new. */
+type NameCounts = Partial<Record<FlatElementKind, number>>
 
 interface FlatState {
   imageName: string | null
@@ -89,6 +153,26 @@ interface FlatState {
   calibrating: { mode: CalMode; picks: Vec2[] } | null
 
   profiles: CalibrationProfile[]
+
+  /** Measured results and the one being built. Sources are image pixels;
+   *  fits are document units, re-derived whenever the scale moves. */
+  elements: FlatElement[]
+  draft: FlatDraft | null
+  nextId: number
+  nameCounts: NameCounts
+  selectedId: number | null
+
+  startDraft: (kind: FlatElementKind, method: string) => void
+  cancelDraft: () => void
+  addDraftPick: (px: Vec2) => void
+  undoDraftPick: () => void
+  setDraftRef: (slot: number, id: number | null) => void
+  setDraftMethod: (method: string) => void
+  /** Turn the draft into an element. Returns its id, or null if not ready. */
+  commitDraft: () => number | null
+  deleteElement: (id: number) => void
+  setElementVisible: (id: number, v: boolean) => void
+  selectElement: (id: number | null) => void
 
   beginImageLoad: (name: string) => void
   finishImageLoad: (name: string, width: number, height: number, meta: PixelsPerMm | null) => void
@@ -138,6 +222,118 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   profiles: loadProfiles(),
 
+  elements: [],
+  draft: null,
+  nextId: 1,
+  nameCounts: {},
+  selectedId: null,
+
+  startDraft: (kind, method) =>
+    set({
+      draft: {
+        kind,
+        method,
+        picks: [],
+        refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
+        fit: null,
+        error: null,
+      },
+      selectedId: null,
+    }),
+
+  cancelDraft: () => set({ draft: null }),
+
+  addDraftPick: (px) =>
+    set((s) => {
+      if (!s.draft || flatMethod(s.draft.method).mode !== 'pick') return {}
+      // A single-point method moves its point; everything else accumulates.
+      const picks =
+        flatMethod(s.draft.method).minPicks === 1 && s.draft.kind === 'point'
+          ? [px]
+          : [...s.draft.picks, px]
+      const draft = { ...s.draft, picks }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  undoDraftPick: () =>
+    set((s) => {
+      if (!s.draft) return {}
+      const draft = { ...s.draft, picks: s.draft.picks.slice(0, -1) }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  setDraftRef: (slot, id) =>
+    set((s) => {
+      if (!s.draft) return {}
+      const refs = [...s.draft.refs]
+      refs[slot] = id
+      const draft = { ...s.draft, refs }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  setDraftMethod: (method) =>
+    set((s) => {
+      if (!s.draft) return {}
+      return {
+        draft: {
+          kind: s.draft.kind,
+          method,
+          picks: [],
+          refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
+          fit: null,
+          error: null,
+        },
+      }
+    }),
+
+  commitDraft: () => {
+    const s = get()
+    if (!s.draft?.fit) return null
+    const m = flatMethod(s.draft.method)
+    const source: FlatSource =
+      m.mode === 'pick'
+        ? { type: 'picks', method: s.draft.method, picks: s.draft.picks }
+        : { type: 'construct', method: s.draft.method, refs: s.draft.refs as number[] }
+    const id = s.nextId
+    const count = (s.nameCounts[s.draft.kind] ?? 0) + 1
+    const element: FlatElement = {
+      id,
+      kind: s.draft.kind,
+      name: `${FLAT_KIND_LABELS[s.draft.kind]} ${count}`,
+      color: PALETTE[(id - 1) % PALETTE.length],
+      source,
+      fit: s.draft.fit,
+      error: null,
+      visible: true,
+    }
+    set({
+      elements: [...s.elements, element],
+      draft: null,
+      nextId: id + 1,
+      nameCounts: { ...s.nameCounts, [s.draft.kind]: count },
+      selectedId: id,
+    })
+    return id
+  },
+
+  // Constructions referencing the deleted element keep their row and say why
+  // they cannot be evaluated any more, exactly like the 3D side.
+  deleteElement: (id) =>
+    set((s) => ({
+      elements: evaluateFlatElements(
+        s.elements.filter((e) => e.id !== id),
+        s.pxPerMm,
+      ),
+      selectedId: s.selectedId === id ? null : s.selectedId,
+    })),
+
+  setElementVisible: (id, visible) =>
+    set((s) => ({
+      elements: s.elements.map((e) => (e.id === id ? { ...e, visible } : e)),
+    })),
+
+  selectElement: (selectedId) => set({ selectedId }),
+
   beginImageLoad: (imageName) => set({ imageBusy: true, imageName }),
 
   // A new image adopts its own metadata scale — unless a measured calibration
@@ -154,6 +350,12 @@ export const useFlat = create<FlatState>()((set, get) => ({
       calibrating: null,
       edgeStatus: 'idle' as const,
       edgeCount: 0,
+      // Elements are measurements of one image; the calibration is of the
+      // scanner and stays.
+      elements: [],
+      draft: null,
+      nameCounts: {},
+      selectedId: null,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -205,7 +407,14 @@ export const useFlat = create<FlatState>()((set, get) => ({
               splitAxes: s.splitAxes,
             })
           : diameterCalibration(s.calibrating.picks, trueMm)
-      set({ pxPerMm, calSource: 'measured', calibrating: null })
+      // Every fit re-derives from its recorded pixels under the new scale —
+      // the measurements move with the calibration, never lag it.
+      set({
+        pxPerMm,
+        calSource: 'measured',
+        calibrating: null,
+        elements: evaluateFlatElements(s.elements, pxPerMm),
+      })
       return null
     } catch (e) {
       if (e instanceof FitError) return e.message
@@ -232,7 +441,12 @@ export const useFlat = create<FlatState>()((set, get) => ({
   applyProfile: (name) =>
     set((s) => {
       const p = s.profiles.find((x) => x.name === name)
-      return p ? { pxPerMm: { ...p.pxPerMm }, calSource: 'measured' } : {}
+      if (!p) return {}
+      return {
+        pxPerMm: { ...p.pxPerMm },
+        calSource: 'measured',
+        elements: evaluateFlatElements(s.elements, p.pxPerMm),
+      }
     }),
 
   deleteProfile: (name) =>

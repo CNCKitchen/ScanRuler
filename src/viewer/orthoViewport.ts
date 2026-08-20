@@ -26,8 +26,9 @@ export interface OrthoViewportOptions {
   /** Meshes an orbit is allowed to pivot on, re-asked at every drag. */
   navTargets: () => THREE.Object3D[]
   /** A left press-and-release that stayed within the drag threshold — a click,
-   *  not a rotation. */
-  onClick: (clientX: number, clientY: number) => void
+   *  not a rotation. The event rides along for owners that care about
+   *  modifier keys; most ignore it. */
+  onClick: (clientX: number, clientY: number, e?: PointerEvent) => void
   /** First look at every pointerdown, before the click machinery records it.
    *  Return true to take the event (a brush stroke, a grip grab). */
   onPointerDown?: (e: PointerEvent) => boolean
@@ -168,7 +169,7 @@ export class OrthoViewport {
       if (!down || e.button !== 0 || wasMulti) return
       // A drag is a rotation, not a pick.
       if (Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) return
-      this.opts.onClick(e.clientX, e.clientY)
+      this.opts.onClick(e.clientX, e.clientY, e)
     })
     // A cancelled pointer never reports up; without this the canvas would stay
     // convinced a finger was still down on it.

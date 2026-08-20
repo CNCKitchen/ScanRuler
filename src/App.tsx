@@ -6,6 +6,8 @@ import { isMeshFile, isStepFile, IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/f
 import { imagePixelsPerMm } from './core/flat/image'
 import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
 import { chainCount, type EdgeChains } from './core/flat/edges'
+import { EdgeIndex } from './core/flat/snap'
+import { formatFlatPrimary } from './core/flat/summary'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
@@ -80,6 +82,7 @@ export default function App() {
   if (!edgeClientRef.current) edgeClientRef.current = new EdgeClient()
   const flatGrayRef = useRef<{ gray: Uint8Array; width: number; height: number } | null>(null)
   const flatEdgesRef = useRef<EdgeChains | null>(null)
+  const flatEdgeIndexRef = useRef<EdgeIndex | null>(null)
 
   // Region of the pending preview fit, kept out of the store because it is a
   // large typed array that only the scene needs.
@@ -167,6 +170,7 @@ export default function App() {
     void scene.setImage(bitmap, flatMmPerPx())
     syncFlatCalPicks()
     syncFlatEdges()
+    syncFlatElements()
   }
   useEffect(syncFlatImage, [flatImageVersion])
 
@@ -203,6 +207,7 @@ export default function App() {
     )
     if (!chains) return
     flatEdgesRef.current = chains
+    flatEdgeIndexRef.current = new EdgeIndex(chains)
     useFlat.getState().resolveEdges(chainCount(chains))
   }
 
@@ -222,14 +227,52 @@ export default function App() {
   }
   useEffect(syncFlatEdges, [edgeVersion, showEdges])
 
-  /** A click on the flat sheet, in document mm — routed to whichever flat
-   *  tool is collecting. */
-  const handleFlatPick = (p: [number, number]) => {
+  /** A click on the flat sheet, in document units — routed to whichever flat
+   *  tool is collecting, snapped to the nearest detected edge unless Alt says
+   *  the click itself is the measurement. */
+  const handleFlatPick = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
     const flat = useFlat.getState()
-    if (!flat.calibrating) return
     const mm = flatMmPerPx()
-    flat.addCalPick([p[0] / mm.x, p[1] / mm.y])
+    let px: [number, number] = [p[0] / mm.x, p[1] / mm.y]
+    if (!meta.alt && flatEdgeIndexRef.current) {
+      // A hand-sized radius: what looks like "that edge" on screen, however
+      // far zoomed in or out the sheet is right now.
+      const radiusPx = (10 * meta.unitsPerScreenPx) / mm.x
+      const snapped = flatEdgeIndexRef.current.nearest(px[0], px[1], radiusPx)
+      if (snapped) px = [snapped[0], snapped[1]]
+    }
+    if (flat.calibrating) {
+      flat.addCalPick(px)
+      return
+    }
+    if (flat.draft) flat.addDraftPick(px)
   }
+
+  // What the viewport draws for the flat workspace: the measured elements
+  // with their headline values, and the draft's pins and ghost.
+  const flatElements = useFlat((s) => s.elements)
+  const flatDraft = useFlat((s) => s.draft)
+  const flatUnit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
+  const syncFlatElements = () => {
+    const s = useFlat.getState()
+    const unit = s.pxPerMm ? 'mm' : 'px'
+    flatSceneRef.current?.setFlatElements(
+      s.elements
+        .filter((e) => e.visible && e.fit)
+        .map((e) => ({
+          fit: e.fit!,
+          color: e.color,
+          name: e.name,
+          value: formatFlatPrimary(e.fit!, unit),
+        })),
+    )
+    const mm = flatMmPerPx()
+    flatSceneRef.current?.setDraftMarks(
+      (s.draft?.picks ?? []).map((p) => [p[0] * mm.x, p[1] * mm.y]),
+      s.draft?.fit ?? null,
+    )
+  }
+  useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit])
 
   const openFile = async (file: File) => {
     if (!isMeshFile(file.name)) {

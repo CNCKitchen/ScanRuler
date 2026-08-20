@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { EdgeChains } from '../core/flat/edges'
-import type { Vec2 } from '../core/flat/types'
+import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
@@ -33,6 +33,11 @@ export class FlatScene {
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
+  /** Measured elements and the draft being built, in document units. */
+  private elementGroup = new THREE.Group()
+  private elementCleanup: (() => void)[] = []
+  private draftGroup = new THREE.Group()
+  private draftCleanup: (() => void)[] = []
   /** Detected edge chains. Geometry lives in image pixels; the group's scale
    *  is the px→mm map, so a recalibration is one scale write. */
   private edgeGroup = new THREE.Group()
@@ -44,16 +49,18 @@ export class FlatScene {
     depthTest: false,
   })
 
-  /** A click on the sheet, in document millimetres. */
-  onPick: ((p: Vec2) => void) | null = null
+  /** A click on the sheet, in document millimetres — with whether Alt was
+   *  held (a raw, unsnapped pick) and the scale of the moment, so the caller
+   *  can turn "a few screen pixels" into document units. */
+  onPick: ((p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
 
   constructor(container: HTMLDivElement, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
       theme,
       navTargets: () => (this.imagePx.width ? [this.sheet] : []),
-      onClick: (x, y) => {
+      onClick: (x, y, e) => {
         const p = this.pick(x, y)
-        if (p) this.onPick?.(p)
+        if (p) this.onPick?.(p, { alt: e?.altKey ?? false, unitsPerScreenPx: this.unitsPerScreenPx() })
       },
     })
     this.viewport.nav.setPlanar(true)
@@ -65,6 +72,169 @@ export class FlatScene {
     this.viewport.scene.add(this.sheet)
     this.viewport.scene.add(this.calGroup)
     this.viewport.scene.add(this.edgeGroup)
+    this.viewport.scene.add(this.elementGroup)
+    this.viewport.scene.add(this.draftGroup)
+  }
+
+  /** Document units per screen pixel at the current zoom — what turns a snap
+   *  radius the hand understands into one the sheet understands. */
+  unitsPerScreenPx(): number {
+    const cam = this.viewport.camera
+    const h = this.viewport.renderer.domElement.clientHeight || 1
+    return (cam.top - cam.bottom) / cam.zoom / h
+  }
+
+  /** The polyline a fit draws as: a segment, a full circle, an arc. A point
+   *  draws as a cross sized off the sheet. */
+  private fitPolyline(fit: FlatFit): Vec2[][] {
+    if (fit.kind === 'line') {
+      const [cx, cy] = fit.center
+      const [dx, dy] = fit.dir
+      const h = fit.length / 2
+      return [
+        [
+          [cx - dx * h, cy - dy * h],
+          [cx + dx * h, cy + dy * h],
+        ],
+      ]
+    }
+    if (fit.kind === 'circle' || fit.kind === 'arc') {
+      const start = fit.kind === 'arc' ? fit.start : 0
+      const sweep = fit.kind === 'arc' ? fit.sweep : 2 * Math.PI
+      const steps = Math.max(16, Math.ceil((sweep / (2 * Math.PI)) * 96))
+      const pts: Vec2[] = []
+      for (let i = 0; i <= steps; i++) {
+        const a = start + (sweep * i) / steps
+        pts.push([fit.center[0] + fit.radius * Math.cos(a), fit.center[1] + fit.radius * Math.sin(a)])
+      }
+      return [pts]
+    }
+    // A cross for a point, sized off the sheet so it stays visible at the
+    // overview and honest when zoomed in.
+    const s = Math.max(this.sheetDiag() * 0.006, 1e-6)
+    const [x, y] = fit.at
+    return [
+      [
+        [x - s, y],
+        [x + s, y],
+      ],
+      [
+        [x, y - s],
+        [x, y + s],
+      ],
+    ]
+  }
+
+  private sheetDiag(): number {
+    return Math.hypot(this.imagePx.width * this.mmPerPx.x, this.imagePx.height * this.mmPerPx.y) || 1
+  }
+
+  private addPolylines(
+    group: THREE.Group,
+    cleanup: (() => void)[],
+    polylines: Vec2[][],
+    color: THREE.ColorRepresentation,
+    opacity: number,
+    z: number,
+  ): void {
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false })
+    cleanup.push(() => mat.dispose())
+    for (const pts of polylines) {
+      const geo = new THREE.BufferGeometry().setFromPoints(
+        pts.map((p) => new THREE.Vector3(p[0], p[1], z)),
+      )
+      const line = new THREE.Line(geo, mat)
+      line.renderOrder = 4
+      group.add(line)
+      cleanup.push(() => geo.dispose())
+    }
+  }
+
+  private addLabel(
+    group: THREE.Group,
+    cleanup: (() => void)[],
+    at: Vec2,
+    title: string,
+    value: string,
+    color: string,
+  ): void {
+    const div = document.createElement('div')
+    div.className = 'viewport-label element-label'
+    const t = document.createElement('div')
+    t.className = 'label-title'
+    t.textContent = title
+    t.style.color = color
+    div.append(t)
+    if (value) {
+      const v = document.createElement('div')
+      v.className = 'label-value'
+      v.textContent = value
+      div.append(v)
+    }
+    const label = new CSS2DObject(div)
+    label.position.set(at[0], at[1], 0.2)
+    group.add(label)
+    cleanup.push(() => div.remove())
+  }
+
+  /** Where a fit's label floats: beside the feature, not on top of it. */
+  private labelSpot(fit: FlatFit): Vec2 {
+    const lift = this.sheetDiag() * 0.01
+    if (fit.kind === 'point') return [fit.at[0], fit.at[1] + lift]
+    if (fit.kind === 'line') return [fit.center[0], fit.center[1] + lift]
+    if (fit.kind === 'circle') {
+      const d = fit.radius * 0.7071
+      return [fit.center[0] + d, fit.center[1] + d]
+    }
+    const mid = fit.start + fit.sweep / 2
+    return [
+      fit.center[0] + fit.radius * Math.cos(mid),
+      fit.center[1] + fit.radius * Math.sin(mid),
+    ]
+  }
+
+  /** The measured elements, rebuilt wholesale when anything about them
+   *  changes — same policy as the 3D overlays. */
+  setFlatElements(
+    items: readonly { fit: FlatFit; color: string; name: string; value: string }[],
+  ): void {
+    for (const dispose of this.elementCleanup) dispose()
+    this.elementCleanup = []
+    this.elementGroup.clear()
+    for (const item of items) {
+      this.addPolylines(this.elementGroup, this.elementCleanup, this.fitPolyline(item.fit), item.color, 0.95, 0.15)
+      this.addLabel(
+        this.elementGroup,
+        this.elementCleanup,
+        this.labelSpot(item.fit),
+        item.name,
+        item.value,
+        item.color,
+      )
+    }
+    this.viewport.invalidate()
+  }
+
+  /** The draft on its way to an element: numbered pins on the picks and the
+   *  pending fit as a ghost. */
+  setDraftMarks(picks: readonly Vec2[], fit: FlatFit | null): void {
+    for (const dispose of this.draftCleanup) dispose()
+    this.draftCleanup = []
+    this.draftGroup.clear()
+    picks.forEach((p, i) => {
+      const div = document.createElement('div')
+      div.className = 'pick-pin'
+      div.textContent = String(i + 1)
+      div.style.background = '#8b95a3'
+      const label = new CSS2DObject(div)
+      label.position.set(p[0], p[1], 0.2)
+      this.draftGroup.add(label)
+      this.draftCleanup.push(() => div.remove())
+    })
+    if (fit) {
+      this.addPolylines(this.draftGroup, this.draftCleanup, this.fitPolyline(fit), 0x8b95a3, 0.9, 0.18)
+    }
+    this.viewport.invalidate()
   }
 
   /** Show detected edge chains (image-pixel coordinates), or clear them with
@@ -228,6 +398,8 @@ export class FlatScene {
 
   dispose(): void {
     this.setCalibrationPicks([])
+    this.setFlatElements([])
+    this.setDraftMarks([], null)
     this.setEdgeChains(null)
     this.edgeMaterial.dispose()
     this.texture?.dispose()
