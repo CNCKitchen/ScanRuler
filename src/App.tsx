@@ -4,6 +4,8 @@ import { MeshWorkerClient } from './core/workerClient'
 import { buildSummary } from './core/summary'
 import { isMeshFile, isStepFile, IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
 import { imagePixelsPerMm } from './core/flat/image'
+import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
+import { chainCount, type EdgeChains } from './core/flat/edges'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
@@ -72,6 +74,12 @@ export default function App() {
   // with its workspace.
   const flatSceneRef = useRef<FlatScene | null>(null)
   const flatBitmapRef = useRef<ImageBitmap | null>(null)
+  // Edge detection: its own worker, the grayscale cached for sensitivity
+  // re-runs, and the resulting chains — all big buffers, all in refs.
+  const edgeClientRef = useRef<EdgeClient | null>(null)
+  if (!edgeClientRef.current) edgeClientRef.current = new EdgeClient()
+  const flatGrayRef = useRef<{ gray: Uint8Array; width: number; height: number } | null>(null)
+  const flatEdgesRef = useRef<EdgeChains | null>(null)
 
   // Region of the pending preview fit, kept out of the store because it is a
   // large typed array that only the scene needs.
@@ -133,7 +141,10 @@ export default function App() {
       const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
       flatBitmapRef.current?.close()
       flatBitmapRef.current = bitmap
+      flatGrayRef.current = grayscaleOf(bitmap)
+      flatEdgesRef.current = null
       useFlat.getState().finishImageLoad(file.name, bitmap.width, bitmap.height, meta)
+      void runEdgeDetect()
     } catch (e) {
       console.error(e)
       useFlat.getState().imageFailed()
@@ -155,6 +166,7 @@ export default function App() {
     if (!bitmap || !scene) return
     void scene.setImage(bitmap, flatMmPerPx())
     syncFlatCalPicks()
+    syncFlatEdges()
   }
   useEffect(syncFlatImage, [flatImageVersion])
 
@@ -175,6 +187,40 @@ export default function App() {
     flatSceneRef.current?.setCalibrationPicks(picks.map((p) => [p[0] * mm.x, p[1] * mm.y]))
   }
   useEffect(syncFlatCalPicks, [flatCalibrating])
+
+  /** Run (or re-run) edge detection on the cached grayscale. Superseded
+   *  requests come back null and change nothing. */
+  const runEdgeDetect = async () => {
+    const source = flatGrayRef.current
+    if (!source) return
+    useFlat.getState().beginEdges()
+    const chains = await edgeClientRef.current!.detect(
+      // The worker takes the buffer by transfer; the cache keeps its own.
+      source.gray.slice(),
+      source.width,
+      source.height,
+      { sensitivity: useFlat.getState().edgeSensitivity },
+    )
+    if (!chains) return
+    flatEdgesRef.current = chains
+    useFlat.getState().resolveEdges(chainCount(chains))
+  }
+
+  // The sensitivity slider re-detects; the overlay redraws when chains land
+  // or the toggle moves.
+  const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
+  useEffect(() => {
+    // On mount there is nothing loaded yet and the detect returns untouched.
+    void runEdgeDetect()
+  }, [edgeSensitivity])
+  const edgeVersion = useFlat((s) => s.edgeVersion)
+  const showEdges = useFlat((s) => s.showEdges)
+  const syncFlatEdges = () => {
+    flatSceneRef.current?.setEdgeChains(
+      useFlat.getState().showEdges ? flatEdgesRef.current : null,
+    )
+  }
+  useEffect(syncFlatEdges, [edgeVersion, showEdges])
 
   /** A click on the flat sheet, in document mm — routed to whichever flat
    *  tool is collecting. */

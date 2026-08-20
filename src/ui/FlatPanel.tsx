@@ -23,6 +23,10 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
   const splitAxes = useFlat((s) => s.splitAxes)
   const calibrating = useFlat((s) => s.calibrating)
   const profiles = useFlat((s) => s.profiles)
+  const edgeStatus = useFlat((s) => s.edgeStatus)
+  const edgeCount = useFlat((s) => s.edgeCount)
+  const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
+  const showEdges = useFlat((s) => s.showEdges)
   const flat = useFlat
 
   // The reference's true size, and what applying against it last said. Local:
@@ -240,6 +244,54 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {imageName && (
+        <div className="group">
+          <div className="sec-head">
+            Edge detection
+            <InfoDot title="Edge detection">
+              <p>
+                The image is swept once for edges — where brightness turns over — and each edge
+                comes out as a chain of subpixel points, drawn in teal over the scan. Fits will
+                consume these chains; the overlay shows what they would have to work with.
+              </p>
+              <p>
+                Sensitivity decides how faint an edge still counts. Push it up if a real edge is
+                missing, down if noise and paper texture come up as edges.
+              </p>
+            </InfoDot>
+          </div>
+          <p className="hint" data-test="flat-edge-status">
+            {edgeStatus === 'running'
+              ? 'Detecting edges…'
+              : edgeStatus === 'ready'
+                ? `${edgeCount.toLocaleString('en-US')} edge chains found.`
+                : 'No edges detected yet.'}
+          </p>
+          <label className="field">
+            <span>Sensitivity</span>
+            <input
+              type="range"
+              data-test="flat-edge-sensitivity"
+              min={0}
+              max={1}
+              step={0.05}
+              value={edgeSensitivity}
+              disabled={edgeStatus === 'running'}
+              onChange={(e) => flat.getState().setEdgeSensitivity(Number(e.target.value))}
+            />
+          </label>
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="flat-edge-show"
+              checked={showEdges}
+              onChange={(e) => flat.getState().setShowEdges(e.target.checked)}
+            />
+            <span>Show detected edges</span>
+          </label>
         </div>
       )}
     </aside>

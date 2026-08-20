@@ -69,6 +69,17 @@ interface FlatState {
    *  what the file claims even after a measurement overrides it. */
   metaPxPerMm: PixelsPerMm | null
 
+  /** Edge detection over the loaded image: computed once per image in a
+   *  worker, re-run when the sensitivity moves. The chains themselves live in
+   *  a ref beside the bitmap; this is the status, the count for the panel,
+   *  and a version to redraw off. */
+  edgeStatus: 'idle' | 'running' | 'ready'
+  edgeCount: number
+  edgeVersion: number
+  /** 0…1 — how faint an edge may be and still count. */
+  edgeSensitivity: number
+  showEdges: boolean
+
   /** The scale measurements use, or null for bare pixels (drawn at 1 px/mm). */
   pxPerMm: PixelsPerMm | null
   calSource: CalSource
@@ -82,6 +93,13 @@ interface FlatState {
   beginImageLoad: (name: string) => void
   finishImageLoad: (name: string, width: number, height: number, meta: PixelsPerMm | null) => void
   imageFailed: () => void
+
+  beginEdges: () => void
+  /** A fresh set of chains has landed in App's ref. */
+  resolveEdges: (count: number) => void
+  failEdges: () => void
+  setEdgeSensitivity: (v: number) => void
+  setShowEdges: (v: boolean) => void
 
   startCalibration: (mode: CalMode) => void
   cancelCalibration: () => void
@@ -105,6 +123,14 @@ export const useFlat = create<FlatState>()((set, get) => ({
   imageVersion: 0,
   metaPxPerMm: null,
 
+  edgeStatus: 'idle',
+  edgeCount: 0,
+  edgeVersion: 0,
+  edgeSensitivity: 0.5,
+  // On by default so the first detection is visible feedback for the slider;
+  // a chip on the stage puts them away while measuring.
+  showEdges: true,
+
   pxPerMm: null,
   calSource: 'none',
   splitAxes: false,
@@ -126,6 +152,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
       metaPxPerMm,
       imageVersion: s.imageVersion + 1,
       calibrating: null,
+      edgeStatus: 'idle' as const,
+      edgeCount: 0,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -136,6 +164,13 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   imageFailed: () =>
     set({ imageBusy: false, imageName: null, imageWidth: 0, imageHeight: 0, metaPxPerMm: null }),
+
+  beginEdges: () => set({ edgeStatus: 'running' }),
+  resolveEdges: (edgeCount) =>
+    set((s) => ({ edgeStatus: 'ready', edgeCount, edgeVersion: s.edgeVersion + 1 })),
+  failEdges: () => set((s) => ({ edgeStatus: 'idle', edgeCount: 0, edgeVersion: s.edgeVersion + 1 })),
+  setEdgeSensitivity: (edgeSensitivity) => set({ edgeSensitivity }),
+  setShowEdges: (showEdges) => set({ showEdges }),
 
   startCalibration: (mode) => set({ calibrating: { mode, picks: [] } }),
   cancelCalibration: () => set({ calibrating: null }),

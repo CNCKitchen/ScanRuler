@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import type { EdgeChains } from '../core/flat/edges'
 import type { Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { ControlScheme } from './navSchemes'
@@ -32,6 +33,16 @@ export class FlatScene {
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
+  /** Detected edge chains. Geometry lives in image pixels; the group's scale
+   *  is the px→mm map, so a recalibration is one scale write. */
+  private edgeGroup = new THREE.Group()
+  private edgeSegments: THREE.LineSegments | null = null
+  private edgeMaterial = new THREE.LineBasicMaterial({
+    color: 0x11b5a5,
+    transparent: true,
+    opacity: 0.85,
+    depthTest: false,
+  })
 
   /** A click on the sheet, in document millimetres. */
   onPick: ((p: Vec2) => void) | null = null
@@ -53,6 +64,49 @@ export class FlatScene {
     this.sheet.visible = false
     this.viewport.scene.add(this.sheet)
     this.viewport.scene.add(this.calGroup)
+    this.viewport.scene.add(this.edgeGroup)
+  }
+
+  /** Show detected edge chains (image-pixel coordinates), or clear them with
+   *  null. One LineSegments holds every chain — tens of thousands of segments
+   *  are one draw call. */
+  setEdgeChains(chains: EdgeChains | null): void {
+    if (this.edgeSegments) {
+      this.edgeGroup.remove(this.edgeSegments)
+      this.edgeSegments.geometry.dispose()
+      this.edgeSegments = null
+    }
+    if (chains && chains.offsets.length > 1) {
+      let segments = 0
+      for (let c = 0; c + 1 < chains.offsets.length; c++) {
+        segments += Math.max(0, chains.offsets[c + 1] - chains.offsets[c] - 1)
+      }
+      const positions = new Float32Array(segments * 6)
+      let at = 0
+      for (let c = 0; c + 1 < chains.offsets.length; c++) {
+        for (let i = chains.offsets[c]; i + 1 < chains.offsets[c + 1]; i++) {
+          positions[at++] = chains.points[i * 2]
+          positions[at++] = chains.points[i * 2 + 1]
+          positions[at++] = 0.05
+          positions[at++] = chains.points[i * 2 + 2]
+          positions[at++] = chains.points[i * 2 + 3]
+          positions[at++] = 0.05
+        }
+      }
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      this.edgeSegments = new THREE.LineSegments(geometry, this.edgeMaterial)
+      this.edgeSegments.renderOrder = 2
+      this.edgeGroup.add(this.edgeSegments)
+    }
+    this.layoutEdges()
+    this.viewport.invalidate()
+  }
+
+  /** Keep the edge overlay on the sheet's millimetres. */
+  private layoutEdges(): void {
+    this.edgeGroup.scale.set(this.mmPerPx.x, this.mmPerPx.y, 1)
+    this.edgeGroup.updateMatrixWorld(true)
   }
 
   /** Draw the calibration picks (document mm) as numbered pins, joined by a
@@ -141,6 +195,7 @@ export class FlatScene {
     this.sheet.scale.set(w, h, 1)
     this.sheet.position.set(w / 2, h / 2, 0)
     this.sheet.updateMatrixWorld(true)
+    this.layoutEdges()
     this.viewport.invalidate()
   }
 
@@ -173,6 +228,8 @@ export class FlatScene {
 
   dispose(): void {
     this.setCalibrationPicks([])
+    this.setEdgeChains(null)
+    this.edgeMaterial.dispose()
     this.texture?.dispose()
     this.material.dispose()
     this.geometry.dispose()
