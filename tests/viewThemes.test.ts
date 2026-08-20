@@ -49,6 +49,29 @@ describe('viewport colour schemes', () => {
     }
   })
 
+  it('keeps the working accents clear of the surface they are drawn on', () => {
+    // The brush footprint and the callout lines sit right on the bare surface,
+    // and an accent the surface swallows is invisible exactly where the user
+    // is looking — the scanner scheme exists because ink and the palette's
+    // blues vanish on its blue. Same weighted distance as the palette check.
+    for (const t of VIEW_THEMES) {
+      const accents: Record<string, number> = {
+        brushErase: t.accents.brushErase,
+        callout: t.accents.callout,
+      }
+      if (t.accents.brushRing !== null) accents.brushRing = t.accents.brushRing
+      for (const [name, hex] of Object.entries(accents)) {
+        const p = [16, 8, 0].map((s) => (hex >> s) & 0xff)
+        const d = Math.sqrt(
+          2 * (p[0] - t.surface[0]) ** 2 +
+            4 * (p[1] - t.surface[1]) ** 2 +
+            3 * (p[2] - t.surface[2]) ** 2,
+        )
+        expect(d, `${t.id} ${name}`).toBeGreaterThan(90)
+      }
+    }
+  })
+
   it('paints a flat part the shade a vertex-coloured one comes out', () => {
     // The split view puts a flat-coloured reference beside the vertex-coloured
     // scan and claims they are the same material. three.js colour-manages

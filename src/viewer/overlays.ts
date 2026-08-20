@@ -10,11 +10,7 @@ import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { FitData, Vec3 } from '../core/types'
 import type { PickMarker } from './PickScene'
-
-/** The ghost shape of an unconfirmed fit is neutral grey — only the marked
- *  surfaces carry the colour the element will get, so "picked" and "measured"
- *  never look the same. */
-const PREVIEW_SHAPE_COLOR = 0x8e9298
+import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 
 export interface OverlayElement {
   id: number
@@ -118,6 +114,13 @@ export class Overlays {
    *  materials to restyle when that element is selected. */
   private overlayPickables: THREE.Mesh[] = []
   private shellMaterials = new Map<number, { material: THREE.MeshStandardMaterial; color: string }>()
+  /** The scheme's colours for the marks that carry no reading of their own —
+   *  callout lines, the ghost of a pending fit. Element tints, and the labels'
+   *  CSS, are not the theme's to touch. */
+  private accents: ViewTheme['accents'] = DEFAULT_THEME.accents
+  /** The callout materials on screen, kept so a scheme switch can recolour
+   *  them in place instead of waiting for the next rebuild. */
+  private calloutMaterials: THREE.LineBasicMaterial[] = []
   private highlightIds = new Set<number>()
   private lastOverlayElements: OverlayElement[] = []
   private previewShape: THREE.Mesh | null = null
@@ -164,6 +167,7 @@ export class Overlays {
     this.overlayGroup.clear()
     this.overlayPickables = []
     this.shellMaterials.clear()
+    this.calloutMaterials = []
     this.overlayGroup.visible = visible
     this.lastOverlayElements = visible ? elements : []
     if (!visible) {
@@ -239,7 +243,12 @@ export class Overlays {
         new THREE.Vector3(...p.a),
         new THREE.Vector3(...p.b),
       ])
-      const mat = new THREE.LineBasicMaterial({ color: 0x26282a, transparent: true, opacity: 0.8 })
+      const mat = new THREE.LineBasicMaterial({
+        color: this.accents.callout,
+        transparent: true,
+        opacity: 0.8,
+      })
+      this.calloutMaterials.push(mat)
       this.overlayGroup.add(new THREE.Line(geo, mat))
       this.overlayCleanup.push(() => {
         geo.dispose()
@@ -262,7 +271,12 @@ export class Overlays {
     const vertex = new THREE.Vector3(...a.vertex)
     const dirA = new THREE.Vector3(...a.dirA).normalize()
     const dirB = new THREE.Vector3(...a.dirB).normalize()
-    const mat = new THREE.LineBasicMaterial({ color: 0x26282a, transparent: true, opacity: 0.8 })
+    const mat = new THREE.LineBasicMaterial({
+      color: this.accents.callout,
+      transparent: true,
+      opacity: 0.8,
+    })
+    this.calloutMaterials.push(mat)
     this.overlayCleanup.push(() => mat.dispose())
 
     const ray = (dir: THREE.Vector3) => {
@@ -306,6 +320,17 @@ export class Overlays {
     label.position.copy(vertex.clone().addScaledVector(mid, R * 0.95))
     this.overlayGroup.add(label)
     this.overlayCleanup.push(() => label.element.remove())
+  }
+
+  /** Recolour the marks the scheme owns — callout lines and the pending
+   *  ghost — in place: a scheme switch must land on what is already on
+   *  screen, not wait for the next rebuild. */
+  setTheme(theme: ViewTheme): void {
+    this.accents = theme.accents
+    for (const mat of this.calloutMaterials) mat.color.setHex(theme.accents.callout)
+    if (this.previewShape)
+      (this.previewShape.material as THREE.MeshStandardMaterial).color.setHex(theme.accents.ghost)
+    this.ctx.invalidate()
   }
 
   /** Make the given elements read as selected: their translucent shells get
@@ -592,7 +617,7 @@ export class Overlays {
     }
     if (!fit) return
     const mat = new THREE.MeshStandardMaterial({
-      color: PREVIEW_SHAPE_COLOR,
+      color: this.accents.ghost,
       transparent: true,
       opacity: 0.4,
       depthWrite: false,

@@ -324,6 +324,8 @@ export class SceneManager {
   setViewTheme(theme: ViewTheme): void {
     this.theme = theme
     this.viewport.setTheme(theme)
+    this.marking.setTheme(theme)
+    this.overlays.setTheme(theme)
     this.backface.uBackfaceColor.value.setHex(theme.backface)
     if (this.regions.setBaseColor(theme.surface) && this.colorAttr)
       this.colorAttr.needsUpdate = true

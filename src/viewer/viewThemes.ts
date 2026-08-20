@@ -59,6 +59,34 @@ export interface ViewTheme {
      *  are looking from, and turning the part sweeps it across the surface. */
     key: number
   }
+  /** The working marks drawn over the part that are gestures and guides
+   *  rather than readings: the brush footprint, the marquee, the callout
+   *  lines of dimensions, the ghost of a pending fit. They sit directly on
+   *  the bare surface, so each scheme names colours that stand out on its
+   *  own — element tints and map colours never come from here. */
+  accents: {
+    /** The brush footprint while marking. Null wears the marking's own tint,
+     *  which is right on the matt grey, where every element colour stands
+     *  out; the blue surface swallows the blue half of the palette, so the
+     *  scanner scheme names one colour that reads on it everywhere. */
+    brushRing: number | null
+    /** The footprint while rubbing out — the mode has to be visible where
+     *  the user is looking, not only in the panel. */
+    brushErase: number
+    /** The window / lasso outline and its wash, drawn over the canvas (CSS
+     *  colours, not scene ones). The erase pair reads inverted: the tone of
+     *  surface being handed back rather than taken. */
+    marqueeStroke: string
+    marqueeFill: string
+    marqueeEraseStroke: string
+    marqueeEraseFill: string
+    /** Distance lines and angle arcs between elements. */
+    callout: number
+    /** The ghost shape of an unconfirmed fit — neutral on purpose: only the
+     *  marked surfaces carry the colour the element will get, so "picked"
+     *  and "measured" never look the same. */
+    ghost: number
+  }
 }
 
 /** Chassis grey, matching `.stage` in the stylesheet. */
@@ -77,6 +105,18 @@ export const VIEW_THEMES: readonly ViewTheme[] = [
     backface: 0x9c5b70,
     finish: { roughness: 0.62, metalness: 0.05 },
     lights: { sky: 0xffffff, ground: 0xb9b6ae, hemisphere: 1.0, ambient: 0.35, key: 1.6 },
+    // Ink on grey: every dark accent reads on the matt surface, and the brush
+    // ring can afford to wear the marking's own tint.
+    accents: {
+      brushRing: null,
+      brushErase: 0x26282a,
+      marqueeStroke: '#12161a',
+      marqueeFill: 'rgba(255, 255, 255, 0.14)',
+      marqueeEraseStroke: '#fbfaf7',
+      marqueeEraseFill: 'rgba(18, 22, 26, 0.16)',
+      callout: 0x26282a,
+      ghost: 0x8e9298,
+    },
   },
   {
     id: 'scanner',
@@ -100,6 +140,20 @@ export const VIEW_THEMES: readonly ViewTheme[] = [
     // and the unlit side that gives a surface its form, and a bright fill would
     // flatten out exactly the shallow detail this scheme exists to show.
     lights: { sky: 0xa6c9ea, ground: 0x2c3238, hemisphere: 0.42, ambient: 0.08, key: 2.6 },
+    // Ink vanishes on the blue, and so does the blue half of the element
+    // palette — so the working marks go the other way: white for what a
+    // gesture would take, amber (the scheme's own second colour) for what it
+    // would hand back. Both read on the lit and the shadowed side alike.
+    accents: {
+      brushRing: 0xffffff,
+      brushErase: 0xf0a63c,
+      marqueeStroke: '#ffffff',
+      marqueeFill: 'rgba(255, 255, 255, 0.14)',
+      marqueeEraseStroke: '#f0a63c',
+      marqueeEraseFill: 'rgba(18, 22, 26, 0.2)',
+      callout: 0xe8e4da,
+      ghost: 0xc2c7cc,
+    },
   },
 ]
 

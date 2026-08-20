@@ -1114,18 +1114,20 @@ button.x:disabled {
 }
 
 .marquee polygon {
-  fill: rgba(255, 255, 255, 0.14);
-  stroke: #12161a;
+  fill: var(--marquee-fill, rgba(255, 255, 255, 0.14));
+  stroke: var(--marquee-stroke, #12161a);
   stroke-width: 1.25;
   stroke-dasharray: 5 3;
   vector-effect: non-scaling-stroke;
 }
 
 /* Rubbing out reads inverted: the same outline, in the tone of surface being
-   handed back rather than taken. */
+   handed back rather than taken. The custom properties carry the viewport
+   colour scheme's accents (set on the SVG by the marking); the fallbacks are
+   the default scheme's own. */
 .marquee polygon.erase {
-  fill: rgba(18, 22, 26, 0.16);
-  stroke: #fbfaf7;
+  fill: var(--marquee-erase-fill, rgba(18, 22, 26, 0.16));
+  stroke: var(--marquee-erase-stroke, #fbfaf7);
 }
 
 /* Instruction of the moment, pinned where the user is looking. */

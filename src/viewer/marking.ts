@@ -12,6 +12,7 @@
 import * as THREE from 'three'
 import { INTERSECTED, NOT_INTERSECTED } from 'three-mesh-bvh'
 import type { RegionColors } from './regionColors'
+import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 
 /** How a marking gesture takes surface: dragged over it with a round brush,
  *  swept with a rectangular window, or ringed with a freehand lasso. The last
@@ -57,12 +58,6 @@ interface Marquee {
    *  converted without asking the layout engine on every move. */
   origin: { left: number; top: number }
 }
-
-/** The brush footprint, drawn on the surface under the cursor: what a stroke
- *  would take, before it takes it. Erasing shows in the ring's own colour, so
- *  the mode is visible where the user is looking rather than only in the
- *  panel. */
-const BRUSH_ERASE_COLOR = 0x26282a
 
 /** A colour string as the compositor's byte triple. */
 export function colorToRgb(color: string): [number, number, number] {
@@ -167,6 +162,9 @@ export interface MarkingContext {
 
 export class SurfaceMarking {
   private paint: PaintBrush | null = null
+  /** The scheme's colours for the footprint and the marquee — marks drawn on
+   *  the bare surface, so they are the theme's to choose, not the marking's. */
+  private accents: ViewTheme['accents'] = DEFAULT_THEME.accents
   private painting = false
   private paintLast: { x: number; y: number } | null = null
   /** The opening dab of a touch stroke, held back until the finger proves it
@@ -754,9 +752,26 @@ export class SurfaceMarking {
     this.brushRing.visible = true
   }
 
+  /** Dress the footprint and the marquee in the scheme's accents. The window
+   *  and lasso outlines are CSS, so the theme lands on them as custom
+   *  properties — the stylesheet's own values are the default scheme's. */
+  setTheme(theme: ViewTheme): void {
+    this.accents = theme.accents
+    const s = this.marqueeSvg.style
+    s.setProperty('--marquee-stroke', theme.accents.marqueeStroke)
+    s.setProperty('--marquee-fill', theme.accents.marqueeFill)
+    s.setProperty('--marquee-erase-stroke', theme.accents.marqueeEraseStroke)
+    s.setProperty('--marquee-erase-fill', theme.accents.marqueeEraseFill)
+    this.updateRingColor()
+  }
+
+  /** Erasing shows in the ring's own colour, so the mode is visible where the
+   *  user is looking rather than only in the panel. */
   private updateRingColor(): void {
     if (!this.paint) return
-    this.brushRingMaterial.color.set(this.paintErasing ? BRUSH_ERASE_COLOR : this.paint.color)
+    this.brushRingMaterial.color.set(
+      this.paintErasing ? this.accents.brushErase : this.accents.brushRing ?? this.paint.color,
+    )
     this.ctx.invalidate()
   }
 
