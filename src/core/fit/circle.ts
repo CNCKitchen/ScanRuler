@@ -5,8 +5,9 @@
 // worker pipeline never sees a circle.
 
 import type { CircleFit, Vec3 } from '../types'
+import { fitCircle2d } from './circle2d'
 import { FitError } from './errors'
-import { orthoBasis, solveLinear, symmetricEigen3 } from './linalg'
+import { orthoBasis, symmetricEigen3 } from './linalg'
 
 /**
  * The best-fit circle through the given points.
@@ -71,61 +72,10 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     ph[i] = x * normal[0] + y * normal[1] + z * normal[2]
   }
 
-  // Algebraic (Coope) circle: exactly determined for three points, least
-  // squares beyond. Solved directly — the 3×3 normal equations.
-  let suu = 0, suv = 0, svv = 0, su = 0, sv = 0, sub = 0, svb = 0, sb = 0
-  for (let i = 0; i < n; i++) {
-    const b = pu[i] * pu[i] + pv[i] * pv[i]
-    suu += pu[i] * pu[i]
-    suv += pu[i] * pv[i]
-    svv += pv[i] * pv[i]
-    su += pu[i]
-    sv += pv[i]
-    sub += pu[i] * b
-    svb += pv[i] * b
-    sb += b
-  }
-  const a = new Float64Array([
-    4 * suu, 4 * suv, 2 * su,
-    4 * suv, 4 * svv, 2 * sv,
-    2 * su, 2 * sv, n,
-  ])
-  const sol = solveLinear(3, a, new Float64Array([2 * sub, 2 * svb, sb]))
-  if (!sol) throw new FitError('The points lie on a line — they do not define a circle.')
-  let cu = sol[0]
-  let cv = sol[1]
-  const r2 = sol[2] + cu * cu + cv * cv
-  if (!(r2 > 0) || !Number.isFinite(r2)) {
-    throw new FitError("Couldn't fit a circle through these points.")
-  }
-  let r = Math.sqrt(r2)
-
-  // Orthogonal-distance refinement of the 2D circle (no-op for three points).
-  for (let iter = 0; iter < 100; iter++) {
-    let sd = 0, sxu = 0, sxv = 0, m = 0
-    for (let i = 0; i < n; i++) {
-      const du = pu[i] - cu
-      const dv = pv[i] - cv
-      const dist = Math.hypot(du, dv)
-      if (dist < 1e-12) continue
-      sd += dist
-      sxu += du / dist
-      sxv += dv / dist
-      m++
-    }
-    if (m === 0) break
-    const rNew = sd / m
-    const nu = su / n - rNew * (sxu / m)
-    const nv = sv / n - rNew * (sxv / m)
-    const move = Math.hypot(nu - cu, nv - cv)
-    cu = nu
-    cv = nv
-    r = rNew
-    if (move < 1e-10 * Math.max(1, r)) break
-  }
-  if (!Number.isFinite(cu) || !Number.isFinite(r) || !(r > 0)) {
-    throw new FitError("Couldn't fit a circle through these points.")
-  }
+  // The circle itself is the shared 2D kernel's job.
+  const fit2d = fitCircle2d(pu, pv)
+  if (!fit2d) throw new FitError("Couldn't fit a circle through these points.")
+  const { cu, cv, r } = fit2d
 
   // Which way the normal points is arbitrary for a TLS plane; pick the same
   // side every time so re-picking the same feature gives the same element.

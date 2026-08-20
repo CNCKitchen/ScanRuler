@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { Cylinder, Vec3 } from '../types'
+import { fitCircle2d } from './circle2d'
 import { clippedRefit } from './clip'
 import { cross, normalize, orthoBasis, solveLinear, symmetricEigen3 } from './linalg'
 import { ransacConsensus } from './ransac'
@@ -98,55 +99,10 @@ export function fitCylinderOnAxis(
     pv[i] = qx * v[0] + qy * v[1] + qz * v[2]
   }
 
-  let suu = 0, suv = 0, svv = 0, su = 0, sv = 0, sub = 0, svb = 0, sb = 0
-  for (let i = 0; i < n; i++) {
-    const b = pu[i] * pu[i] + pv[i] * pv[i]
-    suu += pu[i] * pu[i]
-    suv += pu[i] * pv[i]
-    svv += pv[i] * pv[i]
-    su += pu[i]
-    sv += pv[i]
-    sub += pu[i] * b
-    svb += pv[i] * b
-    sb += b
-  }
-  const a = new Float64Array([
-    4 * suu, 4 * suv, 2 * su,
-    4 * suv, 4 * svv, 2 * sv,
-    2 * su, 2 * sv, n,
-  ])
-  const sol = solveLinear(3, a, new Float64Array([2 * sub, 2 * svb, sb]))
-  if (!sol) return null
-  const r2 = sol[2] + sol[0] * sol[0] + sol[1] * sol[1]
-  if (!(r2 > 0) || !Number.isFinite(r2)) return null
-
-  // Orthogonal-distance refinement of the 2D circle.
-  let cu = sol[0]
-  let cv = sol[1]
-  let r = Math.sqrt(r2)
-  for (let iter = 0; iter < 100; iter++) {
-    let sd = 0, sxu = 0, sxv = 0, m = 0
-    for (let i = 0; i < n; i++) {
-      const du = pu[i] - cu
-      const dv = pv[i] - cv
-      const dist = Math.sqrt(du * du + dv * dv)
-      if (dist < 1e-12) continue
-      sd += dist
-      sxu += du / dist
-      sxv += dv / dist
-      m++
-    }
-    if (m === 0) break
-    const rNew = sd / m
-    const nu = su / n - rNew * (sxu / m)
-    const nv = sv / n - rNew * (sxv / m)
-    const move = Math.hypot(nu - cu, nv - cv)
-    cu = nu
-    cv = nv
-    r = rNew
-    if (move < 1e-10 * Math.max(1, r)) break
-  }
-  if (!Number.isFinite(cu) || !Number.isFinite(r) || r <= 0) return null
+  // The circle itself is the shared 2D kernel's job.
+  const fit2d = fitCircle2d(pu, pv)
+  if (!fit2d) return null
+  const { cu, cv, r } = fit2d
 
   return {
     px: mx + cu * u[0] + cv * v[0],
