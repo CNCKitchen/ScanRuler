@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { MeshWorkerClient } from './core/workerClient'
 import { buildSummary } from './core/summary'
-import { isMeshFile, isStepFile, REFERENCE_ACCEPT } from './core/formats'
+import { isMeshFile, isStepFile, IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
+import { imagePixelsPerMm } from './core/flat/image'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
@@ -29,6 +30,9 @@ import { ImprintModal } from './ui/Imprint'
 import { SupportCard } from './ui/SupportCard'
 import { DeviationPanel } from './ui/DeviationPanel'
 import { ThicknessPanel } from './ui/ThicknessPanel'
+import { FlatPanel } from './ui/FlatPanel'
+import { FlatViewer } from './ui/FlatViewer'
+import type { FlatScene } from './viewer/FlatScene'
 import { MapLegend, type LegendStat } from './ui/MapLegend'
 import { StartPane, type StartSlot } from './ui/StartPane'
 import { CompareView } from './ui/CompareView'
@@ -40,6 +44,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
+import { useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -61,6 +66,12 @@ export default function App() {
   const clientRef = useRef<MeshWorkerClient | null>(null)
   if (!clientRef.current) clientRef.current = new MeshWorkerClient()
   const sceneRef = useRef<SceneManager | null>(null)
+  // The 2D Measure viewport and its decoded scan image. The bitmap stays out
+  // of the store like every other big buffer; the scene ref is separate from
+  // sceneRef because this viewport, unlike the 3D one, mounts and unmounts
+  // with its workspace.
+  const flatSceneRef = useRef<FlatScene | null>(null)
+  const flatBitmapRef = useRef<ImageBitmap | null>(null)
 
   // Region of the pending preview fit, kept out of the store because it is a
   // large typed array that only the scene needs.
@@ -108,6 +119,41 @@ export default function App() {
     sceneRef.current?.setPreviewRegion(null)
     sceneRef.current?.setPreview(null)
   }
+
+  /** Open a flatbed scan image in the 2D Measure workspace: decode it, read
+   *  the resolution it declares about itself, and hand it to the flat scene.
+   *  Decoded with a vertical flip because the document frame is y-up and an
+   *  ImageBitmap bypasses the GPU-side flip — see FlatScene.setImage. */
+  const openImage = async (file: File) => {
+    const flat = useFlat.getState()
+    flat.beginImageLoad(file.name)
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const meta = imagePixelsPerMm(bytes)
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
+      flatBitmapRef.current?.close()
+      flatBitmapRef.current = bitmap
+      useFlat.getState().finishImageLoad(file.name, bitmap.width, bitmap.height, meta)
+    } catch (e) {
+      console.error(e)
+      useFlat.getState().imageFailed()
+      useStore.getState().setError(`Couldn't read ${file.name} as an image.`)
+    }
+  }
+
+  // Put the decoded image on the sheet — once both it and the flat viewport
+  // exist, in whichever order they got there: the image may be dropped before
+  // the workspace has ever been opened, and the viewport unmounts with it.
+  const flatImageVersion = useFlat((s) => s.imageVersion)
+  const syncFlatImage = () => {
+    const bitmap = flatBitmapRef.current
+    const scene = flatSceneRef.current
+    if (!bitmap || !scene) return
+    const meta = useFlat.getState().metaPxPerMm
+    const mmPerPx = meta ? { x: 1 / meta.x, y: 1 / meta.y } : { x: 1, y: 1 }
+    void scene.setImage(bitmap, mmPerPx)
+  }
+  useEffect(syncFlatImage, [flatImageVersion])
 
   const openFile = async (file: File) => {
     if (!isMeshFile(file.name)) {
@@ -830,7 +876,7 @@ export default function App() {
   })
 
   // Drag & drop anywhere.
-  const dragging = useDragDrop({ openFile, openNominal })
+  const dragging = useDragDrop({ openFile, openNominal, openImage })
 
   const handleCopy = () => {
     const store = useStore.getState()
@@ -965,6 +1011,8 @@ export default function App() {
   const showMap = useDeviation((s) => s.showMap)
   const onDeviation = workspace === 'deviation'
   const onThickness = workspace === 'thickness'
+  const onFlat = workspace === 'flat'
+  const flatImageName = useFlat((s) => s.imageName)
 
   // The two legends, built from the same instrument — they differ in the scale
   // they are read through and in which figures belong underneath.
@@ -1084,6 +1132,8 @@ export default function App() {
             onMeasure={() => void runThickness()}
             onCopy={handleCopyThicknessReport}
           />
+        ) : onFlat ? (
+          <FlatPanel onOpenImage={(f) => void openImage(f)} />
         ) : (
           <Panel
             onOpenScan={(f) => void openFile(f)}
@@ -1111,7 +1161,7 @@ export default function App() {
               its place in the tree when the split view opens for the same
               reason — it becomes the left half where it stands, rather than
               being moved into one. */}
-          <div className={splitOpen ? 'viewslot split' : 'viewslot'} hidden={picking}>
+          <div className={splitOpen ? 'viewslot split' : 'viewslot'} hidden={picking || onFlat}>
             <Viewer
               onReady={(s) => {
                 sceneRef.current = s
@@ -1139,6 +1189,23 @@ export default function App() {
               </>
             )}
           </div>
+          {/* The flat viewport mounts with its workspace — there is no BVH to
+              protect here, and a hidden second WebGL canvas would still hold
+              its context. The 3D viewport above merely hides. */}
+          {onFlat && (
+            <div className="viewslot">
+              <FlatViewer
+                onReady={(s) => {
+                  flatSceneRef.current = s
+                  syncFlatImage()
+                }}
+                onPick={() => {
+                  // Element picking arrives with the flat draft flow; a bare
+                  // click has nothing to do yet.
+                }}
+              />
+            </div>
+          )}
           {picking && scanGeometry && nominalGeometry && (
             <SplitPicker
               scanGeometry={scanGeometry}
@@ -1181,7 +1248,22 @@ export default function App() {
               showHistogram={thickShowHistogram}
             />
           )}
-          {needsModels && !picking && (
+          {onFlat && !flatImageName && (
+            <StartPane
+              title="Measuring a flatbed scan"
+              blurb="Scan the part face-down on a flatbed scanner and open the image — then fit points, lines and circles to its edges and measure between them, the way a measuring microscope does. PNG or JPEG, at the highest optical resolution you have. Everything stays in this browser."
+              slots={[
+                {
+                  role: 'Image',
+                  what: 'The flatbed scan of the part',
+                  name: flatImageName,
+                  accept: IMAGE_ACCEPT,
+                  onOpen: (f) => void openImage(f),
+                },
+              ]}
+            />
+          )}
+          {needsModels && !picking && !onFlat && (
             <StartPane
               title={
                 onDeviation
@@ -1248,7 +1330,9 @@ export default function App() {
           {errorText && <div className="toast">{errorText}</div>}
           {dragging && (
             <div className="drop-overlay">
-              Drop your STL / PLY / OBJ{onDeviation ? ' / STEP' : ''} here
+              {onFlat
+                ? 'Drop your PNG / JPEG scan here'
+                : `Drop your STL / PLY / OBJ${onDeviation ? ' / STEP' : ''} here`}
             </div>
           )}
         </div>

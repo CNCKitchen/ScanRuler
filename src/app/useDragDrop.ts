@@ -2,7 +2,7 @@
 // Drag & drop anywhere. Owns the "drop it here" flag so the overlay can be
 // shown without the rest of the app caring about drag state.
 import { useEffect, useState } from 'react'
-import { isStepFile } from '../core/formats'
+import { isImageFile, isStepFile } from '../core/formats'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useShell } from '../state/shellStore'
@@ -10,9 +10,11 @@ import { useShell } from '../state/shellStore'
 export function useDragDrop({
   openFile,
   openNominal,
+  openImage,
 }: {
   openFile: (file: File) => Promise<void>
   openNominal: (file: File) => Promise<void>
+  openImage: (file: File) => Promise<void>
 }): boolean {
   const [dragging, setDragging] = useState(false)
   useEffect(() => {
@@ -41,6 +43,13 @@ export function useDragDrop({
       //
       // Measuring against an element wants no second model at all, so there a
       // drop is always the scan.
+      // An image can only ever be a flatbed scan, so it opens the 2D Measure
+      // workspace with itself — dropped from anywhere.
+      if (isImageFile(file.name)) {
+        useShell.getState().setWorkspace('flat')
+        void openImage(file)
+        return
+      }
       const dev = useDeviation.getState()
       if (useShell.getState().workspace === 'deviation' && dev.source === 'reference') {
         if (isStepFile(file.name) || (useStore.getState().fileName && !dev.nominalName)) {

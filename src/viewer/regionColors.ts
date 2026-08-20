@@ -5,11 +5,18 @@
  *
  * Pure bookkeeping over typed arrays — no three.js, no GPU. The layers, from
  * the bottom up: bare scan, element tints (owned regions, minus the hidden
- * ones), a measured field map when one is showing, the preview region of a
- * pending auto-fit, and the hand-painted marking on top of everything. The
- * caller owns the actual colour buffer (it is the mesh's colour attribute) and
- * is responsible for flagging it dirty after any call that touched it — every
- * mutator returns whether it did.
+ * ones), a measured field map when one is showing, and the preview region of a
+ * pending auto-fit. The caller owns the actual colour buffer (it is the mesh's
+ * colour attribute) and is responsible for flagging it dirty after any call
+ * that touched it — every mutator returns whether it did.
+ *
+ * The hand-painted marking sits above all of that, but not in the colour
+ * buffer: vertex colours are interpolated across every triangle, which blurs
+ * the marking's border over a whole triangle ring. It lives in its own
+ * one-byte-per-vertex mask (also the caller's, it is the mesh's paint
+ * attribute), and the scan's shader thresholds it so that exactly the fully
+ * marked triangles wear the tint — a border as sharp as the mesh itself. This
+ * module only keeps the mask and its count; no colour ever moves for it.
  */
 
 export type Rgb = readonly [number, number, number]
@@ -31,10 +38,10 @@ export class RegionColors {
   private previewRegion: Uint32Array | null = null
   private previewRgb: Rgb = [255, 255, 255]
   /** Hand-painted surface selection: one byte per vertex, vertex indices like
-   *  everything else the fitter speaks. */
+   *  everything else the fitter speaks. The mesh's paint attribute — written in
+   *  place, thresholded per triangle by the scan's shader. */
   private paintMask: Uint8Array | null = null
   private count = 0
-  private paintRgb: Rgb = [0, 0, 0]
 
   constructor(private baseColor: Rgb) {}
 
@@ -60,17 +67,18 @@ export class RegionColors {
     return this.count
   }
 
-  /** Adopt a new scan's colour buffer. Ownership, tints and marking all start
-   *  empty — nothing measured on the old scan means anything on this one. */
-  attach(colors: Uint8Array): void {
-    const vertexCount = colors.length / 3
+  /** Adopt a new scan's colour and paint buffers. Ownership, tints and marking
+   *  all start empty — nothing measured on the old scan means anything on this
+   *  one. */
+  attach(colors: Uint8Array, paint: Uint8Array): void {
     this.colors = colors
-    this.owner = new Int32Array(vertexCount)
+    this.owner = new Int32Array(colors.length / 3)
     this.elementColors.clear()
     this.hiddenRegions.clear()
     this.fieldColors = null
     this.previewRegion = null
-    this.paintMask = new Uint8Array(vertexCount)
+    this.paintMask = paint
+    this.paintMask.fill(0)
     this.count = 0
   }
 
@@ -86,10 +94,9 @@ export class RegionColors {
     this.count = 0
   }
 
-  /** What a vertex should be coloured when nothing is marked on it: the
-   *  measured map where one is showing — marking surface for a fine fit is
-   *  done on top of the deviation map, and rubbing it out has to give the
-   *  reading back — otherwise its element's tint, otherwise bare scan. */
+  /** What a vertex should be coloured when no overlay sits on it: the measured
+   *  map where one is showing, otherwise its element's tint, otherwise bare
+   *  scan — what lifting a preview hands the surface back to. */
   baseColorOf(v: number): Rgb {
     const field = this.fieldColors
     if (field) return [field[v * 3], field[v * 3 + 1], field[v * 3 + 2]]
@@ -184,12 +191,8 @@ export class RegionColors {
   setFieldColors(field: Uint8Array | null): boolean {
     this.fieldColors = field
     if (!this.colors) return false
-    if (field && field.length === this.colors.length) {
-      this.colors.set(field)
-      // The marking sits above the map: re-scaling the colours must not rub
-      // out the surface a fine fit is about to be run on.
-      this.applyPaint()
-    } else this.repaintFromElements()
+    if (field && field.length === this.colors.length) this.colors.set(field)
+    else this.repaintFromElements()
     return true
   }
 
@@ -229,68 +232,31 @@ export class RegionColors {
     return id > 0 && !this.hiddenRegions.has(id) && this.elementColors.has(id) ? id : null
   }
 
-  /** The two layers that sit above the element tints: the preview region of a
-   *  pending auto-fit, and the surface marked by hand for one. */
+  /** The layer that sits above the element tints: the preview region of a
+   *  pending auto-fit. (The marking sits above this too, but in its own mask —
+   *  a repaint underneath cannot rub it out.) */
   private paintOverlays(): void {
     const arr = this.colors
-    if (!arr) return
-    if (this.previewRegion) {
-      for (let i = 0; i < this.previewRegion.length; i++) {
-        const v = this.previewRegion[i]
-        arr[v * 3] = this.previewRgb[0]
-        arr[v * 3 + 1] = this.previewRgb[1]
-        arr[v * 3 + 2] = this.previewRgb[2]
-      }
-    }
-    this.applyPaint()
-  }
-
-  /** Re-lay the marking's tint over whatever was just painted under it. */
-  applyPaint(): void {
-    const mask = this.paintMask
-    const arr = this.colors
-    if (!mask || !arr || this.count === 0) return
-    for (let v = 0; v < mask.length; v++) {
-      if (!mask[v]) continue
-      arr[v * 3] = this.paintRgb[0]
-      arr[v * 3 + 1] = this.paintRgb[1]
-      arr[v * 3 + 2] = this.paintRgb[2]
+    if (!arr || !this.previewRegion) return
+    for (let i = 0; i < this.previewRegion.length; i++) {
+      const v = this.previewRegion[i]
+      arr[v * 3] = this.previewRgb[0]
+      arr[v * 3 + 1] = this.previewRgb[1]
+      arr[v * 3 + 2] = this.previewRgb[2]
     }
   }
 
   // ---- the marking layer ---------------------------------------------------
 
-  /** The colour the marking is laid down in. Returns whether it changed, so
-   *  the brush can tell a recolour from a repeat. */
-  setPaintColor(rgb: Rgb): boolean {
-    const changed = rgb.some((c, i) => c !== this.paintRgb[i])
-    this.paintRgb = rgb
-    return changed
-  }
-
-  /** Make sure a mask exists for the attached scan — the brush can be armed
-   *  before any stroke lands. */
-  ensurePaintMask(): void {
-    if (this.colors && !this.paintMask) {
-      this.paintMask = new Uint8Array(this.colors.length / 3)
-      this.count = 0
-    }
-  }
-
-  /** Lay the marking on one vertex, or take it off, and put the right colour
-   *  under it either way. The single place the mask and the count move
-   *  together — every gesture goes through here. */
+  /** Lay the marking on one vertex, or take it off. The single place the mask
+   *  and the count move together — every gesture goes through here. The colour
+   *  buffer is never touched: the tint is the shader's, so rubbing out has
+   *  nothing to restore. */
   markVertex(v: number, erase: boolean): void {
     const mask = this.paintMask
-    const arr = this.colors
-    if (!mask || !arr || mask[v] === (erase ? 0 : 1)) return
+    if (!mask || mask[v] === (erase ? 0 : 1)) return
     mask[v] = erase ? 0 : 1
     this.count += erase ? -1 : 1
-    const c = erase ? this.baseColorOf(v) : this.paintRgb
-    const j = v * 3
-    arr[j] = c[0]
-    arr[j + 1] = c[1]
-    arr[j + 2] = c[2]
   }
 
   /** The vertices marked so far, as the fitter wants them. */
@@ -306,43 +272,26 @@ export class RegionColors {
   /** Put a marking back on the part wholesale — the surface an element was
    *  measured on, when that element is re-opened for editing. */
   setPaintedVertices(vertices: Uint32Array): boolean {
-    if (!this.colors) return false
-    const vertexCount = this.colors.length / 3
-    if (!this.paintMask || this.paintMask.length !== vertexCount)
-      this.paintMask = new Uint8Array(vertexCount)
-    else this.paintMask.fill(0)
+    const mask = this.paintMask
+    if (!mask) return false
+    mask.fill(0)
     let marked = 0
     for (let i = 0; i < vertices.length; i++) {
       const v = vertices[i]
-      if (v >= vertexCount || this.paintMask[v]) continue
-      this.paintMask[v] = 1
+      if (v >= mask.length || mask[v]) continue
+      mask[v] = 1
       marked++
     }
     this.count = marked
-    this.applyPaint()
     return true
   }
 
-  /** Rub out the whole marking and hand the surface back to whatever was
-   *  underneath it. Returns whether the colour buffer changed. */
+  /** Rub out the whole marking. Returns whether there was one to rub out —
+   *  what tells the caller the paint attribute needs an upload. */
   clearPaint(): boolean {
-    if (!this.paintMask || this.count === 0) {
-      this.count = 0
-      this.paintMask?.fill(0)
-      return false
-    }
-    const mask = this.paintMask
-    const arr = this.colors
-    for (let v = 0; v < mask.length; v++) {
-      if (!mask[v]) continue
-      mask[v] = 0
-      if (!arr) continue
-      const c = this.baseColorOf(v)
-      arr[v * 3] = c[0]
-      arr[v * 3 + 1] = c[1]
-      arr[v * 3 + 2] = c[2]
-    }
+    const had = this.count > 0
+    this.paintMask?.fill(0)
     this.count = 0
-    return true
+    return had
   }
 }

@@ -7,9 +7,10 @@
 
 import { create } from 'zustand'
 
-/** The things this tool does. They share the scan, the scene and the camera;
- *  only what is drawn on top of the part differs. */
-export type Workspace = 'elements' | 'deviation' | 'thickness'
+/** The things this tool does. The three mesh workspaces share the scan, the
+ *  scene and the camera, differing only in what is drawn on top of the part;
+ *  the flat workspace measures a 2D scan image in a viewport of its own. */
+export type Workspace = 'elements' | 'deviation' | 'thickness' | 'flat'
 
 interface ShellState {
   workspace: Workspace

@@ -13,13 +13,18 @@ export const MESH_EXTENSIONS = ['stl', 'ply', 'obj'] as const
 /** Reference formats: the mesh ones plus CAD. */
 export const REFERENCE_EXTENSIONS = [...MESH_EXTENSIONS, 'step', 'stp'] as const
 
+/** Flat-scan formats: what a flatbed scanner writes and a browser decodes. */
+export const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg'] as const
+
 const accept = (exts: readonly string[]) => exts.map((e) => `.${e}`).join(',')
 
 export const MESH_ACCEPT = accept(MESH_EXTENSIONS)
 export const REFERENCE_ACCEPT = accept(REFERENCE_EXTENSIONS)
+export const IMAGE_ACCEPT = accept(IMAGE_EXTENSIONS)
 
 export const MESH_FORMATS = 'STL, PLY or OBJ · mm'
 export const REFERENCE_FORMATS = 'STL, PLY, OBJ or STEP'
+export const IMAGE_FORMATS = 'PNG or JPEG'
 
 export function extensionOf(fileName: string): string {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
@@ -36,4 +41,8 @@ export function isStepFile(fileName: string): boolean {
 
 export function isReferenceFile(fileName: string): boolean {
   return (REFERENCE_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
+}
+
+export function isImageFile(fileName: string): boolean {
+  return (IMAGE_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
 }

@@ -21,6 +21,7 @@ function base(over: Partial<HintInput> = {}): HintInput {
     hasTargetElement: false,
     targetChosen: false,
     thicknessReady: false,
+    imageLoaded: false,
     ...over,
   }
 }
@@ -36,6 +37,12 @@ describe('hint ladder', () => {
     for (const workspace of ['elements', 'deviation', 'thickness'] as const) {
       expect(target(base({ workspace, scanLoaded: false }))).toBe('open-scan')
     }
+  })
+
+  it('asks the flat workspace for its image, whatever the scan mesh is doing', () => {
+    expect(target(base({ workspace: 'flat', scanLoaded: false }))).toBe('open-image')
+    expect(target(base({ workspace: 'flat', scanLoaded: true }))).toBe('open-image')
+    expect(nextHint(base({ workspace: 'flat', imageLoaded: true }))).toBeNull()
   })
 
   it('says nothing while the tool is working', () => {

@@ -11,6 +11,7 @@ import { useShell } from '../state/shellStore'
 import { hasLearned, useHintPrefs } from '../state/hintStore'
 import { useStore } from '../state/store'
 import { useThickness } from '../state/thicknessStore'
+import { useFlat } from '../state/flatStore'
 
 /** The ladder's answer for the workspace on screen, already silenced where it
  *  has no business speaking. Every field is a primitive or a boolean, so the
@@ -45,9 +46,12 @@ function useLadder(): HintResult {
   const thicknessReady = useThickness((s) => s.status === 'ready')
   const thicknessRunning = useThickness((s) => s.status === 'running')
 
+  const imageLoaded = useFlat((s) => s.imageName !== null)
+  const imageBusy = useFlat((s) => s.imageBusy)
+
   const input: HintInput = {
     workspace,
-    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning,
+    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning || imageBusy,
     scanLoaded,
     fittedElements,
     dimensions,
@@ -61,6 +65,7 @@ function useLadder(): HintResult {
     hasTargetElement,
     targetChosen,
     thicknessReady,
+    imageLoaded,
   }
   const result = nextHint(input)
   // 'done' still has to reach the caller that retires the track — it is only

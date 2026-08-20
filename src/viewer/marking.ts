@@ -149,7 +149,12 @@ export interface MarkingContext {
   regions: RegionColors
   setPickRay(clientX: number, clientY: number): void
   mesh(): THREE.Mesh | null
-  colorAttr(): THREE.BufferAttribute | null
+  /** The mesh's paint-mask attribute — flagged dirty after every gesture that
+   *  moved the marking. */
+  paintAttr(): THREE.BufferAttribute | null
+  /** The colour the shader lays the marking down in — a uniform, so a recolour
+   *  costs nothing per vertex. */
+  setPaintColor(rgb: [number, number, number]): void
   invalidate(): void
   /** Take the plain drags off the camera while a gesture is live. */
   claimDrag(on: boolean): void
@@ -300,7 +305,6 @@ export class SurfaceMarking {
    * laid down must survive reaching for the slider.
    */
   setPaintBrush(brush: PaintBrush | null): void {
-    const wasOn = this.paint !== null
     this.paint = brush
     // Only a live gesture takes the plain drags away from the camera. Idle —
     // and that is the state both marking sessions open in — the camera keeps
@@ -331,14 +335,9 @@ export class SurfaceMarking {
     this.ctx.requestHover()
     this.paintErasing = brush.erase
     this.updateRingColor()
-    const changed = this.ctx.regions.setPaintColor(colorToRgb(brush.color))
-    const recolour = wasOn && changed
-    this.ctx.regions.ensurePaintMask()
-    const attr = this.ctx.colorAttr()
-    if (recolour && this.ctx.regions.paintCount > 0 && attr) {
-      this.ctx.regions.applyPaint()
-      attr.needsUpdate = true
-    }
+    // A uniform write: a recolour shows on whatever is already marked without
+    // a pass over the mask.
+    this.ctx.setPaintColor(colorToRgb(brush.color))
     this.ctx.invalidate()
   }
 
@@ -358,19 +357,18 @@ export class SurfaceMarking {
    */
   setPaintedVertices(vertices: Uint32Array, colorHex: string): void {
     if (!this.ctx.mesh()) return
-    this.ctx.regions.setPaintColor(colorToRgb(colorHex))
+    this.ctx.setPaintColor(colorToRgb(colorHex))
     if (!this.ctx.regions.setPaintedVertices(vertices)) return
-    const attr = this.ctx.colorAttr()
+    const attr = this.ctx.paintAttr()
     if (!attr) return
     attr.needsUpdate = true
     this.ctx.invalidate()
   }
 
-  /** Rub out the whole marking and hand the surface back to whatever was
-   *  underneath it. */
+  /** Rub out the whole marking. */
   clearPaint(): void {
     if (!this.ctx.regions.clearPaint()) return
-    const attr = this.ctx.colorAttr()
+    const attr = this.ctx.paintAttr()
     if (attr) attr.needsUpdate = true
     this.ctx.invalidate()
   }
@@ -387,7 +385,7 @@ export class SurfaceMarking {
       this.dab(last ? last.x + (x - last.x) * t : x, last ? last.y + (y - last.y) * t : y, erase)
     }
     this.paintLast = { x, y }
-    const attr = this.ctx.colorAttr()
+    const attr = this.ctx.paintAttr()
     if (attr) attr.needsUpdate = true
     this.ctx.invalidate()
   }
@@ -410,8 +408,7 @@ export class SurfaceMarking {
   private dab(clientX: number, clientY: number, erase: boolean): void {
     const mesh = this.ctx.mesh()
     const brush = this.paint
-    if (!mesh || !brush || !this.ctx.colorAttr()) return
-    this.ctx.regions.ensurePaintMask()
+    if (!mesh || !brush || !this.ctx.paintAttr()) return
 
     this.ctx.setPickRay(clientX, clientY)
     const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]

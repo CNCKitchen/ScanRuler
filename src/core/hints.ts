@@ -14,7 +14,7 @@
 // nothing, and the ring appears the moment the fit is ready.
 
 /** One workspace's worth of guidance. The workspace ids are the tracks. */
-export type HintTrack = 'elements' | 'deviation' | 'thickness'
+export type HintTrack = 'elements' | 'deviation' | 'thickness' | 'flat'
 
 export interface HintStep {
   /** data-test of the control to ring — one control, in one place on screen. */
@@ -56,6 +56,9 @@ export interface HintInput {
 
   // Wall thickness workspace.
   thicknessReady: boolean
+
+  // 2D Measure workspace. Its first step is an image, not the scan mesh.
+  imageLoaded: boolean
 }
 
 /** The scan is the first step of every workspace. While it is missing there are
@@ -69,6 +72,13 @@ const OPEN_SCAN: HintStep = {
 
 export function nextHint(m: HintInput): HintResult {
   if (m.busy) return null
+  // The flat workspace measures an image, not the scan mesh — its ladder
+  // grows with the workspace, and for now only the front door is on it.
+  if (m.workspace === 'flat') {
+    return m.imageLoaded
+      ? null
+      : { target: 'open-image', text: 'Open the flatbed scan you want to measure' }
+  }
   if (!m.scanLoaded) return OPEN_SCAN
   if (m.workspace === 'deviation') return deviationLadder(m)
   if (m.workspace === 'thickness') {

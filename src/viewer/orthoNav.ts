@@ -47,6 +47,9 @@ export class OrthoNavigator {
    *  brush while the user is painting a surface (see setPaintMode). */
   private bindings: NavBinding[] = SCHEMES[0].bindings
   private paintMode = false
+  /** A flat document has no third dimension to turn into: every orbit binding
+   *  pans instead, and a single finger drags the sheet. See setPlanar. */
+  private planar = false
   private action: NavAction | null = null
   /** Last seen `buttons` bitmask, so a chord change can be spotted. */
   private mask = 0
@@ -75,6 +78,8 @@ export class OrthoNavigator {
   /** Whether the single finger down is turning the model. Separate from
    *  `action`, which only ever describes a mouse chord. */
   private touchOrbit = false
+  /** Where the single planar-mode finger last was — it drags the sheet. */
+  private touchPan: { x: number; y: number } | null = null
 
   // Scratch: this maths runs per pointer event.
   private right = new THREE.Vector3()
@@ -157,12 +162,25 @@ export class OrthoNavigator {
     this.cancelGesture()
   }
 
+  /** Flatten the navigation for a 2D document: whatever chord a scheme gives
+   *  to orbiting drags the sheet instead, so no scheme can turn the image
+   *  edge-on, and the buttons still mean what the user's scheme says. */
+  setPlanar(on: boolean): void {
+    if (this.planar === on) return
+    this.planar = on
+    this.rebuildBindings()
+    this.cancelGesture()
+  }
+
   private rebuildBindings(): void {
+    const base = this.planar
+      ? this.scheme.bindings.map((b) => (b.action === 'orbit' ? { ...b, action: 'pan' as NavAction } : b))
+      : this.scheme.bindings
     if (!this.paintMode) {
-      this.bindings = this.scheme.bindings
+      this.bindings = base
       return
     }
-    const moved = this.scheme.bindings.map((b) =>
+    const moved = base.map((b) =>
       (b.buttons === LMB || b.buttons === RMB) && !b.shift && !b.ctrl && !b.alt
         ? { ...b, shift: true }
         : b,
@@ -188,6 +206,7 @@ export class OrthoNavigator {
     this.catiaZoomLatch = false
     this.pinch = null
     this.touchOrbit = false
+    this.touchPan = null
     this.retuneTouch()
   }
 
@@ -368,6 +387,10 @@ export class OrthoNavigator {
     const pair = this.touchPair()
     if (!pair) {
       if (this.touchOrbit) this.orbitMove(e.clientX, e.clientY)
+      else if (this.touchPan) {
+        this.panByPixels(e.clientX - this.touchPan.x, e.clientY - this.touchPan.y)
+        this.touchPan = { x: e.clientX, y: e.clientY }
+      }
       return
     }
     const [a, b] = pair
@@ -401,6 +424,7 @@ export class OrthoNavigator {
         this.endOrbit()
         this.touchOrbit = false
       }
+      this.touchPan = null
       // Datum is taken on the next move, by which time both fingers have
       // reported a position through touchMove.
       this.pinch = null
@@ -412,10 +436,17 @@ export class OrthoNavigator {
       this.endOrbit()
       this.touchOrbit = false
     }
+    this.touchPan = null
     // A brush or a grip that has claimed the plain drag keeps the single
     // finger; two fingers still navigate, exactly as the middle button does
     // for a mouse.
     if (!only || this.paintMode) return
+    // On a flat document the single finger drags the sheet instead of
+    // turning it — there is nothing to turn.
+    if (this.planar) {
+      this.touchPan = { x: only.x, y: only.y }
+      return
+    }
     this.beginOrbit(only.x, only.y)
     this.touchOrbit = true
   }
