@@ -8,19 +8,34 @@ import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
 import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
 import { datumFrame, fitInFrame } from '../core/flat/datum'
+import {
+  FLAT_DIMENSION_TYPES,
+  evaluateFlatDimension,
+  evaluateFlatDimensions,
+  flatDimensionTypeInfo,
+} from '../core/flat/dimensions'
 import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
-import type { FlatElementKind } from '../core/flat/types'
+import type { FlatElementKind, FlatFit } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
 import { useFlat } from '../state/flatStore'
+import { CopyButton } from './CopyButton'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc']
 
-export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }) {
+export function FlatPanel({
+  onOpenImage,
+  onCopy,
+  onExportCsv,
+}: {
+  onOpenImage: (file: File) => void
+  onCopy: () => void
+  onExportCsv: () => void
+}) {
   const imageName = useFlat((s) => s.imageName)
   const imageWidth = useFlat((s) => s.imageWidth)
   const imageHeight = useFlat((s) => s.imageHeight)
@@ -42,8 +57,20 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
   const datum = useFlat((s) => s.datum)
   const datumPicking = useFlat((s) => s.datumPicking)
   const showGrid = useFlat((s) => s.showGrid)
+  const dimensions = useFlat((s) => s.dimensions)
+  const dimDraft = useFlat((s) => s.dimDraft)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
+
+  const evaluatedDims = evaluateFlatDimensions(dimensions, elements)
+  // The draft's live value, once both slots hold something.
+  const dimPreview =
+    dimDraft && dimDraft.refs.every((r) => r !== null)
+      ? evaluateFlatDimension(
+          dimDraft.type,
+          dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit) as FlatFit[],
+        )
+      : null
 
   // The reference's true size, and what applying against it last said. Local:
   // they belong to the tool being open, not to the workspace.
@@ -408,6 +435,134 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {imageName && (
+        <div className="group">
+          <div className="sec-head">
+            Dimensions
+            <InfoDot title="Dimensions">
+              <p>
+                Measurements between elements: point–point and point–line distances, the width
+                between two near-parallel lines, the angle between two lines. Values follow the
+                elements — re-fit or recalibrate and every dimension updates.
+              </p>
+            </InfoDot>
+          </div>
+          {!dimDraft ? (
+            <button
+              className="block"
+              data-test="flat-new-dimension"
+              disabled={elements.filter((e) => e.fit).length < 2}
+              onClick={() => flat.getState().startDimDraft()}
+            >
+              New dimension
+            </button>
+          ) : (
+            <>
+              <label className="field">
+                <span>Type</span>
+                <select
+                  data-test="flat-dim-type"
+                  value={dimDraft.type}
+                  onChange={(e) => flat.getState().setDimType(e.target.value)}
+                >
+                  {FLAT_DIMENSION_TYPES.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.group === 'angle' ? `Angle: ${t.label}` : `Distance: ${t.label}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="hint">{flatDimensionTypeInfo(dimDraft.type).hint}</p>
+              {flatDimensionTypeInfo(dimDraft.type).slots.map((slot, i) => (
+                <label className="field" key={slot.label + i}>
+                  <span>{slot.label}</span>
+                  <select
+                    data-test={`flat-dim-slot-${i}`}
+                    value={dimDraft.refs[i] ?? ''}
+                    onChange={(e) =>
+                      flat
+                        .getState()
+                        .setDimRef(i, e.target.value === '' ? null : Number(e.target.value))
+                    }
+                  >
+                    <option value="">Choose…</option>
+                    {elements
+                      .filter(
+                        (el) =>
+                          el.fit &&
+                          FLAT_ROLE_PROVIDERS[slot.role].includes(el.kind) &&
+                          !dimDraft.refs.some((r, j) => j !== i && r === el.id),
+                      )
+                      .map((el) => (
+                        <option key={el.id} value={el.id}>
+                          {el.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              ))}
+              {dimPreview && (
+                <p className="hint" data-test="flat-dim-preview">
+                  {dimPreview.invalid
+                    ? `Invalid: ${dimPreview.invalid}`
+                    : `${dimPreview.label}: ${dimPreview.value}`}
+                  {dimPreview.warning ? ` — ${dimPreview.warning}` : ''}
+                </p>
+              )}
+              <button
+                className="primary block"
+                data-test="flat-add-dimension"
+                disabled={!dimDraft.refs.every((r) => r !== null)}
+                onClick={() => flat.getState().commitDim()}
+              >
+                Add dimension
+              </button>
+              <button className="block" data-test="flat-dim-cancel" onClick={() => flat.getState().cancelDimDraft()}>
+                Cancel
+              </button>
+            </>
+          )}
+          {evaluatedDims.length > 0 && (
+            <div className="rows">
+              {evaluatedDims.map((d) => (
+                <div key={d.dim.id} className="kv" data-test="flat-dimension-row">
+                  <span className="name" title={d.value.label}>
+                    {d.title}
+                  </span>
+                  {d.value.value !== undefined ? (
+                    <b title={[d.value.detail, d.value.warning].filter(Boolean).join(' — ')}>
+                      {d.value.warning ? '⚠ ' : ''}
+                      {d.value.value}
+                    </b>
+                  ) : (
+                    <b className="warn" title={d.value.invalid}>
+                      invalid
+                    </b>
+                  )}
+                  <button
+                    className="iconbtn"
+                    data-test="flat-dimension-delete"
+                    title="Delete dimension"
+                    onClick={() => flat.getState().deleteDimension(d.dim.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {(elements.length > 0 || dimensions.length > 0) && (
+            <>
+              <div className="divider" />
+              <CopyButton className="block" label="Copy report" onCopy={onCopy} />
+              <button className="block" data-test="flat-export-csv" onClick={onExportCsv}>
+                Export CSV
+              </button>
+            </>
           )}
         </div>
       )}

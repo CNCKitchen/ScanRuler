@@ -21,6 +21,7 @@ import {
   type FlatSource,
 } from '../core/flat/elements'
 import type { FlatDatum } from '../core/flat/datum'
+import { FLAT_DIMENSION_TYPES, flatDimensionTypeInfo, type FlatDimension } from '../core/flat/dimensions'
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
@@ -188,6 +189,18 @@ interface FlatState {
   setEdgeSensitivity: (v: number) => void
   setShowEdges: (v: boolean) => void
 
+  /** User-created measurements between elements, and the one being built. */
+  dimensions: FlatDimension[]
+  dimDraft: { type: string; refs: (number | null)[] } | null
+  nextDimId: number
+
+  startDimDraft: () => void
+  cancelDimDraft: () => void
+  setDimType: (type: string) => void
+  setDimRef: (slot: number, id: number | null) => void
+  commitDim: () => void
+  deleteDimension: (id: number) => void
+
   /** The part's own frame: origin and +X, as two picks (image pixels). Null
    *  reads coordinates in the image frame, origin bottom-left. */
   datum: FlatDatum | null
@@ -236,6 +249,46 @@ export const useFlat = create<FlatState>()((set, get) => ({
   calSource: 'none',
   splitAxes: false,
   calibrating: null,
+
+  dimensions: [],
+  dimDraft: null,
+  nextDimId: 1,
+
+  startDimDraft: () =>
+    set({
+      dimDraft: {
+        type: FLAT_DIMENSION_TYPES[0].id,
+        refs: FLAT_DIMENSION_TYPES[0].slots.map(() => null),
+      },
+    }),
+  cancelDimDraft: () => set({ dimDraft: null }),
+
+  // Slots re-shape with the type; whatever was chosen stays only if a slot of
+  // the new type could still hold it — simplest is to start the slots over.
+  setDimType: (type) =>
+    set({ dimDraft: { type, refs: flatDimensionTypeInfo(type).slots.map(() => null) } }),
+
+  setDimRef: (slot, id) =>
+    set((s) => {
+      if (!s.dimDraft) return {}
+      const refs = [...s.dimDraft.refs]
+      refs[slot] = id
+      return { dimDraft: { ...s.dimDraft, refs } }
+    }),
+
+  commitDim: () =>
+    set((s) => {
+      if (!s.dimDraft || s.dimDraft.refs.some((r) => r === null)) return {}
+      const dim: FlatDimension = {
+        id: s.nextDimId,
+        type: s.dimDraft.type,
+        refs: s.dimDraft.refs as number[],
+      }
+      return { dimensions: [...s.dimensions, dim], dimDraft: null, nextDimId: s.nextDimId + 1 }
+    }),
+
+  deleteDimension: (id) =>
+    set((s) => ({ dimensions: s.dimensions.filter((d) => d.id !== id) })),
 
   datum: null,
   datumPicking: null,
@@ -390,6 +443,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
       draft: null,
       nameCounts: {},
       selectedId: null,
+      dimensions: [],
+      dimDraft: null,
       datum: null,
       datumPicking: null,
       ...(s.calSource === 'measured'

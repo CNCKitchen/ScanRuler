@@ -9,6 +9,8 @@ import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
 import { flatMethod } from './core/flat/construct'
 import { datumFrame, fitInFrame } from './core/flat/datum'
+import { evaluateFlatDimensions } from './core/flat/dimensions'
+import { buildFlatCsv, buildFlatReport, type FlatReportInput } from './core/flat/report'
 import { formatFlatPrimary } from './core/flat/summary'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
@@ -56,7 +58,7 @@ import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
 import { rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
 import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
-import { exportElementsStep, exportScanStl } from './app/exports'
+import { exportElementsStep, exportScanStl, saveFile } from './app/exports'
 import { PICK_MARK_TOOL_STATUS, useDeviationWorkspace } from './app/useDeviationWorkspace'
 import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
@@ -173,6 +175,7 @@ export default function App() {
     syncFlatCalPicks()
     syncFlatEdges()
     syncFlatElements()
+    syncFlatDimensions()
     syncFlatGrid()
   }
   useEffect(syncFlatImage, [flatImageVersion])
@@ -269,6 +272,54 @@ export default function App() {
     const len = Math.hypot(dx, dy)
     if (len < 1e-6) return
     flatSceneRef.current?.setGrid({ origin, xDir: [dx / len, dy / len] })
+  }
+
+  // The measured dimensions, drawn on the sheet where they were taken —
+  // values are rigid-invariant, so the datum never moves them.
+  const flatDimensions = useFlat((s) => s.dimensions)
+  const flatElementsForDims = useFlat((s) => s.elements)
+  const syncFlatDimensions = () => {
+    const s = useFlat.getState()
+    flatSceneRef.current?.setFlatDimensions(
+      evaluateFlatDimensions(s.dimensions, s.elements)
+        .filter((d) => d.value.value !== undefined)
+        .map((d) => ({
+          title: d.title,
+          value: d.value.value!,
+          segment: d.value.segment,
+          arc: d.value.arc,
+        })),
+    )
+  }
+  useEffect(syncFlatDimensions, [flatDimensions, flatElementsForDims])
+
+  /** Everything the 2D report and CSV need, gathered once. */
+  const flatReportInput = (): FlatReportInput => {
+    const s = useFlat.getState()
+    return {
+      imageName: s.imageName ?? 'image',
+      imageWidth: s.imageWidth,
+      imageHeight: s.imageHeight,
+      calSource: s.calSource,
+      pxPerMm: s.pxPerMm,
+      datum: s.datum,
+      frame: s.datum ? datumFrame(s.datum, s.pxPerMm) : null,
+      unit: s.pxPerMm ? 'mm' : 'px',
+      elements: s.elements,
+      dimensions: evaluateFlatDimensions(s.dimensions, s.elements),
+    }
+  }
+
+  const handleFlatCopyReport = () => {
+    void navigator.clipboard.writeText(buildFlatReport(flatReportInput()))
+    useStore.getState().setStatus('2D measurement report copied to the clipboard.')
+  }
+
+  const handleFlatExportCsv = () => {
+    const stem = (useFlat.getState().imageName ?? 'scan').replace(/\.[^.]+$/, '')
+    const name = `${stem}-measurements.csv`
+    saveFile(name, new Blob([buildFlatCsv(flatReportInput())], { type: 'text/csv' }))
+    useStore.getState().setStatus(`Measurements exported to ${name}.`)
   }
 
   // The committed grid: datum-aligned when one is set and wanted; put away
@@ -1321,7 +1372,11 @@ export default function App() {
             onCopy={handleCopyThicknessReport}
           />
         ) : onFlat ? (
-          <FlatPanel onOpenImage={(f) => void openImage(f)} />
+          <FlatPanel
+            onOpenImage={(f) => void openImage(f)}
+            onCopy={handleFlatCopyReport}
+            onExportCsv={handleFlatExportCsv}
+          />
         ) : (
           <Panel
             onOpenScan={(f) => void openFile(f)}

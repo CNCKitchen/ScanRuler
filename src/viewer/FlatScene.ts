@@ -44,6 +44,8 @@ export class FlatScene {
   /** Measured elements and the draft being built, in document units. */
   private elementGroup = new THREE.Group()
   private elementCleanup: (() => void)[] = []
+  private dimensionGroup = new THREE.Group()
+  private dimensionCleanup: (() => void)[] = []
   private draftGroup = new THREE.Group()
   private draftCleanup: (() => void)[] = []
   /** Detected edge chains. Geometry lives in image pixels; the group's scale
@@ -104,7 +106,78 @@ export class FlatScene {
     this.viewport.scene.add(this.calGroup)
     this.viewport.scene.add(this.edgeGroup)
     this.viewport.scene.add(this.elementGroup)
+    this.viewport.scene.add(this.dimensionGroup)
     this.viewport.scene.add(this.draftGroup)
+  }
+
+  /** The measured dimensions on the sheet: a callout line with its value for
+   *  a distance, two rays and a swept arc for an angle. */
+  setFlatDimensions(
+    items: readonly {
+      title: string
+      value: string
+      segment?: [Vec2, Vec2]
+      arc?: { vertex: Vec2; dirA: Vec2; dirB: Vec2 }
+    }[],
+  ): void {
+    for (const dispose of this.dimensionCleanup) dispose()
+    this.dimensionCleanup = []
+    this.dimensionGroup.clear()
+    const callout = 0x666e79
+    for (const item of items) {
+      if (item.segment) {
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16)
+        this.addDimLabel(
+          [(item.segment[0][0] + item.segment[1][0]) / 2, (item.segment[0][1] + item.segment[1][1]) / 2],
+          item.title,
+          item.value,
+        )
+      } else if (item.arc) {
+        const R = this.sheetDiag() * 0.05
+        const { vertex, dirA, dirB } = item.arc
+        const rays: Vec2[][] = [
+          [vertex, [vertex[0] + dirA[0] * R, vertex[1] + dirA[1] * R]],
+          [vertex, [vertex[0] + dirB[0] * R, vertex[1] + dirB[1] * R]],
+        ]
+        // Sweep A onto B the short way round for the drawn arc.
+        const a0 = Math.atan2(dirA[1], dirA[0])
+        let sweep = Math.atan2(dirB[1], dirB[0]) - a0
+        while (sweep > Math.PI) sweep -= 2 * Math.PI
+        while (sweep < -Math.PI) sweep += 2 * Math.PI
+        const steps = Math.max(8, Math.ceil(Math.abs(sweep) / 0.12))
+        const arcPts: Vec2[] = []
+        for (let i = 0; i <= steps; i++) {
+          const a = a0 + (sweep * i) / steps
+          arcPts.push([vertex[0] + Math.cos(a) * R * 0.72, vertex[1] + Math.sin(a) * R * 0.72])
+        }
+        rays.push(arcPts)
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, rays, callout, 0.85, 0.16)
+        const mid = a0 + sweep / 2
+        this.addDimLabel(
+          [vertex[0] + Math.cos(mid) * R * 0.95, vertex[1] + Math.sin(mid) * R * 0.95],
+          item.title,
+          item.value,
+        )
+      }
+    }
+    this.viewport.invalidate()
+  }
+
+  private addDimLabel(at: Vec2, title: string, value: string): void {
+    const div = document.createElement('div')
+    div.className = 'viewport-label distance-label'
+    const t = document.createElement('div')
+    t.className = 'label-title'
+    t.textContent = title
+    div.append(t)
+    const v = document.createElement('div')
+    v.className = 'label-value'
+    v.textContent = value
+    div.append(v)
+    const label = new CSS2DObject(div)
+    label.position.set(at[0], at[1], 0.2)
+    this.dimensionGroup.add(label)
+    this.dimensionCleanup.push(() => div.remove())
   }
 
   /** Show a datum-aligned millimetre grid over the sheet — or none. The
@@ -594,6 +667,7 @@ export class FlatScene {
     this.setGrid(null)
     this.setCalibrationPicks([])
     this.setFlatElements([])
+    this.setFlatDimensions([])
     this.setDraftMarks([], null)
     this.setEdgeChains(null)
     this.edgeMaterial.dispose()

@@ -69,6 +69,13 @@ export function flatDimensionTypeInfo(id: string): FlatDimensionTypeInfo {
   return info
 }
 
+/** A stored dimension: references elements by id, values are recomputed. */
+export interface FlatDimension {
+  id: number
+  type: string
+  refs: number[]
+}
+
 export interface FlatDimensionValue {
   /** 'Center distance', 'Line angle', … */
   label: string
@@ -211,4 +218,38 @@ export function evaluateFlatDimension(type: string, fits: readonly FlatFit[]): F
     default:
       return invalid('Dimension', `Unknown flat dimension type "${type}".`)
   }
+}
+
+/** The slice of an element a dimension needs to resolve and title itself. */
+export interface FlatNamedGeometry {
+  id: number
+  name: string
+  fit: FlatFit | null
+}
+
+export interface EvaluatedFlat {
+  dim: FlatDimension
+  /** "Circle 1 → Line 2" */
+  title: string
+  value: FlatDimensionValue
+}
+
+/** Resolve every dimension against the current elements. A dimension whose
+ *  reference lost its geometry reads as invalid rather than disappearing. */
+export function evaluateFlatDimensions(
+  dims: readonly FlatDimension[],
+  elements: readonly FlatNamedGeometry[],
+): EvaluatedFlat[] {
+  return dims.map((dim) => {
+    const els = dim.refs.map((id) => elements.find((e) => e.id === id))
+    const title = els.map((e) => e?.name ?? '?').join(' → ')
+    const fits = els.map((e) => e?.fit)
+    const value = fits.every((f): f is FlatFit => f !== undefined && f !== null)
+      ? evaluateFlatDimension(dim.type, fits)
+      : {
+          label: flatDimensionTypeInfo(dim.type).label,
+          invalid: 'A referenced element is unavailable.',
+        }
+    return { dim, title, value }
+  })
 }
