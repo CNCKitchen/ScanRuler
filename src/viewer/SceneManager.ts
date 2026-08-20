@@ -133,6 +133,11 @@ export class SceneManager {
   private previewMatrix = new THREE.Matrix4()
   private mesh: THREE.Mesh | null = null
   private colorAttr: THREE.BufferAttribute | null = null
+  /** The hand-marking's own channel: one byte per vertex, thresholded in the
+   *  scan's shader so exactly the fully marked triangles wear the tint. Kept
+   *  out of the colour attribute on purpose — vertex colours are interpolated,
+   *  and an interpolated marking has a blurred border. */
+  private paintAttr: THREE.BufferAttribute | null = null
   private nominalMesh: THREE.Mesh | null = null
   /** Long axis of the scan, kept so the camera can be re-framed later without
    *  walking the vertices again. */
@@ -160,6 +165,12 @@ export class SceneManager {
     uBackfaceTint: { value: 0 },
     uBackfaceColor: { value: new THREE.Color(DEFAULT_THEME.backface) },
   }
+
+  /** The marking's tint, as a uniform: recolouring what is marked is one write
+   *  here rather than a pass over the mask. Written in the working colour
+   *  space, like the vertex colours it is composited with — see the note on
+   *  setSurfaceColor in viewThemes. */
+  private uPaintColor = { value: new THREE.Color(1, 1, 1) }
 
   /** Scratch for picking, which runs every frame the cursor moves: the
    *  barycentric corners and difference vectors, and (in D) the hit point
@@ -227,7 +238,18 @@ export class SceneManager {
       regions: this.regions,
       setPickRay: (x, y) => this.setPickRay(x, y),
       mesh: () => this.mesh,
-      colorAttr: () => this.colorAttr,
+      paintAttr: () => this.paintAttr,
+      setPaintColor: (rgb) => {
+        // Bytes straight into the working space, the same path the vertex
+        // colours take — through setHex the two would land a gamma apart.
+        this.uPaintColor.value.setRGB(
+          rgb[0] / 255,
+          rgb[1] / 255,
+          rgb[2] / 255,
+          THREE.LinearSRGBColorSpace,
+        )
+        this.invalidate()
+      },
       invalidate: this.invalidate,
       claimDrag: (on) => this.claimDrag('paint', on),
       requestHover: () => {
@@ -396,6 +418,9 @@ export class SceneManager {
     }
     this.colorAttr = new THREE.BufferAttribute(colors, 3, true)
     geometry.setAttribute('color', this.colorAttr)
+    const paint = new Uint8Array(vertexCount)
+    this.paintAttr = new THREE.BufferAttribute(paint, 1)
+    geometry.setAttribute('paint', this.paintAttr)
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
@@ -407,14 +432,14 @@ export class SceneManager {
       side: THREE.DoubleSide,
     })
     applyFinish(material, this.theme)
-    this.tintBackfaces(material)
+    this.patchScanShader(material)
     this.mesh = new THREE.Mesh(geometry, material)
     this.partGroup.add(this.mesh)
     // A new scan is not aligned to anything yet, and nothing is being
     // previewed on it.
     this.previewMatrix.identity()
     this.setAlignment(null)
-    this.regions.attach(colors)
+    this.regions.attach(colors, paint)
 
     this.modelRadius = Math.max(
       geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2,
@@ -426,24 +451,42 @@ export class SceneManager {
   }
 
   /**
-   * Make a material paint its back faces in the flag colour when back-face
-   * tinting is on.
+   * The scan material's two shader amendments: the hand-marking's tint, and
+   * back-face flagging.
    *
-   * Done in the shader rather than by drawing the mesh a second time with the
-   * faces flipped, because the second pass would have to be the same million
-   * triangles again — and because a front-face-only main pass would take the
-   * inside of the part out of reach of the raycaster, which is what picking,
-   * hovering and the brush all run on.
+   * The marking rides in the per-vertex paint mask rather than in the vertex
+   * colours, because vertex colours are interpolated across every triangle and
+   * an interpolated marking has a blurred border. The mask is interpolated too,
+   * but thresholded just under one: only where all three corners are marked
+   * does the whole face clear the bar, so exactly the triangles the brush took
+   * light up, edge to edge. (In a partly marked triangle the region above the
+   * threshold is a sliver along the marked edge, thinner than a pixel.)
+   *
+   * Back faces are flagged in the shader rather than by drawing the mesh a
+   * second time with the faces flipped, because the second pass would have to
+   * be the same million triangles again — and because a front-face-only main
+   * pass would take the inside of the part out of reach of the raycaster,
+   * which is what picking, hovering and the brush all run on. The flag wins
+   * over the marking: a tinted back face is a warning, not a surface.
    */
-  private tintBackfaces(material: THREE.Material): void {
+  private patchScanShader(material: THREE.Material): void {
     material.onBeforeCompile = (shader) => {
       shader.uniforms.uBackfaceTint = this.backface.uBackfaceTint
       shader.uniforms.uBackfaceColor = this.backface.uBackfaceColor
+      shader.uniforms.uPaintColor = this.uPaintColor
+      shader.vertexShader =
+        'attribute float paint;\nvarying float vPaint;\n' +
+        shader.vertexShader.replace(
+          '#include <color_vertex>',
+          '#include <color_vertex>\n\tvPaint = paint;',
+        )
       shader.fragmentShader =
         'uniform float uBackfaceTint;\nuniform vec3 uBackfaceColor;\n' +
+        'uniform vec3 uPaintColor;\nvarying float vPaint;\n' +
         shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
+          if ( vPaint > 0.998 ) diffuseColor.rgb = uPaintColor;
           if ( uBackfaceTint > 0.5 && ! gl_FrontFacing ) diffuseColor.rgb = uBackfaceColor;`,
         )
     }
@@ -966,6 +1009,7 @@ export class SceneManager {
     this.partGroup.remove(this.mesh)
     this.mesh = null
     this.colorAttr = null
+    this.paintAttr = null
   }
 
   dispose(): void {

@@ -394,10 +394,11 @@ export class SurfaceMarking {
    * Mark (or unmark) every triangle the brush touches, by marking its corners.
    *
    * Triangles rather than corners on their own, because a triangle is what the
-   * user sees change colour: a vertex-only rule on a coarse mesh paints a wide
-   * patch — the tint is interpolated across each triangle — while handing the
-   * fit the two or three corners that happened to fall inside the brush. What
-   * is marked has to be what is measured.
+   * user sees change colour: the shader tints exactly the triangles with all
+   * three corners marked, so a vertex-only rule would show nothing until the
+   * brush happened to cover a whole triangle, while handing the fit the two or
+   * three corners that fell inside it. What is marked has to be what is
+   * measured — and what is measured has to show.
    *
    * A ball around the hit point would also reach straight through a thin wall
    * and mark the far side, which is invisible from here and would quietly
@@ -551,14 +552,13 @@ export class SurfaceMarking {
   private markMarquee(outline: { x: number; y: number }[], erase: boolean): void {
     const mesh = this.ctx.mesh()
     const marker = this.paint
-    if (!mesh || !marker || !this.ctx.colorAttr() || outline.length < 3) return
+    if (!mesh || !marker || !this.ctx.paintAttr() || outline.length < 3) return
     const geometry = mesh.geometry as THREE.BufferGeometry
     const index = geometry.getIndex()
     if (!index) return
     const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
     const idx = index.array as ArrayLike<number>
     const vertexCount = pos.length / 3
-    this.ctx.regions.ensurePaintMask()
 
     const w = this.ctx.container.clientWidth || 1
     const h = this.ctx.container.clientHeight || 1
@@ -606,7 +606,7 @@ export class SurfaceMarking {
       regions.markVertex(c, erase)
     }
     if (regions.paintCount !== before) {
-      this.ctx.colorAttr()!.needsUpdate = true
+      this.ctx.paintAttr()!.needsUpdate = true
       this.ctx.invalidate()
     }
   }

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The vertex-colour compositor, exercised without a scene: the layers are
-// bare scan, element tints, field map, preview, marking — and every mutation
-// has to leave the buffer exactly as repainting from scratch would.
+// bare scan, element tints, field map, preview — and every mutation has to
+// leave the buffer exactly as repainting from scratch would. The marking is a
+// layer apart: a mask the shader tints, never a colour in the buffer.
 import { describe, expect, it } from 'vitest'
 import { RegionColors, type Rgb } from '../src/viewer/regionColors'
 
@@ -13,12 +14,13 @@ const BLUE: Rgb = [0, 0, 200]
 const N = 8
 
 /** A compositor over a small scan, every vertex on the base colour. */
-function setup(): { rc: RegionColors; colors: Uint8Array } {
+function setup(): { rc: RegionColors; colors: Uint8Array; paint: Uint8Array } {
   const colors = new Uint8Array(N * 3)
   for (let v = 0; v < N; v++) colors.set(BASE, v * 3)
+  const paint = new Uint8Array(N)
   const rc = new RegionColors(BASE)
-  rc.attach(colors)
-  return { rc, colors }
+  rc.attach(colors, paint)
+  return { rc, colors, paint }
 }
 
 function colorAt(colors: Uint8Array, v: number): Rgb {
@@ -117,13 +119,14 @@ describe('field maps', () => {
 })
 
 describe('the marking layer', () => {
-  it('markVertex moves mask, count and colour together, both ways', () => {
-    const { rc, colors } = setup()
-    rc.setPaintColor(BLUE)
+  it('markVertex moves mask and count together, both ways, never the colours', () => {
+    const { rc, colors, paint } = setup()
     rc.markVertex(4, false)
     rc.markVertex(5, false)
     expect(rc.paintCount).toBe(2)
-    expect(colorAt(colors, 4)).toEqual(BLUE)
+    expect(paint[4]).toBe(1)
+    // The tint is the shader's: the colour buffer stays what lies underneath.
+    expect(colorAt(colors, 4)).toEqual(BASE)
     // Marking twice is not two marks.
     rc.markVertex(4, false)
     expect(rc.paintCount).toBe(2)
@@ -131,58 +134,48 @@ describe('the marking layer', () => {
 
     rc.markVertex(4, true)
     expect(rc.paintCount).toBe(1)
-    expect(colorAt(colors, 4)).toEqual(BASE)
-  })
-
-  it('erasing over an element hands the surface back to the element tint', () => {
-    const { rc, colors } = setup()
-    rc.applyRegion(1, RED, Uint32Array.of(1, 2))
-    rc.setPaintColor(BLUE)
-    rc.markVertex(1, false)
-    expect(colorAt(colors, 1)).toEqual(BLUE)
-    rc.markVertex(1, true)
-    expect(colorAt(colors, 1)).toEqual(RED)
+    expect(paint[4]).toBe(0)
   })
 
   it('the marking rides above a repaint — field on, field off, still marked', () => {
-    const { rc, colors } = setup()
-    rc.setPaintColor(BLUE)
+    const { rc, colors, paint } = setup()
     rc.markVertex(0, false)
     const field = new Uint8Array(N * 3).fill(50)
     rc.setFieldColors(field)
-    expect(colorAt(colors, 0)).toEqual(BLUE)
+    expect(paint[0]).toBe(1)
+    expect(colorAt(colors, 0)).toEqual([50, 50, 50])
     rc.setFieldColors(null)
-    expect(colorAt(colors, 0)).toEqual(BLUE)
+    expect(paint[0]).toBe(1)
+    expect(rc.paintCount).toBe(1)
   })
 
-  it('the marking wins over a preview laid on the same vertices', () => {
-    const { rc, colors } = setup()
-    rc.setPaintColor(BLUE)
+  it('a preview under the marking moves the colours, not the mask', () => {
+    const { rc, colors, paint } = setup()
     rc.markVertex(3, false)
     rc.setPreviewRegion(Uint32Array.of(3), GREEN)
-    expect(colorAt(colors, 3)).toEqual(BLUE)
+    expect(colorAt(colors, 3)).toEqual(GREEN)
+    expect(paint[3]).toBe(1)
   })
 
-  it('clearPaint restores whatever sits underneath, marking included', () => {
-    const { rc, colors } = setup()
+  it('clearPaint wipes the mask and leaves every colour where it was', () => {
+    const { rc, colors, paint } = setup()
     rc.applyRegion(1, RED, Uint32Array.of(1))
-    rc.setPaintColor(BLUE)
     rc.setPaintedVertices(Uint32Array.of(0, 1))
     expect(rc.paintCount).toBe(2)
-    expect(colorAt(colors, 0)).toEqual(BLUE)
-    expect(colorAt(colors, 1)).toEqual(BLUE)
+    expect(paint[0]).toBe(1)
+    expect(paint[1]).toBe(1)
 
     expect(rc.clearPaint()).toBe(true)
     expect(rc.paintCount).toBe(0)
+    expect(paint[0]).toBe(0)
     expect(colorAt(colors, 0)).toEqual(BASE)
     expect(colorAt(colors, 1)).toEqual(RED)
-    // Nothing marked: nothing to change.
+    // Nothing marked: nothing to upload.
     expect(rc.clearPaint()).toBe(false)
   })
 
   it('setPaintedVertices replaces the old marking and drops out-of-range indices', () => {
     const { rc } = setup()
-    rc.setPaintColor(BLUE)
     rc.setPaintedVertices(Uint32Array.of(0, 1, 2))
     rc.setPaintedVertices(Uint32Array.of(5, 5, 99))
     expect(Array.from(rc.paintedVertices())).toEqual([5])
@@ -191,19 +184,18 @@ describe('the marking layer', () => {
 
 describe('the bare-surface colour', () => {
   it('repaints unowned surface and leaves every reading alone', () => {
-    const { rc, colors } = setup()
+    const { rc, colors, paint } = setup()
     const SLATE: Rgb = [23, 112, 176]
     rc.applyRegion(1, RED, Uint32Array.of(1))
-    rc.setPaintColor(GREEN)
     rc.markVertex(4, false)
 
     expect(rc.setBaseColor(SLATE)).toBe(true)
     expect(colorAt(colors, 0)).toEqual(SLATE)
     expect(colorAt(colors, 1)).toEqual(RED)
-    expect(colorAt(colors, 4)).toEqual(GREEN)
-    // And the new colour is what erasing hands back.
-    rc.markVertex(4, true)
+    // A marked vertex wears the new base underneath — the marking is a mask
+    // over it, not a colour of its own.
     expect(colorAt(colors, 4)).toEqual(SLATE)
+    expect(paint[4]).toBe(1)
   })
 
   it('is recorded but not painted while a field map owns the surface', () => {
