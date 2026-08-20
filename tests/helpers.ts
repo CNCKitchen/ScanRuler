@@ -66,6 +66,49 @@ export function sampleCylinder(
   return out
 }
 
+/** Random points on a cone wall about the given axis point/direction, with
+ *  Gaussian noise along the exact surface normal — so the expected orthogonal
+ *  residual of a perfect fit is the noise itself. `radius` is the surface
+ *  radius at `point`; the radius grows along +axis by tan(halfAngle). `arc`
+ *  (radians) limits how far around the axis the points wrap. */
+export function sampleCone(
+  n: number,
+  point: [number, number, number],
+  axis: [number, number, number],
+  radius: number,
+  halfAngle: number,
+  length: number,
+  noise: number,
+  seed = 42,
+  arc = 2 * Math.PI,
+): Float32Array {
+  const rand = mulberry32(seed)
+  const d = normalize([axis[0], axis[1], axis[2]])
+  const helper = Math.abs(d[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]
+  const u = normalize(cross(d, helper))
+  const v = normalize(cross(d, u))
+  const cos = Math.cos(halfAngle)
+  const sin = Math.sin(halfAngle)
+  const tan = Math.tan(halfAngle)
+  const out = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    const ang = (rand() - 0.5) * arc
+    const t = (rand() - 0.5) * length
+    const r = radius + t * tan
+    const wu = Math.cos(ang)
+    const wv = Math.sin(ang)
+    const h = gaussian(rand) * noise
+    // Surface point plus offset along the outward normal cos·ŵ − sin·â.
+    const cu = wu * (r + h * cos)
+    const cv = wv * (r + h * cos)
+    const ct = t - h * sin
+    out[i * 3] = point[0] + cu * u[0] + cv * v[0] + ct * d[0]
+    out[i * 3 + 1] = point[1] + cu * u[1] + cv * v[1] + ct * d[1]
+    out[i * 3 + 2] = point[2] + cu * u[2] + cv * v[2] + ct * d[2]
+  }
+  return out
+}
+
 /** Random points on a plane patch with Gaussian noise along the normal. */
 export function samplePlane(
   n: number,
@@ -125,6 +168,60 @@ export function cylinderMesh(
       const a = (k / radial) * 2 * Math.PI
       const rim = j === 0 || j === axial
       const r = radius + (noise > 0 && !rim ? gaussian(rand) * noise : 0)
+      row.push([Math.cos(a) * r, Math.sin(a) * r, z])
+    }
+    grid.push(row)
+  }
+
+  const tris: number[] = []
+  for (let j = 0; j < axial; j++) {
+    for (let k = 0; k < radial; k++) {
+      const k2 = (k + 1) % radial
+      quad(tris, grid[j][k], grid[j][k2], grid[j + 1][k2], grid[j + 1][k])
+    }
+  }
+  const wallTriangles = tris.length / 9
+
+  for (const j of [0, axial]) {
+    const z = grid[j][0][2]
+    const hub: P3 = [0, 0, z]
+    for (let k = 0; k < radial; k++) {
+      const k2 = (k + 1) % radial
+      if (j === 0) tris.push(...hub, ...grid[j][k2], ...grid[j][k])
+      else tris.push(...hub, ...grid[j][k], ...grid[j][k2])
+    }
+  }
+
+  return {
+    positions: Float32Array.from(tris),
+    wallFraction: wallTriangles / (tris.length / 9),
+  }
+}
+
+/** Triangle soup of a closed frustum about +Z — the cone tool's counterpart
+ *  of cylinderMesh: tapered wall from radius1 at −length/2 up to radius2 at
+ *  +length/2, plus flat end caps, with the rims kept exact so they weld. */
+export function coneMesh(
+  radius1: number,
+  radius2: number,
+  length: number,
+  radial = 64,
+  axial = 24,
+  noise = 0,
+  seed = 11,
+): { positions: Float32Array; wallFraction: number } {
+  const rand = mulberry32(seed)
+  const z0 = -length / 2
+
+  const grid: P3[][] = []
+  for (let j = 0; j <= axial; j++) {
+    const row: P3[] = []
+    const z = z0 + (length * j) / axial
+    const rz = radius1 + ((radius2 - radius1) * j) / axial
+    for (let k = 0; k < radial; k++) {
+      const a = (k / radial) * 2 * Math.PI
+      const rim = j === 0 || j === axial
+      const r = rz + (noise > 0 && !rim ? gaussian(rand) * noise : 0)
       row.push([Math.cos(a) * r, Math.sin(a) * r, z])
     }
     grid.push(row)

@@ -34,11 +34,11 @@ export interface FitSettings {
   sigma: SigmaPreset
 }
 
-export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'circle'
+export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'cone' | 'circle'
 
 /** The kinds that are measured by fitting to the scan surface. Points are
- *  picked, lines only constructed; these three run the worker pipeline. */
-export type FittedElementKind = 'sphere' | 'cylinder' | 'plane'
+ *  picked, lines only constructed; these four run the worker pipeline. */
+export type FittedElementKind = 'sphere' | 'cylinder' | 'cone' | 'plane'
 
 export interface Sphere {
   cx: number
@@ -64,6 +64,22 @@ export interface Cylinder {
   ay: number
   az: number
   r: number
+}
+
+/** Infinite cone: a point on the axis, a unit axis direction, the surface
+ *  radius at that point, and the half-angle in radians. Anchored at a point on
+ *  the axis rather than at the apex, so the parametrisation stays tame as the
+ *  half-angle approaches zero and the shape becomes a cylinder. The radius
+ *  grows along +axis, so the half-angle is never negative. */
+export interface Cone {
+  px: number
+  py: number
+  pz: number
+  ax: number
+  ay: number
+  az: number
+  r: number
+  phi: number
 }
 
 /** What every fit reports regardless of geometry: the RMS form deviation and
@@ -117,6 +133,27 @@ export interface CylinderFit extends FitBase {
   coverage: number
 }
 
+export interface ConeFit extends FitBase {
+  kind: 'cone'
+  /** Point on the axis at the middle of the fitted surface. */
+  center: Vec3
+  /** Unit axis, pointing the way the radius grows. */
+  axis: Vec3
+  /** Half of the apex angle, in degrees — like `coverage`, a number the UI
+   *  shows as-is. */
+  halfAngle: number
+  /** Surface radius at `center`. */
+  radius: number
+  /** Radii at the small and the large end of the fitted surface. */
+  radius1: number
+  radius2: number
+  /** Axial extent of the fitted surface. */
+  length: number
+  /** Degrees of arc the fitted surface wraps around the axis — under ~90° the
+   *  axis position is only weakly determined, which the UI shows. */
+  coverage: number
+}
+
 export interface PlaneFit extends FitBase {
   kind: 'plane'
   /** Middle of the fitted patch (lies in the plane). */
@@ -141,7 +178,7 @@ export interface CircleFit extends FitBase {
 
 /** The geometry of one element — everything except the (large) list of mesh
  *  vertices a fitted one was measured on. */
-export type FitData = SphereFit | CylinderFit | PlaneFit | PointFit | LineFit | CircleFit
+export type FitData = SphereFit | CylinderFit | ConeFit | PlaneFit | PointFit | LineFit | CircleFit
 
 /** How an element came to be, and what is needed to rebuild it: fitted
  *  elements re-fit from their seeds when the sigma preset changes, picked

@@ -86,7 +86,15 @@ function pinLabel(kind: string, title: string, value: string, titleColor?: strin
 function pinValue(fit: FitData): string {
   if (fit.kind === 'sphere' || fit.kind === 'cylinder' || fit.kind === 'circle')
     return `Ø ${(fit.radius * 2).toFixed(3)} mm`
+  if (fit.kind === 'cone') return `∠ ${(fit.halfAngle * 2).toFixed(2)}°`
   return ''
+}
+
+/** The geometry a shape mesh had built for itself alone — the unit shapes are
+ *  shared and long-lived, but a cone's frustum is per-element and must go when
+ *  its mesh does. */
+function ownedGeometry(mesh: THREE.Mesh): THREE.BufferGeometry | undefined {
+  return mesh.userData.ownedGeometry as THREE.BufferGeometry | undefined
 }
 
 /** What the overlays need from the viewport around them. */
@@ -207,7 +215,10 @@ export class Overlays {
         const entry = { material: shell, color: el.color }
         this.shellMaterials.set(el.id, entry)
         this.applyHighlight(el.id, entry)
-        this.overlayCleanup.push(() => shell.dispose())
+        this.overlayCleanup.push(() => {
+          shell.dispose()
+          ownedGeometry(shape)?.dispose()
+        })
       }
 
       const dotMat = new THREE.MeshBasicMaterial({ color: el.color })
@@ -417,6 +428,32 @@ export class Overlays {
       opacity: 0.9,
       depthWrite: false,
     })
+
+    if (fit.kind === 'cone') {
+      // The stroke has to grow both radii by the same margin, which no scale
+      // of the exact frustum can do — so the hull is a frustum of its own.
+      const geo = new THREE.CylinderGeometry(
+        Math.max(fit.radius2, 1e-5) + t,
+        Math.max(fit.radius1, 1e-5) + t,
+        Math.max(fit.length, 1e-5) + 2 * t,
+        64,
+        1,
+        true,
+      )
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.set(...fit.center)
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(...fit.axis).normalize(),
+      )
+      this.selectionGroup.add(mesh)
+      this.selectionCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+      return
+    }
+
     const mesh = this.buildShape(fit, mat)
     if (fit.kind === 'sphere' || fit.kind === 'circle') {
       mesh.scale.setScalar(Math.max(fit.radius, 1e-5) + t)
@@ -469,6 +506,27 @@ export class Overlays {
       )
       const r = Math.max(fit.radius, 1e-5)
       mesh.scale.set(r, Math.max(fit.length, 1e-5), r)
+      return mesh
+    }
+    if (fit.kind === 'cone') {
+      // Two independent radii cannot come out of a scaled unit shape, so the
+      // frustum gets a geometry of its own — the mesh carries it for whoever
+      // must dispose it (see ownedGeometry).
+      const geo = new THREE.CylinderGeometry(
+        Math.max(fit.radius2, 1e-5),
+        Math.max(fit.radius1, 1e-5),
+        Math.max(fit.length, 1e-5),
+        64,
+        1,
+        true,
+      )
+      const mesh = new THREE.Mesh(geo, material)
+      mesh.position.set(...fit.center)
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        new THREE.Vector3(...fit.axis).normalize(),
+      )
+      mesh.userData.ownedGeometry = geo
       return mesh
     }
     if (fit.kind === 'circle') {
@@ -537,7 +595,7 @@ export class Overlays {
    *  piece of surface that was measured. */
   private labelOffset(fit: FitData): Vec3 {
     if (fit.kind === 'sphere') return [0, fit.radius * 1.35, 0]
-    if (fit.kind === 'cylinder') {
+    if (fit.kind === 'cylinder' || fit.kind === 'cone') {
       const out = this.acrossAxis(fit.axis)
       const lift = fit.radius * 1.15
       return [out.x * lift, out.y * lift, out.z * lift]
@@ -582,9 +640,10 @@ export class Overlays {
     const center = new THREE.Vector3(...fit.center)
     let a: THREE.Vector3
     let b: THREE.Vector3
-    if (fit.kind === 'cylinder') {
+    if (fit.kind === 'cylinder' || fit.kind === 'cone') {
       const dir = new THREE.Vector3(...fit.axis).normalize()
-      const half = fit.length / 2 + fit.radius * 0.6
+      const over = fit.kind === 'cone' ? fit.radius2 : fit.radius
+      const half = fit.length / 2 + over * 0.6
       a = center.clone().addScaledVector(dir, -half)
       b = center.clone().addScaledVector(dir, half)
     } else if (fit.kind === 'circle') {
@@ -613,6 +672,7 @@ export class Overlays {
     if (this.previewShape) {
       this.previewGroup.remove(this.previewShape)
       ;(this.previewShape.material as THREE.Material).dispose()
+      ownedGeometry(this.previewShape)?.dispose()
       this.previewShape = null
     }
     if (!fit) return

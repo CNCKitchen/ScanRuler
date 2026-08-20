@@ -21,7 +21,7 @@ import type { FitData, Vec3 } from './types'
 import { orthoBasis } from './fit/linalg'
 import { addScaled } from './vec'
 import { esc, num, placement, StepWriter, vec } from './stepWriter'
-import { writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
+import { writeConeSolid, writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
 
 export interface StepElement {
   name: string
@@ -67,6 +67,19 @@ function writeElement(w: StepWriter, name: string, fit: FitData): number {
       const bottom = addScaled(fit.center, fit.axis, -length / 2)
       const pl = placement(w, bottom, fit.axis, orthoBasis(fit.axis)[0])
       const surf = w.add(`CYLINDRICAL_SURFACE('',#${pl},${num(Math.max(fit.radius, 1e-6))})`)
+      return w.add(
+        `RECTANGULAR_TRIMMED_SURFACE('${label}',#${surf},0.,${num(TWO_PI)},0.,${num(length)},.T.,.T.)`,
+      )
+    }
+
+    case 'cone': {
+      const length = Math.max(fit.length, 1e-6)
+      const bottom = addScaled(fit.center, fit.axis, -length / 2)
+      const pl = placement(w, bottom, fit.axis, orthoBasis(fit.axis)[0])
+      const semi = (fit.halfAngle * Math.PI) / 180
+      const surf = w.add(
+        `CONICAL_SURFACE('',#${pl},${num(Math.max(fit.radius1, 1e-6))},${num(semi)})`,
+      )
       return w.add(
         `RECTANGULAR_TRIMMED_SURFACE('${label}',#${surf},0.,${num(TWO_PI)},0.,${num(length)},.T.,.T.)`,
       )
@@ -119,7 +132,9 @@ function writeContext(w: StepWriter, sourceName: string): { shape: number; geomC
 /** Trimmed surfaces and curves, all in one geometric set. */
 function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): void {
   const items = elements.map((el) => writeElement(w, el.name, el.fit))
-  const hasSurface = elements.some((el) => ['plane', 'cylinder', 'sphere'].includes(el.fit.kind))
+  const hasSurface = elements.some((el) =>
+    ['plane', 'cylinder', 'cone', 'sphere'].includes(el.fit.kind),
+  )
   const set = w.add(
     `${hasSurface ? 'GEOMETRIC_SET' : 'GEOMETRIC_CURVE_SET'}('elements',(${items.map((i) => `#${i}`).join(',')}))`,
   )
@@ -166,6 +181,13 @@ function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, g
         relate(
           w.add(
             `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeCylinderSolid(w, el.name, el.fit)}),#${geomCtx})`,
+          ),
+        )
+        break
+      case 'cone':
+        relate(
+          w.add(
+            `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeConeSolid(w, el.name, el.fit)}),#${geomCtx})`,
           ),
         )
         break

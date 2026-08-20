@@ -661,6 +661,7 @@ const freshCounters = (): Record<ElementKind, number> => ({
   plane: 1,
   sphere: 1,
   cylinder: 1,
+  cone: 1,
   circle: 1,
 })
 

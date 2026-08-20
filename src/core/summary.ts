@@ -46,6 +46,8 @@ export function formatPrimary(fit: FitData): string {
     case 'cylinder':
     case 'circle':
       return `Ø ${(fit.radius * 2).toFixed(3)} mm`
+    case 'cone':
+      return `∠ ${(fit.halfAngle * 2).toFixed(2)}°`
     case 'plane':
       return isFitted(fit) ? `σ ${fit.sigma.toFixed(4)} mm` : ''
     case 'point':
@@ -83,6 +85,8 @@ export function formatDetail(fit: FitData): string {
       return `σ ${fit.sigma.toFixed(4)} mm${form} · ${points}`
     case 'cylinder':
       return `σ ${fit.sigma.toFixed(4)} mm${form} · length ${fit.length.toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
+    case 'cone':
+      return `σ ${fit.sigma.toFixed(4)} mm${form} · Ø ${(fit.radius1 * 2).toFixed(3)}–${(fit.radius2 * 2).toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
     case 'plane':
       return isFitted(fit)
         ? `${(fit.extentU * 2).toFixed(2)} × ${(fit.extentV * 2).toFixed(2)} mm patch${form} · ${points}`
@@ -141,6 +145,12 @@ export function buildSummary(
       lines.push(`  center: ${formatVec(f.center)}`)
     } else if (f.kind === 'cylinder') {
       lines.push(`  diameter: ${(f.radius * 2).toFixed(4)} mm`)
+      lines.push(`  axis point: ${formatVec(f.center)}`)
+      lines.push(`  axis direction: ${formatVec(f.axis)}`)
+      lines.push(`  length: ${f.length.toFixed(4)} mm, arc: ${Math.round(f.coverage)}°`)
+    } else if (f.kind === 'cone') {
+      lines.push(`  apex angle: ${(f.halfAngle * 2).toFixed(3)}° (half-angle ${f.halfAngle.toFixed(3)}°)`)
+      lines.push(`  diameter: ${(f.radius1 * 2).toFixed(4)} → ${(f.radius2 * 2).toFixed(4)} mm`)
       lines.push(`  axis point: ${formatVec(f.center)}`)
       lines.push(`  axis direction: ${formatVec(f.axis)}`)
       lines.push(`  length: ${f.length.toFixed(4)} mm, arc: ${Math.round(f.coverage)}°`)

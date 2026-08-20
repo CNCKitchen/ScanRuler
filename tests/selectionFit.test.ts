@@ -3,12 +3,13 @@
 // a patch that region growing would have swept far past.
 import { describe, expect, it } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
+import { fitConeOnSelection } from '../src/core/fit/fitConeFromSeed'
 import { fitCylinderOnSelection } from '../src/core/fit/fitCylinderFromSeed'
 import { fitPlaneOnSelection } from '../src/core/fit/fitPlaneFromSeed'
 import { fitSphereOnSelection } from '../src/core/fit/fitSphereFromSeed'
 import { FitError } from '../src/core/fit/errors'
 import type { MeshGraph } from '../src/core/types'
-import { boxMesh, cylinderMesh, icosphere } from './helpers'
+import { boxMesh, coneMesh, cylinderMesh, icosphere } from './helpers'
 
 const SETTINGS = { method: 'gaussian', sigma: 3 } as const
 
@@ -70,6 +71,37 @@ describe('cylinder fitted to a marked surface', () => {
 
     expect(Math.abs(out.radius - R)).toBeLessThan(0.02)
     expect(Math.abs(out.axis[2])).toBeGreaterThan(0.999)
+    expect(Math.hypot(out.center[0], out.center[1])).toBeLessThan(0.05)
+    // The marked band is half the shaft, and reaches ~120° around it.
+    expect(Math.abs(out.length - LENGTH / 2)).toBeLessThan(1)
+    expect(out.coverage).toBeGreaterThan(110)
+    expect(out.coverage).toBeLessThan(130)
+    expect(out.regionSize).toBe(selection.length)
+  })
+})
+
+describe('cone fitted to a marked surface', () => {
+  const R1 = 4
+  const R2 = 10
+  const LENGTH = 40
+  const TAN = (R2 - R1) / LENGTH
+  const graph = buildMeshGraph({
+    kind: 'soup',
+    positions: coneMesh(R1, R2, LENGTH, 64, 24, 0.01).positions,
+  })
+
+  it('recovers half-angle and axis from a marked 120-degree band of the wall', () => {
+    const selection = mark(graph, (x, y, z) => {
+      const rho = Math.hypot(x, y)
+      if (Math.abs(rho - (R1 + (z + LENGTH / 2) * TAN)) > 0.2) return false
+      if (Math.abs(z) > LENGTH / 4) return false
+      return Math.abs(Math.atan2(y, x)) < Math.PI / 3
+    })
+    const out = fitConeOnSelection(graph, selection, SETTINGS)
+
+    expect(Math.abs(out.halfAngle - (Math.atan(TAN) * 180) / Math.PI)).toBeLessThan(0.2)
+    expect(Math.abs(out.radius - (R1 + R2) / 2)).toBeLessThan(0.05)
+    expect(out.axis[2]).toBeGreaterThan(0.999)
     expect(Math.hypot(out.center[0], out.center[1])).toBeLessThan(0.05)
     // The marked band is half the shaft, and reaches ~120° around it.
     expect(Math.abs(out.length - LENGTH / 2)).toBeLessThan(1)

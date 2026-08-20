@@ -192,7 +192,7 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
       ...XYZ.map((p) => ({ ...p, key: 'p' + p.key, label: 'Point ' + p.label })),
     ],
   },
-  // ---- Sphere / Cylinder ---------------------------------------------------
+  // ---- Sphere / Cylinder / Cone --------------------------------------------
   {
     id: 'fit',
     kind: 'sphere',
@@ -208,6 +208,15 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     mode: 'fit',
     label: 'Fit to scan',
     hint: 'Click a point on the cylindrical surface in the 3D view.',
+    slots: [],
+    params: [],
+  },
+  {
+    id: 'fit',
+    kind: 'cone',
+    mode: 'fit',
+    label: 'Fit to scan',
+    hint: 'Click a point on the tapered surface in the 3D view.',
     slots: [],
     params: [],
   },

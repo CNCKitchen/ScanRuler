@@ -105,11 +105,11 @@ function axisVector(a: AxisDir): Vec3 {
 }
 
 /** The direction an element contributes as a datum: a plane or circle its
- *  normal, a line or cylinder its axis. Points and spheres have none. */
+ *  normal, a line, cylinder or cone its axis. Points and spheres have none. */
 export function datumDirection(fit: FitData): Vec3 | null {
   if (fit.kind === 'plane') return fit.normal
   if (fit.kind === 'line') return fit.dir
-  if (fit.kind === 'cylinder') return fit.axis
+  if (fit.kind === 'cylinder' || fit.kind === 'cone') return fit.axis
   if (fit.kind === 'circle') return fit.normal
   return null
 }
@@ -293,6 +293,7 @@ export function transformFit(fit: FitData, m: Rigid): FitData {
     case 'line':
       return { ...fit, center: movePoint(m, fit.center), dir: moveDir(m, fit.dir) }
     case 'cylinder':
+    case 'cone':
       return { ...fit, center: movePoint(m, fit.center), axis: moveDir(m, fit.axis) }
     case 'circle':
       return { ...fit, center: movePoint(m, fit.center), normal: moveDir(m, fit.normal) }

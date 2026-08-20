@@ -18,6 +18,7 @@ export const ELEMENT_KINDS: readonly ElementKindInfo[] = [
   { id: 'plane', label: 'Plane', noun: 'plane' },
   { id: 'sphere', label: 'Sphere', noun: 'sphere' },
   { id: 'cylinder', label: 'Cylinder', noun: 'cylinder' },
+  { id: 'cone', label: 'Cone', noun: 'cone' },
   { id: 'circle', label: 'Circle', noun: 'circle' },
 ]
 

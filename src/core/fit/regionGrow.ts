@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { Cylinder, MeshGraph, Plane, Sphere } from '../types'
+import type { Cone, Cylinder, MeshGraph, Plane, Sphere } from '../types'
 import { acquireStamps } from '../geometry/scratch'
+import { coneNormalAlign, coneResidual, fitConeClipped } from './cone'
 import { cylinderResidual, fitCylinderClipped } from './cylinder'
 import { fitPlaneClipped, planeResidual } from './plane'
 import { fitSphereClipped } from './sphere'
@@ -11,6 +12,7 @@ const FIT_SUBSAMPLE = 60_000
 
 const COS_SPHERE_MAX = Math.cos((38 * Math.PI) / 180)
 const COS_CYLINDER_MAX = Math.cos((32 * Math.PI) / 180)
+const COS_CONE_MAX = Math.cos((32 * Math.PI) / 180)
 const COS_PLANE_MAX = Math.cos((25 * Math.PI) / 180)
 
 /** Collect up to `limit` vertices connected to the seeds — no membership
@@ -203,6 +205,29 @@ export function growCylinderRegion(
     refit: (positions, idx, c) => {
       const fit = fitCylinderClipped(positions, idx, c, 3)
       return fit && { model: fit.cylinder, sigma: fit.sigma }
+    },
+  })
+}
+
+/** Grow the conical surface around the seed. Same shape of spec as the
+ *  cylinder's — the band floor hangs off the anchor radius, which sits at the
+ *  clicked patch and so tracks the size of the surface actually under the
+ *  region. */
+export function growConeRegion(
+  g: MeshGraph,
+  seeds: ArrayLike<number>,
+  init: Cone,
+  initSigma: number,
+  initCount: number,
+): GrowResult<Cone> | null {
+  return growRegion(g, seeds, init, initSigma, initCount, {
+    cosMax: COS_CONE_MAX,
+    band: (c, sigma) => Math.max(3.5 * sigma, 0.004 * c.r),
+    residual: coneResidual,
+    align: coneNormalAlign,
+    refit: (positions, idx, c) => {
+      const fit = fitConeClipped(positions, idx, c, 3)
+      return fit && { model: fit.cone, sigma: fit.sigma }
     },
   })
 }

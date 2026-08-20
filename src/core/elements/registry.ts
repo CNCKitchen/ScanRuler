@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { FittedElementKind, FitOutput, FitSettings, MeshGraph } from '../types'
+import { fitConeFromSeed, fitConeOnSelection } from '../fit/fitConeFromSeed'
 import { fitCylinderFromSeed, fitCylinderOnSelection } from '../fit/fitCylinderFromSeed'
 import { fitPlaneFromSeed, fitPlaneOnSelection } from '../fit/fitPlaneFromSeed'
 import { fitSphereFromSeed, fitSphereOnSelection } from '../fit/fitSphereFromSeed'
@@ -22,12 +23,14 @@ export type FitOnSelection = (
 const FITTERS: Record<FittedElementKind, FitFromSeed> = {
   sphere: fitSphereFromSeed,
   cylinder: fitCylinderFromSeed,
+  cone: fitConeFromSeed,
   plane: fitPlaneFromSeed,
 }
 
 const SELECTION_FITTERS: Record<FittedElementKind, FitOnSelection> = {
   sphere: fitSphereOnSelection,
   cylinder: fitCylinderOnSelection,
+  cone: fitConeOnSelection,
   plane: fitPlaneOnSelection,
 }
 

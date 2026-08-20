@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
+import { fitConeFromSeed } from '../src/core/fit/fitConeFromSeed'
 import { fitCylinderFromSeed } from '../src/core/fit/fitCylinderFromSeed'
 import { fitPlaneFromSeed } from '../src/core/fit/fitPlaneFromSeed'
 import { fitSphereFromSeed } from '../src/core/fit/fitSphereFromSeed'
 import type { MeshGraph } from '../src/core/types'
-import { boxMesh, cylinderMesh, icosphere } from './helpers'
+import { boxMesh, coneMesh, cylinderMesh, icosphere } from './helpers'
 
 const SETTINGS = { method: 'gaussian', sigma: 3 } as const
 
@@ -73,6 +74,39 @@ describe('seed-to-cylinder pipeline on a synthetic shaft mesh', () => {
   it('fails on the flat end cap instead of jumping to the wall', () => {
     const capSeed = seedNear(graph, 0, 0, LENGTH / 2)
     expect(() => fitCylinderFromSeed(graph, [capSeed], SETTINGS)).toThrow(/cylinder/i)
+  })
+})
+
+describe('seed-to-cone pipeline on a synthetic frustum mesh', () => {
+  const R1 = 4
+  const R2 = 10
+  const LENGTH = 40
+  const HALF_ANGLE = (Math.atan((R2 - R1) / LENGTH) * 180) / Math.PI
+  const mesh = coneMesh(R1, R2, LENGTH, 64, 24, 0.01)
+  const graph = buildMeshGraph({ kind: 'soup', positions: mesh.positions })
+
+  it('grows along the tapered wall without climbing onto the end caps', () => {
+    const seed = seedNear(graph, (R1 + R2) / 2, 0, 0)
+    const out = fitConeFromSeed(graph, [seed], SETTINGS)
+
+    expect(Math.abs(out.halfAngle - HALF_ANGLE)).toBeLessThan(0.1)
+    expect(Math.abs(out.radius - (R1 + R2) / 2)).toBeLessThan(0.05)
+    // The axis points the way the radius grows: +Z.
+    expect(out.axis[2]).toBeGreaterThan(0.9999)
+    expect(Math.hypot(out.center[0], out.center[1])).toBeLessThan(0.02)
+    expect(out.sigma).toBeLessThan(0.02)
+    expect(out.coverage).toBeGreaterThan(352)
+    // Stopping short of the rims caps the measured length and the end radii.
+    expect(out.length).toBeLessThan(LENGTH)
+    expect(out.length).toBeGreaterThan(LENGTH - 4 * (LENGTH / 24))
+    expect(out.radius1).toBeGreaterThan(R1 - 0.05)
+    expect(out.radius2).toBeLessThan(R2 + 0.05)
+    expect(out.radius1).toBeLessThan(out.radius2)
+  })
+
+  it('fails on the flat end cap instead of jumping to the wall', () => {
+    const capSeed = seedNear(graph, 0, 0, LENGTH / 2)
+    expect(() => fitConeFromSeed(graph, [capSeed], SETTINGS)).toThrow(/cone/i)
   })
 })
 

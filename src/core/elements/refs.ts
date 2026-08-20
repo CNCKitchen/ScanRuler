@@ -2,15 +2,15 @@
 import type { ElementKind, FitData, PlaneFit, Vec3 } from '../types'
 
 /** The proxy geometry an element contributes to a measurement — the standard
- *  metrology reduction: spheres, points and circles act as a point, cylinders
- *  and lines as an axis, planes as a plane. A circle is on both lists: its
- *  center is the point it stands for, but its normal is a perfectly good axis
- *  for whoever asks for one in a dropdown. */
+ *  metrology reduction: spheres, points and circles act as a point, cylinders,
+ *  cones and lines as an axis, planes as a plane. A circle is on both lists:
+ *  its center is the point it stands for, but its normal is a perfectly good
+ *  axis for whoever asks for one in a dropdown. */
 export type RefRole = 'point' | 'axis' | 'plane'
 
 export const ROLE_PROVIDERS: Record<RefRole, readonly ElementKind[]> = {
   point: ['point', 'sphere', 'circle'],
-  axis: ['line', 'cylinder', 'circle'],
+  axis: ['line', 'cylinder', 'cone', 'circle'],
   plane: ['plane'],
 }
 
@@ -21,7 +21,7 @@ export function providesRole(kind: ElementKind, role: RefRole): boolean {
 /** The one role an element kind plays in a measurement. */
 export function roleOf(kind: ElementKind): RefRole {
   if (kind === 'plane') return 'plane'
-  if (kind === 'line' || kind === 'cylinder') return 'axis'
+  if (kind === 'line' || kind === 'cylinder' || kind === 'cone') return 'axis'
   return 'point'
 }
 
@@ -41,7 +41,8 @@ export interface AxisRef {
 }
 
 export function refAxis(fit: FitData): AxisRef | null {
-  if (fit.kind === 'cylinder') return { origin: fit.center, dir: fit.axis, halfLength: fit.length / 2 }
+  if (fit.kind === 'cylinder' || fit.kind === 'cone')
+    return { origin: fit.center, dir: fit.axis, halfLength: fit.length / 2 }
   if (fit.kind === 'line') return { origin: fit.center, dir: fit.dir, halfLength: fit.length / 2 }
   // A circle's axis is its normal through the center. The radius stands in for
   // the measured extent — the circle was measured in its own plane, so a foot

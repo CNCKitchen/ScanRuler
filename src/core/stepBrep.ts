@@ -16,7 +16,7 @@
 // material, which fixes each loop's direction in turn — and every edge ends up
 // used exactly twice, once each way, which is what makes the shell manifold.
 
-import type { CylinderFit, PlaneFit, SphereFit, Vec3 } from './types'
+import type { ConeFit, CylinderFit, PlaneFit, SphereFit, Vec3 } from './types'
 import { addScaled, cross, normalize, sub } from './vec'
 import { orthoBasis } from './fit/linalg'
 import { direction, esc, num, placement, point, StepWriter } from './stepWriter'
@@ -140,6 +140,51 @@ export function writeCylinderSolid(w: StepWriter, name: string, fit: CylinderFit
 
   // Each lid faces out of the solid, so the bottom one is built on a plane
   // whose normal already points away from the body.
+  const bottomPlane = w.add(`PLANE('',#${placement(w, bottom, down, ref)})`)
+  const bottomFace = face(w, name, bottomPlane, [
+    w.add(`FACE_OUTER_BOUND('',#${edgeLoop(w, [{ edge: bottomRim, forward: false }])},.T.)`),
+  ])
+  const topPlane = w.add(`PLANE('',#${placement(w, top, axis, ref)})`)
+  const topFace = face(w, name, topPlane, [
+    w.add(`FACE_OUTER_BOUND('',#${edgeLoop(w, [{ edge: topRim, forward: true }])},.T.)`),
+  ])
+
+  const shell = w.add(`CLOSED_SHELL('',(#${wallFace},#${bottomFace},#${topFace}))`)
+  return w.add(`MANIFOLD_SOLID_BREP('${esc(name)}',#${shell})`)
+}
+
+/**
+ * A measured cone as a solid frustum: the tapered wall it was fitted to,
+ * closed off at both ends by flat lids — writeCylinderSolid with the wall
+ * swapped for a CONICAL_SURFACE and the two rims at their own radii.
+ *
+ * A fit that reaches the apex reports a zero small-end radius; the rim is
+ * clamped to MIN like every other dimension, so the export is a frustum with
+ * a microscopic top rather than a body with a degenerate vertex — the honest
+ * trade for never handing CAD an edge its kernel may reject.
+ */
+export function writeConeSolid(w: StepWriter, name: string, fit: ConeFit): number {
+  const axis = normalize(fit.axis) ?? [0, 0, 1]
+  const ref = orthoBasis(axis)[0]
+  const r1 = Math.max(fit.radius1, MIN)
+  const r2 = Math.max(fit.radius2, MIN)
+  const half = Math.max(fit.length, MIN) / 2
+  const bottom = addScaled(fit.center, axis, -half)
+  const top = addScaled(fit.center, axis, half)
+  const down: Vec3 = [-axis[0], -axis[1], -axis[2]]
+  const semi = (fit.halfAngle * Math.PI) / 180
+
+  const bottomRim = circleEdge(w, bottom, axis, ref, r1)
+  const topRim = circleEdge(w, top, axis, ref, r2)
+
+  const wall = w.add(
+    `CONICAL_SURFACE('',#${placement(w, bottom, axis, ref)},${num(r1)},${num(semi)})`,
+  )
+  const wallFace = face(w, name, wall, [
+    w.add(`FACE_OUTER_BOUND('',#${edgeLoop(w, [{ edge: bottomRim, forward: true }])},.T.)`),
+    w.add(`FACE_BOUND('',#${edgeLoop(w, [{ edge: topRim, forward: false }])},.T.)`),
+  ])
+
   const bottomPlane = w.add(`PLANE('',#${placement(w, bottom, down, ref)})`)
   const bottomFace = face(w, name, bottomPlane, [
     w.add(`FACE_OUTER_BOUND('',#${edgeLoop(w, [{ edge: bottomRim, forward: false }])},.T.)`),
