@@ -2,6 +2,7 @@
 // The two ways measurements leave the tool as geometry: the created elements
 // as analytic STEP, and the scan itself as an STL in the pose it is shown in.
 import type { RefObject } from 'react'
+import { applyAssumed } from '../core/elements/assumed'
 import { applyExtension } from '../core/elements/extend'
 import { buildStepFile } from '../core/exportStep'
 import { buildBinaryStl } from '../core/exportStl'
@@ -34,9 +35,14 @@ export const exportElementsStep = () => {
   const store = useStore.getState()
   const els = store.elements.filter((e) => e.fit)
   if (els.length === 0) return
+  const assumed = store.stepDimensions === 'assumed'
   const text = buildStepFile(
-    // What is exported is what is on screen, extensions and all.
-    els.map((e) => ({ name: e.name, fit: applyExtension(e.fit!, e.extend) })),
+    // What is exported is what is on screen, extensions and all — with the
+    // assumed diameters swapped in when that is what was asked for.
+    els.map((e) => ({
+      name: e.name,
+      fit: applyExtension(applyAssumed(e.fit!, assumed ? e.assumed : undefined), e.extend),
+    })),
     store.fileName ?? 'scan',
     new Date().toISOString().slice(0, 19),
     store.stepStyle,
@@ -46,7 +52,7 @@ export const exportElementsStep = () => {
   store.setStatus(
     `${els.length} element${els.length === 1 ? '' : 's'} exported to ${name} as ${
       store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
-    }.`,
+    } with ${assumed ? 'assumed' : 'measured'} dimensions.`,
   )
 }
 

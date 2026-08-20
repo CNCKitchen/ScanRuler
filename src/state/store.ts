@@ -23,7 +23,11 @@ import {
   type ExtendSide,
   type Extension,
 } from '../core/elements/extend'
-import { hasDiameter, suggestedAssumed } from '../core/elements/assumed'
+import {
+  hasDiameter,
+  suggestedAssumed,
+  type StepDimensions,
+} from '../core/elements/assumed'
 import {
   ALIGN_PICK_COUNT,
   AlignmentError,
@@ -513,6 +517,10 @@ interface AppState {
    *  bodies or as construction geometry is a property of how the user works,
    *  not of the part on screen. */
   stepStyle: StepStyle
+  /** Whether the STEP export writes the fitted diameters or the assumed
+   *  design values entered beside them. Remembered per browser like the
+   *  style: it is a way of working, not a property of the part. */
+  stepDimensions: StepDimensions
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
@@ -604,12 +612,14 @@ interface AppState {
   setNavScheme: (id: string) => void
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
+  setStepDimensions: (dims: StepDimensions) => void
   openImprint: (v: boolean) => void
 }
 
 const NAV_SCHEME_KEY = 'scanruler.navscheme'
 const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
+const STEP_DIMS_KEY = 'scanruler.stepdims'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -634,6 +644,14 @@ const storedStepStyle = (): StepStyle => {
     return localStorage.getItem(STEP_STYLE_KEY) === 'surfaces' ? 'surfaces' : 'solids'
   } catch {
     return 'solids'
+  }
+}
+
+const storedStepDimensions = (): StepDimensions => {
+  try {
+    return localStorage.getItem(STEP_DIMS_KEY) === 'assumed' ? 'assumed' : 'measured'
+  } catch {
+    return 'measured'
   }
 }
 
@@ -673,6 +691,7 @@ export const useStore = create<AppState>()((set, get) => ({
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
+  stepDimensions: storedStepDimensions(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
@@ -1311,6 +1330,14 @@ export const useStore = create<AppState>()((set, get) => ({
       // Same as above: the export still goes out in the form that was asked for.
     }
     set({ stepStyle })
+  },
+  setStepDimensions: (stepDimensions) => {
+    try {
+      localStorage.setItem(STEP_DIMS_KEY, stepDimensions)
+    } catch {
+      // Same as above: the export still goes out in the form that was asked for.
+    }
+    set({ stepDimensions })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

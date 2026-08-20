@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { ElementKind, ElementSource, FitData, FitSettings, SigmaPreset, Vec3 } from './types'
 import type { EvaluatedDimension } from './dimensions'
+import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
 import { extendedSpans, isExtendable, isExtended, type Extension } from './elements/extend'
 
@@ -106,6 +107,8 @@ export interface SummaryElement {
   fit?: FitData
   /** Only ever reported beside the measurement, never folded into it. */
   extend?: Extension
+  /** The assumed design diameter, reported the same way. */
+  assumed?: number
   message?: string
 }
 
@@ -162,6 +165,11 @@ export function buildSummary(
       if (f.formError !== undefined) {
         lines.push(`  ${formErrorLabel(f.kind) ?? 'form'} (peak-to-peak): ${f.formError.toFixed(4)} mm`)
       }
+    }
+    // The diameter an assumed-dimension export writes, when it is not simply
+    // the measurement restated.
+    if (el.assumed !== undefined && hasDiameter(f) && el.assumed !== 2 * f.radius) {
+      lines.push(`  assumed diameter: ${el.assumed.toFixed(4)} mm`)
     }
     // What is on screen and in the STEP file, when that is no longer the same
     // as what was measured.
