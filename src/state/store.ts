@@ -23,6 +23,7 @@ import {
   type ExtendSide,
   type Extension,
 } from '../core/elements/extend'
+import { hasDiameter, suggestedAssumed } from '../core/elements/assumed'
 import {
   ALIGN_PICK_COUNT,
   AlignmentError,
@@ -72,6 +73,11 @@ export interface Element {
    *  exported. Kept beside the fit rather than in it, so what is reported
    *  stays what was measured — see core/elements/extend. */
   extend?: Extension
+  /** The diameter the feature is assumed to have been designed at, for the
+   *  kinds that have one (sphere, cylinder, circle). Kept beside the fit like
+   *  an extension and written out only by the assumed-dimension STEP export —
+   *  see core/elements/assumed. */
+  assumed?: number
   /** Why a constructed element currently has no geometry (a re-evaluated
    *  construction can go degenerate, e.g. planes turning parallel). */
   message?: string
@@ -101,6 +107,10 @@ export interface Draft {
    *  its own along, and a re-fit inside the draft leaves it standing, so
    *  changing the outlier cut-off never quietly resizes what is on screen. */
   extend?: Extension
+  /** The assumed diameter as typed, once the user has touched the field.
+   *  Undefined means the suggestion is still showing — the commit fills in
+   *  whatever the field held. */
+  assumed?: number
   message?: string
   /** Set when the draft re-opens an element that already exists: the id it
    *  writes back to on confirm, instead of adding a new element. Everything
@@ -292,6 +302,7 @@ function draftFromElement(el: Element, elements: Element[], modelSize: number): 
     status: el.fit ? 'ready' : 'empty',
     fit: el.fit,
     extend: el.extend,
+    assumed: el.assumed,
     editId: el.id,
     name: el.name,
   }
@@ -543,6 +554,9 @@ interface AppState {
   squareDraftExtend: () => void
   /** Back to exactly the measured surface. */
   resetDraftExtend: () => void
+  /** The assumed diameter of the open draft, in millimetres. Anything that is
+   *  not a positive number is ignored — the field snaps back to what stands. */
+  setDraftAssumed: (value: number) => void
   resolveDraft: (r: FitOutput) => void
   failDraft: (message: string) => void
   cancelDraft: () => void
@@ -874,6 +888,14 @@ export const useStore = create<AppState>()((set, get) => ({
       return { draft: { ...d, extend: zeroExtension(d.fit) } }
     }),
 
+  setDraftAssumed: (value) =>
+    set((s) => {
+      const d = s.draft
+      if (!d || !hasDiameter(d.fit)) return {}
+      if (!Number.isFinite(value) || value <= 0) return {}
+      return { draft: { ...d, assumed: value } }
+    }),
+
   resolveDraft: (r) =>
     set((s) =>
       s.draft
@@ -904,6 +926,14 @@ export const useStore = create<AppState>()((set, get) => ({
       isExtendable(d.fit) && d.extend?.kind === d.fit.kind && isExtended(d.extend)
         ? d.extend
         : undefined
+    // The assumed diameter the element goes out with: what was typed, or the
+    // suggestion the field was showing — the value on screen at "create" is
+    // the value that sticks. Kinds without a diameter carry nothing.
+    const assumed = hasDiameter(d.fit)
+      ? d.assumed !== undefined && d.assumed > 0
+        ? d.assumed
+        : suggestedAssumed(2 * d.fit.radius)
+      : undefined
     const source: ElementSource =
       m.mode === 'fit'
         ? d.selection
@@ -929,6 +959,7 @@ export const useStore = create<AppState>()((set, get) => ({
                   status: 'done' as const,
                   fit: d.fit,
                   extend,
+                  assumed,
                   message: undefined,
                 }
               : e,
@@ -958,6 +989,7 @@ export const useStore = create<AppState>()((set, get) => ({
           visible: true,
           fit: d.fit,
           extend,
+          assumed,
         },
       ],
       // A point picked for a dimension slot drops straight into it.

@@ -2,6 +2,7 @@
 // The box an element is created or edited in, plus the Fitting group that
 // rides along while a surface fit is open. Renders nothing without a draft.
 
+import { hasDiameter } from '../core/elements/assumed'
 import { creationMethod, methodsForKind } from '../core/elements/construct'
 import { isExtendable } from '../core/elements/extend'
 import { elementKindInfo } from '../core/elements/kinds'
@@ -10,6 +11,7 @@ import type { SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
 import { blockedRefs, draftColorOf, useStore, type SelectMode } from '../state/store'
 import { usePulse } from '../app/useHints'
+import { AssumedField } from './AssumedField'
 import { DroValue } from './DroValue'
 import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
@@ -257,6 +259,10 @@ export function DraftEditor({
             </div>
             {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
           </div>
+
+          {/* The design value behind the measurement, for the kinds defined by
+              a diameter — what an assumed-dimension STEP export writes. */}
+          {draft.status === 'ready' && hasDiameter(draft.fit) && <AssumedField fit={draft.fit} />}
 
           {/* How much of the measured surface to draw, once there is one. A
               cylinder and a plane are the two elements whose size on screen is
