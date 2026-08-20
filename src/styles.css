@@ -591,6 +591,12 @@ select:disabled {
   gap: 6px;
 }
 
+.toolrow select,
+.toolrow input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
 .toolrow button {
   flex: 1;
   white-space: nowrap;
@@ -1136,6 +1142,30 @@ button.x:disabled {
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The uncalibrated alarm on the 2D Measure stage. Deliberately louder than a
+   hint chip: every number in that workspace rests on the scale, so an
+   unverified scale is a fact about the measurements, not a tip. */
+.warnchip {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  padding: 6px 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #7a3c00;
+  background: rgba(255, 214, 140, 0.96);
+  border: 1px solid #d9962e;
+  border-radius: var(--r);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
   pointer-events: none;
   white-space: nowrap;
   overflow: hidden;

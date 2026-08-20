@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
+import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { ControlScheme } from './navSchemes'
@@ -28,6 +29,9 @@ export class FlatScene {
   /** Pixel size of the loaded image; zero while nothing is loaded. */
   private imagePx = { width: 0, height: 0 }
   private mmPerPx: PixelsPerMm = { x: 1, y: 1 }
+  /** The calibration tool's picks, drawn over the sheet. */
+  private calGroup = new THREE.Group()
+  private calCleanup: (() => void)[] = []
 
   /** A click on the sheet, in document millimetres. */
   onPick: ((p: Vec2) => void) | null = null
@@ -48,6 +52,39 @@ export class FlatScene {
     this.sheet = new THREE.Mesh(this.geometry, this.material)
     this.sheet.visible = false
     this.viewport.scene.add(this.sheet)
+    this.viewport.scene.add(this.calGroup)
+  }
+
+  /** Draw the calibration picks (document mm) as numbered pins, joined by a
+   *  line once there are two — the reference length being measured. */
+  setCalibrationPicks(points: readonly Vec2[]): void {
+    for (const dispose of this.calCleanup) dispose()
+    this.calCleanup = []
+    this.calGroup.clear()
+    if (points.length >= 2) {
+      const geo = new THREE.BufferGeometry().setFromPoints(
+        points.map((p) => new THREE.Vector3(p[0], p[1], 0.1)),
+      )
+      const mat = new THREE.LineBasicMaterial({ color: 0xffb020, depthTest: false })
+      const line = new THREE.Line(geo, mat)
+      line.renderOrder = 3
+      this.calGroup.add(line)
+      this.calCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
+    points.forEach((p, i) => {
+      const div = document.createElement('div')
+      div.className = 'pick-pin'
+      div.textContent = String(i + 1)
+      div.style.background = '#ffb020'
+      const label = new CSS2DObject(div)
+      label.position.set(p[0], p[1], 0.1)
+      this.calGroup.add(label)
+      this.calCleanup.push(() => div.remove())
+    })
+    this.viewport.invalidate()
   }
 
   /**
@@ -135,6 +172,7 @@ export class FlatScene {
   }
 
   dispose(): void {
+    this.setCalibrationPicks([])
     this.texture?.dispose()
     this.material.dispose()
     this.geometry.dispose()

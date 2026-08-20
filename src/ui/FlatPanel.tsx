@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The 2D Measure faceplate: the scanned image, and what its scale rests on.
-// Calibration, element creation and dimensions grow in here as the workspace
+// The 2D Measure faceplate: the scanned image, and the scale everything else
+// will rest on. Element creation and dimensions grow in here as the workspace
 // does; the layout follows the other panels — one group per concern, top to
 // bottom in the order the work happens.
 
+import { useState } from 'react'
+import { toDpi } from '../core/flat/calibration'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
 import { useFlat } from '../state/flatStore'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
+import { NumberField } from './NumberField'
 
 export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }) {
   const imageName = useFlat((s) => s.imageName)
@@ -15,6 +18,31 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
   const imageHeight = useFlat((s) => s.imageHeight)
   const imageBusy = useFlat((s) => s.imageBusy)
   const meta = useFlat((s) => s.metaPxPerMm)
+  const pxPerMm = useFlat((s) => s.pxPerMm)
+  const calSource = useFlat((s) => s.calSource)
+  const splitAxes = useFlat((s) => s.splitAxes)
+  const calibrating = useFlat((s) => s.calibrating)
+  const profiles = useFlat((s) => s.profiles)
+  const flat = useFlat
+
+  // The reference's true size, and what applying against it last said. Local:
+  // they belong to the tool being open, not to the workspace.
+  const [trueSize, setTrueSize] = useState(100)
+  const [calError, setCalError] = useState<string | null>(null)
+  const [profileName, setProfileName] = useState('')
+  const [chosenProfile, setChosenProfile] = useState('')
+
+  const picks = calibrating?.picks.length ?? 0
+  const enough = calibrating
+    ? calibrating.mode === 'distance'
+      ? picks === 2
+      : picks >= 3
+    : false
+
+  const apply = () => {
+    const error = flat.getState().applyCalibration(trueSize)
+    setCalError(error)
+  }
 
   return (
     <aside className="panel">
@@ -40,19 +68,180 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
           onOpen={onOpenImage}
         />
         {!imageName && <p className="hint">Drop it anywhere in the window.</p>}
-        {imageName && meta && (
-          <p className="hint" data-test="flat-meta-scale">
-            The file declares {(meta.x * 25.4).toFixed(0)} dpi —{' '}
-            {(imageWidth / meta.x).toFixed(1)} × {(imageHeight / meta.y).toFixed(1)} mm. Nominal
-            until calibrated.
-          </p>
-        )}
-        {imageName && !meta && (
-          <p className="hint" data-test="flat-meta-scale">
-            The file declares no physical resolution — sizes are in pixels until calibrated.
-          </p>
-        )}
       </div>
+
+      {imageName && (
+        <div className="group">
+          <div className="sec-head">
+            Calibration
+            <InfoDot title="Calibration">
+              <p>
+                Every millimetre this workspace reports is pixels divided by this scale. The
+                file's own dpi is only <b>nominal</b> — scanner transports are off by real
+                fractions of a percent — so measure the scale off something true: scan a gauge
+                block, calliper-measured part or gauge pin along with the part.
+              </p>
+              <p>
+                <b>Known distance</b> takes two picks across the reference and its true length.
+                <b> Known diameter</b> takes three or more picks around a circle's edge and its
+                true diameter.
+              </p>
+              <p>
+                Scanners err differently along the two axes. Calibrating X and Y separately
+                needs a reference laid along each axis in turn.
+              </p>
+            </InfoDot>
+          </div>
+
+          <p className="hint" data-test="flat-cal-status">
+            {calSource === 'measured' && pxPerMm
+              ? pxPerMm.x === pxPerMm.y
+                ? `Calibrated: ${pxPerMm.x.toFixed(4)} px/mm (≈${toDpi(pxPerMm.x).toFixed(1)} dpi).`
+                : `Calibrated: X ${pxPerMm.x.toFixed(4)} · Y ${pxPerMm.y.toFixed(4)} px/mm.`
+              : calSource === 'metadata' && meta
+                ? `Nominal, from the file: ${(meta.x * 25.4).toFixed(0)} dpi — ${(imageWidth / meta.x).toFixed(1)} × ${(imageHeight / meta.y).toFixed(1)} mm.`
+                : 'The file declares no physical resolution — sizes are pixels until calibrated.'}
+          </p>
+
+          {!calibrating && (
+            <>
+              <button
+                className="block"
+                data-test="flat-cal-distance"
+                onClick={() => {
+                  setCalError(null)
+                  flat.getState().startCalibration('distance')
+                }}
+              >
+                Calibrate on a known distance
+              </button>
+              <button
+                className="block"
+                data-test="flat-cal-diameter"
+                onClick={() => {
+                  setCalError(null)
+                  flat.getState().startCalibration('diameter')
+                }}
+              >
+                Calibrate on a known diameter
+              </button>
+              <label className="checkrow">
+                <input
+                  type="checkbox"
+                  data-test="flat-cal-split"
+                  checked={splitAxes}
+                  onChange={(e) => flat.getState().setSplitAxes(e.target.checked)}
+                />
+                <span>Calibrate X and Y separately</span>
+              </label>
+            </>
+          )}
+
+          {calibrating && (
+            <>
+              <p className="hint" data-test="flat-cal-collecting">
+                {calibrating.mode === 'distance'
+                  ? picks < 2
+                    ? `Click the two ends of the reference on the image (${picks}/2). Zoom in first — the picks are the measurement.`
+                    : 'Both ends picked — enter the true distance and apply.'
+                  : picks < 3
+                    ? `Click points around the reference circle's edge (${picks}, need 3+).`
+                    : `${picks} points around the edge — more spread the error. Enter the true diameter and apply.`}
+              </p>
+              <NumberField
+                label={calibrating.mode === 'distance' ? 'True distance' : 'True diameter'}
+                testId="flat-cal-true"
+                value={trueSize}
+                step={1}
+                min={0.001}
+                unit="mm"
+                onCommit={setTrueSize}
+              />
+              <button
+                className="primary block"
+                data-test="flat-cal-apply"
+                disabled={!enough}
+                onClick={apply}
+              >
+                Apply calibration
+              </button>
+              <div className="toolrow">
+                <button
+                  data-test="flat-cal-undo"
+                  disabled={picks === 0}
+                  onClick={() => flat.getState().undoCalPick()}
+                >
+                  Undo pick
+                </button>
+                <button data-test="flat-cal-cancel" onClick={() => flat.getState().cancelCalibration()}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+          {calError && <p className="alarmtext">{calError}</p>}
+
+          <div className="sec-head">Scanner profiles</div>
+          <p className="hint">
+            A measured calibration describes the scanner at one resolution, not the image — save
+            it once, apply it to every scan from that scanner.
+          </p>
+          {profiles.length > 0 && (
+            <div className="toolrow">
+              <select
+                data-test="flat-profile-select"
+                value={chosenProfile}
+                onChange={(e) => setChosenProfile(e.target.value)}
+              >
+                <option value="">Choose profile…</option>
+                {profiles.map((p) => (
+                  <option key={p.name} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                data-test="flat-profile-apply"
+                disabled={!chosenProfile}
+                onClick={() => flat.getState().applyProfile(chosenProfile)}
+              >
+                Apply
+              </button>
+              <button
+                data-test="flat-profile-delete"
+                disabled={!chosenProfile}
+                onClick={() => {
+                  flat.getState().deleteProfile(chosenProfile)
+                  setChosenProfile('')
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
+          {calSource === 'measured' && (
+            <div className="toolrow">
+              <input
+                type="text"
+                data-test="flat-profile-name"
+                placeholder="e.g. V600 @ 600 dpi"
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+              />
+              <button
+                data-test="flat-profile-save"
+                disabled={!profileName.trim()}
+                onClick={() => {
+                  flat.getState().saveProfile(profileName)
+                  setProfileName('')
+                }}
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   )
 }

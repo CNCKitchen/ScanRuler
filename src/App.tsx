@@ -145,15 +145,45 @@ export default function App() {
   // exist, in whichever order they got there: the image may be dropped before
   // the workspace has ever been opened, and the viewport unmounts with it.
   const flatImageVersion = useFlat((s) => s.imageVersion)
+  const flatMmPerPx = () => {
+    const scale = useFlat.getState().pxPerMm
+    return scale ? { x: 1 / scale.x, y: 1 / scale.y } : { x: 1, y: 1 }
+  }
   const syncFlatImage = () => {
     const bitmap = flatBitmapRef.current
     const scene = flatSceneRef.current
     if (!bitmap || !scene) return
-    const meta = useFlat.getState().metaPxPerMm
-    const mmPerPx = meta ? { x: 1 / meta.x, y: 1 / meta.y } : { x: 1, y: 1 }
-    void scene.setImage(bitmap, mmPerPx)
+    void scene.setImage(bitmap, flatMmPerPx())
+    syncFlatCalPicks()
   }
   useEffect(syncFlatImage, [flatImageVersion])
+
+  // A new calibration re-lays the sheet in its millimetres and moves whatever
+  // is pinned on it along.
+  const flatScale = useFlat((s) => s.pxPerMm)
+  useEffect(() => {
+    flatSceneRef.current?.setScale(flatMmPerPx())
+    syncFlatCalPicks()
+  }, [flatScale])
+
+  // The calibration tool's picks are stored in image pixels (they must
+  // survive the very scale change they cause); the sheet is drawn in mm.
+  const flatCalibrating = useFlat((s) => s.calibrating)
+  const syncFlatCalPicks = () => {
+    const mm = flatMmPerPx()
+    const picks = useFlat.getState().calibrating?.picks ?? []
+    flatSceneRef.current?.setCalibrationPicks(picks.map((p) => [p[0] * mm.x, p[1] * mm.y]))
+  }
+  useEffect(syncFlatCalPicks, [flatCalibrating])
+
+  /** A click on the flat sheet, in document mm — routed to whichever flat
+   *  tool is collecting. */
+  const handleFlatPick = (p: [number, number]) => {
+    const flat = useFlat.getState()
+    if (!flat.calibrating) return
+    const mm = flatMmPerPx()
+    flat.addCalPick([p[0] / mm.x, p[1] / mm.y])
+  }
 
   const openFile = async (file: File) => {
     if (!isMeshFile(file.name)) {
@@ -1013,6 +1043,7 @@ export default function App() {
   const onThickness = workspace === 'thickness'
   const onFlat = workspace === 'flat'
   const flatImageName = useFlat((s) => s.imageName)
+  const flatCalSource = useFlat((s) => s.calSource)
 
   // The two legends, built from the same instrument — they differ in the scale
   // they are read through and in which figures belong underneath.
@@ -1199,10 +1230,7 @@ export default function App() {
                   flatSceneRef.current = s
                   syncFlatImage()
                 }}
-                onPick={() => {
-                  // Element picking arrives with the flat draft flow; a bare
-                  // click has nothing to do yet.
-                }}
+                onPick={handleFlatPick}
               />
             </div>
           )}
@@ -1313,6 +1341,16 @@ export default function App() {
           {onThickness && !picking && !hasThicknessMap && fileName && (
             <div className="hintchip" data-test="thickness-ready-chip">
               Part loaded — measure its wall thickness in the panel
+            </div>
+          )}
+          {/* Not a hint but an alarm: every number this workspace shows rests
+              on the scale, and until one has been measured the scale is only
+              what the file claims about itself — or nothing at all. */}
+          {onFlat && flatImageName && flatCalSource !== 'measured' && (
+            <div className="warnchip" data-test="flat-uncalibrated-chip">
+              {flatCalSource === 'metadata'
+                ? 'UNCALIBRATED — sizes use the file’s nominal dpi. Calibrate against a known length in the panel.'
+                : 'UNCALIBRATED — the file declares no scale, so sizes are pixels. Calibrate against a known length in the panel.'}
             </div>
           )}
           {stageHint && workspace === 'elements' && <div className="hintchip">{stageHint}</div>}
