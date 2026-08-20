@@ -1,0 +1,241 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// End-to-end smoke test for the 2D Measure workspace: drives the real app in
+// headless Chrome — generates a synthetic flatbed scan (no binary fixtures in
+// this repo), loads it through the panel, waits for edge detection, fits a
+// circle and a line by region drag, calibrates on a known distance, sets a
+// datum, measures a dimension, and reads the report off the clipboard.
+//
+// The fixture is exact by construction: a grayscale PNG at a declared 600 dpi
+// with soft-shouldered edges, a 240 px circle and a 600 px wide rectangle —
+// so the assertions can be tight.
+import { deflateSync } from 'node:zlib'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  APP_URL,
+  OUT_DIR,
+  launchApp,
+  click,
+  check,
+  drag,
+  finish,
+  shotPath,
+  sleep,
+} from './e2e-lib.mjs'
+
+// ---- the synthetic scan -----------------------------------------------------
+
+const W = 800
+const H = 600
+const PPM = 23.622 // 600 dpi
+const RECT = { x0: 100.5, x1: 700.5, y0: 400.5, y1: 550.5 } // image px, y down
+const DISC = { cx: 400.5, cy: 200.5, r: 120.25 }
+
+/** Soft edge over ±1 px of a signed "inside" distance, like scanner optics. */
+const shade = (d) =>
+  d <= -1 ? 25 : d >= 1 ? 230 : 25 + (230 - 25) * (0.5 + 0.5 * Math.sin((d * Math.PI) / 2))
+
+function buildPng() {
+  const gray = new Uint8Array(W * H)
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const cx = x + 0.5
+      const cy = y + 0.5
+      const inRect = Math.min(cx - RECT.x0, RECT.x1 - cx, cy - RECT.y0, RECT.y1 - cy)
+      const inDisc = DISC.r - Math.hypot(cx - DISC.cx, cy - DISC.cy)
+      gray[y * W + x] = shade(Math.max(inRect, inDisc))
+    }
+  }
+  // PNG by hand: signature, IHDR, pHYs (600 dpi), IDAT, IEND.
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    return c >>> 0
+  })
+  const crc = (bytes) => {
+    let c = 0xffffffff
+    for (const b of bytes) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8)
+    return (c ^ 0xffffffff) >>> 0
+  }
+  const u32 = (v) => [(v >>> 24) & 0xff, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff]
+  const chunk = (type, data) => {
+    const body = [...[...type].map((ch) => ch.charCodeAt(0)), ...data]
+    return [...u32(data.length), ...body, ...u32(crc(body))]
+  }
+  const raw = new Uint8Array(H * (W + 1))
+  for (let y = 0; y < H; y++) {
+    raw[y * (W + 1)] = 0 // filter: none
+    raw.set(gray.subarray(y * W, (y + 1) * W), y * (W + 1) + 1)
+  }
+  const idat = deflateSync(raw)
+  const ppm = Math.round(PPM * 1000) // pixels per metre
+  return Uint8Array.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ...chunk('IHDR', [...u32(W), ...u32(H), 8, 0, 0, 0, 0]),
+    ...chunk('pHYs', [...u32(ppm), ...u32(ppm), 1]),
+    ...chunk('IDAT', [...idat]),
+    ...chunk('IEND', []),
+  ])
+}
+
+const fixture = join(OUT_DIR, 'flat-fixture.png')
+writeFileSync(fixture, buildPng())
+
+// Ground truth in document units (mm, y up) at the declared scale.
+const mm = (px) => px / PPM
+const SHEET_W = mm(W)
+const SHEET_H = mm(H)
+const DISC_C = [mm(DISC.cx), mm(H - DISC.cy)]
+const DISC_DIA = mm(2 * DISC.r)
+const RECT_TOP_Y = mm(H - RECT.y0) // the rectangle's upper edge, in doc y
+const RECT_WIDTH = mm(RECT.x1 - RECT.x0)
+
+// ---- the session ------------------------------------------------------------
+
+const { browser, page, consoleErrors } = await launchApp()
+await browser
+  .defaultBrowserContext()
+  .overridePermissions(APP_URL.replace(/\/$/, ''), [
+    'clipboard-read',
+    'clipboard-write',
+    'clipboard-sanitized-write',
+  ])
+
+await click(page, '[data-test=workspace-flat]')
+// The support card overlays the lower stage, exactly where picks on the
+// fixture's rectangle land — close it before measuring through it.
+await click(page, '[data-test=support-card] .sc-x').catch(() => {})
+const input = await page.$('input[type=file][accept*=".png"]')
+await input.uploadFile(fixture)
+await page.waitForFunction(
+  () => /chains found/.test(document.querySelector('[data-test=flat-edge-status]')?.textContent ?? ''),
+  { timeout: 60_000 },
+)
+
+// ---- metadata and the uncalibrated alarm -----------------------------------
+const calStatus = await page.$eval('[data-test=flat-cal-status]', (el) => el.textContent)
+check(/600 dpi/.test(calStatus), 'the declared 600 dpi is read from pHYs')
+check((await page.$('[data-test=flat-uncalibrated-chip]')) !== null, 'the uncalibrated alarm is up')
+
+// Screen mapping for the framed sheet.
+const rect = await page.$eval('.viewslot:not([hidden]) .viewport canvas', (el) => {
+  const r = el.getBoundingClientRect()
+  return { x: r.x, y: r.y, w: r.width, h: r.height }
+})
+const aspect = rect.w / rect.h
+const frustH = Math.max((SHEET_H / 2) * 1.08, ((SHEET_W / 2) * 1.08) / aspect)
+const toScreen = (mx, my) => [
+  rect.x + (rect.w * ((mx - SHEET_W / 2) / (frustH * aspect) + 1)) / 2,
+  rect.y + (rect.h * (1 - (my - SHEET_H / 2) / frustH)) / 2,
+]
+
+// ---- a circle by one region drag -------------------------------------------
+await click(page, '[data-test=flat-fit-circle]')
+const rr = DISC_DIA / 2 + 1
+await drag(page, toScreen(DISC_C[0] - rr, DISC_C[1] + rr), toScreen(DISC_C[0] + rr, DISC_C[1] - rr))
+await sleep(400)
+await click(page, '[data-test=flat-create-element]')
+await sleep(200)
+let rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
+  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+)
+const dia = Number((rows[0]?.match(/Ø ([\d.]+)/) ?? [])[1])
+check(
+  Math.abs(dia - DISC_DIA) < 0.08,
+  `the region-fitted circle reads Ø ${DISC_DIA.toFixed(3)} mm (got ${dia})`,
+)
+
+// ---- a line along the rectangle's top edge ---------------------------------
+await click(page, '[data-test=flat-fit-line]')
+await drag(
+  page,
+  toScreen(mm(RECT.x0) + 2, RECT_TOP_Y + 0.5),
+  toScreen(mm(RECT.x1) - 2, RECT_TOP_Y - 0.5),
+)
+await sleep(400)
+await click(page, '[data-test=flat-create-element]')
+await sleep(200)
+rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
+  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+)
+check(rows.length === 2, 'two elements measured')
+const angle = Number((rows[1]?.match(/· (-?[\d.]+)°/) ?? [])[1])
+check(Math.abs(angle) < 0.15, `the edge line is horizontal (${angle}°)`)
+
+// ---- a dimension: circle center to that line -------------------------------
+await click(page, '[data-test=flat-new-dimension]')
+await page.select('[data-test=flat-dim-type]', 'flat-dist-point-line')
+await page.select('[data-test=flat-dim-slot-0]', '1')
+await page.select('[data-test=flat-dim-slot-1]', '2')
+await sleep(200)
+await click(page, '[data-test=flat-add-dimension]')
+await sleep(300)
+const dimRow = (await page.$$eval('[data-test=flat-dimension-row] b', (els) =>
+  els.map((e) => e.textContent.trim()),
+))[0]
+const wantDist = DISC_C[1] - RECT_TOP_Y
+const gotDist = Number((dimRow?.match(/(-?[\d.]+) mm/) ?? [])[1])
+check(
+  Math.abs(gotDist - wantDist) < 0.08,
+  `center-to-edge distance reads ${wantDist.toFixed(3)} mm (got ${gotDist})`,
+)
+
+// ---- calibrate on the rectangle's known width ------------------------------
+await click(page, '[data-test=flat-cal-distance]')
+const midY = mm(H - (RECT.y0 + RECT.y1) / 2)
+await page.mouse.click(...toScreen(mm(RECT.x0) + 0.1, midY))
+await sleep(150)
+await page.mouse.click(...toScreen(mm(RECT.x1) - 0.1, midY))
+await sleep(250)
+await page.focus('[data-test=flat-cal-true]')
+await page.$eval('[data-test=flat-cal-true]', (el) => (el.value = ''))
+await page.type('[data-test=flat-cal-true]', RECT_WIDTH.toFixed(3))
+await page.keyboard.press('Enter')
+await sleep(150)
+await click(page, '[data-test=flat-cal-apply]')
+await sleep(400)
+check((await page.$('[data-test=flat-uncalibrated-chip]')) === null, 'calibrating clears the alarm')
+rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
+  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+)
+const diaAfter = Number((rows[0]?.match(/Ø ([\d.]+)/) ?? [])[1])
+check(
+  Math.abs(diaAfter - DISC_DIA) < 0.1,
+  `the snapped two-point calibration lands on nominal (Ø now ${diaAfter})`,
+)
+
+// ---- datum on the rectangle edge -------------------------------------------
+await click(page, '[data-test=flat-datum-set]')
+await page.mouse.click(...toScreen(mm(RECT.x0) + 1, RECT_TOP_Y))
+await sleep(200)
+await page.mouse.click(...toScreen(mm(RECT.x1) - 1, RECT_TOP_Y))
+await sleep(400)
+check(
+  /part frame/.test(await page.$eval('[data-test=flat-datum-status]', (el) => el.textContent)),
+  'the datum commits',
+)
+rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
+  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+)
+// The dimension is frame-invariant; the datum leaves it untouched.
+const dimAfter = (await page.$$eval('[data-test=flat-dimension-row] b', (els) =>
+  els.map((e) => e.textContent.trim()),
+))[0]
+check(dimAfter === dimRow, 'the datum never moves a distance')
+
+// ---- the report ------------------------------------------------------------
+const buttons = await page.$$('button')
+for (const b of buttons) {
+  if (/Copy report/.test(await b.evaluate((el) => el.textContent))) {
+    await b.click()
+    break
+  }
+}
+await sleep(400)
+const report = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '')
+check(/Scale: CALIBRATED/.test(report), 'the report says the scale is calibrated')
+check(/part datum frame/.test(report), 'and that coordinates are in the datum frame')
+check(/Ø/.test(report) && /Distance to line/.test(report), 'and carries elements and dimensions')
+
+await page.screenshot({ path: shotPath('flat-final.png') })
+await finish(browser, consoleErrors)

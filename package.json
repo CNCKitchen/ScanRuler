@@ -30,7 +30,8 @@
     "e2e:circle": "node scripts/e2e-circle.mjs",
     "e2e:thickness": "node scripts/e2e-thickness.mjs",
     "e2e:step": "node scripts/e2e-step.mjs",
-    "e2e:local-fit": "node scripts/e2e-local-fit.mjs"
+    "e2e:local-fit": "node scripts/e2e-local-fit.mjs",
+    "e2e:flat": "node scripts/e2e-flat.mjs"
   },
   "dependencies": {
     "meshstep": "0.1.1",

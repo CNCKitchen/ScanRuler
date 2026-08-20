@@ -786,6 +786,94 @@ The ramp is the same jet as the deviation map but **reversed: red is thin, blue
 is thick**. Thickness has no signed zero to sit in the middle, and the end that
 needs to shout is the thin one.
 
+## 2D Measure: flatbed scans
+
+Switch to the **2D Measure** workspace and drop in a flatbed scan of the part —
+a PNG or JPEG, scanned face-down at the highest optical resolution you have.
+The workspace measures it the way a measuring microscope would: fit points,
+lines, circles and arcs to the part's edges, then measure between them. A
+flatbed scanner is a surprisingly good comparator — the optics are telecentric
+enough over the glass, and at 600 dpi one pixel is 42 µm with edges located to
+a fraction of that.
+
+Everything stays in this browser, like the rest of the tool. The workspace has
+its own viewport: the scan lies on a millimetre sheet, y up, origin at the
+bottom-left; orbit gestures pan (a sheet has no third dimension), scroll zooms
+about the cursor.
+
+### Scale, and the uncalibrated alarm
+
+Every millimetre this workspace reports is pixels divided by a scale. Three
+states, and the stage says which one you are in:
+
+- **Nothing** — the file declares no resolution: sizes are in raw pixels.
+- **Nominal** — the file's own dpi (PNG `pHYs`, JPEG JFIF) is used, and a loud
+  **UNCALIBRATED** chip stays on the stage: scanner transports are off by real
+  fractions of a percent, so the file's claim is a working value, not a
+  measurement.
+- **Calibrated** — you measured the scale off something true that was on the
+  glass: two picks across a known distance, or three-plus picks around a circle
+  of known diameter (a gauge pin, a coin). **Calibrate X and Y separately**
+  handles the fact that the sensor axis and the transport axis err
+  differently — it needs a reference laid along each axis in turn.
+
+A measured calibration describes the scanner at one resolution, not the image:
+save it as a named **scanner profile** (the one thing this app persists, in
+localStorage) and apply it to every scan from that scanner. Every element's
+source is recorded in image pixels, so recalibrating re-derives every fit and
+dimension — nothing measured ever bakes in a stale scale.
+
+### Edges, and the two ways to fit
+
+On load the image is swept once for edges in a worker — Canny with automatic
+thresholds, the surviving pixels linked into chains, every point refined to
+subpixel by a parabola across the gradient (scanner optics blur an edge over a
+few pixels, which is exactly what the parabola needs). The chains draw as a
+teal overlay with one sensitivity slider; on a synthetic edge the recovery is
+better than a tenth of a pixel.
+
+- **From edge region** (the default for lines, circles and arcs): drag a box
+  over the edge, and every detected edge point inside it feeds the fit. Strays
+  from neighbouring edges are voted out (LMedS consensus) before the least
+  squares runs, so a sloppy drag over both sides of a bar still lands on the
+  edge you meant. One drag is a complete measurement.
+- **Through points**: click the points yourself. Every click snaps to the
+  nearest detected edge at subpixel — hold **Alt** to place the raw click —
+  and a 4× loupe rides the cursor with a crosshair on the exact pixel.
+
+Points can also be constructed: the midpoint of two points, the center of a
+circle, or the **intersection of two lines** — the corner two edges meet at,
+which no scan images sharply and no click can hit.
+
+Fits report σ and the peak-to-peak form error (straightness, circularity) like
+every other fit in the tool.
+
+### Datum, dimensions, and what leaves the tool
+
+**Set datum** gives the part its own frame: the first pick is the origin, the
+second sets +X, both snapping to edges. While aiming, a millimetre grid pivots
+live around the origin (the crop-tool feedback); it stays afterwards as a
+toggleable overlay, spacing following the zoom on a 1-2-5 ladder. Coordinates
+and line angles then read in the part's frame — distances and angles between
+elements never change under a datum, which is the point of them.
+
+**Dimensions** measure between elements: point–point and point–line distances,
+the width between near-parallel lines (with the same fold-angle guards the 3D
+dimensions apply), and line–line angles. They re-evaluate whenever an element
+or the calibration moves.
+
+**Copy report** puts the session on the clipboard; **Export CSV** writes the
+elements and dimensions as raw numeric columns. Both open with the
+traceability line — what the scale is, where it came from, and which frame
+coordinates read in — because a figure without that line is how wrong numbers
+get trusted.
+
+The workspace's internals deliberately measure abstract 2D geometry, not
+pixels: the scan image is one *source* of edge chains. A section cut through a
+3D scan is the planned second source — the roadmap's section views will land
+their polylines on this same sheet, already in millimetres, and everything
+above (fits, constructions, datum, dimensions, report) applies unchanged.
+
 ## Development
 
 ```bash
@@ -802,8 +890,8 @@ it — used by `tests/align.test.ts`. Both files are already aligned in GOM, so
 that test displaces the scan by random rigid transforms first; otherwise the
 automatic match would never be asked a real question.
 
-Nine end-to-end smoke tests drive the real app in headless Chrome against a
-running dev server:
+A set of end-to-end smoke tests drives the real app in headless Chrome against
+a running dev server:
 
 ```bash
 node scripts/e2e-smoke.mjs      # element fitting on the ball bar
@@ -815,6 +903,7 @@ node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
+node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, datum, report
 ```
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
@@ -856,7 +945,9 @@ pull request, so a red suite is visible before Cloudflare ships it.
 - More element types: cones, slots
 - Circles fitted to a marked surface, and datum-based GD&T (position, runout)
 - Point-cloud (faceless PLY) support
-- Export the coloured scan, and section views through the deviation map
+- Export the coloured scan, and section views through the deviation map —
+  landing their outlines on the 2D Measure sheet to be dimensioned there
+- 2D Measure: slot and rectangle features, DXF export of the fitted geometry
 
 ## License
 
