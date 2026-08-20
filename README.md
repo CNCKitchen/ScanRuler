@@ -218,6 +218,25 @@ scan. What changes is the shape on screen and the shape in the STEP file — and
 the summary notes what an extended element is *drawn* at, beside what it was
 measured as.
 
+### The assumed dimension — what the feature was designed at
+
+A hole that measures Ø 5.98 mm was almost certainly drawn at Ø 6 — and
+sometimes what CAD should receive is that design value, not the scan's
+verdict on this particular part. While a **sphere, cylinder or circle** is
+being created or edited, an **Assumed Ø** field sits under the preview,
+prefilled with the round value the measurement most plausibly came from
+(5.98 suggests 6, 12.43 suggests 12.5, and a measurement near nothing round
+is simply itself). Overtype it if the drawing says otherwise — and a value
+far from the measurement (beyond half a millimetre, or 5 % on large
+features) is flagged as a likely typo rather than silently accepted, so a
+Ø 60 where a Ø 6 was meant cannot slip through.
+
+Like an extension, the assumed dimension is carried **beside** the fit, never
+in it: every readout, dimension and deviation map keeps the measured
+diameter. It is used in exactly one place — the STEP export, when
+**Dimensions** is set to *As assumed* — and the copied summary reports it
+beside the measurement whenever the two differ.
+
 ### Changing what you have made
 
 Every element and every dimension carries a **✎** key next to its hide and
@@ -322,7 +341,12 @@ for an importer that chokes on bodies.
 
 Either way the size written is the size on screen, extensions included, and
 coordinates are millimetres in the current frame — so aligning the part first
-hands CAD the elements in the datum system.
+hands CAD the elements in the datum system. A second choice, **Dimensions**,
+picks whether spheres, cylinders and circles go out at their fitted diameters
+(*As measured*, the default) or at the assumed design values entered when they
+were created (*As assumed*); positions, axes and everything without an assumed
+value are written as measured either way, and the choice is remembered like
+the style.
 
 The viewport uses a **parallel (orthographic) projection** so nothing is
 foreshortened, and rotates freely around the model's bounding-box center with
