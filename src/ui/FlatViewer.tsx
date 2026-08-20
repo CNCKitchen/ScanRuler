@@ -21,6 +21,7 @@ export function FlatViewer({
   onReady,
   onPick,
   onRegion,
+  onHover,
   loupe,
 }: {
   /** The scene when it comes up, null when the viewport unmounts — so the
@@ -28,6 +29,8 @@ export function FlatViewer({
   onReady: (scene: FlatScene | null) => void
   onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   onRegion: (min: Vec2, max: Vec2) => void
+  /** The cursor over the sheet (or off it) — the datum tool aims by it. */
+  onHover?: (p: Vec2 | null) => void
   /** The magnifier over the cursor while a tool is placing points: what to
    *  magnify, how document units map back to image pixels, and whether a
    *  tool wants it at all. */
@@ -43,6 +46,8 @@ export function FlatViewer({
   pickRef.current = onPick
   const regionRef = useRef(onRegion)
   regionRef.current = onRegion
+  const hoverRef = useRef(onHover)
+  hoverRef.current = onHover
   const readyRef = useRef(onReady)
   readyRef.current = onReady
   const loupeOpts = useRef(loupe)
@@ -69,6 +74,7 @@ export function FlatViewer({
     // The loupe follows the cursor over the sheet, magnifying the pixels
     // around it with a crosshair on the exact spot a click would measure.
     scene.onHoverPoint = (p, clientX, clientY) => {
+      hoverRef.current?.(p)
       const canvas = loupeRef.current
       const opts = loupeOpts.current
       const bitmap = opts.bitmap()

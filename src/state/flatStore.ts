@@ -20,6 +20,7 @@ import {
   type FlatElement,
   type FlatSource,
 } from '../core/flat/elements'
+import type { FlatDatum } from '../core/flat/datum'
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
@@ -187,6 +188,20 @@ interface FlatState {
   setEdgeSensitivity: (v: number) => void
   setShowEdges: (v: boolean) => void
 
+  /** The part's own frame: origin and +X, as two picks (image pixels). Null
+   *  reads coordinates in the image frame, origin bottom-left. */
+  datum: FlatDatum | null
+  /** The datum tool is out, holding its first pick until the second lands. */
+  datumPicking: { picks: Vec2[] } | null
+  showGrid: boolean
+
+  startDatum: () => void
+  cancelDatum: () => void
+  /** Origin first, then +X — the second pick commits the datum. */
+  addDatumPick: (px: Vec2) => void
+  clearDatum: () => void
+  setShowGrid: (v: boolean) => void
+
   startCalibration: (mode: CalMode) => void
   cancelCalibration: () => void
   addCalPick: (px: Vec2) => void
@@ -221,6 +236,12 @@ export const useFlat = create<FlatState>()((set, get) => ({
   calSource: 'none',
   splitAxes: false,
   calibrating: null,
+
+  datum: null,
+  datumPicking: null,
+  // On while the datum is being placed and after — the grid is the visible
+  // proof of where the frame lies; a checkbox puts it away.
+  showGrid: true,
 
   profiles: loadProfiles(),
 
@@ -369,6 +390,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
       draft: null,
       nameCounts: {},
       selectedId: null,
+      datum: null,
+      datumPicking: null,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -387,7 +410,21 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setEdgeSensitivity: (edgeSensitivity) => set({ edgeSensitivity }),
   setShowEdges: (showEdges) => set({ showEdges }),
 
-  startCalibration: (mode) => set({ calibrating: { mode, picks: [] } }),
+  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null }),
+  cancelDatum: () => set({ datumPicking: null }),
+
+  addDatumPick: (px) =>
+    set((s) => {
+      if (!s.datumPicking) return {}
+      const picks = [...s.datumPicking.picks, px]
+      if (picks.length < 2) return { datumPicking: { picks } }
+      return { datum: { originPx: picks[0], xRefPx: picks[1] }, datumPicking: null }
+    }),
+
+  clearDatum: () => set({ datum: null, datumPicking: null }),
+  setShowGrid: (showGrid) => set({ showGrid }),
+
+  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null }),
   cancelCalibration: () => set({ calibrating: null }),
 
   addCalPick: (px) =>

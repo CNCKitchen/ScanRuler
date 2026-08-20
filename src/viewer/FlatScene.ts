@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import { gridSpacing } from '../core/flat/datum'
 import type { EdgeChains } from '../core/flat/edges'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
@@ -33,6 +34,13 @@ export class FlatScene {
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
+  /** The datum-aligned grid: its frame, and the spacing it was last drawn
+   *  at — the tick watches the zoom and redraws when the 1-2-5 ladder says a
+   *  different rung. */
+  private gridGroup = new THREE.Group()
+  private gridCleanup: (() => void)[] = []
+  private gridFrame: { origin: Vec2; xDir: Vec2 } | null = null
+  private gridSpacingDrawn = 0
   /** Measured elements and the draft being built, in document units. */
   private elementGroup = new THREE.Group()
   private elementCleanup: (() => void)[] = []
@@ -77,6 +85,12 @@ export class FlatScene {
         this.beginBand(e)
         return true
       },
+      onTick: () => {
+        // Zoom walked the grid onto a different rung of its spacing ladder.
+        if (this.gridFrame && this.gridSpacingDrawn !== gridSpacing(this.unitsPerScreenPx())) {
+          this.rebuildGrid()
+        }
+      },
     })
     this.container.addEventListener('pointermove', this.hoverMove)
     this.viewport.nav.setPlanar(true)
@@ -86,10 +100,79 @@ export class FlatScene {
     this.sheet = new THREE.Mesh(this.geometry, this.material)
     this.sheet.visible = false
     this.viewport.scene.add(this.sheet)
+    this.viewport.scene.add(this.gridGroup)
     this.viewport.scene.add(this.calGroup)
     this.viewport.scene.add(this.edgeGroup)
     this.viewport.scene.add(this.elementGroup)
     this.viewport.scene.add(this.draftGroup)
+  }
+
+  /** Show a datum-aligned millimetre grid over the sheet — or none. The
+   *  frame is in document units; spacing follows the zoom by itself. */
+  setGrid(frame: { origin: Vec2; xDir: Vec2 } | null): void {
+    this.gridFrame = frame
+    this.rebuildGrid()
+  }
+
+  private rebuildGrid(): void {
+    for (const dispose of this.gridCleanup) dispose()
+    this.gridCleanup = []
+    this.gridGroup.clear()
+    this.gridSpacingDrawn = 0
+    const frame = this.gridFrame
+    if (!frame || !this.imagePx.width) {
+      this.viewport.invalidate()
+      return
+    }
+    const s = gridSpacing(this.unitsPerScreenPx())
+    this.gridSpacingDrawn = s
+
+    // The sheet's corners in frame coordinates bound what needs lines.
+    const w = this.imagePx.width * this.mmPerPx.x
+    const h = this.imagePx.height * this.mmPerPx.y
+    const [c, si] = frame.xDir
+    const toFrame = (x: number, y: number): Vec2 => {
+      const rx = x - frame.origin[0]
+      const ry = y - frame.origin[1]
+      return [rx * c + ry * si, -rx * si + ry * c]
+    }
+    const corners = [toFrame(0, 0), toFrame(w, 0), toFrame(0, h), toFrame(w, h)]
+    const uMin = Math.min(...corners.map((p) => p[0]))
+    const uMax = Math.max(...corners.map((p) => p[0]))
+    const vMin = Math.min(...corners.map((p) => p[1]))
+    const vMax = Math.max(...corners.map((p) => p[1]))
+    const toDoc = (u: number, v: number): THREE.Vector3 =>
+      new THREE.Vector3(
+        frame.origin[0] + u * c - v * si,
+        frame.origin[1] + u * si + v * c,
+        0.03,
+      )
+
+    const minor: THREE.Vector3[] = []
+    const axes: THREE.Vector3[] = []
+    for (let u = Math.ceil(uMin / s) * s; u <= uMax; u += s) {
+      ;(Math.abs(u) < s / 2 ? axes : minor).push(toDoc(u, vMin), toDoc(u, vMax))
+    }
+    for (let v = Math.ceil(vMin / s) * s; v <= vMax; v += s) {
+      ;(Math.abs(v) < s / 2 ? axes : minor).push(toDoc(uMin, v), toDoc(uMax, v))
+    }
+    const addLines = (points: THREE.Vector3[], color: number, opacity: number) => {
+      if (points.length === 0) return
+      const geo = new THREE.BufferGeometry().setFromPoints(points)
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false })
+      const lines = new THREE.LineSegments(geo, mat)
+      lines.renderOrder = 1
+      this.gridGroup.add(lines)
+      this.gridCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
+    addLines(minor, 0x8891a0, 0.3)
+    // The two axes of the frame itself, in the tool amber — the crop-style
+    // emphasis that shows where zero runs.
+    addLines(axes, 0xe8a33d, 0.85)
+    this.viewport.invalidate()
   }
 
   /** Arm or disarm region selection. Armed, a plain left-drag rubber-bands a
@@ -474,6 +557,7 @@ export class FlatScene {
     this.sheet.position.set(w / 2, h / 2, 0)
     this.sheet.updateMatrixWorld(true)
     this.layoutEdges()
+    this.rebuildGrid()
     this.viewport.invalidate()
   }
 
@@ -507,6 +591,7 @@ export class FlatScene {
   dispose(): void {
     this.container.removeEventListener('pointermove', this.hoverMove)
     this.dropBand()
+    this.setGrid(null)
     this.setCalibrationPicks([])
     this.setFlatElements([])
     this.setDraftMarks([], null)

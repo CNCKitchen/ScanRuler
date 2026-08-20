@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
 import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
+import { datumFrame, fitInFrame } from '../core/flat/datum'
 import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
@@ -38,7 +39,11 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
   const draft = useFlat((s) => s.draft)
   const selectedId = useFlat((s) => s.selectedId)
   const unit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
+  const datum = useFlat((s) => s.datum)
+  const datumPicking = useFlat((s) => s.datumPicking)
+  const showGrid = useFlat((s) => s.showGrid)
   const flat = useFlat
+  const frame = datum ? datumFrame(datum, pxPerMm) : null
 
   // The reference's true size, and what applying against it last said. Local:
   // they belong to the tool being open, not to the workspace.
@@ -381,7 +386,9 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
                   <span className="dot" style={{ background: el.color }} />
                   <span className="name">{el.name}</span>
                   {el.fit ? (
-                    <b title={formatFlatDetail(el.fit, unit)}>{formatFlatPrimary(el.fit, unit)}</b>
+                    <b title={formatFlatDetail(el.fit, unit)}>
+                      {formatFlatPrimary(fitInFrame(el.fit, frame), unit)}
+                    </b>
                   ) : (
                     <b className="warn" title={el.error ?? undefined}>
                       no fit
@@ -401,6 +408,68 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
                 </div>
               ))}
             </div>
+          )}
+        </div>
+      )}
+
+      {imageName && (
+        <div className="group">
+          <div className="sec-head">
+            Datum
+            <InfoDot title="Datum">
+              <p>
+                The part's own coordinate frame: the first pick is the <b>origin</b>, the second
+                sets <b>+X</b>, and reported coordinates and line angles read in that frame from
+                then on. Distances and angles between elements never change under a datum.
+              </p>
+              <p>
+                Both picks snap to detected edges like any other pick — put the origin on a
+                corner or a circle center, run X along a reference edge. The grid shows where
+                the frame lies.
+              </p>
+            </InfoDot>
+          </div>
+          <p className="hint" data-test="flat-datum-status">
+            {datumPicking
+              ? datumPicking.picks.length === 0
+                ? 'Click the origin on the image.'
+                : 'Now click a point along +X — the grid follows the cursor.'
+              : datum
+                ? 'Datum set — coordinates read in the part frame.'
+                : 'Image frame — origin at the bottom-left of the sheet.'}
+          </p>
+          {!datumPicking ? (
+            <div className="toolrow">
+              <button
+                data-test="flat-datum-set"
+                disabled={calibrating !== null}
+                onClick={() => flat.getState().startDatum()}
+              >
+                {datum ? 'Re-set datum' : 'Set datum'}
+              </button>
+              <button
+                data-test="flat-datum-clear"
+                disabled={!datum}
+                onClick={() => flat.getState().clearDatum()}
+              >
+                Clear
+              </button>
+            </div>
+          ) : (
+            <button className="block" data-test="flat-datum-cancel" onClick={() => flat.getState().cancelDatum()}>
+              Cancel
+            </button>
+          )}
+          {datum && (
+            <label className="checkrow">
+              <input
+                type="checkbox"
+                data-test="flat-datum-grid"
+                checked={showGrid}
+                onChange={(e) => flat.getState().setShowGrid(e.target.checked)}
+              />
+              <span>Show grid</span>
+            </label>
           )}
         </div>
       )}

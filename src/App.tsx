@@ -8,6 +8,7 @@ import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
 import { flatMethod } from './core/flat/construct'
+import { datumFrame, fitInFrame } from './core/flat/datum'
 import { formatFlatPrimary } from './core/flat/summary'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
@@ -172,6 +173,7 @@ export default function App() {
     syncFlatCalPicks()
     syncFlatEdges()
     syncFlatElements()
+    syncFlatGrid()
   }
   useEffect(syncFlatImage, [flatImageVersion])
 
@@ -246,8 +248,41 @@ export default function App() {
       flat.addCalPick(px)
       return
     }
+    if (flat.datumPicking) {
+      flat.addDatumPick(px)
+      return
+    }
     if (flat.draft) flat.addDraftPick(px)
   }
+
+  /** The cursor over the sheet while the datum tool holds its first pick:
+   *  the grid pivots live around the origin toward the cursor, which is the
+   *  crop-tool feedback that makes the second pick aimable. */
+  const handleFlatHover = (p: [number, number] | null) => {
+    const s = useFlat.getState()
+    if (!s.datumPicking || s.datumPicking.picks.length !== 1 || !p) return
+    const mm = flatMmPerPx()
+    const o = s.datumPicking.picks[0]
+    const origin: [number, number] = [o[0] * mm.x, o[1] * mm.y]
+    const dx = p[0] - origin[0]
+    const dy = p[1] - origin[1]
+    const len = Math.hypot(dx, dy)
+    if (len < 1e-6) return
+    flatSceneRef.current?.setGrid({ origin, xDir: [dx / len, dy / len] })
+  }
+
+  // The committed grid: datum-aligned when one is set and wanted; put away
+  // while the datum tool is collecting (its live preview owns the stage).
+  const flatDatum = useFlat((s) => s.datum)
+  const flatDatumPicking = useFlat((s) => s.datumPicking)
+  const flatShowGrid = useFlat((s) => s.showGrid)
+  const syncFlatGrid = () => {
+    const s = useFlat.getState()
+    if (s.datumPicking) return
+    const frame = s.datum && s.showGrid ? datumFrame(s.datum, s.pxPerMm) : null
+    flatSceneRef.current?.setGrid(frame && { origin: frame.origin, xDir: frame.xDir })
+  }
+  useEffect(syncFlatGrid, [flatDatum, flatDatumPicking, flatShowGrid, flatScale])
 
   // What the viewport draws for the flat workspace: the measured elements
   // with their headline values, and the draft's pins and ghost.
@@ -257,6 +292,9 @@ export default function App() {
   const syncFlatElements = () => {
     const s = useFlat.getState()
     const unit = s.pxPerMm ? 'mm' : 'px'
+    // Values read in the datum frame when one is set; the drawn geometry
+    // stays where it was measured.
+    const frame = s.datum ? datumFrame(s.datum, s.pxPerMm) : null
     flatSceneRef.current?.setFlatElements(
       s.elements
         .filter((e) => e.visible && e.fit)
@@ -264,7 +302,7 @@ export default function App() {
           fit: e.fit!,
           color: e.color,
           name: e.name,
-          value: formatFlatPrimary(e.fit!, unit),
+          value: formatFlatPrimary(fitInFrame(e.fit!, frame), unit),
         })),
     )
     const mm = flatMmPerPx()
@@ -282,7 +320,7 @@ export default function App() {
     )
     flatSceneRef.current?.setRegionMode(isEdgeDraft)
   }
-  useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit])
+  useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit, flatDatum])
 
   /** A dragged region over the edge overlay: every detected edge point
    *  inside it joins the draft, thinned to a sane count first. */
@@ -1351,6 +1389,7 @@ export default function App() {
                 }}
                 onPick={handleFlatPick}
                 onRegion={handleFlatRegion}
+                onHover={handleFlatHover}
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
