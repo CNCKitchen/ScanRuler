@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { isStepFile } from '../core/formats'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
+import { useShell } from '../state/shellStore'
 
 export function useDragDrop({
   openFile,
@@ -41,7 +42,7 @@ export function useDragDrop({
       // Measuring against an element wants no second model at all, so there a
       // drop is always the scan.
       const dev = useDeviation.getState()
-      if (dev.workspace === 'deviation' && dev.source === 'reference') {
+      if (useShell.getState().workspace === 'deviation' && dev.source === 'reference') {
         if (isStepFile(file.name) || (useStore.getState().fileName && !dev.nominalName)) {
           void openNominal(file)
           return

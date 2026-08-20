@@ -3,6 +3,7 @@
 // running tally of what has been measured, and the overlay toggle.
 
 import { useDeviation } from '../state/deviationStore'
+import { useShell } from '../state/shellStore'
 import { useHintPrefs } from '../state/hintStore'
 import { useStore } from '../state/store'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
@@ -29,13 +30,13 @@ export function StatusStrip() {
   const setHintsOn = useHintPrefs((s) => s.setOn)
   // The overlays are the measure workspace's own: elsewhere they are put away
   // whatever this says, and a switch that does nothing is worse than no switch.
-  const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
+  const elementsWorkspace = useShell((s) => s.workspace === 'elements')
   // How the deviation workspace is looked at, as against what it measures: the
   // two parts side by side instead of one inside the other, and whether the map
   // is painted on at all. Both are ways of seeing rather than settings of the
   // measurement, which is what puts them down here with the backfaces and not in
   // the panel beside the numbers they do not change.
-  const onDeviation = useDeviation((s) => s.workspace === 'deviation')
+  const onDeviation = useShell((s) => s.workspace === 'deviation')
   const onReference = useDeviation((s) => s.source === 'reference')
   const split = useDeviation((s) => s.split)
   const setSplit = useDeviation((s) => s.setSplit)

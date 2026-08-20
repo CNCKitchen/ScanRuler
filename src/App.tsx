@@ -37,6 +37,7 @@ import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
 import { markChipText } from './ui/MarkTools'
 import { MARK_COLOR, useDeviation } from './state/deviationStore'
+import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
 import type { FieldScale } from './core/field/colormap'
@@ -265,7 +266,7 @@ export default function App() {
     useMark.getState().setCount(count)
     const dev = useDeviation.getState()
     if (dev.marking) {
-      if (dev.workspace === 'deviation' && dev.source === 'element' && dev.targetScope === 'marked') {
+      if (useShell.getState().workspace === 'deviation' && dev.source === 'element' && dev.targetScope === 'marked') {
         const marked = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
         elementScope.current = marked
         dev.markScope(marked.length)
@@ -461,7 +462,7 @@ export default function App() {
    *  no map, or where the vertices around the hit carry no measurement. */
   const readingAt = (hit: PickHit): (HoverReading & { value: number }) | null => {
     const dev = useDeviation.getState()
-    const onThickness = dev.workspace === 'thickness'
+    const onThickness = useShell.getState().workspace === 'thickness'
     const values = onThickness
       ? thickness.current
       : dev.source === 'element'
@@ -494,7 +495,7 @@ export default function App() {
     const store = useStore.getState()
     // On either map a click pins the reading under it; alignment points are
     // picked in the split view, which has its own scenes.
-    const workspace = useDeviation.getState().workspace
+    const workspace = useShell.getState().workspace
     if (workspace !== 'elements') {
       const reading = readingAt(hit)
       if (!reading) return
@@ -558,7 +559,7 @@ export default function App() {
     if (!el?.fit) return
     // Over an element map the elements on offer are drawn on the part precisely
     // so that one can be chosen by clicking it, which is the whole setup here.
-    if (useDeviation.getState().workspace === 'deviation') {
+    if (useShell.getState().workspace === 'deviation') {
       if (useDeviation.getState().source === 'element') handleSelectTarget(id)
       return
     }
@@ -776,7 +777,7 @@ export default function App() {
   )
   const marking = useDeviation((s) => s.marking)
   const markGesture = useMark((s) => s.gesture)
-  const workspace = useDeviation((s) => s.workspace)
+  const workspace = useShell((s) => s.workspace)
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
   const bands = useDeviation((s) => s.bands)
@@ -1073,7 +1074,7 @@ export default function App() {
             onScopeChange={handleScopeChange}
             onScopeDone={handleScopeDone}
             onScopeClear={handleScopeClear}
-            onGoToMeasure={() => useDeviation.getState().setWorkspace('elements')}
+            onGoToMeasure={() => useShell.getState().setWorkspace('elements')}
             onCopy={handleCopyReport}
             onExportStl={handleExportStl}
           />

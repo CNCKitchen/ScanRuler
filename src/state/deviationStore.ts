@@ -11,10 +11,6 @@ import { probeSlice, type Probe, type ProbeSlice } from './probes'
 
 export type { Probe }
 
-/** The three things this tool does. They share the scan, the scene and the
- *  camera; only what is drawn on top of the part differs. */
-export type Workspace = 'elements' | 'deviation' | 'thickness'
-
 /** What the scan's deviation is measured against. Both produce the same map —
  *  signed millimetres per scan vertex, read through the same colour scale — and
  *  differ entirely in what it takes to get there: a reference part has to be
@@ -39,7 +35,6 @@ export const BAND_CHOICES = [5, 7, 9, 11, 15, 21] as const
 export const MARK_COLOR = '#b5179e'
 
 interface DeviationState extends ProbeSlice {
-  workspace: Workspace
   source: DeviationSource
 
   nominalName: string | null
@@ -126,7 +121,6 @@ interface DeviationState extends ProbeSlice {
   /** A scan point clicked but not yet matched on the nominal. */
   pendingScan: Vec3 | null
 
-  setWorkspace: (w: Workspace) => void
   setSource: (s: DeviationSource) => void
   /** Measure against this element, with the material side just detected for it.
    *  Null when the choice is cleared, or when the element it named is gone. */
@@ -218,7 +212,6 @@ function clearedReadout(shown: boolean) {
 }
 
 export const useDeviation = create<DeviationState>()((set, get) => ({
-  workspace: 'elements',
   source: 'reference',
 
   nominalName: null,
@@ -263,8 +256,6 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   showScan: true,
   showMap: true,
   split: false,
-
-  setWorkspace: (workspace) => set({ workspace }),
 
   // Both maps stay measured, so switching back and forth costs nothing. The
   // pinned readings do not: a reading off one map and a reading off the other

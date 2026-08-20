@@ -5,7 +5,8 @@
 // workspaces cannot say which model it means.
 
 import { useStore } from '../state/store'
-import { useDeviation, type Workspace } from '../state/deviationStore'
+import { useDeviation } from '../state/deviationStore'
+import { useShell, type Workspace } from '../state/shellStore'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
@@ -19,8 +20,8 @@ export function TopBar() {
   const fileName = useStore((s) => s.fileName)
   const triangleCount = useStore((s) => s.triangleCount)
   const vertexCount = useStore((s) => s.vertexCount)
-  const workspace = useDeviation((s) => s.workspace)
-  const setWorkspace = useDeviation((s) => s.setWorkspace)
+  const workspace = useShell((s) => s.workspace)
+  const setWorkspace = useShell((s) => s.setWorkspace)
   const picking = useDeviation((s) => s.picking)
 
   return (

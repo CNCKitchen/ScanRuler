@@ -25,6 +25,7 @@ import { schemeById } from '../viewer/navSchemes'
 import { themeById } from '../viewer/viewThemes'
 import { formatSigned } from '../ui/format'
 import { MARK_COLOR, useDeviation } from '../state/deviationStore'
+import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
 import { paintField, type FieldScale } from '../core/field/colormap'
@@ -102,9 +103,9 @@ export function useSceneSync({
       s.draft !== null &&
       creationMethod(s.draft.kind, s.draft.method).mode === 'fit',
   )
-  const paintWorkspace = useDeviation((s) => s.workspace === 'elements')
+  const paintWorkspace = useShell((s) => s.workspace === 'elements')
   const marking = useDeviation((s) => s.marking)
-  const markWorkspace = useDeviation((s) => s.workspace === 'deviation')
+  const markWorkspace = useShell((s) => s.workspace === 'deviation')
   const markGesture = useMark((s) => s.gesture)
   const markErase = useMark((s) => s.erase)
   const markBackfaces = useMark((s) => s.backfaces)
@@ -159,10 +160,9 @@ export function useSceneSync({
   // against is drawn, because choosing between them is the job at hand and it
   // is done by clicking one of them on the part. The one in use is outlined and
   // the rest are faded bodies on offer.
-  const elementsWorkspace = useDeviation((s) => s.workspace === 'elements')
-  const candidates = useDeviation(
-    (s) => s.workspace === 'deviation' && s.source === 'element' && s.showElement,
-  )
+  const elementsWorkspace = useShell((s) => s.workspace === 'elements')
+  const offeredElements = useDeviation((s) => s.source === 'element' && s.showElement)
+  const candidates = markWorkspace && offeredElements
   const targetId = useDeviation((s) => s.targetId)
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
@@ -367,7 +367,7 @@ export function useSceneSync({
   // ~700k vertices of work, but it is a few milliseconds and it keeps the
   // scale controls immediate — a slider that had to wait on the worker would
   // feel like a different instrument.
-  const workspace = useDeviation((s) => s.workspace)
+  const workspace = useShell((s) => s.workspace)
   const mapVersion = useDeviation((s) => s.mapVersion)
   const source = useDeviation((s) => s.source)
   const elementVersion = useDeviation((s) => s.elementVersion)

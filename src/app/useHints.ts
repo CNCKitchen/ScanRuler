@@ -7,6 +7,7 @@ import { useEffect } from 'react'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { nextHint, type HintInput, type HintResult } from '../core/hints'
 import { useDeviation } from '../state/deviationStore'
+import { useShell } from '../state/shellStore'
 import { hasLearned, useHintPrefs } from '../state/hintStore'
 import { useStore } from '../state/store'
 import { useThickness } from '../state/thicknessStore'
@@ -16,7 +17,7 @@ import { useThickness } from '../state/thicknessStore'
  *  components that call this only re-render when the answer can actually
  *  change. */
 function useLadder(): HintResult {
-  const workspace = useDeviation((s) => s.workspace)
+  const workspace = useShell((s) => s.workspace)
   const on = useHintPrefs((s) => s.on)
   const learned = useHintPrefs((s) => hasLearned(s, workspace))
 
@@ -83,7 +84,7 @@ export function usePulse(target: string): boolean {
  *  recorded as carried through, which is what eventually retires its ring. */
 export function useHintChip(): string | null {
   const result = useLadder()
-  const workspace = useDeviation((s) => s.workspace)
+  const workspace = useShell((s) => s.workspace)
   const markRun = useHintPrefs((s) => s.markRun)
   const done = result === 'done'
 
