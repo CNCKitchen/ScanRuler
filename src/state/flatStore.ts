@@ -87,7 +87,7 @@ function evaluateDraft(
 ): { fit: FlatFit | null; error: string | null } {
   const m = flatMethod(draft.method)
   try {
-    if (m.mode === 'pick') {
+    if (m.mode !== 'construct') {
       if (!flatPicksReady(draft.method, draft.picks)) return { fit: null, error: null }
       return {
         fit: evaluateFlatSource(
@@ -165,6 +165,8 @@ interface FlatState {
   startDraft: (kind: FlatElementKind, method: string) => void
   cancelDraft: () => void
   addDraftPick: (px: Vec2) => void
+  /** A dragged region's worth of edge points, all at once. */
+  addDraftPoints: (px: Vec2[]) => void
   undoDraftPick: () => void
   setDraftRef: (slot: number, id: number | null) => void
   setDraftMethod: (method: string) => void
@@ -255,10 +257,21 @@ export const useFlat = create<FlatState>()((set, get) => ({
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
+  addDraftPoints: (px) =>
+    set((s) => {
+      if (!s.draft || flatMethod(s.draft.method).mode !== 'edge' || px.length === 0) return {}
+      const draft = { ...s.draft, picks: [...s.draft.picks, ...px] }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  // For an edge draft this clears the lot: the unit of input was the dragged
+  // region, and un-clicking one of its thousand points would mean nothing.
   undoDraftPick: () =>
     set((s) => {
       if (!s.draft) return {}
-      const draft = { ...s.draft, picks: s.draft.picks.slice(0, -1) }
+      const picks =
+        flatMethod(s.draft.method).mode === 'edge' ? [] : s.draft.picks.slice(0, -1)
+      const draft = { ...s.draft, picks }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
@@ -291,7 +304,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
     if (!s.draft?.fit) return null
     const m = flatMethod(s.draft.method)
     const source: FlatSource =
-      m.mode === 'pick'
+      m.mode !== 'construct'
         ? { type: 'picks', method: s.draft.method, picks: s.draft.picks }
         : { type: 'construct', method: s.draft.method, refs: s.draft.refs as number[] }
     const id = s.nextId

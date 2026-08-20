@@ -7,6 +7,7 @@
 
 import { fitCircle2d } from '../fit/circle2d'
 import { FitError } from '../fit/errors'
+import { mulberry32 } from '../fit/ransac'
 import type { FlatArcFit, FlatCircleFit, FlatLineFit, FlatPointFit, Vec2 } from './types'
 
 /** A picked point is the point — no residuals to speak of. */
@@ -131,6 +132,88 @@ export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
  * and the sweep approaches a full turn — still a valid arc, just one the UI
  * may as well have called a circle.
  */
+/**
+ * The robust variants, for points collected off a dragged region of edge
+ * chains rather than placed by hand: a region over one edge of a bar
+ * unavoidably catches strays from neighbouring edges, and a least-squares fit
+ * would split the difference. LMedS consensus — minimise the median absolute
+ * residual over random minimal samples, keep what lies within a robust band
+ * of the best model, fit least-squares on that.
+ */
+const RANSAC_ROUNDS = 96
+/** Inliers lie within this many robust sigmas (1.4826·MAD) of the model. */
+const INLIER_BAND = 3
+
+function consensus(
+  points: readonly Vec2[],
+  residualsOf: (rand: () => number) => number[] | null,
+): boolean[] {
+  const rand = mulberry32(7)
+  let bestMedian = Infinity
+  let bestResiduals: number[] | null = null
+  for (let round = 0; round < RANSAC_ROUNDS; round++) {
+    const residuals = residualsOf(rand)
+    if (!residuals) continue
+    const sorted = residuals.map(Math.abs).sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    if (median < bestMedian) {
+      bestMedian = median
+      bestResiduals = residuals
+    }
+  }
+  if (!bestResiduals) return points.map(() => true)
+  // A perfectly clean set has a near-zero MAD; the floor keeps subpixel
+  // scatter from being culled as if it were outliers.
+  const band = Math.max(INLIER_BAND * 1.4826 * bestMedian, 0.35)
+  return bestResiduals.map((r) => Math.abs(r) <= band)
+}
+
+/** Line through region-collected points: consensus first, TLS on what agrees. */
+export function fitLineRegion(points: readonly Vec2[]): FlatLineFit {
+  if (points.length < 8) throw new FitError('The region caught too few edge points for a line.')
+  const keep = consensus(points, (rand) => {
+    const a = points[(rand() * points.length) | 0]
+    const b = points[(rand() * points.length) | 0]
+    const dx = b[0] - a[0]
+    const dy = b[1] - a[1]
+    const len = Math.hypot(dx, dy)
+    if (len < 1e-9) return null
+    return points.map((p) => ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / len)
+  })
+  const inliers = points.filter((_, i) => keep[i])
+  if (inliers.length < 8) throw new FitError('The region caught too few edge points for a line.')
+  return fitLinePoints(inliers)
+}
+
+function circleResiduals(points: readonly Vec2[], rand: () => number): number[] | null {
+  const pick = () => points[(rand() * points.length) | 0]
+  const sample = [pick(), pick(), pick()]
+  const fit = fitCircle2d(
+    Float64Array.from(sample.map((p) => p[0])),
+    Float64Array.from(sample.map((p) => p[1])),
+  )
+  if (!fit) return null
+  return points.map((p) => Math.hypot(p[0] - fit.cu, p[1] - fit.cv) - fit.r)
+}
+
+/** Circle through region-collected points, consensus first. */
+export function fitCircleRegion(points: readonly Vec2[]): FlatCircleFit {
+  if (points.length < 12) throw new FitError('The region caught too few edge points for a circle.')
+  const keep = consensus(points, (rand) => circleResiduals(points, rand))
+  const inliers = points.filter((_, i) => keep[i])
+  if (inliers.length < 12) throw new FitError('The region caught too few edge points for a circle.')
+  return fitCirclePoints(inliers)
+}
+
+/** Arc through region-collected points, consensus first. */
+export function fitArcRegion(points: readonly Vec2[]): FlatArcFit {
+  if (points.length < 12) throw new FitError('The region caught too few edge points for an arc.')
+  const keep = consensus(points, (rand) => circleResiduals(points, rand))
+  const inliers = points.filter((_, i) => keep[i])
+  if (inliers.length < 12) throw new FitError('The region caught too few edge points for an arc.')
+  return fitArcPoints(inliers)
+}
+
 export function fitArcPoints(points: readonly Vec2[]): FlatArcFit {
   const { fit, sigma, formError } = circleWithResiduals(points, 'arc')
   const angles = points

@@ -7,6 +7,7 @@ import { imagePixelsPerMm } from './core/flat/image'
 import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
+import { flatMethod } from './core/flat/construct'
 import { formatFlatPrimary } from './core/flat/summary'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
@@ -267,12 +268,41 @@ export default function App() {
         })),
     )
     const mm = flatMmPerPx()
+    const picksMm: [number, number][] = (s.draft?.picks ?? []).map((p) => [
+      p[0] * mm.x,
+      p[1] * mm.y,
+    ])
+    // A region-collected draft carries thousands of points — a dot cloud, not
+    // numbered pins.
+    const isEdgeDraft = s.draft ? flatMethod(s.draft.method).mode === 'edge' : false
     flatSceneRef.current?.setDraftMarks(
-      (s.draft?.picks ?? []).map((p) => [p[0] * mm.x, p[1] * mm.y]),
+      isEdgeDraft ? [] : picksMm,
       s.draft?.fit ?? null,
+      isEdgeDraft ? picksMm : undefined,
     )
+    flatSceneRef.current?.setRegionMode(isEdgeDraft)
   }
   useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit])
+
+  /** A dragged region over the edge overlay: every detected edge point
+   *  inside it joins the draft, thinned to a sane count first. */
+  const handleFlatRegion = (min: [number, number], max: [number, number]) => {
+    const flat = useFlat.getState()
+    if (!flat.draft || !flatEdgeIndexRef.current) return
+    const mm = flatMmPerPx()
+    const points = flatEdgeIndexRef.current.inBox(
+      min[0] / mm.x,
+      min[1] / mm.y,
+      max[0] / mm.x,
+      max[1] / mm.y,
+    )
+    const cap = 4000
+    const thinned =
+      points.length > cap
+        ? points.filter((_, i) => i % Math.ceil(points.length / cap) === 0)
+        : points
+    flat.addDraftPoints(thinned)
+  }
 
   const openFile = async (file: File) => {
     if (!isMeshFile(file.name)) {
@@ -1320,6 +1350,14 @@ export default function App() {
                   syncFlatImage()
                 }}
                 onPick={handleFlatPick}
+                onRegion={handleFlatRegion}
+                loupe={{
+                  bitmap: () => flatBitmapRef.current,
+                  docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
+                  active:
+                    (flatDraft !== null && flatMethod(flatDraft.method).mode === 'pick') ||
+                    flatCalibrating !== null,
+                }}
               />
             </div>
           )}

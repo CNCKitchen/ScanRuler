@@ -18,10 +18,10 @@ describe('the flat method table', () => {
     }
   })
 
-  it('gives every pick method a minimum and every construction its slots', () => {
+  it('gives every collecting method a minimum and every construction its slots', () => {
     for (const m of FLAT_METHODS) {
-      if (m.mode === 'pick') expect(m.minPicks).toBeGreaterThan(0)
-      else expect(m.slots!.length).toBeGreaterThan(0)
+      if (m.mode === 'construct') expect(m.slots!.length).toBeGreaterThan(0)
+      else expect(m.minPicks).toBeGreaterThan(0)
     }
   })
 

@@ -337,9 +337,11 @@ export function FlatPanel({ onOpenImage }: { onOpenImage: (file: File) => void }
                   </select>
                 </label>
               ))}
-              {flatMethod(draft.method).mode === 'pick' && (
+              {flatMethod(draft.method).mode !== 'construct' && (
                 <p className="hint" data-test="flat-draft-picks">
-                  {draft.picks.length} point{draft.picks.length === 1 ? '' : 's'} picked
+                  {flatMethod(draft.method).mode === 'edge'
+                    ? `${draft.picks.length.toLocaleString('en-US')} edge points collected`
+                    : `${draft.picks.length} point${draft.picks.length === 1 ? '' : 's'} picked`}
                   {draft.fit ? ' — fit ready' : ` (need ${flatMethod(draft.method).minPicks})`}
                 </p>
               )}

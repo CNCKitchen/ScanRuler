@@ -53,8 +53,18 @@ export class FlatScene {
    *  held (a raw, unsnapped pick) and the scale of the moment, so the caller
    *  can turn "a few screen pixels" into document units. */
   onPick: ((p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
+  /** A dragged region (document units), while region mode is armed. */
+  onRegion: ((min: Vec2, max: Vec2) => void) | null = null
+  /** The cursor over the sheet (document units) or off it — for the loupe. */
+  onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
 
-  constructor(container: HTMLDivElement, theme: ViewTheme) {
+  /** Left-drag selects a region instead of panning while an edge tool is
+   *  collecting. */
+  private regionMode = false
+  private bandStart: { x: number; y: number } | null = null
+  private bandDiv: HTMLDivElement | null = null
+
+  constructor(private container: HTMLDivElement, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
       theme,
       navTargets: () => (this.imagePx.width ? [this.sheet] : []),
@@ -62,7 +72,13 @@ export class FlatScene {
         const p = this.pick(x, y)
         if (p) this.onPick?.(p, { alt: e?.altKey ?? false, unitsPerScreenPx: this.unitsPerScreenPx() })
       },
+      onPointerDown: (e) => {
+        if (!this.regionMode || e.button !== 0 || !this.sheet.visible) return false
+        this.beginBand(e)
+        return true
+      },
     })
+    this.container.addEventListener('pointermove', this.hoverMove)
     this.viewport.nav.setPlanar(true)
 
     // Unlit: the scan is a document, not a body — the lights must not shade it.
@@ -74,6 +90,72 @@ export class FlatScene {
     this.viewport.scene.add(this.edgeGroup)
     this.viewport.scene.add(this.elementGroup)
     this.viewport.scene.add(this.draftGroup)
+  }
+
+  /** Arm or disarm region selection. Armed, a plain left-drag rubber-bands a
+   *  box instead of panning — paint mode moves the navigator's plain-drag
+   *  bindings out of the way, exactly as the 3D brush does, so Shift+drag
+   *  and the middle button still pan. */
+  setRegionMode(on: boolean): void {
+    if (this.regionMode === on) return
+    this.regionMode = on
+    this.viewport.nav.setPaintMode(on)
+    if (!on) this.dropBand()
+  }
+
+  private hoverMove = (e: PointerEvent): void => {
+    if (!this.onHoverPoint) return
+    const p = this.sheet.visible ? this.pick(e.clientX, e.clientY) : null
+    this.onHoverPoint(p, e.clientX, e.clientY)
+  }
+
+  private beginBand(e: PointerEvent): void {
+    this.bandStart = { x: e.clientX, y: e.clientY }
+    const div = document.createElement('div')
+    div.className = 'flat-band'
+    this.container.appendChild(div)
+    this.bandDiv = div
+    const move = (ev: PointerEvent) => this.layoutBand(ev.clientX, ev.clientY)
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+      this.finishBand(ev.clientX, ev.clientY)
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+    this.layoutBand(e.clientX, e.clientY)
+  }
+
+  private layoutBand(x: number, y: number): void {
+    if (!this.bandDiv || !this.bandStart) return
+    const rect = this.container.getBoundingClientRect()
+    const lo = { x: Math.min(this.bandStart.x, x) - rect.x, y: Math.min(this.bandStart.y, y) - rect.y }
+    const hi = { x: Math.max(this.bandStart.x, x) - rect.x, y: Math.max(this.bandStart.y, y) - rect.y }
+    this.bandDiv.style.left = `${lo.x}px`
+    this.bandDiv.style.top = `${lo.y}px`
+    this.bandDiv.style.width = `${hi.x - lo.x}px`
+    this.bandDiv.style.height = `${hi.y - lo.y}px`
+  }
+
+  private finishBand(x: number, y: number): void {
+    const start = this.bandStart
+    this.dropBand()
+    if (!start) return
+    // A twitch is not a region.
+    if (Math.abs(x - start.x) + Math.abs(y - start.y) < 6) return
+    const a = this.pick(start.x, start.y)
+    const b = this.pick(x, y)
+    if (!a || !b) return
+    this.onRegion?.(
+      [Math.min(a[0], b[0]), Math.min(a[1], b[1])],
+      [Math.max(a[0], b[0]), Math.max(a[1], b[1])],
+    )
+  }
+
+  private dropBand(): void {
+    this.bandDiv?.remove()
+    this.bandDiv = null
+    this.bandStart = null
   }
 
   /** Document units per screen pixel at the current zoom — what turns a snap
@@ -215,12 +297,38 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
-  /** The draft on its way to an element: numbered pins on the picks and the
-   *  pending fit as a ghost. */
-  setDraftMarks(picks: readonly Vec2[], fit: FlatFit | null): void {
+  /** The draft on its way to an element: numbered pins on hand picks, a dot
+   *  cloud for region-collected points (thousands of pins would be thousands
+   *  of DOM nodes), and the pending fit as a ghost. */
+  setDraftMarks(picks: readonly Vec2[], fit: FlatFit | null, cloud?: readonly Vec2[]): void {
     for (const dispose of this.draftCleanup) dispose()
     this.draftCleanup = []
     this.draftGroup.clear()
+    if (cloud && cloud.length > 0) {
+      const positions = new Float32Array(cloud.length * 3)
+      cloud.forEach((p, i) => {
+        positions[i * 3] = p[0]
+        positions[i * 3 + 1] = p[1]
+        positions[i * 3 + 2] = 0.17
+      })
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      const mat = new THREE.PointsMaterial({
+        color: 0xffb020,
+        size: 3,
+        sizeAttenuation: false,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false,
+      })
+      const points = new THREE.Points(geo, mat)
+      points.renderOrder = 4
+      this.draftGroup.add(points)
+      this.draftCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
     picks.forEach((p, i) => {
       const div = document.createElement('div')
       div.className = 'pick-pin'
@@ -397,6 +505,8 @@ export class FlatScene {
   }
 
   dispose(): void {
+    this.container.removeEventListener('pointermove', this.hoverMove)
+    this.dropBand()
     this.setCalibrationPicks([])
     this.setFlatElements([])
     this.setDraftMarks([], null)

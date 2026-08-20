@@ -5,7 +5,15 @@
 // the same shape as elements/construct.ts, cut down to the flat kinds.
 
 import { FitError } from '../fit/errors'
-import { fitArcPoints, fitCirclePoints, fitLinePoints, flatPoint } from './fit'
+import {
+  fitArcPoints,
+  fitArcRegion,
+  fitCirclePoints,
+  fitCircleRegion,
+  fitLinePoints,
+  fitLineRegion,
+  flatPoint,
+} from './fit'
 import { flatRefLine, flatRefPoint, type FlatRefRole } from './refs'
 import type { FlatFit, FlatElementKind, Vec2 } from './types'
 import { cross2, mid2, sub2 } from './vec2'
@@ -14,9 +22,11 @@ export interface FlatMethod {
   id: string
   kind: FlatElementKind
   /** How the geometry is collected: `pick` takes clicks on the image and fits
-   *  once there are enough, `construct` assembles from other elements. Edge
-   *  detection adds its own mode later. */
-  mode: 'pick' | 'construct'
+   *  once there are enough, `edge` takes dragged regions and consumes the
+   *  detected edge points inside them, `construct` assembles from other
+   *  elements. Edge picks flow through the same draft — the collected points
+   *  ARE the picks, there are just very many of them. */
+  mode: 'pick' | 'edge' | 'construct'
   label: string
   /** One line for the creation UI. */
   hint: string
@@ -64,6 +74,14 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     slots: [{ role: 'point', label: 'From' }],
   },
   {
+    id: 'flat-line-edge',
+    kind: 'line',
+    mode: 'edge',
+    label: 'From edge region',
+    hint: 'Drag a box along the edge — every detected edge point inside it feeds the fit, strays from other edges are voted out.',
+    minPicks: 8,
+  },
+  {
     id: 'flat-line-pick',
     kind: 'line',
     mode: 'pick',
@@ -72,12 +90,28 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     minPicks: 2,
   },
   {
+    id: 'flat-circle-edge',
+    kind: 'circle',
+    mode: 'edge',
+    label: 'From edge region',
+    hint: 'Drag a box over the circle — every detected edge point inside it feeds the fit, strays are voted out.',
+    minPicks: 12,
+  },
+  {
     id: 'flat-circle-pick',
     kind: 'circle',
     mode: 'pick',
     label: 'Through points',
     hint: 'Click three or more points around the circle — more points give the best fit.',
     minPicks: 3,
+  },
+  {
+    id: 'flat-arc-edge',
+    kind: 'arc',
+    mode: 'edge',
+    label: 'From edge region',
+    hint: 'Drag a box along the arc — every detected edge point inside it feeds the fit, strays are voted out.',
+    minPicks: 12,
   },
   {
     id: 'flat-arc-pick',
@@ -112,6 +146,12 @@ export function evaluateFlatPicks(methodId: string, points: readonly Vec2[]): Fl
       return fitCirclePoints(points)
     case 'flat-arc-pick':
       return fitArcPoints(points)
+    case 'flat-line-edge':
+      return fitLineRegion(points)
+    case 'flat-circle-edge':
+      return fitCircleRegion(points)
+    case 'flat-arc-edge':
+      return fitArcRegion(points)
     default:
       throw new Error(`"${methodId}" is not a pick method.`)
   }
