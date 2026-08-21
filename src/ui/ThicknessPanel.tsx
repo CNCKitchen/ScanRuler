@@ -196,6 +196,7 @@ export function ThicknessPanel({
         <button
           className={pulse ? 'primary block pulse' : 'primary block'}
           data-test="measure-thickness"
+          data-confirm={t.status === 'ready' ? undefined : 1}
           disabled={!ready || busy}
           onClick={onMeasure}
         >

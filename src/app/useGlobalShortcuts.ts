@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Enter or a middle-mouse click confirms the pending element — or, with no
-// element draft open, the pending dimension — and Escape discards it; the 2D
-// workspace's drafts, counts and stage tools answer to the same keys. The
-// middle click only counts when it isn't a drag — the middle button also
-// drives the camera zoom.
+// Enter or a middle-mouse click confirms whatever is pending — the element
+// draft, the dimension, the 2D workspace's drafts, counts and calibration, the
+// alignment, the fine fit, the first measurement of a map — and Escape
+// discards it. Whatever the store does not know as a pending thing is found
+// on the page instead: the panel marks its confirm button of the moment with
+// `data-confirm`, and the key or click presses it. The middle click only
+// counts when it isn't a drag — the middle button also drives the camera.
 import { useEffect } from 'react'
 import { creationMethod } from '../core/elements/construct'
 import { evaluateDimension } from '../core/dimensions'
@@ -61,6 +63,16 @@ export function useGlobalShortcuts({
       if (f.dimDraft) return f.cancelDimDraft
       return null
     }
+    /** The panel's confirm button of the moment, if one is enabled: the
+     *  `data-confirm` buttons, lowest priority value first. */
+    const confirmButton = (): HTMLButtonElement | null => {
+      const buttons = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('button[data-confirm]:not(:disabled)'),
+      )
+      if (buttons.length === 0) return null
+      buttons.sort((a, b) => Number(a.dataset.confirm) - Number(b.dataset.confirm))
+      return buttons[0]
+    }
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
@@ -70,7 +82,7 @@ export function useGlobalShortcuts({
       if (e.key === 'Enter' && target?.closest('button')) return
       if (useShell.getState().workspace === 'flat') {
         if (e.key === 'Escape') flatCancel()?.()
-        else if (e.key === 'Enter') flatConfirmable()?.()
+        else if (e.key === 'Enter') (flatConfirmable() ?? (() => confirmButton()?.click()))()
         return
       }
       const store = useStore.getState()
@@ -80,6 +92,7 @@ export function useGlobalShortcuts({
         // and takes the marking with it. Never both at once — the key is
         // reached for to get the mouse working again, and losing a marking to
         // that would be a trap.
+        if (e.key === 'Enter') confirmButton()?.click()
         if (e.key !== 'Escape') return
         if (useMark.getState().gesture !== null) useMark.getState().setGesture(null)
         else stopMarking()
@@ -104,20 +117,24 @@ export function useGlobalShortcuts({
         if (e.key === 'Escape') {
           if (store.alignDraft.pickSlot !== null) store.cancelAlignmentPick()
           else store.cancelAlignment()
-        }
+        } else if (e.key === 'Enter') confirmButton()?.click()
         return
       }
       if (store.dimDraft) {
         if (e.key === 'Escape') store.cancelDimension()
         else if (e.key === 'Enter' && dimensionReady()) store.commitDimension()
+        return
       }
+      if (e.key === 'Enter') confirmButton()?.click()
     }
     /** What a confirm would land on right now, if anything. */
-    const confirmable = (): 'draft' | 'dimension' | 'flat' | null => {
-      if (useShell.getState().workspace === 'flat') return flatConfirmable() ? 'flat' : null
+    const confirmable = (): 'draft' | 'dimension' | 'flat' | 'button' | null => {
+      const button = () => (confirmButton() ? 'button' : null)
+      if (useShell.getState().workspace === 'flat') return flatConfirmable() ? 'flat' : button()
       const store = useStore.getState()
       if (store.draft) return store.draft.status === 'ready' ? 'draft' : null
-      return dimensionReady() ? 'dimension' : null
+      if (store.dimDraft) return dimensionReady() ? 'dimension' : null
+      return button()
     }
     let middleDown: { x: number; y: number } | null = null
     const onPointerDown = (e: PointerEvent) => {
@@ -136,6 +153,7 @@ export function useGlobalShortcuts({
       if (what === 'draft') confirmDraft()
       else if (what === 'dimension') useStore.getState().commitDimension()
       else if (what === 'flat') flatConfirmable()?.()
+      else if (what === 'button') confirmButton()?.click()
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('pointerdown', onPointerDown)

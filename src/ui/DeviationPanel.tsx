@@ -303,6 +303,7 @@ export function DeviationPanel({
         <button
           className={pulseAlign ? 'primary block pulse' : 'primary block'}
           data-test="align-auto"
+          data-confirm={d.globalAlign ? undefined : 1}
           disabled={!ready || busy}
           onClick={onAlign}
         >
@@ -367,6 +368,7 @@ export function DeviationPanel({
               <button
                 className={pulseMeasure ? 'primary block pulse' : 'primary block'}
                 data-test="measure-deviation"
+                data-confirm={2}
                 disabled={busy}
                 onClick={onMeasure}
               >
@@ -452,6 +454,7 @@ export function DeviationPanel({
               <button
                 className="primary block"
                 data-test="local-fit"
+                data-confirm={1}
                 disabled={busy || !enough}
                 onClick={onLocalFit}
               >

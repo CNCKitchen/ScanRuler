@@ -312,9 +312,12 @@ await page.$eval('[data-test=flat-cal-true]', (el) => (el.value = ''))
 await page.type('[data-test=flat-cal-true]', RECT_WIDTH.toFixed(3))
 await page.keyboard.press('Enter')
 await sleep(150)
-await click(page, '[data-test=flat-cal-apply]')
+// A middle click on the stage confirms the calibration — the same as the
+// Apply button, like every other confirm in the tool.
+const [mx, my] = toScreen(mm(W / 2), mm(H / 2))
+await page.mouse.click(mx, my, { button: 'middle' })
 await sleep(400)
-check((await page.$('[data-test=flat-uncalibrated-chip]')) === null, 'calibrating clears the alarm')
+check((await page.$('[data-test=flat-uncalibrated-chip]')) === null, 'a middle click applies the calibration and clears the alarm')
 rows = await rowTexts()
 const diaAfter = Number((rows[0]?.match(/Ø ([\d.]+)/) ?? [])[1])
 check(

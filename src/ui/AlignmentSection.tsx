@@ -401,6 +401,7 @@ export function AlignmentSection({
           <button
             className="primary block"
             data-test="apply-alignment"
+            data-confirm={1}
             disabled={!alignReady || busy}
             onClick={() => alignReady && onApplyAlignment(alignReady.rigid)}
           >

@@ -49,7 +49,11 @@ the guidance off outright, and switching it back on starts it over.
    broken into unconnected patches, click a point on each one — every pick
    feeds the same fit. Press **Create …** when the preview looks right (*Undo
    point* drops the last pick, *Cancel* or `Esc` discards). The finished
-   element stays on screen in its own colour.
+   element stays on screen in its own colour. `Enter` or a **middle click**
+   does what the confirm button of the moment does — create or save an
+   element, add a dimension, apply a calibration, align the part, run the fit
+   or the first measurement — in every workspace, so the hand never has to
+   leave the mouse.
 3. Press **New dimension**, pick the measurement type, and select the two
    elements to measure between. The value previews live; **Add dimension**
    keeps it. *Copy summary* puts everything on your clipboard.

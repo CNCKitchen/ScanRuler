@@ -209,6 +209,7 @@ export function FlatPanel({
               <button
                 className="primary block"
                 data-test="flat-cal-apply"
+                data-confirm={1}
                 disabled={!enough}
                 onClick={apply}
               >
