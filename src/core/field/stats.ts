@@ -125,10 +125,23 @@ const NICE_STEPS = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10]
 /** Round up to a value a person would have chosen for the end of a scale. */
 export function niceCeil(x: number): number {
   if (!(x > 0)) return 0.1
-  const decade = Math.pow(10, Math.floor(Math.log10(x)))
-  const m = x / decade
-  for (const step of NICE_STEPS) if (m <= step + 1e-9) return step * decade
-  return 10 * decade
+  const exp = Math.floor(Math.log10(x))
+  const m = x / Math.pow(10, exp)
+  for (const step of NICE_STEPS) if (m <= step + 1e-9) return scaleByDecade(step, exp)
+  return scaleByDecade(10, exp)
+}
+
+/**
+ * `step * 10^exp` without the binary-float crumbs: 6 * 0.1 is
+ * 0.6000000000000001 in IEEE arithmetic, and that is what would land in the
+ * input box. Dividing by a positive power of ten is exact for these steps, and
+ * the final rounding to the decade's digits removes whatever is left.
+ */
+function scaleByDecade(step: number, exp: number): number {
+  const v = exp >= 0 ? step * Math.pow(10, exp) : step / Math.pow(10, -exp)
+  // The steps carry at most one decimal, so exp - 1 digits are all a value needs.
+  const digits = Math.max(0, 1 - exp)
+  return Number(v.toFixed(Math.min(digits, 100)))
 }
 
 /** The same, downwards — for the low end of a scale that does not start at
@@ -136,10 +149,10 @@ export function niceCeil(x: number): number {
  *  field's scale belongs when its thinnest reading is vanishing. */
 export function niceFloor(x: number): number {
   if (!(x > 0)) return 0
-  const decade = Math.pow(10, Math.floor(Math.log10(x)))
-  const m = x / decade
+  const exp = Math.floor(Math.log10(x))
+  const m = x / Math.pow(10, exp)
   for (let i = NICE_STEPS.length - 1; i >= 0; i--) {
-    if (m >= NICE_STEPS[i] - 1e-9) return NICE_STEPS[i] * decade
+    if (m >= NICE_STEPS[i] - 1e-9) return scaleByDecade(NICE_STEPS[i], exp)
   }
-  return decade
+  return scaleByDecade(1, exp)
 }

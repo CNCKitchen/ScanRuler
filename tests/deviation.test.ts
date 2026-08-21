@@ -296,3 +296,16 @@ describe('the colour ramp', () => {
     expect(Array.from(out.slice(12, 15))).toEqual([...UNMEASURED_RGB])
   })
 })
+
+describe('nice numbers are exact decimals', () => {
+  it('never carries binary-float crumbs into the scale', () => {
+    for (const x of [0.55, 0.61, 0.0031, 0.12, 2.9, 33, 0.07, 1.05, 450]) {
+      for (const v of [niceCeil(x), niceFloor(x)]) {
+        expect(String(v)).toBe(String(Number(v.toPrecision(12))))
+      }
+    }
+    expect(niceFloor(0.61)).toBe(0.6)
+    expect(niceCeil(0.55)).toBe(0.6)
+    expect(niceFloor(33)).toBe(30)
+  })
+})
