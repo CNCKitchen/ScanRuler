@@ -20,6 +20,7 @@ const LOUPE_SIZE = 120
 export function FlatViewer({
   onReady,
   onPick,
+  onPickDrag,
   onRegion,
   onHover,
   loupe,
@@ -28,6 +29,8 @@ export function FlatViewer({
    *  owner never holds a disposed scene. */
   onReady: (scene: FlatScene | null) => void
   onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
+  /** A draft pin dragged to a new spot, by index. */
+  onPickDrag: (index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   onRegion: (min: Vec2, max: Vec2) => void
   /** The cursor over the sheet (or off it) — the datum tool aims by it. */
   onHover?: (p: Vec2 | null) => void
@@ -44,6 +47,8 @@ export function FlatViewer({
   const loupeRef = useRef<HTMLCanvasElement>(null)
   const pickRef = useRef(onPick)
   pickRef.current = onPick
+  const dragRef = useRef(onPickDrag)
+  dragRef.current = onPickDrag
   const regionRef = useRef(onRegion)
   regionRef.current = onRegion
   const hoverRef = useRef(onHover)
@@ -70,6 +75,7 @@ export function FlatViewer({
     }
     scene.setNavScheme(schemeById(useStore.getState().navScheme))
     scene.onPick = (p, meta) => pickRef.current(p, meta)
+    scene.onPickDrag = (i, p, meta) => dragRef.current(i, p, meta)
     scene.onRegion = (min, max) => regionRef.current(min, max)
     // The loupe follows the cursor over the sheet, magnifying the pixels
     // around it with a crosshair on the exact spot a click would measure.

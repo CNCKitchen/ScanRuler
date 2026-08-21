@@ -2,8 +2,10 @@
 // End-to-end smoke test for the 2D Measure workspace: drives the real app in
 // headless Chrome — generates a synthetic flatbed scan (no binary fixtures in
 // this repo), loads it through the panel, waits for edge detection, fits a
-// circle and a line by region drag, calibrates on a known distance, sets a
-// datum, measures a dimension, and reads the report off the clipboard.
+// circle and a line by region drag, picks a point and drags its pin, edits,
+// hides and deletes through the element list, calibrates on a known
+// distance, sets a datum, measures a dimension, and reads the report off the
+// clipboard.
 //
 // The fixture is exact by construction: a grayscale PNG at a declared 600 dpi
 // with soft-shouldered edges, a 240 px circle and a 600 px wide rectangle —
@@ -129,16 +131,25 @@ const toScreen = (mx, my) => [
   rect.y + (rect.h * (1 - (my - SHEET_H / 2) / frustH)) / 2,
 ]
 
+const rowTexts = () =>
+  page.$$eval('[data-test=element-row]', (els) =>
+    els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
+  )
+
 // ---- a circle by one region drag -------------------------------------------
+// Picking is the default; the region fit is the other method in the box.
 await click(page, '[data-test=flat-fit-circle]')
+check(
+  /Click three or more points/.test(await page.$eval('[data-test=flat-draft-hint]', (el) => el.textContent)),
+  'a kind button opens with point picking',
+)
+await page.select('[data-test=flat-draft-method]', 'flat-circle-edge')
 const rr = DISC_DIA / 2 + 1
 await drag(page, toScreen(DISC_C[0] - rr, DISC_C[1] + rr), toScreen(DISC_C[0] + rr, DISC_C[1] - rr))
 await sleep(400)
 await click(page, '[data-test=flat-create-element]')
 await sleep(200)
-let rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
-  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
-)
+let rows = await rowTexts()
 const dia = Number((rows[0]?.match(/Ø ([\d.]+)/) ?? [])[1])
 check(
   Math.abs(dia - DISC_DIA) < 0.08,
@@ -147,6 +158,7 @@ check(
 
 // ---- a line along the rectangle's top edge ---------------------------------
 await click(page, '[data-test=flat-fit-line]')
+await page.select('[data-test=flat-draft-method]', 'flat-line-edge')
 await drag(
   page,
   toScreen(mm(RECT.x0) + 2, RECT_TOP_Y + 0.5),
@@ -155,12 +167,61 @@ await drag(
 await sleep(400)
 await click(page, '[data-test=flat-create-element]')
 await sleep(200)
-rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
-  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
-)
+rows = await rowTexts()
 check(rows.length === 2, 'two elements measured')
 const angle = Number((rows[1]?.match(/· (-?[\d.]+)°/) ?? [])[1])
 check(Math.abs(angle) < 0.15, `the edge line is horizontal (${angle}°)`)
+
+// ---- a picked point, and its pin dragged somewhere else ---------------------
+// Alt places the raw click; the pin then drags (snapping) onto the disc's
+// edge, and the fit follows the drag.
+await click(page, '[data-test=flat-fit-point]')
+const loose = [DISC_C[0] + DISC_DIA / 2 + 6, DISC_C[1] + 4]
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreen(...loose))
+await page.keyboard.up('Alt')
+await sleep(200)
+const readPreview = () => page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)
+const before = await readPreview()
+await drag(page, toScreen(...loose), toScreen(DISC_C[0] + DISC_DIA / 2 + 0.15, DISC_C[1]), { steps: 12 })
+const after = await readPreview()
+const dragX = Number((after.match(/X (-?[\d.]+)/) ?? [])[1])
+check(before !== after, 'dragging the pin moves the pick')
+check(
+  Math.abs(dragX - (DISC_C[0] + DISC_DIA / 2)) < 0.08,
+  `the dragged pin snapped onto the disc edge (x ${dragX.toFixed(3)})`,
+)
+await click(page, '[data-test=flat-create-element]')
+await sleep(200)
+rows = await rowTexts()
+check(rows.length === 3 && /^Point 1/.test(rows[2]), 'the point joins the list')
+
+// ---- the list: edit, hide, delete ------------------------------------------
+const editKeys = await page.$$('[data-test=edit-element]')
+await editKeys[2].click()
+await sleep(200)
+check(
+  /Edit Point 1/.test(await page.$eval('.draftbox .sec-head', (el) => el.textContent)),
+  'the pencil re-opens the element in its box',
+)
+await page.$eval('[data-test=flat-draft-name]', (el) => (el.value = ''))
+await page.type('[data-test=flat-draft-name]', 'Rim')
+await click(page, '[data-test=flat-create-element]')
+await sleep(200)
+rows = await rowTexts()
+check(rows.length === 3 && /^Rim/.test(rows[2]), 'saving writes the element back under its new name')
+const eyes = await page.$$('[data-test=element-row] .eye')
+await eyes[2].click()
+await sleep(150)
+check(
+  (await page.$$eval('[data-test=element-row].ghost', (els) => els.length)) === 1,
+  'the eye hides the element',
+)
+const xs = await page.$$('[data-test=element-row] .x:not(.edit):not(.eye)')
+await xs[2].click()
+await sleep(150)
+rows = await rowTexts()
+check(rows.length === 2, 'the cross deletes it')
 
 // ---- a dimension: circle center to that line -------------------------------
 await click(page, '[data-test=flat-new-dimension]')
@@ -170,11 +231,13 @@ await page.select('[data-test=flat-dim-slot-1]', '2')
 await sleep(200)
 await click(page, '[data-test=flat-add-dimension]')
 await sleep(300)
-const dimRow = (await page.$$eval('[data-test=flat-dimension-row] b', (els) =>
-  els.map((e) => e.textContent.trim()),
-))[0]
+const readDim = () =>
+  page.$eval('[data-test=dimension-row] [data-test=dimension-value]', (el) =>
+    el.textContent.replace(/\s+/g, ' ').trim(),
+  )
+const dimRow = await readDim()
 const wantDist = DISC_C[1] - RECT_TOP_Y
-const gotDist = Number((dimRow?.match(/(-?[\d.]+) mm/) ?? [])[1])
+const gotDist = Number((dimRow?.match(/(-?[\d.]+) ?MM/i) ?? [])[1])
 check(
   Math.abs(gotDist - wantDist) < 0.08,
   `center-to-edge distance reads ${wantDist.toFixed(3)} mm (got ${gotDist})`,
@@ -195,9 +258,7 @@ await sleep(150)
 await click(page, '[data-test=flat-cal-apply]')
 await sleep(400)
 check((await page.$('[data-test=flat-uncalibrated-chip]')) === null, 'calibrating clears the alarm')
-rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
-  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
-)
+rows = await rowTexts()
 const diaAfter = Number((rows[0]?.match(/Ø ([\d.]+)/) ?? [])[1])
 check(
   Math.abs(diaAfter - DISC_DIA) < 0.1,
@@ -214,13 +275,8 @@ check(
   /part frame/.test(await page.$eval('[data-test=flat-datum-status]', (el) => el.textContent)),
   'the datum commits',
 )
-rows = await page.$$eval('[data-test=flat-element-row]', (els) =>
-  els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()),
-)
 // The dimension is frame-invariant; the datum leaves it untouched.
-const dimAfter = (await page.$$eval('[data-test=flat-dimension-row] b', (els) =>
-  els.map((e) => e.textContent.trim()),
-))[0]
+const dimAfter = await readDim()
 check(dimAfter === dimRow, 'the datum never moves a distance')
 
 // ---- the report ------------------------------------------------------------

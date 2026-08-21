@@ -52,7 +52,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { useFlat } from './state/flatStore'
+import { flatDraftColorOf, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -233,11 +233,10 @@ export default function App() {
   }
   useEffect(syncFlatEdges, [edgeVersion, showEdges])
 
-  /** A click on the flat sheet, in document units — routed to whichever flat
-   *  tool is collecting, snapped to the nearest detected edge unless Alt says
-   *  the click itself is the measurement. */
-  const handleFlatPick = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
-    const flat = useFlat.getState()
+  /** A spot on the sheet (document units) as image pixels, snapped to the
+   *  nearest detected edge unless Alt says the spot itself is the
+   *  measurement. */
+  const flatSpotToPx = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
     const mm = flatMmPerPx()
     let px: [number, number] = [p[0] / mm.x, p[1] / mm.y]
     if (!meta.alt && flatEdgeIndexRef.current) {
@@ -247,6 +246,13 @@ export default function App() {
       const snapped = flatEdgeIndexRef.current.nearest(px[0], px[1], radiusPx)
       if (snapped) px = [snapped[0], snapped[1]]
     }
+    return px
+  }
+
+  /** A click on the flat sheet — routed to whichever flat tool is collecting. */
+  const handleFlatPick = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
+    const flat = useFlat.getState()
+    const px = flatSpotToPx(p, meta)
     if (flat.calibrating) {
       flat.addCalPick(px)
       return
@@ -256,6 +262,16 @@ export default function App() {
       return
     }
     if (flat.draft) flat.addDraftPick(px)
+  }
+
+  /** A draft pin dragged across the sheet: the pick moves with the hand,
+   *  snapping to edges along the way, and the fit follows. */
+  const handleFlatPickDrag = (
+    index: number,
+    p: [number, number],
+    meta: { alt: boolean; unitsPerScreenPx: number },
+  ) => {
+    useFlat.getState().moveDraftPick(index, flatSpotToPx(p, meta))
   }
 
   /** The cursor over the sheet while the datum tool holds its first pick:
@@ -282,9 +298,9 @@ export default function App() {
     const s = useFlat.getState()
     flatSceneRef.current?.setFlatDimensions(
       evaluateFlatDimensions(s.dimensions, s.elements)
-        .filter((d) => d.value.value !== undefined)
+        .filter((d) => d.dim.visible && d.value.value !== undefined)
         .map((d) => ({
-          title: d.title,
+          title: d.dim.name,
           value: d.value.value!,
           segment: d.value.segment,
           arc: d.value.arc,
@@ -346,9 +362,11 @@ export default function App() {
     // Values read in the datum frame when one is set; the drawn geometry
     // stays where it was measured.
     const frame = s.datum ? datumFrame(s.datum, s.pxPerMm) : null
+    // An element open for editing is drawn by its draft, in its own colour,
+    // so the pins and the fit following them are not fighting the original.
     flatSceneRef.current?.setFlatElements(
       s.elements
-        .filter((e) => e.visible && e.fit)
+        .filter((e) => e.visible && e.fit && e.id !== s.draft?.editId)
         .map((e) => ({
           fit: e.fit!,
           color: e.color,
@@ -368,6 +386,7 @@ export default function App() {
       isEdgeDraft ? [] : picksMm,
       s.draft?.fit ?? null,
       isEdgeDraft ? picksMm : undefined,
+      flatDraftColorOf(s),
     )
     flatSceneRef.current?.setRegionMode(isEdgeDraft)
   }
@@ -1443,6 +1462,7 @@ export default function App() {
                   syncFlatImage()
                 }}
                 onPick={handleFlatPick}
+                onPickDrag={handleFlatPickDrag}
                 onRegion={handleFlatRegion}
                 onHover={handleFlatHover}
                 loupe={{

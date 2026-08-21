@@ -832,21 +832,29 @@ few pixels, which is exactly what the parabola needs). The chains draw as a
 teal overlay with one sensitivity slider; on a synthetic edge the recovery is
 better than a tenth of a pixel.
 
-- **From edge region** (the default for lines, circles and arcs): drag a box
-  over the edge, and every detected edge point inside it feeds the fit. Strays
-  from neighbouring edges are voted out (LMedS consensus) before the least
-  squares runs, so a sloppy drag over both sides of a bar still lands on the
-  edge you meant. One drag is a complete measurement.
-- **Through points**: click the points yourself. Every click snaps to the
-  nearest detected edge at subpixel — hold **Alt** to place the raw click —
-  and a 4× loupe rides the cursor with a crosshair on the exact pixel.
+- **Through points** (the default): click the points yourself. Every click
+  snaps to the nearest detected edge at subpixel — hold **Alt** to place the
+  raw click — and a 4× loupe rides the cursor with a crosshair on the exact
+  pixel. Every pin can be **dragged** afterwards, snapping as it goes, and the
+  fit follows the drag.
+- **From edge region**: drag a box over the edge, and every detected edge
+  point inside it feeds the fit. Strays from neighbouring edges are voted out
+  (LMedS consensus) before the least squares runs, so a sloppy drag over both
+  sides of a bar still lands on the edge you meant. One drag is a complete
+  measurement — when the detector has found the edge; where it has not, pick.
 
 Points can also be constructed: the midpoint of two points, the center of a
 circle, or the **intersection of two lines** — the corner two edges meet at,
 which no scan images sharply and no click can hit.
 
 Fits report σ and the peak-to-peak form error (straightness, circularity) like
-every other fit in the tool.
+every other fit in the tool. The panel is the Measure workspace's panel with
+the kinds swapped: the same kind buttons, the same draft box, and the same
+element list with its **edit / hide / delete** keys — editing re-opens an
+element with its pins (or its references) back on the sheet and writes the
+result back under the same name and colour, so everything constructed or
+dimensioned on it simply re-reads the new geometry. Dimensions get the same
+row keys, and the same editor.
 
 ### Datum, dimensions, and what leaves the tool
 

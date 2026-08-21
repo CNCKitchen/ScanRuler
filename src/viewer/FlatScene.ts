@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
+import { Line2 } from 'three/addons/lines/Line2.js'
+import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { gridSpacing } from '../core/flat/datum'
 import type { EdgeChains } from '../core/flat/edges'
@@ -48,6 +51,17 @@ export class FlatScene {
   private dimensionCleanup: (() => void)[] = []
   private draftGroup = new THREE.Group()
   private draftCleanup: (() => void)[] = []
+  /** Fitted geometry and callouts draw as screen-space fat lines (a WebGL
+   *  LineBasicMaterial is one pixel whatever it asks for). Every such
+   *  material needs the canvas size; this is the one copy they all read. */
+  private lineResolution = new THREE.Vector2(1, 1)
+  private lineMaterials = new Set<LineMaterial>()
+  /** The draft's hand picks in document units, kept for hit-testing: a press
+   *  on one of them starts a drag instead of a pan or a pick. */
+  private draftPicks: Vec2[] = []
+  private dragging: { index: number; moved: boolean } | null = null
+  /** A pin is under the cursor: the plain left-drag is its, not the camera's. */
+  private pinHover = false
   /** Detected edge chains. Geometry lives in image pixels; the group's scale
    *  is the px→mm map, so a recalibration is one scale write. */
   private edgeGroup = new THREE.Group()
@@ -67,6 +81,8 @@ export class FlatScene {
   onRegion: ((min: Vec2, max: Vec2) => void) | null = null
   /** The cursor over the sheet (document units) or off it — for the loupe. */
   onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
+  /** A draft pick being dragged to a new place on the sheet, by index. */
+  onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
 
   /** Left-drag selects a region instead of panning while an edge tool is
    *  collecting. */
@@ -83,7 +99,13 @@ export class FlatScene {
         if (p) this.onPick?.(p, { alt: e?.altKey ?? false, unitsPerScreenPx: this.unitsPerScreenPx() })
       },
       onPointerDown: (e) => {
-        if (!this.regionMode || e.button !== 0 || !this.sheet.visible) return false
+        if (e.button !== 0 || !this.sheet.visible) return false
+        const pin = this.pinAt(e.clientX, e.clientY)
+        if (pin >= 0) {
+          this.beginPinDrag(pin, e)
+          return true
+        }
+        if (!this.regionMode) return false
         this.beginBand(e)
         return true
       },
@@ -91,6 +113,15 @@ export class FlatScene {
         // Zoom walked the grid onto a different rung of its spacing ladder.
         if (this.gridFrame && this.gridSpacingDrawn !== gridSpacing(this.unitsPerScreenPx())) {
           this.rebuildGrid()
+        }
+        // Fat lines are sized in screen pixels and need to know the canvas.
+        const el = this.viewport.renderer.domElement
+        const w = el.clientWidth || 1
+        const h = el.clientHeight || 1
+        if (this.lineResolution.x !== w || this.lineResolution.y !== h) {
+          this.lineResolution.set(w, h)
+          for (const m of this.lineMaterials) m.resolution.copy(this.lineResolution)
+          this.viewport.invalidate()
         }
       },
     })
@@ -126,7 +157,7 @@ export class FlatScene {
     const callout = 0x666e79
     for (const item of items) {
       if (item.segment) {
-        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16)
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16, 1.5)
         this.addDimLabel(
           [(item.segment[0][0] + item.segment[1][0]) / 2, (item.segment[0][1] + item.segment[1][1]) / 2],
           item.title,
@@ -151,7 +182,7 @@ export class FlatScene {
           arcPts.push([vertex[0] + Math.cos(a) * R * 0.72, vertex[1] + Math.sin(a) * R * 0.72])
         }
         rays.push(arcPts)
-        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, rays, callout, 0.85, 0.16)
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, rays, callout, 0.85, 0.16, 1.5)
         const mid = a0 + sweep / 2
         this.addDimLabel(
           [vertex[0] + Math.cos(mid) * R * 0.95, vertex[1] + Math.sin(mid) * R * 0.95],
@@ -255,14 +286,82 @@ export class FlatScene {
   setRegionMode(on: boolean): void {
     if (this.regionMode === on) return
     this.regionMode = on
-    this.viewport.nav.setPaintMode(on)
+    this.claimDrag()
     if (!on) this.dropBand()
   }
 
+  /** The navigator steps aside from the plain left-drag while a region tool
+   *  is armed or a pin is under the cursor — the same hand-off the 3D brush
+   *  and the extend grips use. */
+  private claimDrag(): void {
+    this.viewport.nav.setPaintMode(this.regionMode || this.pinHover)
+  }
+
+  private setPinHover(on: boolean): void {
+    if (this.pinHover === on) return
+    this.pinHover = on
+    this.claimDrag()
+    this.container.style.cursor = on ? 'grab' : ''
+  }
+
   private hoverMove = (e: PointerEvent): void => {
+    // The hand over a pin says it can be taken hold of.
+    if (!this.dragging) this.setPinHover(this.sheet.visible && this.pinAt(e.clientX, e.clientY) >= 0)
     if (!this.onHoverPoint) return
     const p = this.sheet.visible ? this.pick(e.clientX, e.clientY) : null
     this.onHoverPoint(p, e.clientX, e.clientY)
+  }
+
+  /** Which draft pick sits under the cursor, within a hand-sized radius on
+   *  screen — or -1. The pins themselves are DOM labels that take no pointer
+   *  events, so the test is done here against the picks they mark. */
+  private pinAt(clientX: number, clientY: number): number {
+    if (this.draftPicks.length === 0) return -1
+    const rect = this.container.getBoundingClientRect()
+    const cam = this.viewport.camera
+    const w = rect.width || 1
+    const h = rect.height || 1
+    const v = new THREE.Vector3()
+    let best = -1
+    let bestD = 12
+    this.draftPicks.forEach((p, i) => {
+      v.set(p[0], p[1], 0).project(cam)
+      const sx = rect.x + ((v.x + 1) / 2) * w
+      const sy = rect.y + ((1 - v.y) / 2) * h
+      const d = Math.hypot(sx - clientX, sy - clientY)
+      if (d < bestD) {
+        bestD = d
+        best = i
+      }
+    })
+    return best
+  }
+
+  /** Drag a draft pick: every move reports the new spot through onPickDrag,
+   *  and the release ends it. The navigator never sees the press, so the
+   *  sheet stays put under the drag. */
+  private beginPinDrag(index: number, e: PointerEvent): void {
+    this.dragging = { index, moved: false }
+    this.container.style.cursor = 'grabbing'
+    const move = (ev: PointerEvent) => {
+      const d = this.dragging
+      if (!d) return
+      const p = this.pick(ev.clientX, ev.clientY)
+      if (!p) return
+      d.moved = true
+      this.onPickDrag?.(index, p, { alt: ev.altKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+    }
+    const up = () => {
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointercancel', up)
+      this.dragging = null
+      this.container.style.cursor = this.pinHover ? 'grab' : ''
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', up)
+    e.preventDefault()
   }
 
   private beginBand(e: PointerEvent): void {
@@ -367,6 +466,8 @@ export class FlatScene {
     return Math.hypot(this.imagePx.width * this.mmPerPx.x, this.imagePx.height * this.mmPerPx.y) || 1
   }
 
+  /** Polylines as screen-space fat lines, `width` pixels wide at any zoom —
+   *  a fitted edge has to be findable over the scan it was fitted to. */
   private addPolylines(
     group: THREE.Group,
     cleanup: (() => void)[],
@@ -374,14 +475,28 @@ export class FlatScene {
     color: THREE.ColorRepresentation,
     opacity: number,
     z: number,
+    width = 2.5,
   ): void {
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false })
-    cleanup.push(() => mat.dispose())
+    const mat = new LineMaterial({
+      color: new THREE.Color(color).getHex(),
+      linewidth: width,
+      transparent: true,
+      opacity,
+      depthTest: false,
+      worldUnits: false,
+    })
+    mat.resolution.copy(this.lineResolution)
+    this.lineMaterials.add(mat)
+    cleanup.push(() => {
+      this.lineMaterials.delete(mat)
+      mat.dispose()
+    })
     for (const pts of polylines) {
-      const geo = new THREE.BufferGeometry().setFromPoints(
-        pts.map((p) => new THREE.Vector3(p[0], p[1], z)),
-      )
-      const line = new THREE.Line(geo, mat)
+      if (pts.length < 2) continue
+      const geo = new LineGeometry()
+      geo.setPositions(pts.flatMap((p) => [p[0], p[1], z]))
+      const line = new Line2(geo, mat)
+      line.computeLineDistances()
       line.renderOrder = 4
       group.add(line)
       cleanup.push(() => geo.dispose())
@@ -453,13 +568,21 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
-  /** The draft on its way to an element: numbered pins on hand picks, a dot
-   *  cloud for region-collected points (thousands of pins would be thousands
-   *  of DOM nodes), and the pending fit as a ghost. */
-  setDraftMarks(picks: readonly Vec2[], fit: FlatFit | null, cloud?: readonly Vec2[]): void {
+  /** The draft on its way to an element: numbered pins on hand picks (which
+   *  can be dragged), a dot cloud for region-collected points (thousands of
+   *  pins would be thousands of DOM nodes), and the pending fit drawn in the
+   *  colour the element will have. */
+  setDraftMarks(
+    picks: readonly Vec2[],
+    fit: FlatFit | null,
+    cloud?: readonly Vec2[],
+    color = '#8b95a3',
+  ): void {
     for (const dispose of this.draftCleanup) dispose()
     this.draftCleanup = []
     this.draftGroup.clear()
+    this.draftPicks = picks.map((p) => [p[0], p[1]])
+    if (this.draftPicks.length === 0 && !this.dragging) this.setPinHover(false)
     if (cloud && cloud.length > 0) {
       const positions = new Float32Array(cloud.length * 3)
       cloud.forEach((p, i) => {
@@ -470,7 +593,7 @@ export class FlatScene {
       const geo = new THREE.BufferGeometry()
       geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
       const mat = new THREE.PointsMaterial({
-        color: 0xffb020,
+        color,
         size: 3,
         sizeAttenuation: false,
         transparent: true,
@@ -489,14 +612,36 @@ export class FlatScene {
       const div = document.createElement('div')
       div.className = 'pick-pin'
       div.textContent = String(i + 1)
-      div.style.background = '#8b95a3'
+      div.style.background = color
       const label = new CSS2DObject(div)
       label.position.set(p[0], p[1], 0.2)
       this.draftGroup.add(label)
       this.draftCleanup.push(() => div.remove())
     })
+    // The exact spot each pin marks — the pin's badge sits beside it.
+    if (picks.length > 0) {
+      const s = Math.max(this.sheetDiag() * 0.004, 1e-6)
+      this.addPolylines(
+        this.draftGroup,
+        this.draftCleanup,
+        picks.flatMap(([x, y]) => [
+          [
+            [x - s, y],
+            [x + s, y],
+          ],
+          [
+            [x, y - s],
+            [x, y + s],
+          ],
+        ]),
+        color,
+        0.95,
+        0.19,
+        1.5,
+      )
+    }
     if (fit) {
-      this.addPolylines(this.draftGroup, this.draftCleanup, this.fitPolyline(fit), 0x8b95a3, 0.9, 0.18)
+      this.addPolylines(this.draftGroup, this.draftCleanup, this.fitPolyline(fit), color, 0.9, 0.18)
     }
     this.viewport.invalidate()
   }
@@ -663,6 +808,7 @@ export class FlatScene {
 
   dispose(): void {
     this.container.removeEventListener('pointermove', this.hoverMove)
+    this.container.style.cursor = ''
     this.dropBand()
     this.setGrid(null)
     this.setCalibrationPicks([])
