@@ -68,6 +68,8 @@ import { useSceneSync } from './app/useSceneSync'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
+import { useProject } from './app/useProject'
+import { emptySources, type SourceFiles } from './app/project'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
 
@@ -81,6 +83,10 @@ export default function App() {
   // with its workspace.
   const flatSceneRef = useRef<FlatScene | null>(null)
   const flatBitmapRef = useRef<ImageBitmap | null>(null)
+  // The bytes of every model as it came in, for saving the session as a
+  // project — see app/project. The worker takes its copy by transfer, so this
+  // is the only one left.
+  const sources = useRef<SourceFiles>(emptySources())
   // Edge detection: its own worker, the grayscale cached for sensitivity
   // re-runs, and the resulting chains — all big buffers, all in refs.
   const edgeClientRef = useRef<EdgeClient | null>(null)
@@ -145,6 +151,7 @@ export default function App() {
     flat.beginImageLoad(file.name)
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
+      sources.current.image = { name: file.name, bytes }
       const meta = imagePixelsPerMm(bytes)
       const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
       flatBitmapRef.current?.close()
@@ -502,6 +509,7 @@ export default function App() {
     store.beginLoad(file.name)
     try {
       const buffer = await file.arrayBuffer()
+      sources.current.scan = { name: file.name, bytes: new Uint8Array(buffer.slice(0)) }
       const mesh = await clientRef.current!.load(file.name, buffer)
       useStore.getState().setStatus('Building spatial index…')
       await new Promise((r) => setTimeout(r, 30))
@@ -733,7 +741,7 @@ export default function App() {
     handleClearMarking,
     handleRevertLocal,
     handleCopyReport,
-  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb })
+  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, sources })
 
   // ---- Deviation from a fitted element -------------------------------------
 
@@ -1188,7 +1196,20 @@ export default function App() {
   })
 
   // Drag & drop anywhere.
-  const dragging = useDragDrop({ openFile, openNominal, openImage })
+  const { saveProject, openProject } = useProject({
+    sources,
+    clientRef,
+    sceneRef,
+    elementScope,
+    openFile,
+    openNominal,
+    openImage,
+    runFit,
+    runDeviation,
+    runThickness,
+  })
+
+  const dragging = useDragDrop({ openFile, openNominal, openImage, openProject })
 
   const handleCopy = () => {
     const store = useStore.getState()
@@ -1209,6 +1230,7 @@ export default function App() {
   // The instruction of the moment rides above the model; everything else the
   // tool has to say goes to the status strip.
   const fileName = useStore((s) => s.fileName)
+  const vertexCountLoaded = useStore((s) => s.vertexCount > 0)
   const draftMode = draft ? creationMethod(draft.kind, draft.method).mode : null
   // While a dimension is collecting references, say which slot a viewport
   // click would fill; a construction slot invites clicks the same way.
@@ -1417,7 +1439,13 @@ export default function App() {
 
   return (
     <div className="app">
-      <TopBar />
+      <TopBar
+        onSaveProject={saveProject}
+        onOpenProject={openProject}
+        onOpenScan={openFile}
+        onOpenImage={openImage}
+        canSave={(fileName !== null && vertexCountLoaded) || flatImageName !== null}
+      />
       <div className="mid">
         {onDeviation ? (
           <DeviationPanel

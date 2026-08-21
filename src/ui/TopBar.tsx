@@ -2,28 +2,68 @@
 // Instrument chassis header: identity on the left, the workspace selector next
 // to it, and the loaded part named alongside. Models are opened from the
 // workspace itself, not from here — a single "open" in a bar shared by two
-// workspaces cannot say which model it means.
+// workspaces cannot say which model it means. What the bar does open is a
+// project, which says for itself what it holds; a plain scan or image dropped
+// on the same button goes where it would have gone from its workspace.
 
+import { useRef } from 'react'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useShell, type Workspace } from '../state/shellStore'
+import { IMAGE_ACCEPT, MESH_ACCEPT, isImageFile, isMeshFile, isStepFile } from '../core/formats'
+import { PROJECT_EXTENSION } from '../core/project/manifest'
+import { isProjectFile } from '../app/useProject'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
 const WORKSPACES: { id: Workspace; label: string; title: string }[] = [
-  { id: 'elements', label: '3D Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
+  { id: 'elements', label: 'Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
   { id: 'deviation', label: 'Surface Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
   { id: 'thickness', label: 'Wall Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
   { id: 'flat', label: '2D Measure', title: 'Measure a flatbed scan the way a measuring microscope would' },
 ]
 
-export function TopBar() {
+export function TopBar({
+  onSaveProject,
+  onOpenProject,
+  onOpenScan,
+  onOpenImage,
+  canSave,
+}: {
+  onSaveProject: () => void
+  onOpenProject: (file: File) => void
+  onOpenScan: (file: File) => void
+  onOpenImage: (file: File) => void
+  canSave: boolean
+}) {
   const fileName = useStore((s) => s.fileName)
   const triangleCount = useStore((s) => s.triangleCount)
   const vertexCount = useStore((s) => s.vertexCount)
+  const busy = useStore((s) => s.busy)
   const workspace = useShell((s) => s.workspace)
   const setWorkspace = useShell((s) => s.setWorkspace)
   const picking = useDeviation((s) => s.picking)
+  const openRef = useRef<HTMLInputElement>(null)
+
+  const onLoad = (file: File | undefined) => {
+    if (file) {
+      if (isProjectFile(file.name)) onOpenProject(file)
+      else if (isImageFile(file.name)) {
+        setWorkspace('flat')
+        onOpenImage(file)
+      } else if (isMeshFile(file.name)) onOpenScan(file)
+      else
+        useStore
+          .getState()
+          .setError(
+            isStepFile(file.name)
+              ? 'A STEP file is CAD, not a scan — load it as the reference in the Deviation workspace.'
+              : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, PNG or JPEG.`,
+          )
+    }
+    // Allow re-picking the same file.
+    if (openRef.current) openRef.current.value = ''
+  }
 
   return (
     <header className="top">
@@ -60,6 +100,32 @@ export function TopBar() {
         </div>
       )}
       <div className="grow" />
+      <input
+        ref={openRef}
+        type="file"
+        accept={`.${PROJECT_EXTENSION},${MESH_ACCEPT},${IMAGE_ACCEPT}`}
+        hidden
+        data-test="project-input"
+        onChange={(e) => onLoad(e.target.files?.[0] ?? undefined)}
+      />
+      <button
+        className="ghost"
+        data-test="save-project"
+        onClick={onSaveProject}
+        disabled={busy || !canSave}
+        title={`Save the scan, the reference, the image and every measurement as one .${PROJECT_EXTENSION} file`}
+      >
+        Save<span className="btxt"> Project</span>
+      </button>
+      <button
+        className="ghost"
+        data-test="load-project"
+        onClick={() => openRef.current?.click()}
+        disabled={busy}
+        title={`Open a .${PROJECT_EXTENSION} project — or a plain scan or image to start fresh`}
+      >
+        Load<span className="btxt"> Project</span>
+      </button>
       <a
         className="iconbtn"
         href={GITHUB_URL}

@@ -411,6 +411,20 @@ button.block {
   width: 100%;
 }
 
+/* Save / Load Project in the top bar: the same ghost buttons filaSim has in
+   the same corner, and they give up their word on a narrow window the way the
+   status strip's keys do. */
+.top button.ghost {
+  flex: none;
+  white-space: nowrap;
+}
+
+@media (max-width: 1240px) {
+  .top .btxt {
+    display: none;
+  }
+}
+
 /* icon-only link styled as a ghost button (GitHub mark in the top bar) */
 a.iconbtn {
   display: inline-flex;

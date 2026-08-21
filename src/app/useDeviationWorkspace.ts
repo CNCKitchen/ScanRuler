@@ -11,6 +11,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { buildDeviationReport, buildElementReport } from '../core/deviation/report'
 import { targetFitOf } from './useElementField'
+import type { SourceFiles } from './project'
 
 /** What the status strip says the moment the marking tools come out — the
  *  same tools, and so the same instruction, whichever workspace offered them. */
@@ -22,11 +23,13 @@ export function useDeviationWorkspace({
   sceneRef,
   deviation,
   deviationRgb,
+  sources,
 }: {
   clientRef: RefObject<MeshWorkerClient | null>
   sceneRef: RefObject<SceneManager | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
+  sources: RefObject<SourceFiles>
 }) {
   const openNominal = async (file: File) => {
     if (!isReferenceFile(file.name)) {
@@ -46,7 +49,9 @@ export function useDeviationWorkspace({
           : 'Reading reference geometry…',
       )
     try {
-      const mesh = await clientRef.current!.loadNominal(file.name, await file.arrayBuffer())
+      const buffer = await file.arrayBuffer()
+      sources.current.reference = { name: file.name, bytes: new Uint8Array(buffer.slice(0)) }
+      const mesh = await clientRef.current!.loadNominal(file.name, buffer)
       sceneRef.current?.setNominal(mesh.positions, mesh.indices, mesh.normals)
       sceneRef.current?.setAlignment(null)
       useDeviation

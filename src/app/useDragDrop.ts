@@ -6,15 +6,18 @@ import { isImageFile, isStepFile } from '../core/formats'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useShell } from '../state/shellStore'
+import { isProjectFile } from './useProject'
 
 export function useDragDrop({
   openFile,
   openNominal,
   openImage,
+  openProject,
 }: {
   openFile: (file: File) => Promise<void>
   openNominal: (file: File) => Promise<void>
   openImage: (file: File) => Promise<void>
+  openProject: (file: File) => Promise<void>
 }): boolean {
   const [dragging, setDragging] = useState(false)
   useEffect(() => {
@@ -35,6 +38,11 @@ export function useDragDrop({
       setDragging(false)
       const file = e.dataTransfer?.files?.[0]
       if (!file) return
+      // A project says for itself what it holds and where it goes.
+      if (isProjectFile(file.name)) {
+        void openProject(file)
+        return
+      }
       // While the deviation workspace is measuring against a reference part a
       // drop fills whichever slot is still empty, so the two files can simply be
       // dropped one after the other; only once both are there does a drop mean
