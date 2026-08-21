@@ -15,13 +15,19 @@ import { flatMethod } from '../core/flat/construct'
 import {
   evaluateFlatElements,
   evaluateFlatSource,
+  flatDependentsOf,
   flatPicksReady,
   FLAT_KIND_LABELS,
   type FlatElement,
   type FlatSource,
 } from '../core/flat/elements'
 import type { FlatDatum } from '../core/flat/datum'
-import { FLAT_DIMENSION_TYPES, flatDimensionTypeInfo, type FlatDimension } from '../core/flat/dimensions'
+import {
+  FLAT_DIMENSION_TYPES,
+  flatDimensionTypeInfo,
+  type FlatDimension,
+  type FlatDimensionGroup,
+} from '../core/flat/dimensions'
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
@@ -41,7 +47,8 @@ export interface CalibrationProfile {
 
 /** A flat element being built: picks and references accumulate, and the fit
  *  (or the reason there is none) follows every change. Picks are image
- *  pixels, like the elements' own sources. */
+ *  pixels, like the elements' own sources. An edit is the same draft with
+ *  `editId` set — it writes back over that element instead of adding one. */
 export interface FlatDraft {
   kind: FlatElementKind
   method: string
@@ -49,6 +56,46 @@ export interface FlatDraft {
   refs: (number | null)[]
   fit: FlatFit | null
   error: string | null
+  editId?: number
+  /** The name as typed while editing; blank keeps the old one. */
+  name?: string
+}
+
+/** A dimension being assembled — or re-opened, with `editId` set. */
+export interface FlatDimDraft {
+  type: string
+  refs: (number | null)[]
+  editId?: number
+  name?: string
+}
+
+/** Elements an edited draft must not reference: itself and everything
+ *  constructed on it, which would close a loop. */
+export function flatBlockedRefs(editId: number | undefined, elements: readonly FlatElement[]): Set<number> {
+  return editId === undefined ? new Set() : flatDependentsOf(editId, elements)
+}
+
+/** The colour the open draft draws in: the edited element's own, or the one
+ *  the next element will get. */
+export function flatDraftColorOf(s: {
+  draft: FlatDraft | null
+  elements: readonly FlatElement[]
+  nextId: number
+}): string {
+  const el = s.draft?.editId === undefined ? undefined : s.elements.find((e) => e.id === s.draft!.editId)
+  return el?.color ?? PALETTE[(s.nextId - 1) % PALETTE.length]
+}
+
+function freshDraft(kind: FlatElementKind, method: string, edit?: Pick<FlatDraft, 'editId' | 'name'>): FlatDraft {
+  return {
+    kind,
+    method,
+    picks: [],
+    refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
+    fit: null,
+    error: null,
+    ...edit,
+  }
 }
 
 const PROFILE_KEY = 'scanruler.flat.profiles.v1'
@@ -162,21 +209,26 @@ interface FlatState {
   draft: FlatDraft | null
   nextId: number
   nameCounts: NameCounts
-  selectedId: number | null
 
   startDraft: (kind: FlatElementKind, method: string) => void
+  /** Re-open an element: the same box it was created in, its picks or its
+   *  references back on the sheet, writing back over it on save. */
+  editElement: (id: number) => void
   cancelDraft: () => void
   addDraftPick: (px: Vec2) => void
+  /** A pick dragged to a new place on the sheet. */
+  moveDraftPick: (index: number, px: Vec2) => void
   /** A dragged region's worth of edge points, all at once. */
   addDraftPoints: (px: Vec2[]) => void
   undoDraftPick: () => void
   setDraftRef: (slot: number, id: number | null) => void
   setDraftMethod: (method: string) => void
-  /** Turn the draft into an element. Returns its id, or null if not ready. */
+  setDraftName: (name: string) => void
+  /** Turn the draft into an element — or write it back over the one being
+   *  edited. Returns the element's id, or null if not ready. */
   commitDraft: () => number | null
   deleteElement: (id: number) => void
-  setElementVisible: (id: number, v: boolean) => void
-  selectElement: (id: number | null) => void
+  toggleElementVisible: (id: number) => void
 
   beginImageLoad: (name: string) => void
   finishImageLoad: (name: string, width: number, height: number, meta: PixelsPerMm | null) => void
@@ -191,15 +243,20 @@ interface FlatState {
 
   /** User-created measurements between elements, and the one being built. */
   dimensions: FlatDimension[]
-  dimDraft: { type: string; refs: (number | null)[] } | null
+  dimDraft: FlatDimDraft | null
   nextDimId: number
+  /** Per-group name counters — "Distance 3", "Angle 1". */
+  dimCounts: Partial<Record<FlatDimensionGroup, number>>
 
   startDimDraft: () => void
+  editDimension: (id: number) => void
   cancelDimDraft: () => void
   setDimType: (type: string) => void
   setDimRef: (slot: number, id: number | null) => void
+  setDimName: (name: string) => void
   commitDim: () => void
   deleteDimension: (id: number) => void
+  toggleDimensionVisible: (id: number) => void
 
   /** The part's own frame: origin and +X, as two picks (image pixels). Null
    *  reads coordinates in the image frame, origin bottom-left. */
@@ -253,6 +310,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   dimensions: [],
   dimDraft: null,
   nextDimId: 1,
+  dimCounts: {},
 
   startDimDraft: () =>
     set({
@@ -261,12 +319,24 @@ export const useFlat = create<FlatState>()((set, get) => ({
         refs: FLAT_DIMENSION_TYPES[0].slots.map(() => null),
       },
     }),
+
+  editDimension: (id) =>
+    set((s) => {
+      const d = s.dimensions.find((x) => x.id === id)
+      if (!d) return {}
+      return { dimDraft: { type: d.type, refs: [...d.refs], editId: d.id, name: d.name } }
+    }),
+
   cancelDimDraft: () => set({ dimDraft: null }),
 
   // Slots re-shape with the type; whatever was chosen stays only if a slot of
   // the new type could still hold it — simplest is to start the slots over.
   setDimType: (type) =>
-    set({ dimDraft: { type, refs: flatDimensionTypeInfo(type).slots.map(() => null) } }),
+    set((s) => ({
+      dimDraft: { ...s.dimDraft, type, refs: flatDimensionTypeInfo(type).slots.map(() => null) },
+    })),
+
+  setDimName: (name) => set((s) => (s.dimDraft ? { dimDraft: { ...s.dimDraft, name } } : {})),
 
   setDimRef: (slot, id) =>
     set((s) => {
@@ -278,17 +348,54 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   commitDim: () =>
     set((s) => {
-      if (!s.dimDraft || s.dimDraft.refs.some((r) => r === null)) return {}
+      const dd = s.dimDraft
+      if (!dd || dd.refs.some((r) => r === null)) return {}
+      const group = flatDimensionTypeInfo(dd.type).group
+      const n = (s.dimCounts[group] ?? 0) + 1
+      const groupName = `${group === 'distance' ? 'Distance' : 'Angle'} ${n}`
+      if (dd.editId !== undefined) {
+        const old = s.dimensions.find((d) => d.id === dd.editId)
+        if (!old) return { dimDraft: null }
+        const typed = dd.name?.trim()
+        // A distance turned into an angle is no longer "Distance 2": unless it
+        // was renamed by hand it takes the next name of the group it joined.
+        const renamed = Boolean(typed) && typed !== old.name
+        const regroup = !renamed && flatDimensionTypeInfo(old.type).group !== group
+        return {
+          dimensions: s.dimensions.map((d) =>
+            d.id === dd.editId
+              ? { ...d, type: dd.type, refs: dd.refs as number[], name: regroup ? groupName : typed || old.name }
+              : d,
+          ),
+          dimCounts: regroup ? { ...s.dimCounts, [group]: n } : s.dimCounts,
+          dimDraft: null,
+        }
+      }
       const dim: FlatDimension = {
         id: s.nextDimId,
-        type: s.dimDraft.type,
-        refs: s.dimDraft.refs as number[],
+        type: dd.type,
+        name: groupName,
+        refs: dd.refs as number[],
+        visible: true,
       }
-      return { dimensions: [...s.dimensions, dim], dimDraft: null, nextDimId: s.nextDimId + 1 }
+      return {
+        dimensions: [...s.dimensions, dim],
+        dimDraft: null,
+        nextDimId: s.nextDimId + 1,
+        dimCounts: { ...s.dimCounts, [group]: n },
+      }
     }),
 
   deleteDimension: (id) =>
-    set((s) => ({ dimensions: s.dimensions.filter((d) => d.id !== id) })),
+    set((s) => ({
+      dimensions: s.dimensions.filter((d) => d.id !== id),
+      dimDraft: s.dimDraft?.editId === id ? null : s.dimDraft,
+    })),
+
+  toggleDimensionVisible: (id) =>
+    set((s) => ({
+      dimensions: s.dimensions.map((d) => (d.id === id ? { ...d, visible: !d.visible } : d)),
+    })),
 
   datum: null,
   datumPicking: null,
@@ -302,19 +409,21 @@ export const useFlat = create<FlatState>()((set, get) => ({
   draft: null,
   nextId: 1,
   nameCounts: {},
-  selectedId: null,
 
-  startDraft: (kind, method) =>
-    set({
-      draft: {
-        kind,
-        method,
-        picks: [],
-        refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
-        fit: null,
-        error: null,
-      },
-      selectedId: null,
+  startDraft: (kind, method) => set({ draft: freshDraft(kind, method) }),
+
+  // The element comes back exactly as it was made: its picks on the sheet for
+  // a picked or region-fitted one, its slots filled for a construction.
+  editElement: (id) =>
+    set((s) => {
+      const el = s.elements.find((e) => e.id === id)
+      if (!el) return {}
+      const base = freshDraft(el.kind, el.source.method, { editId: el.id, name: el.name })
+      const draft =
+        el.source.type === 'picks'
+          ? { ...base, picks: [...el.source.picks] }
+          : { ...base, refs: [...el.source.refs] }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
   cancelDraft: () => set({ draft: null }),
@@ -327,6 +436,14 @@ export const useFlat = create<FlatState>()((set, get) => ({
         flatMethod(s.draft.method).minPicks === 1 && s.draft.kind === 'point'
           ? [px]
           : [...s.draft.picks, px]
+      const draft = { ...s.draft, picks }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  moveDraftPick: (index, px) =>
+    set((s) => {
+      if (!s.draft || index < 0 || index >= s.draft.picks.length) return {}
+      const picks = s.draft.picks.map((p, i) => (i === index ? px : p))
       const draft = { ...s.draft, picks }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
@@ -352,6 +469,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setDraftRef: (slot, id) =>
     set((s) => {
       if (!s.draft) return {}
+      if (id !== null && flatBlockedRefs(s.draft.editId, s.elements).has(id)) return {}
       const refs = [...s.draft.refs]
       refs[slot] = id
       const draft = { ...s.draft, refs }
@@ -361,17 +479,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setDraftMethod: (method) =>
     set((s) => {
       if (!s.draft) return {}
-      return {
-        draft: {
-          kind: s.draft.kind,
-          method,
-          picks: [],
-          refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
-          fit: null,
-          error: null,
-        },
-      }
+      const { editId, name } = s.draft
+      return { draft: freshDraft(s.draft.kind, method, { editId, name }) }
     }),
+
+  setDraftName: (name) => set((s) => (s.draft ? { draft: { ...s.draft, name } } : {})),
 
   commitDraft: () => {
     const s = get()
@@ -381,6 +493,21 @@ export const useFlat = create<FlatState>()((set, get) => ({
       m.mode !== 'construct'
         ? { type: 'picks', method: s.draft.method, picks: s.draft.picks }
         : { type: 'construct', method: s.draft.method, refs: s.draft.refs as number[] }
+    // An edited element is written back where it stands: same id, same
+    // colour, same place in the list — and everything constructed on it
+    // re-reads the new geometry.
+    if (s.draft.editId !== undefined) {
+      const editId = s.draft.editId
+      const name = s.draft.name?.trim()
+      set({
+        draft: null,
+        elements: evaluateFlatElements(
+          s.elements.map((e) => (e.id === editId ? { ...e, name: name || e.name, source } : e)),
+          s.pxPerMm,
+        ),
+      })
+      return editId
+    }
     const id = s.nextId
     const count = (s.nameCounts[s.draft.kind] ?? 0) + 1
     const element: FlatElement = {
@@ -398,28 +525,37 @@ export const useFlat = create<FlatState>()((set, get) => ({
       draft: null,
       nextId: id + 1,
       nameCounts: { ...s.nameCounts, [s.draft.kind]: count },
-      selectedId: id,
     })
     return id
   },
 
   // Constructions referencing the deleted element keep their row and say why
-  // they cannot be evaluated any more, exactly like the 3D side.
+  // they cannot be evaluated any more, exactly like the 3D side. Open editors
+  // drop the reference; an editor open on the element itself closes.
   deleteElement: (id) =>
-    set((s) => ({
-      elements: evaluateFlatElements(
+    set((s) => {
+      const dropRef = (r: number | null) => (r === id ? null : r)
+      const elements = evaluateFlatElements(
         s.elements.filter((e) => e.id !== id),
         s.pxPerMm,
-      ),
-      selectedId: s.selectedId === id ? null : s.selectedId,
-    })),
+      )
+      let draft = s.draft
+      if (draft?.editId === id) draft = null
+      else if (draft && draft.refs.includes(id)) {
+        const next = { ...draft, refs: draft.refs.map(dropRef) }
+        draft = { ...next, ...evaluateDraft(next, elements, s.pxPerMm) }
+      }
+      return {
+        elements,
+        draft,
+        dimDraft: s.dimDraft ? { ...s.dimDraft, refs: s.dimDraft.refs.map(dropRef) } : null,
+      }
+    }),
 
-  setElementVisible: (id, visible) =>
+  toggleElementVisible: (id) =>
     set((s) => ({
-      elements: s.elements.map((e) => (e.id === id ? { ...e, visible } : e)),
+      elements: s.elements.map((e) => (e.id === id ? { ...e, visible: !e.visible } : e)),
     })),
-
-  selectElement: (selectedId) => set({ selectedId }),
 
   beginImageLoad: (imageName) => set({ imageBusy: true, imageName }),
 
@@ -442,9 +578,9 @@ export const useFlat = create<FlatState>()((set, get) => ({
       elements: [],
       draft: null,
       nameCounts: {},
-      selectedId: null,
       dimensions: [],
       dimDraft: null,
+      dimCounts: {},
       datum: null,
       datumPicking: null,
       ...(s.calSource === 'measured'

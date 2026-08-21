@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { datumFrame } from '../src/core/flat/datum'
 import { evaluateFlatDimensions } from '../src/core/flat/dimensions'
 import type { FlatElement } from '../src/core/flat/elements'
-import { fitCirclePoints, fitLinePoints, flatPoint } from '../src/core/flat/fit'
+import { fitCirclePoints, fitLinePoints } from '../src/core/flat/fit'
 import { buildFlatCsv, buildFlatReport, type FlatReportInput } from '../src/core/flat/report'
 
 function sampleInput(over: Partial<FlatReportInput> = {}): FlatReportInput {
@@ -59,7 +59,7 @@ function sampleInput(over: Partial<FlatReportInput> = {}): FlatReportInput {
     unit: 'mm',
     elements,
     dimensions: evaluateFlatDimensions(
-      [{ id: 1, type: 'flat-dist-point-line', refs: [1, 2] }],
+      [{ id: 1, type: 'flat-dist-point-line', name: 'Distance 1', refs: [1, 2], visible: true }],
       elements,
     ),
     ...over,

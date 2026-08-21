@@ -69,11 +69,15 @@ export function flatDimensionTypeInfo(id: string): FlatDimensionTypeInfo {
   return info
 }
 
-/** A stored dimension: references elements by id, values are recomputed. */
+/** A stored dimension: references elements by id, values are recomputed.
+ *  Named like the 3D ones — "Distance 2", "Angle 1" — and hideable in the
+ *  viewport without losing the row. */
 export interface FlatDimension {
   id: number
   type: string
+  name: string
   refs: number[]
+  visible: boolean
 }
 
 export interface FlatDimensionValue {

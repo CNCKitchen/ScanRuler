@@ -1,26 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The 2D Measure faceplate: the scanned image, and the scale everything else
-// will rest on. Element creation and dimensions grow in here as the workspace
-// does; the layout follows the other panels — one group per concern, top to
-// bottom in the order the work happens.
+// The 2D Measure faceplate: the scanned image, the scale everything else
+// rests on, then elements and dimensions in the exact shape of the 3D panel —
+// kind buttons, the draft box, the element list with its edit / hide / delete
+// keys, the dimension editor and its DRO rows — so an operator who knows one
+// workspace is at home in the other. One group per concern, top to bottom in
+// the order the work happens.
 
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
-import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
+import { flatMethodsForKind } from '../core/flat/construct'
 import { datumFrame, fitInFrame } from '../core/flat/datum'
-import {
-  FLAT_DIMENSION_TYPES,
-  evaluateFlatDimension,
-  evaluateFlatDimensions,
-  flatDimensionTypeInfo,
-} from '../core/flat/dimensions'
 import { FLAT_KIND_LABELS } from '../core/flat/elements'
-import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
-import type { FlatElementKind, FlatFit } from '../core/flat/types'
+import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
 import { useFlat } from '../state/flatStore'
 import { CopyButton } from './CopyButton'
+import { ElementRow } from './ElementRow'
+import { FlatDimensionSection } from './FlatDimensionSection'
+import { FlatDraftEditor } from './FlatDraftEditor'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
@@ -52,7 +50,6 @@ export function FlatPanel({
   const showEdges = useFlat((s) => s.showEdges)
   const elements = useFlat((s) => s.elements)
   const draft = useFlat((s) => s.draft)
-  const selectedId = useFlat((s) => s.selectedId)
   const unit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
   const datum = useFlat((s) => s.datum)
   const datumPicking = useFlat((s) => s.datumPicking)
@@ -62,15 +59,14 @@ export function FlatPanel({
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
 
-  const evaluatedDims = evaluateFlatDimensions(dimensions, elements)
-  // The draft's live value, once both slots hold something.
-  const dimPreview =
-    dimDraft && dimDraft.refs.every((r) => r !== null)
-      ? evaluateFlatDimension(
-          dimDraft.type,
-          dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit) as FlatFit[],
-        )
-      : null
+  // While anything is being assembled the row keys stand down: re-opening a
+  // second element or dimension would throw away what is already in the box.
+  const editorOpen = draft !== null || dimDraft !== null
+  // Elements referenced by the construction or dimension being built —
+  // marked in the list the way the 3D panel marks them.
+  const selectedIds = new Set(
+    [...(dimDraft?.refs ?? []), ...(draft?.refs ?? [])].filter((r): r is number => r !== null),
+  )
 
   // The reference's true size, and what applying against it last said. Local:
   // they belong to the tool being open, not to the workspace.
@@ -290,20 +286,25 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && (
+      {imageName && draft === null && (
         <div className="group">
           <div className="sec-head">
-            Elements
+            Create element
             <InfoDot title="Elements">
               <p>
-                Pick a shape, then click it on the image. Clicks <b>snap to the nearest detected
-                edge</b> (subpixel) — hold <b>Alt</b> to place the raw click instead. More points
-                than the minimum give a best fit, with the form error reported.
+                Every measurement here starts with an element — a point, a line, a circle or an
+                arc. Dimensions are then measured between them, never between raw pixels.
               </p>
               <p>
-                Points can also be constructed: the midpoint of two, the intersection of two
-                lines — the corner two edges meet at, however rounded the part is there — or a
-                circle's center.
+                An element is <b>picked</b>, by clicking the points it runs through — every click
+                snaps to the nearest detected edge at subpixel, hold <b>Alt</b> to place the raw
+                click, and any pin can be dragged afterwards; <b>fitted to an edge region</b>, by
+                dragging a box over the edge and letting every detected edge point inside feed
+                the fit; or <b>constructed</b> from elements you already have — a midpoint, a
+                circle's center, the intersection of two lines.
+              </p>
+              <p>
+                Which of those a kind offers appears as <i>Created</i> once you choose it.
               </p>
             </InfoDot>
           </div>
@@ -312,259 +313,63 @@ export function FlatPanel({
               <button
                 key={k}
                 data-test={`flat-fit-${k}`}
-                disabled={draft !== null || calibrating !== null}
+                disabled={calibrating !== null}
                 onClick={() => flat.getState().startDraft(k, flatMethodsForKind(k)[0].id)}
               >
                 {FLAT_KIND_LABELS[k]}
               </button>
             ))}
           </div>
-
-          {draft && (
-            <>
-              {flatMethodsForKind(draft.kind).length > 1 && (
-                <label className="field">
-                  <span>Method</span>
-                  <select
-                    data-test="flat-draft-method"
-                    value={draft.method}
-                    onChange={(e) => flat.getState().setDraftMethod(e.target.value)}
-                  >
-                    {flatMethodsForKind(draft.kind).map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <p className="hint" data-test="flat-draft-hint">
-                {flatMethod(draft.method).hint}
-              </p>
-              {flatMethod(draft.method).slots?.map((slot, i) => (
-                <label className="field" key={slot.label + i}>
-                  <span>{slot.label}</span>
-                  <select
-                    data-test={`flat-draft-slot-${i}`}
-                    value={draft.refs[i] ?? ''}
-                    onChange={(e) =>
-                      flat
-                        .getState()
-                        .setDraftRef(i, e.target.value === '' ? null : Number(e.target.value))
-                    }
-                  >
-                    <option value="">Choose…</option>
-                    {elements
-                      .filter(
-                        (el) =>
-                          el.fit &&
-                          FLAT_ROLE_PROVIDERS[slot.role].includes(el.kind) &&
-                          !draft.refs.some((r, j) => j !== i && r === el.id),
-                      )
-                      .map((el) => (
-                        <option key={el.id} value={el.id}>
-                          {el.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              ))}
-              {flatMethod(draft.method).mode !== 'construct' && (
-                <p className="hint" data-test="flat-draft-picks">
-                  {flatMethod(draft.method).mode === 'edge'
-                    ? `${draft.picks.length.toLocaleString('en-US')} edge points collected`
-                    : `${draft.picks.length} point${draft.picks.length === 1 ? '' : 's'} picked`}
-                  {draft.fit ? ' — fit ready' : ` (need ${flatMethod(draft.method).minPicks})`}
-                </p>
-              )}
-              {draft.error && <p className="alarmtext">{draft.error}</p>}
-              <button
-                className="primary block"
-                data-test="flat-create-element"
-                disabled={!draft.fit}
-                onClick={() => flat.getState().commitDraft()}
-              >
-                Create element
-              </button>
-              <div className="toolrow">
-                <button
-                  data-test="flat-draft-undo"
-                  disabled={draft.picks.length === 0}
-                  onClick={() => flat.getState().undoDraftPick()}
-                >
-                  Undo pick
-                </button>
-                <button data-test="flat-draft-cancel" onClick={() => flat.getState().cancelDraft()}>
-                  Cancel
-                </button>
-              </div>
-            </>
-          )}
-
-          {elements.length > 0 && (
-            <div className="rows">
-              {elements.map((el) => (
-                <div
-                  key={el.id}
-                  className={'kv' + (el.visible ? '' : ' ghost') + (selectedId === el.id ? ' sel' : '')}
-                  data-test="flat-element-row"
-                  onClick={() => flat.getState().selectElement(selectedId === el.id ? null : el.id)}
-                >
-                  <span className="dot" style={{ background: el.color }} />
-                  <span className="name">{el.name}</span>
-                  {el.fit ? (
-                    <b title={formatFlatDetail(el.fit, unit)}>
-                      {formatFlatPrimary(fitInFrame(el.fit, frame), unit)}
-                    </b>
-                  ) : (
-                    <b className="warn" title={el.error ?? undefined}>
-                      no fit
-                    </b>
-                  )}
-                  <button
-                    className="iconbtn"
-                    data-test="flat-element-delete"
-                    title="Delete element"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      flat.getState().deleteElement(el.id)
-                    }}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
 
-      {imageName && (
+      <FlatDraftEditor />
+
+      {elements.length > 0 && (
         <div className="group">
-          <div className="sec-head">
-            Dimensions
-            <InfoDot title="Dimensions">
-              <p>
-                Measurements between elements: point–point and point–line distances, the width
-                between two near-parallel lines, the angle between two lines. Values follow the
-                elements — re-fit or recalibrate and every dimension updates.
-              </p>
-            </InfoDot>
+          <div className="g-label">
+            <span>Elements</span>
+            <b>{elements.length}</b>
           </div>
-          {!dimDraft ? (
-            <button
-              className="block"
-              data-test="flat-new-dimension"
-              disabled={elements.filter((e) => e.fit).length < 2}
-              onClick={() => flat.getState().startDimDraft()}
-            >
-              New dimension
-            </button>
-          ) : (
-            <>
-              <label className="field">
-                <span>Type</span>
-                <select
-                  data-test="flat-dim-type"
-                  value={dimDraft.type}
-                  onChange={(e) => flat.getState().setDimType(e.target.value)}
-                >
-                  {FLAT_DIMENSION_TYPES.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.group === 'angle' ? `Angle: ${t.label}` : `Distance: ${t.label}`}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className="hint">{flatDimensionTypeInfo(dimDraft.type).hint}</p>
-              {flatDimensionTypeInfo(dimDraft.type).slots.map((slot, i) => (
-                <label className="field" key={slot.label + i}>
-                  <span>{slot.label}</span>
-                  <select
-                    data-test={`flat-dim-slot-${i}`}
-                    value={dimDraft.refs[i] ?? ''}
-                    onChange={(e) =>
-                      flat
-                        .getState()
-                        .setDimRef(i, e.target.value === '' ? null : Number(e.target.value))
-                    }
-                  >
-                    <option value="">Choose…</option>
-                    {elements
-                      .filter(
-                        (el) =>
-                          el.fit &&
-                          FLAT_ROLE_PROVIDERS[slot.role].includes(el.kind) &&
-                          !dimDraft.refs.some((r, j) => j !== i && r === el.id),
-                      )
-                      .map((el) => (
-                        <option key={el.id} value={el.id}>
-                          {el.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-              ))}
-              {dimPreview && (
-                <p className="hint" data-test="flat-dim-preview">
-                  {dimPreview.invalid
-                    ? `Invalid: ${dimPreview.invalid}`
-                    : `${dimPreview.label}: ${dimPreview.value}`}
-                  {dimPreview.warning ? ` — ${dimPreview.warning}` : ''}
-                </p>
-              )}
-              <button
-                className="primary block"
-                data-test="flat-add-dimension"
-                disabled={!dimDraft.refs.every((r) => r !== null)}
-                onClick={() => flat.getState().commitDim()}
-              >
-                Add dimension
-              </button>
-              <button className="block" data-test="flat-dim-cancel" onClick={() => flat.getState().cancelDimDraft()}>
-                Cancel
-              </button>
-            </>
-          )}
-          {evaluatedDims.length > 0 && (
-            <div className="rows">
-              {evaluatedDims.map((d) => (
-                <div key={d.dim.id} className="kv" data-test="flat-dimension-row">
-                  <span className="name" title={d.value.label}>
-                    {d.title}
-                  </span>
-                  {d.value.value !== undefined ? (
-                    <b title={[d.value.detail, d.value.warning].filter(Boolean).join(' — ')}>
-                      {d.value.warning ? '⚠ ' : ''}
-                      {d.value.value}
-                    </b>
-                  ) : (
-                    <b className="warn" title={d.value.invalid}>
-                      invalid
-                    </b>
-                  )}
-                  <button
-                    className="iconbtn"
-                    data-test="flat-dimension-delete"
-                    title="Delete dimension"
-                    onClick={() => flat.getState().deleteDimension(d.dim.id)}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {(elements.length > 0 || dimensions.length > 0) && (
-            <>
-              <div className="divider" />
-              <CopyButton className="block" label="Copy report" onCopy={onCopy} />
-              <button className="block" data-test="flat-export-csv" onClick={onExportCsv}>
-                Export CSV
-              </button>
-            </>
-          )}
+          {elements.map((el) => (
+            <ElementRow
+              key={el.id}
+              name={el.name}
+              color={el.color}
+              visible={el.visible}
+              reading={
+                el.fit ? (
+                  <b title={formatFlatDetail(el.fit, unit)}>
+                    {formatFlatPrimary(fitInFrame(el.fit, frame), unit)}
+                  </b>
+                ) : (
+                  <b className="warn" title={el.error ?? undefined}>
+                    ⚠
+                  </b>
+                )
+              }
+              selected={selectedIds.has(el.id) || draft?.editId === el.id}
+              editorOpen={editorOpen}
+              onEdit={() => flat.getState().editElement(el.id)}
+              onToggleVisible={() => flat.getState().toggleElementVisible(el.id)}
+              onDelete={() => flat.getState().deleteElement(el.id)}
+            />
+          ))}
         </div>
+      )}
+
+      {imageName && <FlatDimensionSection editorOpen={editorOpen} />}
+
+      {imageName && (elements.length > 0 || dimensions.length > 0) && (
+        <>
+          <div className="divider" />
+          <div className="toolrow">
+            <CopyButton label="Copy report" onCopy={onCopy} />
+            <button data-test="flat-export-csv" onClick={onExportCsv}>
+              Export CSV
+            </button>
+          </div>
+        </>
       )}
 
       {imageName && (

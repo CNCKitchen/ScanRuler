@@ -90,3 +90,21 @@ export function evaluateFlatElements(
 export function flatPicksReady(method: string, picks: readonly Vec2[]): boolean {
   return picks.length >= (flatMethod(method).minPicks ?? 1)
 }
+
+/** An element and everything constructed on it, transitively — what a
+ *  deletion takes down with it, and what an edit must not be built on. */
+export function flatDependentsOf(id: number, elements: readonly FlatElement[]): Set<number> {
+  const doomed = new Set<number>([id])
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const el of elements) {
+      if (doomed.has(el.id) || el.source.type !== 'construct') continue
+      if (el.source.refs.some((r) => doomed.has(r))) {
+        doomed.add(el.id)
+        grew = true
+      }
+    }
+  }
+  return doomed
+}

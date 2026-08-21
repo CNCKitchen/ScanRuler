@@ -25,7 +25,9 @@ export interface FlatMethod {
    *  once there are enough, `edge` takes dragged regions and consumes the
    *  detected edge points inside them, `construct` assembles from other
    *  elements. Edge picks flow through the same draft — the collected points
-   *  ARE the picks, there are just very many of them. */
+   *  ARE the picks, there are just very many of them. Per kind, the first
+   *  method listed is the default the kind button opens with: picking, since
+   *  a hand pick is right wherever the edge detector is not. */
   mode: 'pick' | 'edge' | 'construct'
   label: string
   /** One line for the creation UI. */
@@ -74,14 +76,6 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     slots: [{ role: 'point', label: 'From' }],
   },
   {
-    id: 'flat-line-edge',
-    kind: 'line',
-    mode: 'edge',
-    label: 'From edge region',
-    hint: 'Drag a box along the edge — every detected edge point inside it feeds the fit, strays from other edges are voted out.',
-    minPicks: 8,
-  },
-  {
     id: 'flat-line-pick',
     kind: 'line',
     mode: 'pick',
@@ -90,12 +84,12 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     minPicks: 2,
   },
   {
-    id: 'flat-circle-edge',
-    kind: 'circle',
+    id: 'flat-line-edge',
+    kind: 'line',
     mode: 'edge',
     label: 'From edge region',
-    hint: 'Drag a box over the circle — every detected edge point inside it feeds the fit, strays are voted out.',
-    minPicks: 12,
+    hint: 'Drag a box along the edge — every detected edge point inside it feeds the fit, strays from other edges are voted out.',
+    minPicks: 8,
   },
   {
     id: 'flat-circle-pick',
@@ -106,11 +100,11 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     minPicks: 3,
   },
   {
-    id: 'flat-arc-edge',
-    kind: 'arc',
+    id: 'flat-circle-edge',
+    kind: 'circle',
     mode: 'edge',
     label: 'From edge region',
-    hint: 'Drag a box along the arc — every detected edge point inside it feeds the fit, strays are voted out.',
+    hint: 'Drag a box over the circle — every detected edge point inside it feeds the fit, strays are voted out.',
     minPicks: 12,
   },
   {
@@ -120,6 +114,14 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     label: 'Through points',
     hint: 'Click three or more points along the arc — the fit covers what the points cover.',
     minPicks: 3,
+  },
+  {
+    id: 'flat-arc-edge',
+    kind: 'arc',
+    mode: 'edge',
+    label: 'From edge region',
+    hint: 'Drag a box along the arc — every detected edge point inside it feeds the fit, strays are voted out.',
+    minPicks: 12,
   },
 ]
 
