@@ -21,6 +21,7 @@ export function FlatViewer({
   onReady,
   onPick,
   onPickDrag,
+  onPickRemove,
   onNoteDrag,
   onNoteSelect,
   onRegion,
@@ -33,6 +34,8 @@ export function FlatViewer({
   onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   /** A draft pin dragged to a new spot, by index. */
   onPickDrag: (index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
+  /** A draft pin clicked in place — the pick is to be taken back. */
+  onPickRemove: (index: number) => void
   /** A text note dragged to a new spot, and one clicked to open for typing. */
   onNoteDrag: (id: number, p: Vec2) => void
   onNoteSelect: (id: number) => void
@@ -54,6 +57,8 @@ export function FlatViewer({
   pickRef.current = onPick
   const dragRef = useRef(onPickDrag)
   dragRef.current = onPickDrag
+  const removeRef = useRef(onPickRemove)
+  removeRef.current = onPickRemove
   const noteDragRef = useRef(onNoteDrag)
   noteDragRef.current = onNoteDrag
   const noteSelectRef = useRef(onNoteSelect)
@@ -85,6 +90,7 @@ export function FlatViewer({
     scene.setNavScheme(schemeById(useStore.getState().navScheme))
     scene.onPick = (p, meta) => pickRef.current(p, meta)
     scene.onPickDrag = (i, p, meta) => dragRef.current(i, p, meta)
+    scene.onPickRemove = (i) => removeRef.current(i)
     scene.onNoteDrag = (id, p) => noteDragRef.current(id, p)
     scene.onNoteSelect = (id) => noteSelectRef.current(id)
     scene.onRegion = (min, max) => regionRef.current(min, max)

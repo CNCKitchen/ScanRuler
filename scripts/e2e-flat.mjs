@@ -211,6 +211,14 @@ check(
   await page.$eval('[data-test=flat-draft-snap]', (el) => el.checked),
   'and the snap goes back on for the rest of the run',
 )
+// A plain click on the pin takes the pick back; the draft is empty again.
+// (The pick went down on the panned sheet, so the pin sits 120 px left now.)
+await page.mouse.click(px0 - 120, py0)
+await sleep(200)
+check(
+  (await page.$eval('[data-test=flat-draft-picks]', (el) => el.textContent)) === '0 picks',
+  'a click on a pin removes that pick',
+)
 await click(page, '[data-test=flat-draft-cancel]')
 
 // ---- a line along the rectangle's top edge ---------------------------------
@@ -354,6 +362,11 @@ check(dimAfter === dimRow, 'the datum never moves a distance')
 
 // ---- counting ---------------------------------------------------------------
 await click(page, '[data-test=flat-fit-count]')
+// The tally has the same snap checkbox as a point pick, and it is on.
+check(
+  await page.$eval('[data-test=flat-count-snap]', (el) => el.checked),
+  'the count tool offers the snap checkbox, on by default',
+)
 for (let i = 0; i < 4; i++) {
   await page.mouse.click(...toScreen(mm(RECT.x0) + 2 + i * 3, RECT_TOP_Y))
   await sleep(120)

@@ -249,6 +249,8 @@ interface FlatState {
   addDraftPick: (px: Vec2) => void
   /** A pick dragged to a new place on the sheet. */
   moveDraftPick: (index: number, px: Vec2) => void
+  /** Take one pick back by index — a click on its pin. */
+  removeDraftPick: (index: number) => void
   /** A dragged region's worth of edge points, all at once. */
   addDraftPoints: (px: Vec2[]) => void
   undoDraftPick: () => void
@@ -617,6 +619,14 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => {
       if (!s.draft || index < 0 || index >= s.draft.picks.length) return {}
       const picks = s.draft.picks.map((p, i) => (i === index ? px : p))
+      const draft = { ...s.draft, picks }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  removeDraftPick: (index) =>
+    set((s) => {
+      if (!s.draft || index < 0 || index >= s.draft.picks.length) return {}
+      const picks = s.draft.picks.filter((_, i) => i !== index)
       const draft = { ...s.draft, picks }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),

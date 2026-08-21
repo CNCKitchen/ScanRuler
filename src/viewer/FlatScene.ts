@@ -90,6 +90,8 @@ export class FlatScene {
   onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
   /** A draft pick being dragged to a new place on the sheet, by index. */
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
+  /** A draft pick clicked on its pin without being dragged — to take it back. */
+  onPickRemove: ((index: number) => void) | null = null
   /** A text note dragged to a new spot on the sheet (document units). */
   onNoteDrag: ((id: number, p: Vec2) => void) | null = null
   /** A text note clicked without being dragged — to open it for typing. */
@@ -351,14 +353,18 @@ export class FlatScene {
   }
 
   /** Drag a draft pick: every move reports the new spot through onPickDrag,
-   *  and the release ends it. The navigator never sees the press, so the
-   *  sheet stays put under the drag. */
+   *  and the release ends it. A press let go where it landed is a click on
+   *  the pin, which takes the pick back. The navigator never sees the press,
+   *  so the sheet stays put under the drag. */
   private beginPinDrag(index: number, e: PointerEvent): void {
     this.dragging = { index, moved: false }
     this.container.style.cursor = 'grabbing'
+    const start = { x: e.clientX, y: e.clientY }
     const move = (ev: PointerEvent) => {
       const d = this.dragging
       if (!d) return
+      // A hand that has not really moved is still clicking.
+      if (!d.moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return
       const p = this.pick(ev.clientX, ev.clientY)
       if (!p) return
       d.moved = true
@@ -368,8 +374,14 @@ export class FlatScene {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
       document.removeEventListener('pointercancel', up)
+      const clicked = this.dragging !== null && !this.dragging.moved
       this.dragging = null
       this.container.style.cursor = this.pinHover ? 'grab' : ''
+      if (clicked) {
+        this.onPickRemove?.(index)
+        // The pin under the hand is gone; the cursor says so.
+        this.setPinHover(false)
+      }
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
