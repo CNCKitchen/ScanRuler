@@ -293,7 +293,9 @@ export default function App() {
       return
     }
     if (flat.counting) {
-      flat.addCountPick(px)
+      // A tally snaps like a point pick: the checkbox says whether, Alt
+      // inverts it for the one click.
+      flat.addCountPick(flatSpotToPx(p, meta, flat.snapToEdge))
       return
     }
     if (!flat.draft) return
@@ -316,6 +318,9 @@ export default function App() {
     const flat = useFlat.getState()
     flat.moveDraftPick(index, flatSpotToPx(p, meta, flat.snapToEdge))
   }
+
+  /** A draft pin clicked without being dragged: the pick is taken back. */
+  const handleFlatPickRemove = (index: number) => useFlat.getState().removeDraftPick(index)
 
   /** The cursor over the sheet while the datum tool holds its first pick:
    *  the grid pivots live around the origin toward the cursor, which is the
@@ -1577,6 +1582,7 @@ export default function App() {
                 }}
                 onPick={handleFlatPick}
                 onPickDrag={handleFlatPickDrag}
+                onPickRemove={handleFlatPickRemove}
                 onNoteDrag={handleFlatNoteDrag}
                 onNoteSelect={(id) => useFlat.getState().editNote(id)}
                 onRegion={handleFlatRegion}

@@ -59,6 +59,7 @@ export function FlatPanel({
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
   const counting = useFlat((s) => s.counting)
+  const snapToEdge = useFlat((s) => s.snapToEdge)
   const nextCountId = useFlat((s) => s.nextCountId)
   const notes = useFlat((s) => s.notes)
   const placingNote = useFlat((s) => s.placingNote)
@@ -423,6 +424,15 @@ export function FlatPanel({
               ? 'Click the first feature on the image.'
               : `${counting.picks.length} counted — click the next feature, or ${editedCount ? 'save' : 'create'} it.`}
           </p>
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="flat-count-snap"
+              checked={snapToEdge}
+              onChange={(e) => flat.getState().setSnapToEdge(e.target.checked)}
+            />
+            <span>Snap to edge</span>
+          </label>
           <div className="dro">
             <div className="dro-label">
               <span>Tally</span>
