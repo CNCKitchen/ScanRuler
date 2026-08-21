@@ -323,6 +323,23 @@ scanner delivered it. (A scan-to-reference best fit from the Deviation
 workspace was measured in the old frame and is cleared — realigning there
 takes one click.)
 
+### Projects
+
+**Save Project** in the top bar writes the whole session to one `.scanruler`
+file: the scan, the reference part and the flatbed image exactly as they were
+opened, and `project.json` with every element, dimension, alignment, count,
+calibration and display setting from all four workspaces. The file is a plain
+zip (deflated — a binary STL typically shrinks to half or less), so the scan
+can be pulled back out with any archive tool. Only what the user decided is
+stored: deviation and thickness maps, edge chains and fits are measured again
+on load from the same inputs, which keeps the file small and means a better
+algorithm in a later version improves old projects rather than stranding
+them. **Load Project** (or dropping a `.scanruler` anywhere) replaces the
+session, asking first when it holds unsaved measurements; the same button
+takes a plain scan or image to start fresh. Per-browser preferences — the
+navigation scheme, colour scheme, STEP style, scanner profiles — are not part
+of a project.
+
 ### STEP export
 
 **Export STEP** writes the created elements to a STEP file (ISO 10303-21,
@@ -824,8 +841,8 @@ states, and the stage says which one you are in:
   differently — it needs a reference laid along each axis in turn.
 
 A measured calibration describes the scanner at one resolution, not the image:
-save it as a named **scanner profile** (the one thing this app persists, in
-localStorage) and apply it to every scan from that scanner. Every element's
+save it as a named **scanner profile** (the one thing this app persists between
+sessions on its own, in localStorage) and apply it to every scan from that scanner. Every element's
 source is recorded in image pixels, so recalibrating re-derives every fit and
 dimension — nothing measured ever bakes in a stale scale.
 
