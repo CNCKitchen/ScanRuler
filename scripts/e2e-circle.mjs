@@ -9,9 +9,9 @@
 // marked.
 //
 // The Ø 12 coordinate circle also exercises the assumed dimension: the field
-// must be prefilled with the round value, flag a tenfold typo, accept 12.5 —
-// and the STEP export must write the measured Ø 12 or the assumed Ø 12.5
-// depending on the Dimensions choice.
+// must start empty (nothing is suggested), flag a tenfold typo, accept 12.5 —
+// and the STEP export must write that circle at the assumed Ø 12.5 while the
+// picked circle, given no assumption, goes out as measured.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-circle.mjs
@@ -75,11 +75,11 @@ await setParam('cz', 0)
 if (!(await previewReady(page))) fail('the coordinate circle never previewed')
 await page.screenshot({ path: shotPath('circle-coords-preview.png') })
 
-// ---- the assumed dimension: prefill, typo warning, a typed value ------------
+// ---- the assumed dimension: empty start, typo warning, a typed value --------
 const assumedSel = '[data-test=assumed-diameter]'
 const prefilled = await page.$eval(assumedSel, (el) => el.value)
-console.log('assumed field prefilled with:', prefilled)
-check(prefilled === '12', 'the assumed Ø is prefilled with the round measured value')
+console.log('assumed field starts as:', JSON.stringify(prefilled))
+check(prefilled === '', 'the assumed Ø starts empty — nothing is suggested')
 const typeAssumed = async (value) => {
   await page.$eval(assumedSel, (el) => {
     el.value = ''
@@ -138,9 +138,7 @@ check(rows.length === 2 && /Circle 2.*Ø/.test(rows[1]), 'the picked circle is c
 // instead: a diameter, a center and a normal, plus sigma from 4 points.
 await click(page, '[data-test=copy-summary]').catch(() => {})
 
-// ---- STEP export: measured against assumed dimensions -----------------------
-// Each export gets a download dir of its own: both files carry the same name,
-// and a same-name download lands over the first one rather than beside it.
+// ---- STEP export: assumed where given, measured everywhere else -------------
 const cdp = await page.createCDPSession()
 const exportStep = async (label) => {
   const dir = mkdtempSync(join(tmpdir(), `scanruler-circle-${label}-`))
@@ -154,23 +152,18 @@ const exportStep = async (label) => {
   return null
 }
 
-const measuredText = await exportStep('measured')
-check(Boolean(measuredText), 'the measured STEP file downloaded')
+const stepText = await exportStep('elements')
+check(Boolean(stepText), 'the STEP file downloaded')
 check(
-  Boolean(measuredText) && /CIRCLE\('Circle 1',#\d+,6\.\)/.test(measuredText),
-  'the measured export writes Circle 1 at its fitted Ø 12',
+  Boolean(stepText) && /CIRCLE\('Circle 1',#\d+,6\.25\)/.test(stepText),
+  'the export writes Circle 1 at the assumed Ø 12.5',
 )
-
-await selectByLabel(page, '[data-test=step-dims]', 'As assumed')
-const assumedText = await exportStep('assumed')
-check(Boolean(assumedText), 'the assumed STEP file downloaded')
+const circle2 = stepText && /CIRCLE\('Circle 2',#\d+,([\d.]+)\)/.exec(stepText)
+console.log('Circle 2 exported radius:', circle2 && circle2[1])
 check(
-  Boolean(assumedText) && /CIRCLE\('Circle 1',#\d+,6\.25\)/.test(assumedText),
-  'the assumed export writes Circle 1 at the assumed Ø 12.5',
+  Boolean(circle2) && Math.abs(Number(circle2[1]) - 6.25) > 0.01,
+  'the picked circle, given no assumption, is written as measured',
 )
-// The choice is remembered per browser — put it back so nothing leaks into a
-// later scenario run against the same profile.
-await selectByLabel(page, '[data-test=step-dims]', 'As measured')
 
 // ---- the plane the deviation section will measure against -------------------
 const fitPlaneAt = async (spots) => {

@@ -35,13 +35,13 @@ export const exportElementsStep = () => {
   const store = useStore.getState()
   const els = store.elements.filter((e) => e.fit)
   if (els.length === 0) return
-  const assumed = store.stepDimensions === 'assumed'
+  const assumed = els.filter((e) => e.assumed !== undefined).length
   const text = buildStepFile(
     // What is exported is what is on screen, extensions and all — with the
-    // assumed diameters swapped in when that is what was asked for.
+    // assumed diameter swapped in wherever the user gave one.
     els.map((e) => ({
       name: e.name,
-      fit: applyExtension(applyAssumed(e.fit!, assumed ? e.assumed : undefined), e.extend),
+      fit: applyExtension(applyAssumed(e.fit!, e.assumed), e.extend),
     })),
     store.fileName ?? 'scan',
     new Date().toISOString().slice(0, 19),
@@ -52,7 +52,7 @@ export const exportElementsStep = () => {
   store.setStatus(
     `${els.length} element${els.length === 1 ? '' : 's'} exported to ${name} as ${
       store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
-    } with ${assumed ? 'assumed' : 'measured'} dimensions.`,
+    }${assumed ? ` — ${assumed} at ${assumed === 1 ? 'its' : 'their'} assumed Ø` : ''}.`,
   )
 }
 

@@ -23,11 +23,7 @@ import {
   type ExtendSide,
   type Extension,
 } from '../core/elements/extend'
-import {
-  hasDiameter,
-  suggestedAssumed,
-  type StepDimensions,
-} from '../core/elements/assumed'
+import { hasDiameter } from '../core/elements/assumed'
 import {
   isOrientable,
   OrientError,
@@ -124,9 +120,8 @@ export interface Draft {
    *  its own along, and a re-fit inside the draft leaves it standing, so
    *  changing the outlier cut-off never quietly resizes what is on screen. */
   extend?: Extension
-  /** The assumed diameter as typed, once the user has touched the field.
-   *  Undefined means the suggestion is still showing — the commit fills in
-   *  whatever the field held. */
+  /** The assumed diameter as typed. Undefined means none was given — the
+   *  element then goes out as measured. */
   assumed?: number
   /** The reference plane the draft aligns its direction to, once one is
    *  chosen. The draft's `fit` stays the measurement; the aligned geometry is
@@ -601,10 +596,6 @@ interface AppState {
    *  bodies or as construction geometry is a property of how the user works,
    *  not of the part on screen. */
   stepStyle: StepStyle
-  /** Whether the STEP export writes the fitted diameters or the assumed
-   *  design values entered beside them. Remembered per browser like the
-   *  style: it is a way of working, not a property of the part. */
-  stepDimensions: StepDimensions
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
@@ -646,9 +637,10 @@ interface AppState {
   squareDraftExtend: () => void
   /** Back to exactly the measured surface. */
   resetDraftExtend: () => void
-  /** The assumed diameter of the open draft, in millimetres. Anything that is
+  /** The assumed diameter of the open draft, in millimetres; undefined
+   *  clears it, so the element goes out as measured. Anything that is
    *  not a positive number is ignored — the field snaps back to what stands. */
-  setDraftAssumed: (value: number) => void
+  setDraftAssumed: (value: number | undefined) => void
   /** Align the open draft's direction to a reference plane, or take the
    *  alignment off again with null. The relation is kept across a change of
    *  plane. */
@@ -701,14 +693,12 @@ interface AppState {
   setNavScheme: (id: string) => void
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
-  setStepDimensions: (dims: StepDimensions) => void
   openImprint: (v: boolean) => void
 }
 
 const NAV_SCHEME_KEY = 'scanruler.navscheme'
 const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
-const STEP_DIMS_KEY = 'scanruler.stepdims'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -736,13 +726,6 @@ const storedStepStyle = (): StepStyle => {
   }
 }
 
-const storedStepDimensions = (): StepDimensions => {
-  try {
-    return localStorage.getItem(STEP_DIMS_KEY) === 'assumed' ? 'assumed' : 'measured'
-  } catch {
-    return 'measured'
-  }
-}
 
 const freshCounters = (): Record<ElementKind, number> => ({
   point: 1,
@@ -781,7 +764,6 @@ export const useStore = create<AppState>()((set, get) => ({
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
-  stepDimensions: storedStepDimensions(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
@@ -1024,6 +1006,7 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const d = s.draft
       if (!d || !hasDiameter(d.fit)) return {}
+      if (value === undefined) return { draft: { ...d, assumed: undefined } }
       if (!Number.isFinite(value) || value <= 0) return {}
       return { draft: { ...d, assumed: value } }
     }),
@@ -1077,14 +1060,9 @@ export const useStore = create<AppState>()((set, get) => ({
       isExtendable(d.fit) && d.extend?.kind === d.fit.kind && isExtended(d.extend)
         ? d.extend
         : undefined
-    // The assumed diameter the element goes out with: what was typed, or the
-    // suggestion the field was showing — the value on screen at "create" is
-    // the value that sticks. Kinds without a diameter carry nothing.
-    const assumed = hasDiameter(d.fit)
-      ? d.assumed !== undefined && d.assumed > 0
-        ? d.assumed
-        : suggestedAssumed(2 * d.fit.radius)
-      : undefined
+    // The assumed diameter the element goes out with: exactly what was typed,
+    // nothing when nothing was. Kinds without a diameter carry nothing.
+    const assumed = hasDiameter(d.fit) && d.assumed !== undefined && d.assumed > 0 ? d.assumed : undefined
     // The alignment only travels with geometry that has a direction, and only
     // while its reference plane exists. What gets stored is the measurement
     // plus the recipe; the aligned geometry is computed from the two on the
@@ -1481,14 +1459,6 @@ export const useStore = create<AppState>()((set, get) => ({
       // Same as above: the export still goes out in the form that was asked for.
     }
     set({ stepStyle })
-  },
-  setStepDimensions: (stepDimensions) => {
-    try {
-      localStorage.setItem(STEP_DIMS_KEY, stepDimensions)
-    } catch {
-      // Same as above: the export still goes out in the form that was asked for.
-    }
-    set({ stepDimensions })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

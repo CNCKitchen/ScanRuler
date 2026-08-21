@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The assumed design dimension beside a measurement: the suggestion it is
-// prefilled with, the typo check on what gets typed, and what the store and
-// the STEP export do with it — an assumed diameter has to survive a re-fit
-// and an edit, reach the export only when asked for, and stay out of the
-// measurement itself.
+// The assumed design dimension beside a measurement: the typo check on what
+// gets typed, and what the store and the STEP export do with it — an assumed
+// diameter is never suggested, has to survive a re-fit and an edit, reaches
+// the export only when the user gave one, and stays out of the measurement
+// itself.
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
   applyAssumed,
   assumedWarning,
   hasDiameter,
-  suggestedAssumed,
 } from '../src/core/elements/assumed'
 import { buildStepFile } from '../src/core/exportStep'
 import { buildSummary } from '../src/core/summary'
@@ -42,33 +41,6 @@ const plane: PlaneFit = {
   extentV: 3,
   ...NO_STATS,
 }
-
-describe('the suggested assumed dimension', () => {
-  it('finds the round design value a measurement plausibly came from', () => {
-    expect(suggestedAssumed(5.98)).toBe(6)
-    expect(suggestedAssumed(12.43)).toBe(12.5)
-    expect(suggestedAssumed(19.9)).toBe(20)
-    expect(suggestedAssumed(7.76)).toBe(7.8)
-    expect(suggestedAssumed(300.4)).toBe(300)
-  })
-
-  it('prefers the coarsest step that is still credible', () => {
-    // 148.637 is 1.36 mm from 150 — too far to be scan noise on this scale —
-    // but 0.137 from 148.5, which is exactly the kind of value parts are
-    // drawn at.
-    expect(suggestedAssumed(148.637)).toBe(148.5)
-  })
-
-  it('leaves a value that is already round exactly where it is', () => {
-    expect(suggestedAssumed(6)).toBe(6)
-    expect(suggestedAssumed(12.5)).toBe(12.5)
-  })
-
-  it('falls back to the measurement itself when nothing round is near', () => {
-    // Nothing on the design grid gets near a feature this small.
-    expect(suggestedAssumed(0.004)).toBe(0.004)
-  })
-})
 
 describe('the typo check', () => {
   it('accepts a value close to the measurement', () => {
@@ -145,12 +117,22 @@ describe('an assumed dimension in the store', () => {
     store().resolveDraft(asOutput(sphere))
   }
 
-  it('commits with the suggestion when the field was never touched', () => {
+  it('commits with no assumption when the field was never touched', () => {
     draftSphere()
     const id = store().commitDraft()!
-    // Measured Ø 5.98 — the element goes out assumed to be the Ø 6 it was
-    // designed at.
-    expect(store().elements.find((e) => e.id === id)!.assumed).toBe(6)
+    // Measured Ø 5.98 — nothing guesses it was designed at Ø 6; the element
+    // goes out as measured unless the user says otherwise.
+    expect(store().elements.find((e) => e.id === id)!.assumed).toBeUndefined()
+  })
+
+  it('is taken back by clearing the field', () => {
+    draftSphere()
+    store().setDraftAssumed(6)
+    expect(store().draft!.assumed).toBe(6)
+    store().setDraftAssumed(undefined)
+    expect(store().draft!.assumed).toBeUndefined()
+    const id = store().commitDraft()!
+    expect(store().elements.find((e) => e.id === id)!.assumed).toBeUndefined()
   })
 
   it('keeps what was typed instead, through commit and re-opening', () => {

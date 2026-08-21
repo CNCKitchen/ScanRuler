@@ -1,52 +1,75 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The diameter the feature being made is assumed to have been designed at.
-// Prefilled with the round value the measurement most plausibly came from
-// (Ø 5.98 measured suggests Ø 6), free to overtype, and sanity-checked: a
-// value far from the measurement is flagged as a likely typo rather than
-// silently accepted.
+// Empty until the user types one — nothing is suggested, because a guess
+// would reach CAD as if it had been decided. A typed value is sanity-checked:
+// one far from the measurement is flagged as a likely typo rather than
+// silently accepted. Clearing the field takes the assumption back.
 
-import { NumberField } from './NumberField'
+import { useRef } from 'react'
+import { InfoDot } from './InfoDot'
 import { useStore } from '../state/store'
-import {
-  assumedWarning,
-  measuredDiameter,
-  suggestedAssumed,
-  type SizedFit,
-} from '../core/elements/assumed'
+import { assumedWarning, measuredDiameter, type SizedFit } from '../core/elements/assumed'
 
 export function AssumedField({ fit }: { fit: SizedFit }) {
   const assumed = useStore((s) => s.draft?.assumed)
   const setDraftAssumed = useStore((s) => s.setDraftAssumed)
+  const ref = useRef<HTMLInputElement>(null)
 
   const measured = measuredDiameter(fit)
-  const value = assumed ?? suggestedAssumed(measured)
-  const warning = assumedWarning(measured, value)
+  const warning = assumed === undefined ? null : assumedWarning(measured, assumed)
+  const shown = assumed === undefined ? '' : String(assumed)
+
+  const commit = (text: string) => {
+    if (text.trim() === '') {
+      setDraftAssumed(undefined)
+      return
+    }
+    const v = Number(text)
+    if (Number.isFinite(v) && v > 0) setDraftAssumed(v)
+  }
 
   return (
     <>
-      <NumberField
-        label="Assumed Ø"
-        value={value}
-        step={0.01}
-        min={0.001}
-        unit="mm"
-        testId="assumed-diameter"
-        onCommit={setDraftAssumed}
-        hint={
-          <>
+      <label className="field">
+        <span>
+          Assumed Ø
+          <InfoDot title="Assumed Ø">
             <p>
-              The diameter the feature was <b>designed</b> at: what measures Ø 5.98 mm was almost
-              certainly drawn at Ø 6. The field is prefilled with the nearest round value the
-              measurement plausibly came from — overtype it if the drawing says otherwise.
+              The diameter the feature was <b>designed</b> at, if you know it: what measures Ø
+              5.98 mm was probably drawn at Ø 6. Leave it empty if you don't — nothing is guessed
+              for you.
             </p>
             <p>
               Nothing measured changes: the element, its readouts and every dimension keep the
-              fitted diameter. Only a STEP export with <i>Dimensions</i> set to <b>as assumed</b>
-              writes this value instead, so CAD receives the part as designed.
+              fitted diameter. Only the STEP export writes this value instead of the measured one,
+              so CAD receives the feature as designed. Elements without one are exported as
+              measured.
             </p>
-          </>
-        }
-      />
+          </InfoDot>
+        </span>
+        <span className="unitfield">
+          <input
+            ref={ref}
+            type="number"
+            data-test="assumed-diameter"
+            step={0.01}
+            min={0.001}
+            placeholder={`measured ${measured.toFixed(3)}`}
+            defaultValue={shown}
+            key={shown}
+            onBlur={(e) => {
+              commit(e.target.value)
+              // A rejected entry is put back to what the draft holds: when the
+              // store does not change, nothing re-keys the input over it.
+              e.target.value = shown
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') ref.current?.blur()
+            }}
+          />
+          <i>mm</i>
+        </span>
+      </label>
       {warning !== null && (
         <p className="warnnote" data-test="assumed-warning">
           ⚠ {warning}

@@ -6,7 +6,6 @@ import { useStore, type SelectMode } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
 import { formatPrimary } from '../core/summary'
-import type { StepDimensions } from '../core/elements/assumed'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
 import type { ElementKind } from '../core/types'
@@ -228,7 +227,8 @@ export function Panel({
                 </p>
                 <p>
                   Points and lines are points and lines either way. Whatever an element has been
-                  extended to is what gets written.
+                  extended to is what gets written, and a sphere, cylinder or circle given an
+                  assumed Ø when it was created is written at that Ø — everything else as measured.
                 </p>
               </InfoDot>
             </span>
@@ -239,31 +239,6 @@ export function Panel({
             >
               <option value="solids">Solids &amp; faces</option>
               <option value="surfaces">Construction surfaces</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>
-              Dimensions
-              <InfoDot title="Which diameters the STEP file gets">
-                <p>
-                  <b>As measured:</b> every diameter exactly as it was fitted to the scan — the
-                  honest record of the part in front of you.
-                </p>
-                <p>
-                  <b>As assumed:</b> spheres, cylinders and circles are written at the assumed Ø
-                  entered when the element was created — the value the feature was designed at, so
-                  CAD receives clean nominal geometry instead of Ø 5.983. Positions, axes, planes
-                  and everything without an assumed value are written as measured either way.
-                </p>
-              </InfoDot>
-            </span>
-            <select
-              data-test="step-dims"
-              value={stepDimensions}
-              onChange={(e) => setStepDimensions(e.target.value as StepDimensions)}
-            >
-              <option value="measured">As measured</option>
-              <option value="assumed">As assumed</option>
             </select>
           </label>
           <div className="toolrow">
