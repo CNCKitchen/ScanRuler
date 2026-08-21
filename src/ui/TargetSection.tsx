@@ -81,7 +81,7 @@ export function TargetSection({
         Element
         <InfoDot title="The element to measure against">
           <p>
-            Any plane, cylinder or sphere from the Measure workspace. They are all drawn on the
+            Any plane, cylinder or sphere from the 3D Measure workspace. They are all drawn on the
             part, so you can <b>click one on the model</b> instead of using the dropdown — the
             choice is the same either way.
           </p>
@@ -100,7 +100,7 @@ export function TargetSection({
       {options.length === 0 ? (
         <>
           <p className="hint">
-            No plane, cylinder or sphere measured yet. Fit one on the scan in the Measure workspace
+            No plane, cylinder or sphere measured yet. Fit one on the scan in the 3D Measure workspace
             and it appears here.
           </p>
           <button
@@ -151,7 +151,7 @@ export function TargetSection({
                 one element a click passes straight through, so a click on the map it covers still
                 pins a reading.
               </p>
-              <p>An element hidden by its own eye in the Measure workspace stays hidden here too.</p>
+              <p>An element hidden by its own eye in the 3D Measure workspace stays hidden here too.</p>
             </InfoDot>
           </label>
 

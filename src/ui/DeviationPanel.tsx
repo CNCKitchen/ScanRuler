@@ -180,7 +180,7 @@ export function DeviationPanel({
             </p>
             <p>
               A <b>fitted element</b> is one plane, cylinder or sphere you measured on this scan in
-              the Measure workspace. It answers "is this face flat, is this bore round, does this
+              the 3D Measure workspace. It answers "is this face flat, is this bore round, does this
               surface sit where the datum says" — and since it was measured on the scan it is
               already in the scan's frame, so there is no reference file and no alignment.
             </p>
@@ -603,7 +603,7 @@ export function DeviationPanel({
                     <p>
                       Display only, so it can be dialled either way with the map following
                       immediately. How far the element reaches <i>sideways</i> is set by extending
-                      it in the Measure workspace.
+                      it in the 3D Measure workspace.
                     </p>
                   </>
                 ) : (

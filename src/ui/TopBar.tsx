@@ -11,7 +11,7 @@ import { useShell, type Workspace } from '../state/shellStore'
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
 const WORKSPACES: { id: Workspace; label: string; title: string }[] = [
-  { id: 'elements', label: 'Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
+  { id: 'elements', label: '3D Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
   { id: 'deviation', label: 'Surface Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
   { id: 'thickness', label: 'Wall Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
   { id: 'flat', label: '2D Measure', title: 'Measure a flatbed scan the way a measuring microscope would' },

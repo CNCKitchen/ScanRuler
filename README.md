@@ -859,7 +859,7 @@ circle, or the **intersection of two lines** — the corner two edges meet at,
 which no scan images sharply and no click can hit.
 
 Fits report σ and the peak-to-peak form error (straightness, circularity) like
-every other fit in the tool. The panel is the Measure workspace's panel with
+every other fit in the tool. The panel is the 3D Measure workspace's panel with
 the kinds swapped: the same kind buttons, the same draft box, and the same
 element list with its **edit / hide / delete** keys — editing re-opens an
 element with its pins (or its references) back on the sheet and writes the

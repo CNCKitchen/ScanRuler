@@ -1602,7 +1602,7 @@ export default function App() {
               blurb={
                 onDeviation
                   ? source === 'element'
-                    ? 'Load a scan, fit a plane, cylinder or sphere on it in the Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
+                    ? 'Load a scan, fit a plane, cylinder or sphere on it in the 3D Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
                     : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan as STL, PLY or OBJ in millimetres, reference as any of those or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
                     ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
@@ -1632,7 +1632,7 @@ export default function App() {
             <div className="hintchip" data-test="need-element-chip">
               {elements.some((e) => e.fit && e.kind !== 'point' && e.kind !== 'line')
                 ? 'Click the element to measure against — or choose it in the panel'
-                : 'No plane, cylinder or sphere yet — fit one in the Measure workspace'}
+                : 'No plane, cylinder or sphere yet — fit one in the 3D Measure workspace'}
             </div>
           )}
           {onThickness && !picking && !hasThicknessMap && fileName && (

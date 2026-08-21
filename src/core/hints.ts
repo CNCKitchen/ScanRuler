@@ -125,7 +125,7 @@ function deviationLadder(m: HintInput): HintResult {
     if (!m.hasTargetElement) {
       return {
         target: 'target-goto-measure',
-        text: 'No plane, cylinder or sphere yet — fit one in the Measure workspace',
+        text: 'No plane, cylinder or sphere yet — fit one in the 3D Measure workspace',
       }
     }
     if (!m.targetChosen) {
