@@ -29,6 +29,13 @@ import {
   type StepDimensions,
 } from '../core/elements/assumed'
 import {
+  isOrientable,
+  OrientError,
+  orientFit,
+  type Orient,
+  type OrientRelation,
+} from '../core/elements/orient'
+import {
   ALIGN_PICK_COUNT,
   AlignmentError,
   computeDatumAlignment,
@@ -82,6 +89,12 @@ export interface Element {
    *  an extension and written out only by the assumed-dimension STEP export —
    *  see core/elements/assumed. */
   assumed?: number
+  /** The reference plane this element takes its direction from, if any —
+   *  see core/elements/orient. `fit` is then the aligned geometry, and
+   *  `measured` keeps the fit as it came off the scan (or out of the
+   *  construction), for re-applying the alignment and for the record. */
+  orient?: Orient
+  measured?: FitData
   /** Why a constructed element currently has no geometry (a re-evaluated
    *  construction can go degenerate, e.g. planes turning parallel). */
   message?: string
@@ -115,6 +128,10 @@ export interface Draft {
    *  Undefined means the suggestion is still showing — the commit fills in
    *  whatever the field held. */
   assumed?: number
+  /** The reference plane the draft aligns its direction to, once one is
+   *  chosen. The draft's `fit` stays the measurement; the aligned geometry is
+   *  derived from the two — see orientedDraft. */
+  orient?: Orient
   message?: string
   /** Set when the draft re-opens an element that already exists: the id it
    *  writes back to on confirm, instead of adding a new element. Everything
@@ -304,9 +321,12 @@ function draftFromElement(el: Element, elements: Element[], modelSize: number): 
     refs: [],
     params: [],
     status: el.fit ? 'ready' : 'empty',
-    fit: el.fit,
+    // The draft works on the measurement; the alignment is put back on top
+    // of it the same way it was the first time.
+    fit: el.measured ?? el.fit,
     extend: el.extend,
     assumed: el.assumed,
+    orient: el.orient,
     editId: el.id,
     name: el.name,
   }
@@ -328,7 +348,7 @@ function draftFromElement(el: Element, elements: Element[], modelSize: number): 
  *  that already builds on it — either would close a loop. Empty for a draft
  *  that is making a new element, which nothing can depend on yet. */
 export function blockedRefs(editId: number | undefined, elements: Element[]): Set<number> {
-  return editId === undefined ? new Set() : dependentsOf(editId, elements)
+  return editId === undefined ? new Set() : dependentsOf(editId, elements, true)
 }
 
 /** The colour the open draft is drawn in: an edited element keeps its own, a
@@ -349,6 +369,52 @@ function defaultMethod(kind: ElementKind): string {
   if (kind === 'line') return 'line-two-points'
   if (kind === 'circle') return 'circle-points'
   return 'fit'
+}
+
+/** What the open draft would create: its measured fit turned onto the
+ *  reference plane it is aligned to, or the fit as it stands. Derived rather
+ *  than stored, so the measurement under it is never overwritten — and so the
+ *  viewport ghost, the panel and the commit cannot disagree. */
+export function orientedDraft(
+  d: Pick<Draft, 'fit' | 'orient'> | null,
+  elements: Element[],
+): { fit: FitData | undefined; deviationDeg: number; warning: string | null } {
+  if (!d?.fit) return { fit: undefined, deviationDeg: 0, warning: null }
+  if (!d.orient || !isOrientable(d.fit)) return { fit: d.fit, deviationDeg: 0, warning: null }
+  const ref = elements.find((e) => e.id === d.orient!.ref)?.fit
+  if (ref?.kind !== 'plane') {
+    return { fit: d.fit, deviationDeg: 0, warning: 'The reference plane is unavailable.' }
+  }
+  try {
+    return orientFit(d.fit, ref, d.orient.relation)
+  } catch (e) {
+    return {
+      fit: d.fit,
+      deviationDeg: 0,
+      warning: e instanceof OrientError ? e.message : 'Alignment failed.',
+    }
+  }
+}
+
+/** An element's geometry with its alignment (re)applied to its measured fit,
+ *  given the current geometry of every element. An alignment that can no
+ *  longer be computed leaves the element on its measurement. */
+function orientElement(el: Element, byId: ReadonlyMap<number, FitData>): Element {
+  if (!el.orient) return el
+  const measured = el.measured ?? el.fit
+  if (!measured) return el
+  const ref = byId.get(el.orient.ref)
+  let fit = measured
+  if (ref?.kind === 'plane' && isOrientable(measured)) {
+    try {
+      fit = orientFit(measured, ref, el.orient.relation).fit
+    } catch {
+      fit = measured
+    }
+  }
+  return el.fit && sameFit(el.fit, fit) && el.measured === measured
+    ? el
+    : { ...el, fit, measured }
 }
 
 /** Recompute a construct-mode draft's preview from the current elements.
@@ -382,12 +448,18 @@ function evalConstructDraft(d: Draft, elements: Element[], modelSize: number): D
  *  (constructions can only reference older elements, so one pass settles the
  *  whole chain). Called after anything that changes a geometry. */
 function reevaluateConstructions(elements: Element[], modelSize: number): Element[] {
+  // Alignments may point at planes anywhere in the list, so the current
+  // geometry of everything is on hand before the pass; constructions and
+  // alignments that are recomputed overwrite their entry as they go.
   const byId = new Map<number, FitData>()
+  for (const el of elements) if (el.fit) byId.set(el.id, el.fit)
+  const settle = (el: Element): Element => {
+    const out = orientElement(el, byId)
+    if (out.fit) byId.set(out.id, out.fit)
+    return out
+  }
   return elements.map((el) => {
-    if (el.source.type !== 'constructed') {
-      if (el.fit) byId.set(el.id, el.fit)
-      return el
-    }
+    if (el.source.type !== 'constructed') return settle(el)
     const { method, refs, params } = el.source
     const fits: FitData[] = []
     for (const id of refs) {
@@ -395,16 +467,23 @@ function reevaluateConstructions(elements: Element[], modelSize: number): Elemen
       if (f) fits.push(f)
     }
     if (fits.length !== refs.length) {
-      return { ...el, fit: undefined, message: 'A source element is unavailable.' }
+      byId.delete(el.id)
+      return { ...el, fit: undefined, measured: undefined, message: 'A source element is unavailable.' }
     }
     try {
       const fit = evaluateConstruction(method, fits, params, modelSize)
-      byId.set(el.id, fit)
-      return el.fit && sameFit(el.fit, fit) ? el : { ...el, fit, message: undefined }
+      // A construction's measured geometry is what it evaluates to; the
+      // alignment goes on top of that.
+      const measured = el.orient ? fit : undefined
+      const next =
+        el.fit && !el.orient && sameFit(el.fit, fit) ? el : { ...el, fit, measured, message: undefined }
+      return settle(next)
     } catch (e) {
+      byId.delete(el.id)
       return {
         ...el,
         fit: undefined,
+        measured: undefined,
         message: e instanceof ConstructionError ? e.message : 'Construction failed.',
       }
     }
@@ -451,15 +530,20 @@ function transformSource(source: ElementSource, m: Rigid): ElementSource {
   return source
 }
 
-/** All elements that (transitively) build on the given one. */
-function dependentsOf(id: number, elements: Element[]): Set<number> {
+/** All elements that (transitively) build on the given one. Being aligned to
+ *  an element counts as building on it when `withOrient` is set — for loop
+ *  checks, where it must; not for deletion, where an aligned element simply
+ *  falls back to its measurement. */
+function dependentsOf(id: number, elements: Element[], withOrient = false): Set<number> {
   const doomed = new Set<number>([id])
   let grew = true
   while (grew) {
     grew = false
     for (const el of elements) {
-      if (doomed.has(el.id) || el.source.type !== 'constructed') continue
-      if (el.source.refs.some((r) => doomed.has(r))) {
+      if (doomed.has(el.id)) continue
+      const built = el.source.type === 'constructed' && el.source.refs.some((r) => doomed.has(r))
+      const aligned = withOrient && el.orient !== undefined && doomed.has(el.orient.ref)
+      if (built || aligned) {
         doomed.add(el.id)
         grew = true
       }
@@ -565,6 +649,11 @@ interface AppState {
   /** The assumed diameter of the open draft, in millimetres. Anything that is
    *  not a positive number is ignored — the field snaps back to what stands. */
   setDraftAssumed: (value: number) => void
+  /** Align the open draft's direction to a reference plane, or take the
+   *  alignment off again with null. The relation is kept across a change of
+   *  plane. */
+  setDraftOrientRef: (ref: number | null) => void
+  setDraftOrientRelation: (relation: OrientRelation) => void
   resolveDraft: (r: FitOutput) => void
   failDraft: (message: string) => void
   cancelDraft: () => void
@@ -742,7 +831,16 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => ({
       elements: reevaluateConstructions(
         s.elements.map((e) =>
-          e.id === id ? { ...e, status: 'done' as const, fit: withoutRegion(r) } : e,
+          e.id === id
+            ? {
+                ...e,
+                status: 'done' as const,
+                fit: withoutRegion(r),
+                // An aligned element re-fits onto its measurement; the
+                // re-evaluation pass puts the alignment back on top.
+                measured: e.orient ? withoutRegion(r) : undefined,
+              }
+            : e,
         ),
         s.modelSize,
       ),
@@ -765,8 +863,17 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const doomed = dependentsOf(id, s.elements)
       const keepRef = (r: number | null) => (r !== null && doomed.has(r) ? null : r)
+      const dropOrient = (e: Element): Element =>
+        e.orient && doomed.has(e.orient.ref)
+          ? { ...e, orient: undefined, fit: e.measured ?? e.fit, measured: undefined }
+          : e
+      const dropDraftOrient = (d: Draft): Draft =>
+        d.orient && doomed.has(d.orient.ref) ? { ...d, orient: undefined } : d
       return {
-        elements: s.elements.filter((e) => !doomed.has(e.id)),
+        elements: reevaluateConstructions(
+          s.elements.filter((e) => !doomed.has(e.id)).map(dropOrient),
+          s.modelSize,
+        ),
         dimensions: s.dimensions.filter((d) => !d.refs.some((r) => doomed.has(r))),
         alignDraft: s.alignDraft
           ? {
@@ -789,11 +896,16 @@ export const useStore = create<AppState>()((set, get) => ({
             ? null
             : s.draft && s.draft.refs.some((r) => r !== null && doomed.has(r))
             ? evalConstructDraft(
-                { ...s.draft, refs: s.draft.refs.map((r) => (r !== null && doomed.has(r) ? null : r)) },
+                dropDraftOrient({
+                  ...s.draft,
+                  refs: s.draft.refs.map((r) => (r !== null && doomed.has(r) ? null : r)),
+                }),
                 s.elements.filter((e) => !doomed.has(e.id)),
                 s.modelSize,
               )
-            : s.draft,
+            : s.draft
+              ? dropDraftOrient(s.draft)
+              : null,
       }
     }),
 
@@ -916,6 +1028,25 @@ export const useStore = create<AppState>()((set, get) => ({
       return { draft: { ...d, assumed: value } }
     }),
 
+  setDraftOrientRef: (ref) =>
+    set((s) => {
+      const d = s.draft
+      if (!d) return {}
+      if (ref === null) return { draft: { ...d, orient: undefined } }
+      // Only a plane can be aligned to, and not one that builds on the
+      // element being edited — that would close a loop.
+      const el = s.elements.find((e) => e.id === ref)
+      if (el?.kind !== 'plane' || blockedRefs(d.editId, s.elements).has(ref)) return {}
+      return { draft: { ...d, orient: { ref, relation: d.orient?.relation ?? 'normal' } } }
+    }),
+
+  setDraftOrientRelation: (relation) =>
+    set((s) => {
+      const d = s.draft
+      if (!d?.orient) return {}
+      return { draft: { ...d, orient: { ...d.orient, relation } } }
+    }),
+
   resolveDraft: (r) =>
     set((s) =>
       s.draft
@@ -954,6 +1085,17 @@ export const useStore = create<AppState>()((set, get) => ({
         ? d.assumed
         : suggestedAssumed(2 * d.fit.radius)
       : undefined
+    // The alignment only travels with geometry that has a direction, and only
+    // while its reference plane exists. What gets stored is the measurement
+    // plus the recipe; the aligned geometry is computed from the two on the
+    // way in, and again whenever the reference moves.
+    const orient =
+      isOrientable(d.fit) &&
+      d.orient &&
+      get().elements.some((e) => e.id === d.orient!.ref && e.kind === 'plane')
+        ? d.orient
+        : undefined
+    const measured = orient ? d.fit : undefined
     const source: ElementSource =
       m.mode === 'fit'
         ? d.selection
@@ -978,6 +1120,8 @@ export const useStore = create<AppState>()((set, get) => ({
                   source,
                   status: 'done' as const,
                   fit: d.fit,
+                  measured,
+                  orient,
                   extend,
                   assumed,
                   message: undefined,
@@ -997,21 +1141,26 @@ export const useStore = create<AppState>()((set, get) => ({
       nextNumber: num + 1,
       nextOfKind: { ...s.nextOfKind, [d.kind]: ofKind + 1 },
       draft: null,
-      elements: [
-        ...s.elements,
-        {
-          id,
-          kind: d.kind,
-          name: `${elementKindInfo(d.kind).label} ${ofKind}`,
-          color: elementColor(num),
-          source,
-          status: 'done' as const,
-          visible: true,
-          fit: d.fit,
-          extend,
-          assumed,
-        },
-      ],
+      elements: reevaluateConstructions(
+        [
+          ...s.elements,
+          {
+            id,
+            kind: d.kind,
+            name: `${elementKindInfo(d.kind).label} ${ofKind}`,
+            color: elementColor(num),
+            source,
+            status: 'done' as const,
+            visible: true,
+            fit: d.fit,
+            measured,
+            orient,
+            extend,
+            assumed,
+          },
+        ],
+        s.modelSize,
+      ),
       // A point picked for a dimension slot drops straight into it.
       dimDraft:
         s.dimDraft && s.dimDraft.pickSlot !== null && d.kind === 'point'
@@ -1143,6 +1292,7 @@ export const useStore = create<AppState>()((set, get) => ({
             ...el,
             source: transformSource(el.source, m),
             fit: el.fit ? transformFit(el.fit, m) : el.fit,
+            measured: el.measured ? transformFit(el.measured, m) : el.measured,
           })),
           s.modelSize,
         ),

@@ -14,6 +14,7 @@ import {
   alignmentPreview,
   draftColorOf,
   useStore,
+  orientedDraft,
 } from '../state/store'
 import type {
   SceneManager,
@@ -68,8 +69,19 @@ export function useSceneSync({
 
   // The draft's ghost shape follows whatever the draft currently is — a fit
   // preview, a picked point, or a construction taking shape in the panel.
-  const draftFit = useStore((s) => (s.draft?.status === 'ready' ? s.draft.fit : undefined))
+  const measuredDraftFit = useStore((s) => (s.draft?.status === 'ready' ? s.draft.fit : undefined))
+  const draftOrient = useStore((s) => s.draft?.orient)
   const draftExtend = useStore((s) => s.draft?.extend)
+  const elementsForOrient = useStore((s) => (s.draft?.orient ? s.elements : null))
+  // An aligned draft is shown turned onto its reference plane — what it will
+  // be created as.
+  const draftFit = useMemo(
+    () =>
+      measuredDraftFit && draftOrient && elementsForOrient
+        ? orientedDraft({ fit: measuredDraftFit, orient: draftOrient }, elementsForOrient).fit
+        : measuredDraftFit,
+    [measuredDraftFit, draftOrient, elementsForOrient],
+  )
   // What the ghost is: the fit, carrying however far past its measured surface
   // it has been extended. Recomputed rather than stored, so the fit under it
   // stays the measurement.

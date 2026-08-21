@@ -4,6 +4,8 @@ import type { EvaluatedDimension } from './dimensions'
 import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
 import { extendedSpans, isExtendable, isExtended, type Extension } from './elements/extend'
+import { directionOf, isOrientable, relationWord, type Orient } from './elements/orient'
+import { acuteAngle } from './vec'
 
 export const SIGMA_LABELS: Record<SigmaPreset, string> = {
   0: 'All points',
@@ -113,6 +115,10 @@ export interface SummaryElement {
   extend?: Extension
   /** The assumed design diameter, reported the same way. */
   assumed?: number
+  /** The reference plane the direction was taken from, and the fit before
+   *  it was turned — so the report can say how far off the measurement was. */
+  orient?: Orient
+  measured?: FitData
   message?: string
 }
 
@@ -175,6 +181,16 @@ export function buildSummary(
       if (f.formError !== undefined) {
         lines.push(`  ${formErrorLabel(f.kind) ?? 'form'} (peak-to-peak): ${f.formError.toFixed(4)} mm`)
       }
+    }
+    // A direction taken from a reference plane rather than from the fit, and
+    // how far the fit was from it.
+    if (el.orient && isOrientable(f)) {
+      const m = el.measured
+      const off =
+        m && isOrientable(m) ? `, measured ${acuteAngle(directionOf(m), directionOf(f)).toFixed(3)}° off` : ''
+      lines.push(
+        `  aligned ${relationWord(f.kind, el.orient.relation)} to ${nameOf(el.orient.ref)}${off}`,
+      )
     }
     // The diameter an assumed-dimension export writes, when it is not simply
     // the measurement restated.

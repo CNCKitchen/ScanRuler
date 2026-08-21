@@ -22,6 +22,7 @@
     "e2e:nav": "node scripts/e2e-nav.mjs",
     "e2e:touch": "node scripts/e2e-touch.mjs",
     "e2e:edit": "node scripts/e2e-edit.mjs",
+    "e2e:orient": "node scripts/e2e-orient.mjs",
     "e2e:paint": "node scripts/e2e-paint.mjs",
     "e2e:extend": "node scripts/e2e-extend.mjs",
     "e2e:deviation": "node scripts/e2e-deviation.mjs",

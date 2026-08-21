@@ -54,6 +54,7 @@ export function RefSelect({
   value,
   testId,
   picking,
+  placeholder = 'Select…',
   onChange,
   onPickNew,
 }: {
@@ -64,6 +65,9 @@ export function RefSelect({
   testId?: string
   /** True while a pick on the scan is filling this slot. */
   picking?: boolean
+  /** What the empty choice reads as — "Select…" for a slot that must be
+   *  filled, something like "None" for an optional one. */
+  placeholder?: string
   onChange: (id: number | null) => void
   /** Offered on point slots: create the point by clicking the scan. */
   onPickNew?: () => void
@@ -79,7 +83,7 @@ export function RefSelect({
           else onChange(e.target.value === '' ? null : Number(e.target.value))
         }}
       >
-        <option value="">{picking ? 'Picking — click the scan…' : 'Select…'}</option>
+        <option value="">{picking ? 'Picking — click the scan…' : placeholder}</option>
         {options.map((el) => (
           <option key={el.id} value={el.id}>
             {el.name}

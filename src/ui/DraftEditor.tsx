@@ -5,17 +5,19 @@
 import { hasDiameter } from '../core/elements/assumed'
 import { creationMethod, methodsForKind } from '../core/elements/construct'
 import { isExtendable } from '../core/elements/extend'
+import { isOrientable } from '../core/elements/orient'
 import { elementKindInfo } from '../core/elements/kinds'
 import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
 import type { SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
-import { blockedRefs, draftColorOf, useStore, type SelectMode } from '../state/store'
+import { blockedRefs, draftColorOf, orientedDraft, useStore, type SelectMode } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { AssumedField } from './AssumedField'
 import { DroValue } from './DroValue'
 import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
+import { OrientFields } from './OrientFields'
 import { NameField, providersFor, RefSelect } from './RefSelect'
 
 export function DraftEditor({
@@ -59,6 +61,9 @@ export function DraftEditor({
   // new element, and what such a draft must not be built on.
   const edited = draft?.editId !== undefined ? elements.find((e) => e.id === draft.editId) : undefined
   const blocked = blockedRefs(draft?.editId, elements)
+  // What the draft will be created as: the measured fit, turned onto its
+  // reference plane if it is aligned to one. The preview shows this one.
+  const shownFit = orientedDraft(draft, elements).fit
 
   // Marking the surface by hand replaces the click-and-grow flow, so it only
   // exists for the kinds that are fitted to the scan at all.
@@ -247,24 +252,28 @@ export function DraftEditor({
               {draft.status === 'failed' && <b>{draft.message ?? 'Failed'}</b>}
               {draft.status === 'ready' &&
                 (() => {
-                  const primary = formatPrimary(draft.fit!)
-                  if (draft.fit!.kind === 'point' || draft.fit!.kind === 'line' || primary === '') {
+                  const primary = formatPrimary(shownFit!)
+                  if (shownFit!.kind === 'point' || shownFit!.kind === 'line' || primary === '') {
                     return <b style={{ color: draftColor }}>✓ {draftKind.label}</b>
                   }
                   return <DroValue value={primary} color={draftColor} />
                 })()}
             </div>
-            {draft.status === 'ready' && <div className="dro-note">{formatDetail(draft.fit!)}</div>}
+            {draft.status === 'ready' && <div className="dro-note">{formatDetail(shownFit!)}</div>}
           </div>
 
           {/* The design value behind the measurement, for the kinds defined by
               a diameter — what an assumed-dimension STEP export writes. */}
           {draft.status === 'ready' && hasDiameter(draft.fit) && <AssumedField fit={draft.fit} />}
 
+          {/* The designed relation to a reference plane, for the kinds with a
+              direction to turn — applied to the measurement on the way in. */}
+          {draft.status === 'ready' && isOrientable(draft.fit) && <OrientFields fit={draft.fit} />}
+
           {/* How much of the measured surface to draw, once there is one. A
               cylinder and a plane are the two elements whose size on screen is
               a drawing decision rather than the measurement itself. */}
-          {draft.status === 'ready' && isExtendable(draft.fit) && <ExtendFields fit={draft.fit} />}
+          {draft.status === 'ready' && isExtendable(shownFit) && <ExtendFields fit={shownFit} />}
 
           <button
             className={pulse ? 'primary block pulse' : 'primary block'}
