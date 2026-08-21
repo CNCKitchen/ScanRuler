@@ -29,6 +29,7 @@ export interface FlatReportInput {
   unit: string
   elements: readonly FlatElement[]
   dimensions: readonly EvaluatedFlatDimension[]
+  counts?: readonly { name: string; picks: readonly unknown[] }[]
 }
 
 function scaleLine(r: FlatReportInput): string {
@@ -78,6 +79,11 @@ export function buildFlatReport(r: FlatReportInput): string {
         .join(' — ')
       lines.push(`  ${d.title} — ${d.value.label}: ${d.value.value}${extras ? ` (${extras})` : ''}`)
     }
+  }
+  if (r.counts && r.counts.length > 0) {
+    lines.push('')
+    lines.push('Counts')
+    for (const c of r.counts) lines.push(`  ${c.name}: ${c.picks.length}`)
   }
   return lines.join('\n')
 }
@@ -148,6 +154,11 @@ export function buildFlatCsv(r: FlatReportInput): string {
           .join(','),
       )
     }
+  }
+  if (r.counts && r.counts.length > 0) {
+    rows.push('')
+    rows.push(['count', 'features'].map(csv).join(','))
+    for (const c of r.counts) rows.push([c.name, c.picks.length].map(csv).join(','))
   }
   return rows.join('\n')
 }

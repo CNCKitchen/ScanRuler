@@ -52,7 +52,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { flatDraftColorOf, useFlat } from './state/flatStore'
+import { flatCountColor, flatDraftColorOf, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -176,6 +176,7 @@ export default function App() {
     syncFlatEdges()
     syncFlatElements()
     syncFlatDimensions()
+    syncFlatCounts()
     syncFlatGrid()
   }
   useEffect(syncFlatImage, [flatImageVersion])
@@ -261,6 +262,10 @@ export default function App() {
       flat.addDatumPick(px)
       return
     }
+    if (flat.counting) {
+      flat.addCountPick(px)
+      return
+    }
     if (flat.draft) flat.addDraftPick(px)
   }
 
@@ -289,6 +294,27 @@ export default function App() {
     if (len < 1e-6) return
     flatSceneRef.current?.setGrid({ origin, xDir: [dx / len, dy / len] })
   }
+
+  // The tallies: finished ones under their names, the live one in the colour
+  // it will get — every counted feature keeps its number on the sheet.
+  const flatCounts = useFlat((s) => s.counts)
+  const flatCounting = useFlat((s) => s.counting)
+  const syncFlatCounts = () => {
+    const s = useFlat.getState()
+    const mm = flatMmPerPx()
+    const toMm = (picks: readonly [number, number][]): [number, number][] =>
+      picks.map((p) => [p[0] * mm.x, p[1] * mm.y])
+    flatSceneRef.current?.setCounts([
+      // A re-opened tally is drawn by the live one, in its own colour.
+      ...s.counts
+        .filter((c) => c.visible && c.id !== s.counting?.editId)
+        .map((c) => ({ picks: toMm(c.picks), color: c.color, name: c.name })),
+      ...(s.counting
+        ? [{ picks: toMm(s.counting.picks), color: flatCountColor(s.counting.editId ?? s.nextCountId) }]
+        : []),
+    ])
+  }
+  useEffect(syncFlatCounts, [flatCounts, flatCounting, flatScale])
 
   // The measured dimensions, drawn on the sheet where they were taken —
   // values are rigid-invariant, so the datum never moves them.
@@ -323,6 +349,7 @@ export default function App() {
       unit: s.pxPerMm ? 'mm' : 'px',
       elements: s.elements,
       dimensions: evaluateFlatDimensions(s.dimensions, s.elements),
+      counts: s.counts,
     }
   }
 
@@ -1470,7 +1497,8 @@ export default function App() {
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
                   active:
                     (flatDraft !== null && flatMethod(flatDraft.method).mode === 'pick') ||
-                    flatCalibrating !== null,
+                    flatCalibrating !== null ||
+                    flatCounting !== null,
                 }}
               />
             </div>

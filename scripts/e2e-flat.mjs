@@ -279,6 +279,30 @@ check(
 const dimAfter = await readDim()
 check(dimAfter === dimRow, 'the datum never moves a distance')
 
+// ---- counting ---------------------------------------------------------------
+await click(page, '[data-test=flat-count-start]')
+for (let i = 0; i < 4; i++) {
+  await page.mouse.click(...toScreen(mm(RECT.x0) + 2 + i * 3, RECT_TOP_Y))
+  await sleep(120)
+}
+check(
+  /^4 counted/.test(await page.$eval('[data-test=flat-count-status]', (el) => el.textContent)),
+  'four clicks tally four',
+)
+await click(page, '[data-test=flat-count-undo]')
+check(
+  /^3 counted/.test(await page.$eval('[data-test=flat-count-status]', (el) => el.textContent)),
+  'undo takes one back',
+)
+check((await page.$$('.pick-pin')).length >= 3, 'the tally wears its numbers on the sheet')
+await click(page, '[data-test=flat-count-finish]')
+await sleep(200)
+check(
+  (await page.$eval('[data-test=flat-count-value-1]', (el) => el.textContent)) === '3',
+  'the finished count lists its tally',
+)
+check((await page.$('[data-test=flat-count-status]')) === null, 'and the tool is put away')
+
 // ---- the report ------------------------------------------------------------
 const buttons = await page.$$('button')
 for (const b of buttons) {
@@ -292,6 +316,7 @@ const report = await page.evaluate(() => navigator.clipboard.readText()).catch((
 check(/Scale: CALIBRATED/.test(report), 'the report says the scale is calibrated')
 check(/part datum frame/.test(report), 'and that coordinates are in the datum frame')
 check(/Ø/.test(report) && /Distance to line/.test(report), 'and carries elements and dimensions')
+check(/Count 1: 3/.test(report), 'and the tally')
 
 await page.screenshot({ path: shotPath('flat-final.png') })
 await finish(browser, consoleErrors)

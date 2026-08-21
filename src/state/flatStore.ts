@@ -61,6 +61,17 @@ export interface FlatDraft {
   name?: string
 }
 
+/** A tally taken by clicking features one after another — the teeth of a
+ *  gear, the holes in a flange. The picks (image pixels) are the count; they
+ *  stay numbered on the sheet so the tally can be checked against the part. */
+export interface FlatCount {
+  id: number
+  name: string
+  color: string
+  picks: Vec2[]
+  visible: boolean
+}
+
 /** A dimension being assembled — or re-opened, with `editId` set. */
 export interface FlatDimDraft {
   type: string
@@ -84,6 +95,12 @@ export function flatDraftColorOf(s: {
 }): string {
   const el = s.draft?.editId === undefined ? undefined : s.elements.find((e) => e.id === s.draft!.editId)
   return el?.color ?? PALETTE[(s.nextId - 1) % PALETTE.length]
+}
+
+/** The colour a tally wears — offset into the palette so the first count
+ *  does not match the first element. */
+export function flatCountColor(id: number): string {
+  return PALETTE[(id + 3) % PALETTE.length]
 }
 
 function freshDraft(kind: FlatElementKind, method: string, edit?: Pick<FlatDraft, 'editId' | 'name'>): FlatDraft {
@@ -272,6 +289,25 @@ interface FlatState {
   clearDatum: () => void
   setShowGrid: (v: boolean) => void
 
+  /** Tallies taken so far, and the one being clicked out. */
+  counts: FlatCount[]
+  /** The tally being clicked out; `editId` when a finished one was re-opened
+   *  to count on. */
+  counting: { picks: Vec2[]; editId?: number } | null
+  nextCountId: number
+
+  startCount: () => void
+  /** Re-open a tally with its picks back on the sheet, the next click adding
+   *  to it; finishing writes back over it. */
+  editCount: (id: number) => void
+  cancelCount: () => void
+  addCountPick: (px: Vec2) => void
+  undoCountPick: () => void
+  /** Keep the tally — it needs at least one pick to be worth keeping. */
+  finishCount: () => void
+  deleteCount: (id: number) => void
+  toggleCountVisible: (id: number) => void
+
   startCalibration: (mode: CalMode) => void
   cancelCalibration: () => void
   addCalPick: (px: Vec2) => void
@@ -395,6 +431,63 @@ export const useFlat = create<FlatState>()((set, get) => ({
   toggleDimensionVisible: (id) =>
     set((s) => ({
       dimensions: s.dimensions.map((d) => (d.id === id ? { ...d, visible: !d.visible } : d)),
+    })),
+
+  counts: [],
+  counting: null,
+  nextCountId: 1,
+
+  // One stage tool at a time: the count puts the others away, and they it.
+  startCount: () => set({ counting: { picks: [] }, calibrating: null, datumPicking: null }),
+  editCount: (id) =>
+    set((s) => {
+      const c = s.counts.find((x) => x.id === id)
+      if (!c) return {}
+      return { counting: { picks: [...c.picks], editId: id }, calibrating: null, datumPicking: null }
+    }),
+  cancelCount: () => set({ counting: null }),
+
+  addCountPick: (px) =>
+    set((s) =>
+      s.counting ? { counting: { ...s.counting, picks: [...s.counting.picks, px] } } : {},
+    ),
+
+  undoCountPick: () =>
+    set((s) =>
+      s.counting ? { counting: { ...s.counting, picks: s.counting.picks.slice(0, -1) } } : {},
+    ),
+
+  finishCount: () =>
+    set((s) => {
+      if (!s.counting) return {}
+      if (s.counting.picks.length === 0) return { counting: null }
+      if (s.counting.editId !== undefined) {
+        const picks = s.counting.picks
+        return {
+          counts: s.counts.map((c) => (c.id === s.counting!.editId ? { ...c, picks } : c)),
+          counting: null,
+        }
+      }
+      const id = s.nextCountId
+      const count: FlatCount = {
+        id,
+        name: `Count ${id}`,
+        color: flatCountColor(id),
+        picks: s.counting.picks,
+        visible: true,
+      }
+      return { counts: [...s.counts, count], counting: null, nextCountId: id + 1 }
+    }),
+
+  deleteCount: (id) =>
+    set((s) => ({
+      counts: s.counts.filter((c) => c.id !== id),
+      counting: s.counting?.editId === id ? null : s.counting,
+    })),
+
+  toggleCountVisible: (id) =>
+    set((s) => ({
+      counts: s.counts.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
     })),
 
   datum: null,
@@ -583,6 +676,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
       dimCounts: {},
       datum: null,
       datumPicking: null,
+      counts: [],
+      counting: null,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -601,7 +696,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setEdgeSensitivity: (edgeSensitivity) => set({ edgeSensitivity }),
   setShowEdges: (showEdges) => set({ showEdges }),
 
-  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null }),
+  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null, counting: null }),
   cancelDatum: () => set({ datumPicking: null }),
 
   addDatumPick: (px) =>
@@ -615,7 +710,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   clearDatum: () => set({ datum: null, datumPicking: null }),
   setShowGrid: (showGrid) => set({ showGrid }),
 
-  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null }),
+  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null, counting: null }),
   cancelCalibration: () => set({ calibrating: null }),
 
   addCalPick: (px) =>

@@ -37,6 +37,9 @@ export class FlatScene {
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
+  /** Tallies: every counted feature wears its running number. */
+  private countGroup = new THREE.Group()
+  private countCleanup: (() => void)[] = []
   /** The datum-aligned grid: its frame, and the spacing it was last drawn
    *  at — the tick watches the zoom and redraws when the 1-2-5 ladder says a
    *  different rung. */
@@ -135,6 +138,7 @@ export class FlatScene {
     this.viewport.scene.add(this.sheet)
     this.viewport.scene.add(this.gridGroup)
     this.viewport.scene.add(this.calGroup)
+    this.viewport.scene.add(this.countGroup)
     this.viewport.scene.add(this.edgeGroup)
     this.viewport.scene.add(this.elementGroup)
     this.viewport.scene.add(this.dimensionGroup)
@@ -720,6 +724,59 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
+  /** The tallies (document units): each pick wears its running number in the
+   *  tally's colour, with a crosshair on the exact spot, and the last pick of
+   *  a finished tally carries its name. The live one is drawn the same way. */
+  setCounts(items: readonly { picks: readonly Vec2[]; color: string; name?: string }[]): void {
+    for (const dispose of this.countCleanup) dispose()
+    this.countCleanup = []
+    this.countGroup.clear()
+    const s = Math.max(this.sheetDiag() * 0.004, 1e-6)
+    for (const item of items) {
+      if (item.picks.length === 0) continue
+      item.picks.forEach((p, i) => {
+        const div = document.createElement('div')
+        div.className = 'pick-pin'
+        div.textContent = String(i + 1)
+        div.style.background = item.color
+        const label = new CSS2DObject(div)
+        label.position.set(p[0], p[1], 0.12)
+        this.countGroup.add(label)
+        this.countCleanup.push(() => div.remove())
+      })
+      this.addPolylines(
+        this.countGroup,
+        this.countCleanup,
+        item.picks.flatMap(([x, y]) => [
+          [
+            [x - s, y],
+            [x + s, y],
+          ],
+          [
+            [x, y - s],
+            [x, y + s],
+          ],
+        ]),
+        item.color,
+        0.95,
+        0.11,
+        1.5,
+      )
+      if (item.name) {
+        const last = item.picks[item.picks.length - 1]
+        this.addLabel(
+          this.countGroup,
+          this.countCleanup,
+          [last[0] + s * 2, last[1] - s * 6],
+          item.name,
+          String(item.picks.length),
+          item.color,
+        )
+      }
+    }
+    this.viewport.invalidate()
+  }
+
   /**
    * Show a freshly decoded image. The bitmap must have been created with
    * `imageOrientation: 'flipY'` — an ImageBitmap bypasses the usual GPU-side
@@ -812,6 +869,7 @@ export class FlatScene {
     this.dropBand()
     this.setGrid(null)
     this.setCalibrationPicks([])
+    this.setCounts([])
     this.setFlatElements([])
     this.setFlatDimensions([])
     this.setDraftMarks([], null)
