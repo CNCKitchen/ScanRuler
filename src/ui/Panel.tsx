@@ -13,6 +13,7 @@ import { AlignmentSection } from './AlignmentSection'
 import { CopyButton } from './CopyButton'
 import { DimensionSection } from './DimensionSection'
 import { DraftEditor } from './DraftEditor'
+import { ShowAllButton } from './ShowAllButton'
 import { ElementRow } from './ElementRow'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
@@ -71,9 +72,8 @@ export function Panel({
   const alignDraft = useStore((s) => s.alignDraft)
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
-  const stepDimensions = useStore((s) => s.stepDimensions)
-  const setStepDimensions = useStore((s) => s.setStepDimensions)
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
+  const setAllElementsVisible = useStore((s) => s.setAllElementsVisible)
   // Which shape to fit is the user's to decide, so the ring goes round the row
   // rather than singling one of them out.
   const pulseKind = usePulse('kindrow')
@@ -171,6 +171,12 @@ export function Panel({
         <div className="group">
           <div className="g-label">
             <span>Elements</span>
+            <ShowAllButton
+              anyVisible={elements.some((e) => e.visible)}
+              what="elements"
+              testId="elements-show-all"
+              onSet={setAllElementsVisible}
+            />
             <b>{elements.length}</b>
           </div>
           {elements.map((el) => (

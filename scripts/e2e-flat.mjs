@@ -274,6 +274,19 @@ check(
   (await page.$$eval('[data-test=element-row].ghost', (els) => els.length)) === 1,
   'the eye hides the element',
 )
+// The whole-list eye: anything showing → hide all; all hidden → show all.
+await click(page, '[data-test=flat-elements-show-all]')
+await sleep(150)
+check(
+  (await page.$$eval('[data-test=element-row].ghost', (els) => els.length)) === 3,
+  'Hide all ghosts every element',
+)
+await click(page, '[data-test=flat-elements-show-all]')
+await sleep(150)
+check(
+  (await page.$$eval('[data-test=element-row].ghost', (els) => els.length)) === 0,
+  'Show all brings them all back',
+)
 const xs = await page.$$('[data-test=element-row] .x:not(.edit):not(.eye)')
 await xs[2].click()
 await sleep(150)

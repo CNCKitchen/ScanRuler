@@ -250,6 +250,8 @@ interface FlatState {
   commitDraft: () => number | null
   deleteElement: (id: number) => void
   toggleElementVisible: (id: number) => void
+  /** Show or hide every element and count at once. */
+  setAllElementsVisible: (visible: boolean) => void
 
   beginImageLoad: (name: string) => void
   finishImageLoad: (name: string, width: number, height: number, meta: PixelsPerMm | null) => void
@@ -279,6 +281,8 @@ interface FlatState {
   commitDim: () => void
   deleteDimension: (id: number) => void
   toggleDimensionVisible: (id: number) => void
+  /** Show or hide every dimension at once. */
+  setAllDimensionsVisible: (visible: boolean) => void
 
   /** The part's own frame: origin and +X, as two picks (image pixels). Null
    *  reads coordinates in the image frame, origin bottom-left. */
@@ -438,6 +442,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => ({
       dimensions: s.dimensions.map((d) => (d.id === id ? { ...d, visible: !d.visible } : d)),
     })),
+  setAllDimensionsVisible: (visible) =>
+    set((s) => ({ dimensions: s.dimensions.map((d) => ({ ...d, visible })) })),
 
   counts: [],
   counting: null,
@@ -654,6 +660,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
   toggleElementVisible: (id) =>
     set((s) => ({
       elements: s.elements.map((e) => (e.id === id ? { ...e, visible: !e.visible } : e)),
+    })),
+  setAllElementsVisible: (visible) =>
+    set((s) => ({
+      elements: s.elements.map((e) => ({ ...e, visible })),
+      counts: s.counts.map((c) => ({ ...c, visible })),
     })),
 
   beginImageLoad: (imageName) => set({ imageBusy: true, imageName }),

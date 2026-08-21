@@ -18,6 +18,7 @@ import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
 import { NameField, providersFor, RefSelect } from './RefSelect'
 import { DimensionRow, WarningNote } from './DimensionRow'
+import { ShowAllButton } from './ShowAllButton'
 
 export function DimensionSection({
   editorOpen,
@@ -42,6 +43,7 @@ export function DimensionSection({
   const commitDimension = useStore((s) => s.commitDimension)
   const removeDimension = useStore((s) => s.removeDimension)
   const toggleDimensionVisible = useStore((s) => s.toggleDimensionVisible)
+  const setAllDimensionsVisible = useStore((s) => s.setAllDimensionsVisible)
   const pulseNew = usePulse('new-dimension')
   const pulseAdd = usePulse('add-dimension')
 
@@ -196,6 +198,17 @@ export function DimensionSection({
         )
       )}
 
+      {dimensions.length > 0 && (
+        <div className="g-label">
+          <span>Dimensions</span>
+          <ShowAllButton
+            anyVisible={dimensions.some((d) => d.visible !== false)}
+            what="dimensions"
+            testId="dimensions-show-all"
+            onSet={setAllDimensionsVisible}
+          />
+        </div>
+      )}
       {evaluated.map(({ dim, title, value }) => (
         <DimensionRow
           key={dim.id}

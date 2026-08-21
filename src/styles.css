@@ -843,6 +843,15 @@ button.x.eye:hover:not(:disabled) {
   color: var(--accent-d);
 }
 
+/* The whole-list eye in a label row: reads like the label, acts like the eye. */
+.g-label button.x.eye.all {
+  font-family: var(--cond);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 16px;
+}
+
 /* Re-open an element or a dimension. Sits with the hide key, and greys out
    while another editor already has the panel. */
 button.x.edit {

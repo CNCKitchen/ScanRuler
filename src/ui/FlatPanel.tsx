@@ -17,6 +17,7 @@ import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
 import { flatCountColor, useFlat } from '../state/flatStore'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
+import { ShowAllButton } from './ShowAllButton'
 import { FlatDimensionSection } from './FlatDimensionSection'
 import { FlatDraftEditor } from './FlatDraftEditor'
 import { InfoDot } from './InfoDot'
@@ -398,6 +399,12 @@ export function FlatPanel({
         <div className="group">
           <div className="g-label">
             <span>Elements</span>
+            <ShowAllButton
+              anyVisible={elements.some((e) => e.visible) || counts.some((c) => c.visible)}
+              what="elements"
+              testId="flat-elements-show-all"
+              onSet={(v) => flat.getState().setAllElementsVisible(v)}
+            />
             <b>{elements.length + counts.length}</b>
           </div>
           {elements.map((el) => (

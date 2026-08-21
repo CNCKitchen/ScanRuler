@@ -614,6 +614,8 @@ interface AppState {
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
   toggleElementVisible: (id: number) => void
+  /** Show or hide every element at once. */
+  setAllElementsVisible: (visible: boolean) => void
   startDraft: (kind: ElementKind) => void
   /** Re-open an existing element for editing. The caller puts its seeds or its
    *  marked surface back on the scan — see draftFromElement. */
@@ -686,6 +688,8 @@ interface AppState {
   commitDimension: () => void
   removeDimension: (id: number) => void
   toggleDimensionVisible: (id: number) => void
+  /** Show or hide every dimension at once. */
+  setAllDimensionsVisible: (visible: boolean) => void
   setSigma: (k: SigmaPreset) => void
   setSelectMode: (mode: SelectMode) => void
   setShowOverlays: (v: boolean) => void
@@ -895,6 +899,8 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => ({
       elements: s.elements.map((e) => (e.id === id ? { ...e, visible: !e.visible } : e)),
     })),
+  setAllElementsVisible: (visible) =>
+    set((s) => ({ elements: s.elements.map((e) => (e.visible === visible ? e : { ...e, visible })) })),
 
   startDraft: (kind) =>
     set({ draft: freshDraft(kind, defaultMethod(kind)), alignDraft: null, errorText: null }),
@@ -1431,6 +1437,8 @@ export const useStore = create<AppState>()((set, get) => ({
         d.id === id ? { ...d, visible: d.visible === false } : d,
       ),
     })),
+  setAllDimensionsVisible: (visible) =>
+    set((s) => ({ dimensions: s.dimensions.map((d) => ({ ...d, visible })) })),
 
   setSigma: (sigma) => set((s) => ({ settings: { ...s.settings, sigma } })),
   setSelectMode: (selectMode) => set({ selectMode }),

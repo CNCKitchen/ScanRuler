@@ -15,6 +15,7 @@ import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import type { FlatFit } from '../core/flat/types'
 import { useFlat } from '../state/flatStore'
 import { DimensionRow, WarningNote } from './DimensionRow'
+import { ShowAllButton } from './ShowAllButton'
 import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
 import { NameField, RefSelect } from './RefSelect'
@@ -37,6 +38,7 @@ export function FlatDimensionSection({
   const commitDim = useFlat((s) => s.commitDim)
   const deleteDimension = useFlat((s) => s.deleteDimension)
   const toggleDimensionVisible = useFlat((s) => s.toggleDimensionVisible)
+  const setAllDimensionsVisible = useFlat((s) => s.setAllDimensionsVisible)
 
   const evaluated = useMemo(() => evaluateFlatDimensions(dimensions, elements), [dimensions, elements])
 
@@ -160,6 +162,17 @@ export function FlatDimensionSection({
         )
       )}
 
+      {dimensions.length > 0 && (
+        <div className="g-label">
+          <span>Dimensions</span>
+          <ShowAllButton
+            anyVisible={dimensions.some((d) => d.visible)}
+            what="dimensions"
+            testId="flat-dimensions-show-all"
+            onSet={setAllDimensionsVisible}
+          />
+        </div>
+      )}
       {evaluated.map(({ dim, title, value }) => (
         <DimensionRow
           key={dim.id}
