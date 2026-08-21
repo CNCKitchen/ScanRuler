@@ -764,7 +764,7 @@ export const useStore = create<AppState>()((set, get) => ({
   settings: { method: 'gaussian', sigma: 3 },
   selectMode: 'auto',
   showOverlays: true,
-  showBackfaces: false,
+  showBackfaces: true,
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),

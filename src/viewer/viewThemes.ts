@@ -157,7 +157,7 @@ export const VIEW_THEMES: readonly ViewTheme[] = [
   },
 ]
 
-export const DEFAULT_THEME = VIEW_THEMES[0]
+export const DEFAULT_THEME = VIEW_THEMES.find((t) => t.id === 'scanner') ?? VIEW_THEMES[0]
 
 /** Falls back to the default, so a stale id in localStorage cannot leave the
  *  stage unlit. */

@@ -93,6 +93,6 @@ describe('viewport colour schemes', () => {
     // measured is the map's, and stays put — on a coloured ramp it has to be a
     // tone no band of the ramp owns, whatever stage the part is standing on.
     expect(UNMEASURED_RGB).toEqual([126, 131, 138])
-    expect(DEFAULT_THEME.surface).toEqual(UNMEASURED_RGB)
+    expect(themeById('studio').surface).toEqual(UNMEASURED_RGB)
   })
 })
