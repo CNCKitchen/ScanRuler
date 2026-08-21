@@ -109,11 +109,13 @@ describe('detectEdges', () => {
   })
 
   it('higher sensitivity keeps fainter edges', () => {
-    // A faint step: 100 → 118.
+    // A strong step (100 → 160) at x = 60 and a faint one (100 → 114) at
+    // x = 160. The automatic thresholds stand on the strong edge; only a
+    // sensitive setting lets the faint one through.
     const gray = new Uint8Array(W * H)
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        gray[y * W + x] = x + 0.5 < 110 ? 100 : 118
+        gray[y * W + x] = x + 0.5 < 60 ? 100 : x + 0.5 < 160 ? 160 : 174
       }
     }
     // Noise so the thresholds have a distribution to stand on.
@@ -125,8 +127,67 @@ describe('detectEdges', () => {
     for (let i = 0; i < gray.length; i++) {
       gray[i] = Math.max(0, Math.min(255, gray[i] + (rand() - 0.5) * 6))
     }
+    const faintPoints = (chains: EdgeChains) =>
+      allPoints(chains).filter(([x]) => Math.abs(x - 160) < 2).length
     const shy = detectEdges(gray, W, H, { sensitivity: 0 })
     const keen = detectEdges(gray, W, H, { sensitivity: 1 })
-    expect(keen.points.length).toBeGreaterThan(shy.points.length)
+    expect(faintPoints(shy)).toBe(0)
+    expect(faintPoints(keen)).toBeGreaterThan(100)
+  })
+
+  // The chain-level judgement: what a real scan is full of and a fit cannot
+  // use — short runs, texture without a consistent side, breaks in one edge.
+
+  it('drops chains shorter than the minimum length', () => {
+    // A bright 12 px square is one closed chain of ~48 px.
+    const square = rectImage(100.5, 80.5, 112.5, 92.5)
+    expect(chainCount(detectEdges(square, W, H))).toBe(1)
+    expect(chainCount(detectEdges(square, W, H, { minLength: 60 }))).toBe(0)
+    // The big rectangle's ~560 px outline goes the same way at a minimum
+    // beyond it.
+    const rect = rectImage(40.5, 30.5, 180.5, 150.5)
+    expect(chainCount(detectEdges(rect, W, H))).toBeGreaterThan(0)
+    expect(chainCount(detectEdges(rect, W, H, { minLength: 1000 }))).toBe(0)
+  })
+
+  it('drops texture — gradients without a consistent bright and dark side', () => {
+    // A patch of heavy noise (the knurl, the scanner banding) next to a clean
+    // step. Hysteresis finds plenty in the noise; nothing it finds there is
+    // a feature's length with one side brighter all along.
+    const gray = new Uint8Array(W * H).fill(100)
+    let seed = 7
+    const rand = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0
+      return seed / 2 ** 32
+    }
+    for (let y = 20; y < 100; y++) {
+      for (let x = 20; x < 100; x++) gray[y * W + x] = 100 + (rand() - 0.5) * 120
+    }
+    for (let y = 0; y < H; y++) for (let x = 150; x < W; x++) gray[y * W + x] = 200
+    const chains = detectEdges(gray, W, H)
+    expect(chainCount(chains)).toBe(1)
+    const pts = allPoints(chains)
+    expect(pts.every(([x]) => Math.abs(x - 150) < 1)).toBe(true)
+    expect(pts.length).toBeGreaterThan(150)
+    // Without the length judgement the noise would be there.
+    const raw = detectEdges(gray, W, H, { minLength: 0 })
+    expect(chainCount(raw)).toBeGreaterThan(1)
+  })
+
+  it('bridges a small gap so one edge stays one chain', () => {
+    // The rectangle's left edge with a 3 px stretch blanked to background:
+    // hysteresis breaks the chain there; the bridge joins it back.
+    const gray = rectImage(40.5, 30.5, 180.5, 150.5)
+    for (let y = 88; y < 91; y++) for (let x = 36; x < 46; x++) gray[y * W + x] = 30
+    const chains = detectEdges(gray, W, H)
+    const leftChains = new Set<number>()
+    for (let c = 0; c + 1 < chains.offsets.length; c++) {
+      for (let i = chains.offsets[c]; i < chains.offsets[c + 1]; i++) {
+        const x = chains.points[i * 2]
+        const y = chains.points[i * 2 + 1]
+        if (Math.abs(x - 40.5) < 2 && y > 60 && y < 120) leftChains.add(c)
+      }
+    }
+    expect(leftChains.size).toBe(1)
   })
 })

@@ -83,7 +83,7 @@ export function nms(g: Gradients, low: number, high: number): Uint8Array {
       else if (ay >= 2.4142 * ax) { m1 = mag[i - width]; m2 = mag[i + width] }
       else if (gx[i] * gy[i] > 0) { m1 = mag[i - width - 1]; m2 = mag[i + width + 1] }
       else { m1 = mag[i - width + 1]; m2 = mag[i + width - 1] }
-      if (m >= m1 && m >= m2) mark[i] = m >= high ? STRONG : WEAK
+      if (m > m1 && m >= m2) mark[i] = m >= high ? STRONG : WEAK
     }
   }
   return mark

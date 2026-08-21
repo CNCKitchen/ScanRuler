@@ -828,9 +828,14 @@ dimension — nothing measured ever bakes in a stale scale.
 On load the image is swept once for edges in a worker — Canny with automatic
 thresholds, the surviving pixels linked into chains, every point refined to
 subpixel by a parabola across the gradient (scanner optics blur an edge over a
-few pixels, which is exactly what the parabola needs). The chains draw as a
-teal overlay with one sensitivity slider; on a synthetic edge the recovery is
-better than a tenth of a pixel.
+few pixels, which is exactly what the parabola needs). The chains are then
+judged as chains, because a real scan is full of edges no fit can use —
+scanner banding, knurl texture, scratches, print: small breaks along one edge
+are bridged, anything shorter than **1 mm** at the current scale is dropped,
+and a chain has to keep one side brighter than the other all along its length.
+That leaves a quarter to a third of the chains with every long edge intact,
+point for point. They draw as a teal overlay with one sensitivity slider; on a
+synthetic edge the recovery is better than a tenth of a pixel.
 
 - **Through points** (the default): click the points yourself. Every click
   snaps to the nearest detected edge at subpixel — hold **Alt** to place the

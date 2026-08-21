@@ -5,6 +5,7 @@ import { buildSummary } from './core/summary'
 import { isMeshFile, isStepFile, IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
 import { imagePixelsPerMm } from './core/flat/image'
 import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
+import { EDGE_MIN_FEATURE_MM } from './core/flat/edges'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
 import { flatMethod } from './core/flat/construct'
@@ -204,13 +205,19 @@ export default function App() {
   const runEdgeDetect = async () => {
     const source = flatGrayRef.current
     if (!source) return
-    useFlat.getState().beginEdges()
+    const flat = useFlat.getState()
+    flat.beginEdges()
     const chains = await edgeClientRef.current!.detect(
       // The worker takes the buffer by transfer; the cache keeps its own.
       source.gray.slice(),
       source.width,
       source.height,
-      { sensitivity: useFlat.getState().edgeSensitivity },
+      {
+        sensitivity: flat.edgeSensitivity,
+        // A chain has to be a feature's worth of millimetres to count —
+        // 1 mm at the scale in force, or its 600 dpi equivalent before any.
+        minLength: flat.pxPerMm ? EDGE_MIN_FEATURE_MM * flat.pxPerMm.x : undefined,
+      },
     )
     if (!chains) return
     flatEdgesRef.current = chains
@@ -218,13 +225,15 @@ export default function App() {
     useFlat.getState().resolveEdges(chainCount(chains))
   }
 
-  // The sensitivity slider re-detects; the overlay redraws when chains land
-  // or the toggle moves.
+  // The sensitivity slider re-detects, and so does a change of scale (the
+  // minimum feature length is in millimetres); the overlay redraws when
+  // chains land or the toggle moves.
   const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
+  const edgeScaleX = useFlat((s) => s.pxPerMm?.x ?? null)
   useEffect(() => {
     // On mount there is nothing loaded yet and the detect returns untouched.
     void runEdgeDetect()
-  }, [edgeSensitivity])
+  }, [edgeSensitivity, edgeScaleX])
   const edgeVersion = useFlat((s) => s.edgeVersion)
   const showEdges = useFlat((s) => s.showEdges)
   const syncFlatEdges = () => {
