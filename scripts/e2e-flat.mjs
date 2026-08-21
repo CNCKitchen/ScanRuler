@@ -156,6 +156,63 @@ check(
   `the region-fitted circle reads Ø ${DISC_DIA.toFixed(3)} mm (got ${dia})`,
 )
 
+// ---- the same circle by one click on its edge --------------------------------
+// An edge tool reads a click as the whole detected edge under it.
+await click(page, '[data-test=flat-fit-circle]')
+await page.select('[data-test=flat-draft-method]', 'flat-circle-edge')
+await page.mouse.click(...toScreen(DISC_C[0] + DISC_DIA / 2, DISC_C[1]))
+await sleep(400)
+const clickedPicks = await page.$eval('[data-test=flat-draft-picks]', (el) => el.textContent)
+const clickedDia = Number(
+  ((await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)).match(/([\d.]+)/) ?? [])[1],
+)
+check(
+  Number(clickedPicks.replace(/[^\d]/g, '')) > 100,
+  `one click on the edge takes the whole chain (${clickedPicks})`,
+)
+check(
+  Math.abs(clickedDia - DISC_DIA) < 0.08,
+  `and the clicked circle reads Ø ${DISC_DIA.toFixed(3)} mm (got ${clickedDia})`,
+)
+await click(page, '[data-test=flat-draft-cancel]')
+
+// ---- snap to edge off, and a right-drag pan ----------------------------------
+// With the snap off a click is the measurement; a right-drag moves the sheet
+// under the cursor by exactly the drag, whatever the navigation scheme. A
+// fresh point draft per check — a press on the placed pin would drag it.
+const mmPerScreenPx = (2 * frustH) / rect.h
+const nearEdge = [DISC_C[0] + DISC_DIA / 2 + 0.3, DISC_C[1]]
+const readX = async () =>
+  Number(((await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)).match(/X (-?[\d.]+)/) ?? [])[1])
+await click(page, '[data-test=flat-fit-point]')
+await page.mouse.click(...toScreen(...nearEdge))
+await sleep(200)
+check(Math.abs((await readX()) - (DISC_C[0] + DISC_DIA / 2)) < 0.08, 'snap on: the click lands on the edge')
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-fit-point]')
+await click(page, '[data-test=flat-draft-snap]')
+await page.mouse.click(...toScreen(...nearEdge))
+await sleep(200)
+check(Math.abs((await readX()) - nearEdge[0]) < 0.08, 'snap off: the click is the measurement')
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-fit-point]')
+const [px0, py0] = toScreen(...nearEdge)
+await drag(page, [px0, py0], [px0 + 120, py0], { button: 'right' })
+await page.mouse.click(px0, py0)
+await sleep(200)
+const panned = await readX()
+check(
+  Math.abs(panned - (nearEdge[0] - 120 * mmPerScreenPx)) < 0.1,
+  `right-drag pans the sheet (x ${panned.toFixed(2)} after a 120 px pan)`,
+)
+await drag(page, [px0 + 120, py0], [px0, py0], { button: 'right' })
+await click(page, '[data-test=flat-draft-snap]')
+check(
+  await page.$eval('[data-test=flat-draft-snap]', (el) => el.checked),
+  'and the snap goes back on for the rest of the run',
+)
+await click(page, '[data-test=flat-draft-cancel]')
+
 // ---- a line along the rectangle's top edge ---------------------------------
 await click(page, '[data-test=flat-fit-line]')
 await page.select('[data-test=flat-draft-method]', 'flat-line-edge')

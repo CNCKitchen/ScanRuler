@@ -246,18 +246,25 @@ export default function App() {
   /** A spot on the sheet (document units) as image pixels, snapped to the
    *  nearest detected edge unless Alt says the spot itself is the
    *  measurement. */
-  const flatSpotToPx = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
+  const flatSpotToPx = (
+    p: [number, number],
+    meta: { alt: boolean; unitsPerScreenPx: number },
+    snap = true,
+  ) => {
     const mm = flatMmPerPx()
     let px: [number, number] = [p[0] / mm.x, p[1] / mm.y]
-    if (!meta.alt && flatEdgeIndexRef.current) {
-      // A hand-sized radius: what looks like "that edge" on screen, however
-      // far zoomed in or out the sheet is right now.
-      const radiusPx = (10 * meta.unitsPerScreenPx) / mm.x
-      const snapped = flatEdgeIndexRef.current.nearest(px[0], px[1], radiusPx)
+    // Alt inverts whatever the setting says, for this one pick.
+    if (snap !== meta.alt && flatEdgeIndexRef.current) {
+      const snapped = flatEdgeIndexRef.current.nearest(px[0], px[1], flatSnapRadiusPx(meta))
       if (snapped) px = [snapped[0], snapped[1]]
     }
     return px
   }
+
+  /** A hand-sized snap radius in image pixels: what looks like "that edge"
+   *  on screen, however far zoomed in or out the sheet is right now. */
+  const flatSnapRadiusPx = (meta: { unitsPerScreenPx: number }) =>
+    (10 * meta.unitsPerScreenPx) / flatMmPerPx().x
 
   /** A click on the flat sheet — routed to whichever flat tool is collecting. */
   const handleFlatPick = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
@@ -275,7 +282,14 @@ export default function App() {
       flat.addCountPick(px)
       return
     }
-    if (flat.draft) flat.addDraftPick(px)
+    if (!flat.draft) return
+    if (flatMethod(flat.draft.method).mode === 'edge') {
+      // An edge tool reads a click as the whole detected edge under it.
+      const chain = flatEdgeIndexRef.current?.chainNear(px[0], px[1], flatSnapRadiusPx(meta))
+      if (chain) flat.addDraftPoints(thinEdgePoints(chain))
+      return
+    }
+    flat.addDraftPick(flatSpotToPx(p, meta, flat.snapToEdge))
   }
 
   /** A draft pin dragged across the sheet: the pick moves with the hand,
@@ -285,7 +299,8 @@ export default function App() {
     p: [number, number],
     meta: { alt: boolean; unitsPerScreenPx: number },
   ) => {
-    useFlat.getState().moveDraftPick(index, flatSpotToPx(p, meta))
+    const flat = useFlat.getState()
+    flat.moveDraftPick(index, flatSpotToPx(p, meta, flat.snapToEdge))
   }
 
   /** The cursor over the sheet while the datum tool holds its first pick:
@@ -428,6 +443,15 @@ export default function App() {
   }
   useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit, flatDatum])
 
+  /** Edge points thinned to a sane count before they join a draft — a long
+   *  edge at 1200 dpi is tens of thousands, and a fit needs nowhere near. */
+  const thinEdgePoints = (points: [number, number][]) => {
+    const cap = 4000
+    return points.length > cap
+      ? points.filter((_, i) => i % Math.ceil(points.length / cap) === 0)
+      : points
+  }
+
   /** A dragged region over the edge overlay: every detected edge point
    *  inside it joins the draft, thinned to a sane count first. */
   const handleFlatRegion = (min: [number, number], max: [number, number]) => {
@@ -440,12 +464,7 @@ export default function App() {
       max[0] / mm.x,
       max[1] / mm.y,
     )
-    const cap = 4000
-    const thinned =
-      points.length > cap
-        ? points.filter((_, i) => i % Math.ceil(points.length / cap) === 0)
-        : points
-    flat.addDraftPoints(thinned)
+    flat.addDraftPoints(thinEdgePoints(points))
   }
 
   const openFile = async (file: File) => {

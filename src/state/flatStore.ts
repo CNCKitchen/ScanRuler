@@ -209,6 +209,10 @@ interface FlatState {
   /** 0…1 — how faint an edge may be and still count. */
   edgeSensitivity: number
   showEdges: boolean
+  /** Hand picks — placed or dragged — land on the nearest detected edge
+   *  rather than where the cursor was. Off, the cursor is the measurement;
+   *  Alt inverts either way for one pick. */
+  snapToEdge: boolean
 
   /** The scale measurements use, or null for bare pixels (drawn at 1 px/mm). */
   pxPerMm: PixelsPerMm | null
@@ -257,6 +261,7 @@ interface FlatState {
   failEdges: () => void
   setEdgeSensitivity: (v: number) => void
   setShowEdges: (v: boolean) => void
+  setSnapToEdge: (v: boolean) => void
 
   /** User-created measurements between elements, and the one being built. */
   dimensions: FlatDimension[]
@@ -337,6 +342,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   // On by default so the first detection is visible feedback for the slider;
   // a chip on the stage puts them away while measuring.
   showEdges: true,
+  snapToEdge: true,
 
   pxPerMm: null,
   calSource: 'none',
@@ -695,6 +701,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   failEdges: () => set((s) => ({ edgeStatus: 'idle', edgeCount: 0, edgeVersion: s.edgeVersion + 1 })),
   setEdgeSensitivity: (edgeSensitivity) => set({ edgeSensitivity }),
   setShowEdges: (showEdges) => set({ showEdges }),
+  setSnapToEdge: (snapToEdge) => set({ snapToEdge }),
 
   startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null, counting: null }),
   cancelDatum: () => set({ datumPicking: null }),

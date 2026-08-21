@@ -21,6 +21,8 @@ export function FlatDraftEditor() {
   const pxPerMm = useFlat((s) => s.pxPerMm)
   const datum = useFlat((s) => s.datum)
   const setDraftMethod = useFlat((s) => s.setDraftMethod)
+  const snapToEdge = useFlat((s) => s.snapToEdge)
+  const setSnapToEdge = useFlat((s) => s.setSnapToEdge)
   const setDraftName = useFlat((s) => s.setDraftName)
   const setDraftRef = useFlat((s) => s.setDraftRef)
   const undoDraftPick = useFlat((s) => s.undoDraftPick)
@@ -49,8 +51,8 @@ export function FlatDraftEditor() {
         ? method.hint
         : method.mode === 'edge'
           ? draft.fit
-            ? `Drag another box to add more edge points, or ${saveWord}.`
-            : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; drag a longer box.`
+            ? `Click another edge or drag another box to add more edge points, or ${saveWord}.`
+            : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; click a longer edge or drag a bigger box.`
           : draft.kind === 'point'
             ? `Drag the pin to move it, click to place it again, or ${saveWord}.`
             : picks < minPicks
@@ -85,6 +87,18 @@ export function FlatDraftEditor() {
               </option>
             ))}
           </select>
+        </label>
+      )}
+
+      {method.mode === 'pick' && (
+        <label className="checkrow">
+          <input
+            type="checkbox"
+            data-test="flat-draft-snap"
+            checked={snapToEdge}
+            onChange={(e) => setSnapToEdge(e.target.checked)}
+          />
+          <span>Snap to edge</span>
         </label>
       )}
 

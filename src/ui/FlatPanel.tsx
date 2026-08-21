@@ -302,11 +302,12 @@ export function FlatPanel({
                 arc. Dimensions are then measured between them, never between raw pixels.
               </p>
               <p>
-                An element is <b>picked</b>, by clicking the points it runs through — every click
-                snaps to the nearest detected edge at subpixel, hold <b>Alt</b> to place the raw
-                click, and any pin can be dragged afterwards; <b>fitted to an edge region</b>, by
-                dragging a box over the edge and letting every detected edge point inside feed
-                the fit; or <b>constructed</b> from elements you already have — a midpoint, a
+                An element is <b>picked</b>, by clicking the points it runs through — with{' '}
+                <b>Snap to edge</b> on, every click and drag lands on the nearest detected edge
+                at subpixel, and <b>Alt</b> inverts that for one pick; any pin can be dragged
+                afterwards; <b>fitted to an edge region</b>, by clicking a detected edge to take
+                all of it or dragging a box over it and letting every edge point inside feed the
+                fit; or <b>constructed</b> from elements you already have — a midpoint, a
                 circle's center, the intersection of two lines.
               </p>
               <p>
