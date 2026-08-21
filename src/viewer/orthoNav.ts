@@ -176,21 +176,28 @@ export class OrthoNavigator {
     const base = this.planar
       ? this.scheme.bindings.map((b) => (b.action === 'orbit' ? { ...b, action: 'pan' as NavAction } : b))
       : this.scheme.bindings
+    // A sheet always pans on a plain right-drag, whatever the scheme gives
+    // the button otherwise (many give it nothing): the 2D tools take the
+    // left button for picking and region boxes, and a viewport that cannot be
+    // moved with the other hand is no viewport. Appended, so a scheme's own
+    // plain right-button binding still wins.
+    const planarExtra: NavBinding[] = this.planar ? [{ buttons: RMB, action: 'pan' }] : []
     if (!this.paintMode) {
-      this.bindings = base
+      this.bindings = [...base, ...planarExtra]
       return
     }
+    // Only the brush in 3D rubs out with the right button; the 2D region
+    // tool claims the left alone, so the right stays the camera's there.
+    const claimed = this.planar ? [LMB] : [LMB, RMB]
     const moved = base.map((b) =>
-      (b.buttons === LMB || b.buttons === RMB) && !b.shift && !b.ctrl && !b.alt
-        ? { ...b, shift: true }
-        : b,
+      claimed.includes(b.buttons) && !b.shift && !b.ctrl && !b.alt ? { ...b, shift: true } : b,
     )
     // A scheme that already used Shift with that button now has two bindings
     // for the same chord (Rhino's Shift+right pan behind its right-drag orbit,
     // say). First match wins, which puts the gesture that was plain — the one
     // the user reaches for without thinking — in front of the one that already
     // asked for a modifier.
-    this.bindings = moved
+    this.bindings = [...moved, ...planarExtra]
   }
 
   /** Drop any in-flight gesture, so stale state cannot leak across a change of
