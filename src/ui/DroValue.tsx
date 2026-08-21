@@ -3,7 +3,15 @@
 // legend — shared so the draft preview, the dimension preview and the
 // dimension rows all write their numbers the same way.
 
-import type { DimensionValue } from '../core/dimensions'
+/** What a DRO window needs of a dimension's evaluation — the slice the 3D
+ *  DimensionValue and the 2D FlatDimensionValue share. */
+export interface ReadValue {
+  label: string
+  value?: string
+  invalid?: string
+  warning?: string
+  detail?: string
+}
 
 /** Split a formatted measurement into digits and unit so the DRO window can
  *  set them apart the way an instrument does — big number, small legend. */
@@ -28,7 +36,7 @@ export function DroValue({ value, color }: { value: string; color?: string }) {
 /** A DRO window carrying a dimension's value, or its alarm face when the
  *  measurement has none. The dimension preview and the dimension rows read
  *  identically by design, so they share it. */
-export function ValueWindow({ value, testId }: { value: DimensionValue; testId: string }) {
+export function ValueWindow({ value, testId }: { value: ReadValue; testId: string }) {
   return value.invalid ? (
     <div className="dro-window alarm" data-test={testId}>
       <b>no value</b>

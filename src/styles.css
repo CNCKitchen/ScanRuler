@@ -886,6 +886,11 @@ button.x:disabled {
   opacity: 0.35;
 }
 
+/* The same quieting for a dimension hidden in the viewport. */
+.dro.ghost .dro-label > span:first-child {
+  color: var(--faint);
+}
+
 .dro-note {
   margin-top: 6px;
   font-size: 10.5px;

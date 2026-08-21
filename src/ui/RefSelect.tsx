@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The fields the editors are assembled from: the reference-slot dropdown
-// shared by constructions, dimensions and the alignment datums, and the name
-// field of whatever is being edited.
+// shared by constructions, dimensions and the alignment datums (in both
+// workspaces), and the name field of whatever is being edited.
 
 import { providesRole, type RefRole } from '../core/elements/refs'
 import type { ElementKind } from '../core/types'
@@ -45,27 +45,22 @@ export function NameField({
 }
 
 /** One reference-slot dropdown, shared by constructions, dimensions and the
- *  alignment datums. */
+ *  alignment datums in both workspaces. The caller decides which elements
+ *  are on offer (providersFor, for the 3D roles); the select only lists
+ *  them. */
 export function RefSelect({
   label,
-  roles,
-  kinds,
+  options,
   value,
-  elements,
-  blocked,
   testId,
   picking,
   onChange,
   onPickNew,
 }: {
   label: string
-  roles: readonly RefRole[]
-  /** Narrows the slot beyond its roles to specific element kinds. */
-  kinds?: readonly ElementKind[]
+  /** The elements that can fill this slot, in list order. */
+  options: readonly { id: number; name: string }[]
   value: number | null
-  elements: Element[]
-  /** Elements this slot must not offer — see providersFor. */
-  blocked?: ReadonlySet<number>
   testId?: string
   /** True while a pick on the scan is filling this slot. */
   picking?: boolean
@@ -73,7 +68,6 @@ export function RefSelect({
   /** Offered on point slots: create the point by clicking the scan. */
   onPickNew?: () => void
 }) {
-  const options = providersFor(roles, elements, blocked, kinds)
   return (
     <label className="field">
       <span>{label}</span>

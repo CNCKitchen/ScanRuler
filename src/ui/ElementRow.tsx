@@ -1,59 +1,61 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // One row of the element list: colour dot, name, primary reading, tools.
+// Shared by the 3D and 2D workspaces — the row knows nothing about how its
+// element was measured, only what to read and which keys to offer.
 
-import { formatPrimary } from '../core/summary'
-import { useStore, type Element } from '../state/store'
+import type { ReactNode } from 'react'
 import { RowTools } from './RowTools'
 
 export function ElementRow({
-  el,
+  name,
+  color,
+  visible,
+  reading,
   selected,
   editorOpen,
+  editDisabled,
   onEdit,
+  onToggleVisible,
   onDelete,
 }: {
-  el: Element
+  name: string
+  color: string
+  visible: boolean
+  /** The reading at the end of the row: a primary value, a spinner, a ⚠. */
+  reading: ReactNode
   /** Referenced by whatever is being built — marked to mirror its glow in
    *  the viewport. */
   selected: boolean
   /** True while anything is being assembled — the row keys stand down, since
    *  re-opening would throw away what is already in the box. */
   editorOpen: boolean
+  /** The edit key standing down for a reason of the row's own (a fit still
+   *  running). */
+  editDisabled?: boolean
   onEdit: () => void
+  onToggleVisible: () => void
   onDelete: () => void
 }) {
-  const toggleElementVisible = useStore((s) => s.toggleElementVisible)
   return (
     <div
-      className={'kv' + (el.visible ? '' : ' ghost') + (selected ? ' sel' : '')}
+      className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '')}
       data-test="element-row"
     >
-      <span className="dot" style={{ background: el.color }} />
-      <span className="name">{el.name}</span>
-      {el.status === 'fitting' ? (
-        <b className="working">
-          <span className="spinner" />
-          fitting
-        </b>
-      ) : el.fit ? (
-        <b>{formatPrimary(el.fit)}</b>
-      ) : (
-        <b className="warn" title={el.message}>
-          ⚠
-        </b>
-      )}
+      <span className="dot" style={{ background: color }} />
+      <span className="name">{name}</span>
+      {reading}
       <RowTools
-        name={el.name}
-        visible={el.visible}
+        name={name}
+        visible={visible}
         editTestId="edit-element"
-        editDisabled={editorOpen || el.status === 'fitting'}
+        editDisabled={editorOpen || Boolean(editDisabled)}
         editTitle={
           editorOpen
             ? 'Finish what is open first'
-            : `Edit ${el.name} — change what it is measured on or built from`
+            : `Edit ${name} — change what it is measured on or built from`
         }
         onEdit={onEdit}
-        onToggleVisible={() => toggleElementVisible(el.id)}
+        onToggleVisible={onToggleVisible}
         onDelete={onDelete}
       />
     </div>

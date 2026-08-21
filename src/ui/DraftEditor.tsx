@@ -16,7 +16,7 @@ import { DroValue } from './DroValue'
 import { ExtendFields } from './ExtendFields'
 import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
-import { NameField, RefSelect } from './RefSelect'
+import { NameField, providersFor, RefSelect } from './RefSelect'
 
 export function DraftEditor({
   onSelectMode,
@@ -170,11 +170,8 @@ export function DraftEditor({
                 <RefSelect
                   key={i}
                   label={slot.label}
-                  roles={[slot.role]}
-                  kinds={slot.kinds}
+                  options={providersFor([slot.role], elements, blocked, slot.kinds)}
                   value={draft.refs[i]}
-                  elements={elements}
-                  blocked={blocked}
                   testId={`draft-ref-${i}`}
                   onChange={(id) => setDraftRef(i, id)}
                 />

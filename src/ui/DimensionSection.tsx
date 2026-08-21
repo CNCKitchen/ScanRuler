@@ -8,7 +8,6 @@ import {
   dimensionTypeInfo,
   evaluateDimension,
   evaluateDimensions,
-  type Dimension,
   type DimensionValue,
   type SphereAnchor,
 } from '../core/dimensions'
@@ -17,66 +16,8 @@ import { useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
-import { NameField, RefSelect } from './RefSelect'
-import { RowTools } from './RowTools'
-
-function WarningNote({ text }: { text: string }) {
-  return <p className="warnnote">⚠ {text}</p>
-}
-
-/** One finished dimension, read the way the preview above it is. */
-function DimensionRow({
-  dim,
-  title,
-  value,
-  editorOpen,
-  onEdit,
-  onToggleVisible,
-  onDelete,
-}: {
-  dim: Dimension
-  /** The referenced element names, joined — what the dimension runs between. */
-  title: string
-  value: DimensionValue
-  /** True while anything is being assembled — the edit key stands down, since
-   *  re-opening would throw away what is already in the box. */
-  editorOpen: boolean
-  onEdit: () => void
-  onToggleVisible: () => void
-  onDelete: () => void
-}) {
-  return (
-    <div className="dro hero dim" data-test="dimension-row">
-      <div className="dro-label">
-        <span>
-          {dim.name} · {value.label}
-        </span>
-        <span className="dro-tools">
-          <span className="dro-title">{title}</span>
-          <RowTools
-            name={dim.name}
-            visible={dim.visible !== false}
-            editTestId="edit-dimension"
-            editDisabled={editorOpen}
-            editTitle={
-              editorOpen
-                ? 'Finish what is open first'
-                : `Edit ${dim.name} — change its type or what it measures between`
-            }
-            onEdit={onEdit}
-            onToggleVisible={onToggleVisible}
-            onDelete={onDelete}
-          />
-        </span>
-      </div>
-      <ValueWindow value={value} testId="dimension-value" />
-      {value.detail && !value.invalid && <div className="dro-note">{value.detail}</div>}
-      {(value.warning ?? value.invalid) && (
-        <WarningNote text={(value.warning ?? value.invalid)!} />
-      )}
-    </div>
-  )
-}
+import { NameField, providersFor, RefSelect } from './RefSelect'
+import { DimensionRow, WarningNote } from './DimensionRow'
 
 export function DimensionSection({
   editorOpen,
@@ -203,9 +144,8 @@ export function DimensionSection({
               <RefSelect
                 key={i}
                 label={slot.label}
-                roles={[slot.role]}
+                options={providersFor([slot.role], elements)}
                 value={dimDraft.refs[i]}
-                elements={elements}
                 testId={`dim-ref-${i}`}
                 picking={dimDraft.pickSlot === i}
                 onChange={(id) => setDimensionRef(i, id)}
@@ -259,7 +199,8 @@ export function DimensionSection({
       {evaluated.map(({ dim, title, value }) => (
         <DimensionRow
           key={dim.id}
-          dim={dim}
+          name={dim.name}
+          visible={dim.visible !== false}
           title={title}
           value={value}
           editorOpen={editorOpen}

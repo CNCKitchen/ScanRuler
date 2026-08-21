@@ -5,6 +5,7 @@
 import { useStore, type SelectMode } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
+import { formatPrimary } from '../core/summary'
 import type { StepDimensions } from '../core/elements/assumed'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
@@ -73,6 +74,7 @@ export function Panel({
   const setStepStyle = useStore((s) => s.setStepStyle)
   const stepDimensions = useStore((s) => s.stepDimensions)
   const setStepDimensions = useStore((s) => s.setStepDimensions)
+  const toggleElementVisible = useStore((s) => s.toggleElementVisible)
   // Which shape to fit is the user's to decide, so the ring goes round the row
   // rather than singling one of them out.
   const pulseKind = usePulse('kindrow')
@@ -175,10 +177,28 @@ export function Panel({
           {elements.map((el) => (
             <ElementRow
               key={el.id}
-              el={el}
+              name={el.name}
+              color={el.color}
+              visible={el.visible}
+              reading={
+                el.status === 'fitting' ? (
+                  <b className="working">
+                    <span className="spinner" />
+                    fitting
+                  </b>
+                ) : el.fit ? (
+                  <b>{formatPrimary(el.fit)}</b>
+                ) : (
+                  <b className="warn" title={el.message}>
+                    ⚠
+                  </b>
+                )
+              }
               selected={selectedIds.has(el.id) || draft?.editId === el.id}
               editorOpen={editorOpen}
+              editDisabled={el.status === 'fitting'}
               onEdit={() => onEditElement(el.id)}
+              onToggleVisible={() => toggleElementVisible(el.id)}
               onDelete={() => onDelete(el.id)}
             />
           ))}
