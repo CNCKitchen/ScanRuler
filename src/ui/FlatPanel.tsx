@@ -14,7 +14,7 @@ import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
-import { useFlat } from '../state/flatStore'
+import { flatCountColor, useFlat } from '../state/flatStore'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
 import { FlatDimensionSection } from './FlatDimensionSection'
@@ -58,12 +58,16 @@ export function FlatPanel({
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
   const counting = useFlat((s) => s.counting)
+  const nextCountId = useFlat((s) => s.nextCountId)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
-  const editorOpen = draft !== null || dimDraft !== null
+  const editorOpen = draft !== null || dimDraft !== null || counting !== null
+  const editedCount =
+    counting?.editId === undefined ? undefined : counts.find((c) => c.id === counting.editId)
+  const countColor = flatCountColor(counting?.editId ?? nextCountId)
   // Elements referenced by the construction or dimension being built —
   // marked in the list the way the 3D panel marks them.
   const selectedIds = new Set(
@@ -288,7 +292,7 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && draft === null && (
+      {imageName && draft === null && counting === null && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -308,6 +312,15 @@ export function FlatPanel({
               <p>
                 Which of those a kind offers appears as <i>Created</i> once you choose it.
               </p>
+              <p>
+                <b>Count</b> is a tally rather than a fit: click the features one after another
+                — the teeth of a gear, the holes in a flange — and each click wears the next
+                number, pinned where you clicked.
+              </p>
+              <p>
+                <b>Enter</b> or a <b>middle click</b> creates whatever is pending; <b>Esc</b>{' '}
+                discards it.
+              </p>
             </InfoDot>
           </div>
           <div className="kindrow">
@@ -321,17 +334,69 @@ export function FlatPanel({
                 {FLAT_KIND_LABELS[k]}
               </button>
             ))}
+            <button
+              data-test="flat-fit-count"
+              disabled={calibrating !== null}
+              onClick={() => flat.getState().startCount()}
+            >
+              Count
+            </button>
           </div>
         </div>
       )}
 
       <FlatDraftEditor />
 
-      {elements.length > 0 && (
+      {counting && (
+        <div className="draftbox" style={{ borderLeftColor: countColor }}>
+          <div className="sec-head">
+            <span className="dot" style={{ background: countColor }} />
+            {editedCount ? `Edit ${editedCount.name}` : 'New count'}
+          </div>
+          <p className="hint" data-test="flat-count-status">
+            {counting.picks.length === 0
+              ? 'Click the first feature on the image.'
+              : `${counting.picks.length} counted — click the next feature, or ${editedCount ? 'save' : 'create'} it.`}
+          </p>
+          <div className="dro">
+            <div className="dro-label">
+              <span>Tally</span>
+            </div>
+            <div
+              className={'dro-window ' + (counting.picks.length > 0 ? 'ready' : 'empty')}
+              data-test="flat-count-tally"
+            >
+              <b style={{ fontSize: 13, color: countColor }}>{counting.picks.length}</b>
+            </div>
+          </div>
+          <button
+            className="primary block"
+            data-test="flat-count-finish"
+            disabled={counting.picks.length === 0}
+            onClick={() => flat.getState().finishCount()}
+          >
+            {editedCount ? 'Save changes' : 'Create count'}
+          </button>
+          <div className="toolrow">
+            <button
+              data-test="flat-count-undo"
+              disabled={counting.picks.length === 0}
+              onClick={() => flat.getState().undoCountPick()}
+            >
+              Undo point
+            </button>
+            <button data-test="flat-count-cancel" onClick={() => flat.getState().cancelCount()}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {elements.length + counts.length > 0 && (
         <div className="group">
           <div className="g-label">
             <span>Elements</span>
-            <b>{elements.length}</b>
+            <b>{elements.length + counts.length}</b>
           </div>
           {elements.map((el) => (
             <ElementRow
@@ -357,90 +422,24 @@ export function FlatPanel({
               onDelete={() => flat.getState().deleteElement(el.id)}
             />
           ))}
+          {counts.map((c) => (
+            <ElementRow
+              key={`count-${c.id}`}
+              name={c.name}
+              color={c.color}
+              visible={c.visible}
+              reading={<b data-test={`flat-count-value-${c.id}`}>{c.picks.length}</b>}
+              selected={counting?.editId === c.id}
+              editorOpen={editorOpen}
+              onEdit={() => flat.getState().editCount(c.id)}
+              onToggleVisible={() => flat.getState().toggleCountVisible(c.id)}
+              onDelete={() => flat.getState().deleteCount(c.id)}
+            />
+          ))}
         </div>
       )}
 
       {imageName && <FlatDimensionSection editorOpen={editorOpen} />}
-
-      {imageName && (
-        <div className="group">
-          <div className="sec-head">
-            Count
-            <InfoDot title="Counting features">
-              <p>
-                A tally: click the features one after another — the teeth of a gear, the holes
-                in a flange — and each click gets the next number, pinned where you clicked so
-                the tally can be checked against the part.
-              </p>
-              <p>
-                Clicks snap to detected edges like any other pick; hold <b>Alt</b> to place
-                the raw click. <b>Undo</b> takes the last one back; <b>Finish</b> keeps the tally
-                and its numbers on the sheet.
-              </p>
-            </InfoDot>
-          </div>
-          {counting ? (
-            <>
-              <p className="hint" data-test="flat-count-status">
-                {counting.picks.length === 0
-                  ? 'Click the first feature on the image.'
-                  : `${counting.picks.length} counted — click the next feature, or finish.`}
-              </p>
-              <button
-                className="primary block"
-                data-test="flat-count-finish"
-                disabled={counting.picks.length === 0}
-                onClick={() => flat.getState().finishCount()}
-              >
-                {counting.editId !== undefined ? 'Save count' : 'Finish count'}
-              </button>
-              <div className="toolrow">
-                <button
-                  data-test="flat-count-undo"
-                  disabled={counting.picks.length === 0}
-                  onClick={() => flat.getState().undoCountPick()}
-                >
-                  Undo
-                </button>
-                <button data-test="flat-count-cancel" onClick={() => flat.getState().cancelCount()}>
-                  Cancel
-                </button>
-              </div>
-            </>
-          ) : (
-            <button
-              className="block"
-              data-test="flat-count-start"
-              disabled={calibrating !== null || datumPicking !== null}
-              onClick={() => flat.getState().startCount()}
-            >
-              Start counting
-            </button>
-          )}
-          {counts.length > 0 && (
-            <>
-              <div className="g-label">
-                <span>Counts</span>
-                <b>{counts.length}</b>
-              </div>
-              {counts.map((c) => (
-                <ElementRow
-                  key={c.id}
-                  name={c.name}
-                  color={c.color}
-                  visible={c.visible}
-                  reading={<b data-test={`flat-count-value-${c.id}`}>{c.picks.length}</b>}
-                  selected={counting?.editId === c.id}
-                  editorOpen={editorOpen || counting !== null}
-                  onEdit={() => flat.getState().editCount(c.id)}
-                  onToggleVisible={() => flat.getState().toggleCountVisible(c.id)}
-                  onDelete={() => flat.getState().deleteCount(c.id)}
-                />
-              ))}
-            </>
-          )}
-        </div>
-      )}
 
       {imageName && (elements.length > 0 || dimensions.length > 0 || counts.length > 0) && (
         <>

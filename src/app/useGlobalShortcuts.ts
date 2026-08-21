@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Enter or a middle-mouse click confirms the pending element — or, with no
-// element draft open, the pending dimension — and Escape discards it. The
+// element draft open, the pending dimension — and Escape discards it; the 2D
+// workspace's drafts, counts and stage tools answer to the same keys. The
 // middle click only counts when it isn't a drag — the middle button also
 // drives the camera zoom.
 import { useEffect } from 'react'
@@ -10,6 +11,10 @@ import type { FitData } from '../core/types'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
+import { useFlat } from '../state/flatStore'
+import { useShell } from '../state/shellStore'
+import { evaluateFlatDimension } from '../core/flat/dimensions'
+import type { FlatFit } from '../core/flat/types'
 
 export function useGlobalShortcuts({
   stopMarking,
@@ -32,6 +37,30 @@ export function useGlobalShortcuts({
       if (!fits.every((f): f is FitData => f !== undefined)) return false
       return !evaluateDimension(dd.type, fits, dd.anchor).invalid
     }
+    // The 2D workspace's own pending things, in the order they take the keys:
+    // the stage tools (calibration, datum), then the element, count and
+    // dimension drafts. Mirrors the buttons: a confirm lands only where the
+    // button would be enabled.
+    const flatConfirmable = (): (() => void) | null => {
+      const f = useFlat.getState()
+      if (f.calibrating || f.datumPicking) return null
+      if (f.draft) return f.draft.fit ? () => useFlat.getState().commitDraft() : null
+      if (f.counting) return f.counting.picks.length > 0 ? () => useFlat.getState().finishCount() : null
+      const dd = f.dimDraft
+      if (!dd || dd.refs.some((r) => r === null)) return null
+      const fits = dd.refs.map((id) => f.elements.find((e) => e.id === id)?.fit)
+      if (!fits.every((x): x is FlatFit => x !== undefined && x !== null)) return null
+      return evaluateFlatDimension(dd.type, fits).invalid ? null : () => useFlat.getState().commitDim()
+    }
+    const flatCancel = (): (() => void) | null => {
+      const f = useFlat.getState()
+      if (f.calibrating) return f.cancelCalibration
+      if (f.datumPicking) return f.cancelDatum
+      if (f.draft) return f.cancelDraft
+      if (f.counting) return f.cancelCount
+      if (f.dimDraft) return f.cancelDimDraft
+      return null
+    }
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
@@ -39,6 +68,11 @@ export function useGlobalShortcuts({
       // it right after this handler, and confirming the draft as well would
       // fire two different actions from one key press.
       if (e.key === 'Enter' && target?.closest('button')) return
+      if (useShell.getState().workspace === 'flat') {
+        if (e.key === 'Escape') flatCancel()?.()
+        else if (e.key === 'Enter') flatConfirmable()?.()
+        return
+      }
       const store = useStore.getState()
       if (useDeviation.getState().marking) {
         // Escape backs out one step at a time: the first hands the camera back
@@ -79,7 +113,8 @@ export function useGlobalShortcuts({
       }
     }
     /** What a confirm would land on right now, if anything. */
-    const confirmable = (): 'draft' | 'dimension' | null => {
+    const confirmable = (): 'draft' | 'dimension' | 'flat' | null => {
+      if (useShell.getState().workspace === 'flat') return flatConfirmable() ? 'flat' : null
       const store = useStore.getState()
       if (store.draft) return store.draft.status === 'ready' ? 'draft' : null
       return dimensionReady() ? 'dimension' : null
@@ -100,6 +135,7 @@ export function useGlobalShortcuts({
       const what = confirmable()
       if (what === 'draft') confirmDraft()
       else if (what === 'dimension') useStore.getState().commitDimension()
+      else if (what === 'flat') flatConfirmable()?.()
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('pointerdown', onPointerDown)
