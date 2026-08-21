@@ -9,6 +9,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
+import { spreadLabels } from './labelSpread'
 import type { LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
@@ -202,6 +203,7 @@ export class OrthoViewport {
       this.renderer.render(this.scene, this.camera)
       this.opts.onAfterRender?.(w, h)
       this.labelRenderer.render(this.scene, this.camera)
+      spreadLabels(this.labelRenderer.domElement)
     }
     // Scheduled, not run inline: the owner composing this viewport is still
     // mid-constructor here, and its tick hooks reach for modules it has not
