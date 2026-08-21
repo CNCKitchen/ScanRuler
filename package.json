@@ -32,9 +32,11 @@
     "e2e:thickness": "node scripts/e2e-thickness.mjs",
     "e2e:step": "node scripts/e2e-step.mjs",
     "e2e:local-fit": "node scripts/e2e-local-fit.mjs",
-    "e2e:flat": "node scripts/e2e-flat.mjs"
+    "e2e:flat": "node scripts/e2e-flat.mjs",
+    "e2e:project": "node scripts/e2e-project.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "meshstep": "0.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
