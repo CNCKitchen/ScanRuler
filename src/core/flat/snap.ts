@@ -12,9 +12,11 @@ const CELL = 32
 export class EdgeIndex {
   private cells = new Map<number, number[]>()
   private points: Float32Array
+  private offsets: Uint32Array
 
   constructor(chains: EdgeChains) {
     this.points = chains.points
+    this.offsets = chains.offsets
     const count = chains.points.length / 2
     for (let i = 0; i < count; i++) {
       const key = this.keyOf(chains.points[i * 2], chains.points[i * 2 + 1])
@@ -32,6 +34,33 @@ export class EdgeIndex {
   /** The nearest edge point within `maxDist` of (x, y), or null. All in image
    *  pixels. */
   nearest(x: number, y: number, maxDist: number): Vec2 | null {
+    const best = this.nearestIndex(x, y, maxDist)
+    return best < 0 ? null : [this.points[best * 2], this.points[best * 2 + 1]]
+  }
+
+  /** Every point of the chain the nearest edge point within `maxDist`
+   *  belongs to — what a click on an edge selects — or null when no edge is
+   *  within reach. */
+  chainNear(x: number, y: number, maxDist: number): Vec2[] | null {
+    const i = this.nearestIndex(x, y, maxDist)
+    if (i < 0) return null
+    // Chains are laid out in order, so the one holding point i is the last
+    // offset at or before it.
+    let lo = 0
+    let hi = this.offsets.length - 2
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (this.offsets[mid] <= i) lo = mid
+      else hi = mid - 1
+    }
+    const out: Vec2[] = []
+    for (let k = this.offsets[lo]; k < this.offsets[lo + 1]; k++) {
+      out.push([this.points[k * 2], this.points[k * 2 + 1]])
+    }
+    return out
+  }
+
+  private nearestIndex(x: number, y: number, maxDist: number): number {
     const c0x = Math.floor((x - maxDist) / CELL)
     const c1x = Math.floor((x + maxDist) / CELL)
     const c0y = Math.floor((y - maxDist) / CELL)
@@ -53,7 +82,7 @@ export class EdgeIndex {
         }
       }
     }
-    return best < 0 ? null : [this.points[best * 2], this.points[best * 2 + 1]]
+    return best
   }
 
   /** Every edge point inside the axis-aligned box, in image pixels — what an

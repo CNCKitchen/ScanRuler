@@ -88,7 +88,7 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     kind: 'line',
     mode: 'edge',
     label: 'From edge region',
-    hint: 'Drag a box along the edge — every detected edge point inside it feeds the fit, strays from other edges are voted out.',
+    hint: 'Click a detected edge to take the whole of it, or drag a box along it — every edge point collected feeds the fit, strays from other edges are voted out.',
     minPicks: 8,
   },
   {
@@ -104,7 +104,7 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     kind: 'circle',
     mode: 'edge',
     label: 'From edge region',
-    hint: 'Drag a box over the circle — every detected edge point inside it feeds the fit, strays are voted out.',
+    hint: "Click the circle's detected edge to take the whole of it, or drag a box over it — every edge point collected feeds the fit, strays are voted out.",
     minPicks: 12,
   },
   {
@@ -120,7 +120,7 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     kind: 'arc',
     mode: 'edge',
     label: 'From edge region',
-    hint: 'Drag a box along the arc — every detected edge point inside it feeds the fit, strays are voted out.',
+    hint: "Click the arc's detected edge to take the whole of it, or drag a box along it — every edge point collected feeds the fit, strays are voted out.",
     minPicks: 12,
   },
 ]

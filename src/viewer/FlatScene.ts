@@ -87,8 +87,8 @@ export class FlatScene {
   /** A draft pick being dragged to a new place on the sheet, by index. */
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
 
-  /** Left-drag selects a region instead of panning while an edge tool is
-   *  collecting. */
+  /** Left-drag selects a region (and a plain click picks a whole edge)
+   *  instead of panning while an edge tool is collecting. */
   private regionMode = false
   private bandStart: { x: number; y: number } | null = null
   private bandDiv: HTMLDivElement | null = null
@@ -161,7 +161,7 @@ export class FlatScene {
     const callout = 0x666e79
     for (const item of items) {
       if (item.segment) {
-        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16, 1.5)
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16, 2.5)
         this.addDimLabel(
           [(item.segment[0][0] + item.segment[1][0]) / 2, (item.segment[0][1] + item.segment[1][1]) / 2],
           item.title,
@@ -186,7 +186,7 @@ export class FlatScene {
           arcPts.push([vertex[0] + Math.cos(a) * R * 0.72, vertex[1] + Math.sin(a) * R * 0.72])
         }
         rays.push(arcPts)
-        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, rays, callout, 0.85, 0.16, 1.5)
+        this.addPolylines(this.dimensionGroup, this.dimensionCleanup, rays, callout, 0.85, 0.16, 2.5)
         const mid = a0 + sweep / 2
         this.addDimLabel(
           [vertex[0] + Math.cos(mid) * R * 0.95, vertex[1] + Math.sin(mid) * R * 0.95],
@@ -378,7 +378,7 @@ export class FlatScene {
     const up = (ev: PointerEvent) => {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
-      this.finishBand(ev.clientX, ev.clientY)
+      this.finishBand(ev.clientX, ev.clientY, ev)
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
@@ -396,12 +396,18 @@ export class FlatScene {
     this.bandDiv.style.height = `${hi.y - lo.y}px`
   }
 
-  private finishBand(x: number, y: number): void {
+  private finishBand(x: number, y: number, e: PointerEvent): void {
     const start = this.bandStart
     this.dropBand()
     if (!start) return
-    // A twitch is not a region.
-    if (Math.abs(x - start.x) + Math.abs(y - start.y) < 6) return
+    // A twitch is not a region — it is a click, and an edge tool reads a
+    // click as "this whole edge". The navigator swallowed the press, so the
+    // click is reported from here.
+    if (Math.abs(x - start.x) + Math.abs(y - start.y) < 6) {
+      const p = this.pick(start.x, start.y)
+      if (p) this.onPick?.(p, { alt: e.altKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+      return
+    }
     const a = this.pick(start.x, start.y)
     const b = this.pick(x, y)
     if (!a || !b) return
@@ -479,7 +485,7 @@ export class FlatScene {
     color: THREE.ColorRepresentation,
     opacity: number,
     z: number,
-    width = 2.5,
+    width = 4,
   ): void {
     const mat = new LineMaterial({
       color: new THREE.Color(color).getHex(),
@@ -641,7 +647,7 @@ export class FlatScene {
         color,
         0.95,
         0.19,
-        1.5,
+        2.5,
       )
     }
     if (fit) {
@@ -760,7 +766,7 @@ export class FlatScene {
         item.color,
         0.95,
         0.11,
-        1.5,
+        2.5,
       )
       if (item.name) {
         const last = item.picks[item.picks.length - 1]
