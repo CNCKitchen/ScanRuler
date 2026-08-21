@@ -5,6 +5,7 @@ import { transformFit } from '../src/core/alignment'
 import { rigidFromAxisAngle } from '../src/core/deviation/rigid'
 import type { Vec3 } from '../src/core/types'
 import { mulberry32 } from '../src/core/fit/ransac'
+import { fitCircle2d } from '../src/core/fit/circle2d'
 
 /** Points on a circle of the given pose, optionally perturbed. */
 function circlePoints(
@@ -128,5 +129,24 @@ describe('circleFromPoints', () => {
     expect(moved.radius).toBeCloseTo(3, 9)
     // +Z rotates onto +X around Y.
     expect(Math.abs(moved.normal[0])).toBeCloseTo(1, 6)
+  })
+})
+
+describe('fitCircle2d', () => {
+  it('fits a short arc far from the origin, as image-pixel coordinates are', () => {
+    // 40 points over 76° of a radius-30 circle centred at (2480, 230): the
+    // kind of arc an edge chain on a 600 dpi scan hands over.
+    const n = 40
+    const pu = new Float64Array(n)
+    const pv = new Float64Array(n)
+    for (let i = 0; i < n; i++) {
+      pu[i] = 2480 + 30 * Math.cos(i / 30)
+      pv[i] = 230 + 30 * Math.sin(i / 30)
+    }
+    const fit = fitCircle2d(pu, pv)
+    expect(fit).not.toBeNull()
+    expect(fit!.cu).toBeCloseTo(2480, 6)
+    expect(fit!.cv).toBeCloseTo(230, 6)
+    expect(fit!.r).toBeCloseTo(30, 6)
   })
 })

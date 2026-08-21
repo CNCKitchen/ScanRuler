@@ -20,9 +20,27 @@ export interface Circle2d {
  * the orthogonal-distance fixed-point iteration (a no-op for three points).
  * Null when the points do not determine a circle.
  */
-export function fitCircle2d(pu: ArrayLike<number>, pv: ArrayLike<number>): Circle2d | null {
-  const n = pu.length
+export function fitCircle2d(pu0: ArrayLike<number>, pv0: ArrayLike<number>): Circle2d | null {
+  const n = pu0.length
   if (n < 3) return null
+
+  // Work about the centroid. The normal equations carry fourth powers of the
+  // coordinates, and a short arc a few thousand units from the origin (image
+  // pixels on a scan) cancels them to round-off — the fit would come back
+  // null for points that define a circle perfectly well.
+  let mu = 0, mv = 0
+  for (let i = 0; i < n; i++) {
+    mu += pu0[i]
+    mv += pv0[i]
+  }
+  mu /= n
+  mv /= n
+  const pu = new Float64Array(n)
+  const pv = new Float64Array(n)
+  for (let i = 0; i < n; i++) {
+    pu[i] = pu0[i] - mu
+    pv[i] = pv0[i] - mv
+  }
 
   // Algebraic (Coope) circle, solved directly — the 3×3 normal equations.
   let suu = 0, suv = 0, svv = 0, su = 0, sv = 0, sub = 0, svb = 0, sb = 0
@@ -75,5 +93,5 @@ export function fitCircle2d(pu: ArrayLike<number>, pv: ArrayLike<number>): Circl
   }
   if (!Number.isFinite(cu) || !Number.isFinite(cv) || !Number.isFinite(r) || !(r > 0)) return null
 
-  return { cu, cv, r }
+  return { cu: cu + mu, cv: cv + mv, r }
 }
