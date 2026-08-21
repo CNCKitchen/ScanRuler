@@ -151,7 +151,9 @@ export function useGlobalShortcuts({
       const down = middleDown
       middleDown = null
       if (e.button !== 1 || !down) return
-      if (Math.abs(e.clientX - down.x) + Math.abs(e.clientY - down.y) > 6) return
+      // A wheel button wobbles more under the finger than the left one
+      // does; a pan this short is nothing, a lost confirm is a missed click.
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 12) return
       const what = confirmable()
       if (what === 'draft') confirmDraft()
       else if (what === 'dimension') useStore.getState().commitDimension()
