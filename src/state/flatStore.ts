@@ -72,6 +72,16 @@ export interface FlatCount {
   visible: boolean
 }
 
+/** A free text label pinned to the sheet — a remark, a part number, a
+ *  reading taken elsewhere. `at` is image pixels, like every other pick, so
+ *  a recalibration carries the note with the feature it sits on. */
+export interface FlatNote {
+  id: number
+  text: string
+  at: Vec2
+  visible: boolean
+}
+
 /** A dimension being assembled — or re-opened, with `editId` set. */
 export interface FlatDimDraft {
   type: string
@@ -317,6 +327,27 @@ interface FlatState {
   deleteCount: (id: number) => void
   toggleCountVisible: (id: number) => void
 
+  /** Text notes on the sheet, and the tool state around them. */
+  notes: FlatNote[]
+  /** The Text tool is armed: the next click on the sheet places a note. */
+  placingNote: boolean
+  /** The note whose text is open in the panel, if any. */
+  editingNoteId: number | null
+  nextNoteId: number
+
+  startNote: () => void
+  cancelNote: () => void
+  /** Place a new note where the click landed (image pixels) and open it for
+   *  typing. */
+  addNote: (px: Vec2) => void
+  editNote: (id: number) => void
+  setNoteText: (id: number, text: string) => void
+  moveNote: (id: number, px: Vec2) => void
+  /** Close the text editor; a note left blank is not worth keeping. */
+  finishNote: () => void
+  deleteNote: (id: number) => void
+  toggleNoteVisible: (id: number) => void
+
   startCalibration: (mode: CalMode) => void
   cancelCalibration: () => void
   addCalPick: (px: Vec2) => void
@@ -450,12 +481,12 @@ export const useFlat = create<FlatState>()((set, get) => ({
   nextCountId: 1,
 
   // One stage tool at a time: the count puts the others away, and they it.
-  startCount: () => set({ counting: { picks: [] }, calibrating: null, datumPicking: null }),
+  startCount: () => set({ counting: { picks: [] }, calibrating: null, datumPicking: null, placingNote: false }),
   editCount: (id) =>
     set((s) => {
       const c = s.counts.find((x) => x.id === id)
       if (!c) return {}
-      return { counting: { picks: [...c.picks], editId: id }, calibrating: null, datumPicking: null }
+      return { counting: { picks: [...c.picks], editId: id }, calibrating: null, datumPicking: null, placingNote: false }
     }),
   cancelCount: () => set({ counting: null }),
 
@@ -501,6 +532,43 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => ({
       counts: s.counts.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
     })),
+
+  notes: [],
+  placingNote: false,
+  editingNoteId: null,
+  nextNoteId: 1,
+
+  startNote: () =>
+    set({ placingNote: true, editingNoteId: null, counting: null, calibrating: null, datumPicking: null }),
+  cancelNote: () => set({ placingNote: false, editingNoteId: null }),
+  addNote: (px) =>
+    set((s) => {
+      const id = s.nextNoteId
+      return {
+        notes: [...s.notes, { id, text: '', at: px, visible: true }],
+        placingNote: false,
+        editingNoteId: id,
+        nextNoteId: id + 1,
+      }
+    }),
+  editNote: (id) =>
+    set((s) => (s.notes.some((n) => n.id === id) ? { editingNoteId: id, placingNote: false } : {})),
+  setNoteText: (id, text) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+  moveNote: (id, px) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, at: px } : n)) })),
+  finishNote: () =>
+    set((s) => ({
+      notes: s.notes.filter((n) => n.id !== s.editingNoteId || n.text.trim() !== ''),
+      editingNoteId: null,
+    })),
+  deleteNote: (id) =>
+    set((s) => ({
+      notes: s.notes.filter((n) => n.id !== id),
+      editingNoteId: s.editingNoteId === id ? null : s.editingNoteId,
+    })),
+  toggleNoteVisible: (id) =>
+    set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, visible: !n.visible } : n)) })),
 
   datum: null,
   datumPicking: null,
@@ -665,6 +733,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => ({
       elements: s.elements.map((e) => ({ ...e, visible })),
       counts: s.counts.map((c) => ({ ...c, visible })),
+      notes: s.notes.map((n) => ({ ...n, visible })),
     })),
 
   beginImageLoad: (imageName) => set({ imageBusy: true, imageName }),
@@ -695,6 +764,9 @@ export const useFlat = create<FlatState>()((set, get) => ({
       datumPicking: null,
       counts: [],
       counting: null,
+      notes: [],
+      placingNote: false,
+      editingNoteId: null,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -714,7 +786,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setShowEdges: (showEdges) => set({ showEdges }),
   setSnapToEdge: (snapToEdge) => set({ snapToEdge }),
 
-  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null, counting: null }),
+  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null, counting: null, placingNote: false }),
   cancelDatum: () => set({ datumPicking: null }),
 
   addDatumPick: (px) =>
@@ -728,7 +800,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   clearDatum: () => set({ datum: null, datumPicking: null }),
   setShowGrid: (showGrid) => set({ showGrid }),
 
-  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null, counting: null }),
+  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null, counting: null, placingNote: false }),
   cancelCalibration: () => set({ calibrating: null }),
 
   addCalPick: (px) =>

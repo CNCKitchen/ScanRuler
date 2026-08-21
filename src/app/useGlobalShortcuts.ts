@@ -48,6 +48,7 @@ export function useGlobalShortcuts({
       if (f.calibrating || f.datumPicking) return null
       if (f.draft) return f.draft.fit ? () => useFlat.getState().commitDraft() : null
       if (f.counting) return f.counting.picks.length > 0 ? () => useFlat.getState().finishCount() : null
+      if (f.editingNoteId !== null) return () => useFlat.getState().finishNote()
       const dd = f.dimDraft
       if (!dd || dd.refs.some((r) => r === null)) return null
       const fits = dd.refs.map((id) => f.elements.find((e) => e.id === id)?.fit)
@@ -60,6 +61,8 @@ export function useGlobalShortcuts({
       if (f.datumPicking) return f.cancelDatum
       if (f.draft) return f.cancelDraft
       if (f.counting) return f.cancelCount
+      if (f.placingNote) return f.cancelNote
+      if (f.editingNoteId !== null) return f.finishNote
       if (f.dimDraft) return f.cancelDimDraft
       return null
     }

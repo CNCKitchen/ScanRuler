@@ -49,7 +49,8 @@ export function sessionIsDirty(): boolean {
     s.dimensions.length > 0 ||
     f.elements.length > 0 ||
     f.dimensions.length > 0 ||
-    f.counts.length > 0
+    f.counts.length > 0 ||
+    f.notes.length > 0
   )
 }
 
@@ -162,6 +163,8 @@ export function collectProject(
     datum: f.datum,
     counts: f.counts,
     nextCountId: f.nextCountId,
+    notes: f.notes,
+    nextNoteId: f.nextNoteId,
   }
 
   return {
@@ -278,6 +281,10 @@ export function applyFlatPart(p: FlatPart): void {
     counts: p.counts,
     counting: null,
     nextCountId: p.nextCountId,
+    notes: p.notes ?? [],
+    placingNote: false,
+    editingNoteId: null,
+    nextNoteId: p.nextNoteId ?? 1,
   })
 }
 

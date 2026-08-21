@@ -2561,3 +2561,40 @@ button.x:disabled {
   border-color: var(--line-strong);
 }
 
+
+/* A free text note on the 2D sheet: the one label that takes the pointer —
+   a press drags it across the sheet, a click opens it for typing. Anchored
+   at its lower-left so the pin spot is where the text begins. */
+.viewport-label.note-label {
+  pointer-events: auto;
+  cursor: grab;
+  user-select: none;
+  font-family: var(--ui);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  border-left: 3px solid var(--accent-d);
+}
+
+.viewport-label.note-label.dragging {
+  cursor: grabbing;
+}
+
+.viewport-label.note-label.empty {
+  color: var(--dim);
+  font-style: italic;
+  font-weight: 400;
+}
+
+.viewport-label.note-label.editing {
+  outline: 2px solid var(--accent-d);
+  outline-offset: 1px;
+}
+
+.note-row-kind {
+  font-family: var(--cond);
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}

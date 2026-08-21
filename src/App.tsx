@@ -185,6 +185,7 @@ export default function App() {
     syncFlatElements()
     syncFlatDimensions()
     syncFlatCounts()
+    syncFlatNotes()
     syncFlatGrid()
   }
   useEffect(syncFlatImage, [flatImageVersion])
@@ -285,6 +286,12 @@ export default function App() {
       flat.addDatumPick(px)
       return
     }
+    if (flat.placingNote) {
+      // A note goes exactly where the click landed — never onto an edge.
+      const mm = flatMmPerPx()
+      flat.addNote([p[0] / mm.x, p[1] / mm.y])
+      return
+    }
     if (flat.counting) {
       flat.addCountPick(px)
       return
@@ -324,6 +331,30 @@ export default function App() {
     const len = Math.hypot(dx, dy)
     if (len < 1e-6) return
     flatSceneRef.current?.setGrid({ origin, xDir: [dx / len, dy / len] })
+  }
+
+  // Text notes on the sheet: image pixels in the store, document units on
+  // the stage; a drag writes the pixel spot back.
+  const flatNotes = useFlat((s) => s.notes)
+  const flatEditingNoteId = useFlat((s) => s.editingNoteId)
+  const syncFlatNotes = () => {
+    const s = useFlat.getState()
+    const mm = flatMmPerPx()
+    flatSceneRef.current?.setNotes(
+      s.notes
+        .filter((n) => n.visible || n.id === s.editingNoteId)
+        .map((n) => ({
+          id: n.id,
+          text: n.text,
+          at: [n.at[0] * mm.x, n.at[1] * mm.y],
+          editing: n.id === s.editingNoteId,
+        })),
+    )
+  }
+  useEffect(syncFlatNotes, [flatNotes, flatEditingNoteId, flatScale])
+  const handleFlatNoteDrag = (id: number, p: [number, number]) => {
+    const mm = flatMmPerPx()
+    useFlat.getState().moveNote(id, [p[0] / mm.x, p[1] / mm.y])
   }
 
   // The tallies: finished ones under their names, the live one in the colour
@@ -1546,6 +1577,8 @@ export default function App() {
                 }}
                 onPick={handleFlatPick}
                 onPickDrag={handleFlatPickDrag}
+                onNoteDrag={handleFlatNoteDrag}
+                onNoteSelect={(id) => useFlat.getState().editNote(id)}
                 onRegion={handleFlatRegion}
                 onHover={handleFlatHover}
                 loupe={{

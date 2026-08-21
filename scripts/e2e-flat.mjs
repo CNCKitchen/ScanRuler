@@ -380,6 +380,46 @@ check(
 )
 check((await page.$('[data-test=flat-count-status]')) === null, 'and the tool is put away')
 
+// ---- a text note -------------------------------------------------------------
+await click(page, '[data-test=flat-fit-text]')
+check((await page.$('[data-test=flat-note-placing]')) !== null, 'the Text tool arms')
+const noteAt = toScreen(mm(DISC.cx), mm(H - DISC.cy))
+await page.mouse.click(...noteAt)
+await sleep(200)
+check((await page.$('[data-test=flat-note-editor]')) !== null, 'a click places the note and opens it')
+await page.keyboard.type('Hub bore')
+await sleep(100)
+check(
+  (await page.$eval('[data-test=flat-note-1]', (el) => el.textContent)) === 'Hub bore',
+  'what is typed shows on the sheet',
+)
+const noteBox = await page.$eval('[data-test=flat-note-1]', (el) => {
+  const r = el.getBoundingClientRect()
+  return { x: r.x, y: r.y, w: r.width, h: r.height }
+})
+check(
+  Math.abs(noteBox.x - noteAt[0]) < 3 && Math.abs(noteBox.y + noteBox.h - noteAt[1]) < 3,
+  'anchored at its lower-left where the click landed',
+)
+// Drag the label 80 px right and 60 px up; the sheet must not pan with it.
+const sheetBefore = await page.$eval('[data-test=flat-count-value-1]', () =>
+  Array.from(document.querySelectorAll('.pick-pin')).map((e) => e.getBoundingClientRect().x),
+)
+await drag(page, [noteBox.x + noteBox.w / 2, noteBox.y + noteBox.h / 2], [noteBox.x + noteBox.w / 2 + 80, noteBox.y + noteBox.h / 2 - 60])
+const noteAfter = await page.$eval('[data-test=flat-note-1]', (el) => el.getBoundingClientRect().x)
+const sheetAfter = await page.$eval('[data-test=flat-count-value-1]', () =>
+  Array.from(document.querySelectorAll('.pick-pin')).map((e) => e.getBoundingClientRect().x),
+)
+check(Math.abs(noteAfter - (noteBox.x + 80)) < 3, 'dragging moves the note')
+check(
+  sheetBefore.every((x, i) => Math.abs(x - sheetAfter[i]) < 1),
+  'and leaves the sheet where it was',
+)
+await page.keyboard.press('Enter')
+await sleep(150)
+check((await page.$('[data-test=flat-note-editor]')) === null, 'Enter closes the editor')
+check(/Hub bore/.test((await rowTexts()).join(' ')), 'the note is listed with the elements')
+
 // ---- the report ------------------------------------------------------------
 const buttons = await page.$$('button')
 for (const b of buttons) {

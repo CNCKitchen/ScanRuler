@@ -176,6 +176,9 @@ export interface FlatPart {
   datum: FlatDatum | null
   counts: { id: number; name: string; color: string; picks: Vec2[]; visible: boolean }[]
   nextCountId: number
+  /** Free text notes; absent in projects saved before they existed. */
+  notes?: { id: number; text: string; at: Vec2; visible: boolean }[]
+  nextNoteId?: number
 }
 
 export interface ProjectManifest {

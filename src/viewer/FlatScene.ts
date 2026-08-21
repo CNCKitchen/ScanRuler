@@ -40,6 +40,10 @@ export class FlatScene {
   /** Tallies: every counted feature wears its running number. */
   private countGroup = new THREE.Group()
   private countCleanup: (() => void)[] = []
+  /** Free text notes: DOM labels that, unlike every other label, take the
+   *  pointer — a press on one drags it across the sheet. */
+  private noteGroup = new THREE.Group()
+  private noteCleanup: (() => void)[] = []
   /** The datum-aligned grid: its frame, and the spacing it was last drawn
    *  at — the tick watches the zoom and redraws when the 1-2-5 ladder says a
    *  different rung. */
@@ -86,6 +90,10 @@ export class FlatScene {
   onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
   /** A draft pick being dragged to a new place on the sheet, by index. */
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
+  /** A text note dragged to a new spot on the sheet (document units). */
+  onNoteDrag: ((id: number, p: Vec2) => void) | null = null
+  /** A text note clicked without being dragged — to open it for typing. */
+  onNoteSelect: ((id: number) => void) | null = null
 
   /** Left-drag selects a region (and a plain click picks a whole edge)
    *  instead of panning while an edge tool is collecting. */
@@ -139,6 +147,7 @@ export class FlatScene {
     this.viewport.scene.add(this.gridGroup)
     this.viewport.scene.add(this.calGroup)
     this.viewport.scene.add(this.countGroup)
+    this.viewport.scene.add(this.noteGroup)
     this.viewport.scene.add(this.edgeGroup)
     this.viewport.scene.add(this.elementGroup)
     this.viewport.scene.add(this.dimensionGroup)
@@ -730,6 +739,63 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
+  /** The text notes (document units). Each is a DOM label that takes the
+   *  pointer: a press and move drags it, reporting every new spot through
+   *  onNoteDrag; a press released in place selects it. The navigator never
+   *  sees the press — the label sits above the canvas — so the sheet stays
+   *  put under the drag. */
+  setNotes(items: readonly { id: number; text: string; at: Vec2; editing: boolean }[]): void {
+    for (const dispose of this.noteCleanup) dispose()
+    this.noteCleanup = []
+    this.noteGroup.clear()
+    for (const item of items) {
+      const div = document.createElement('div')
+      div.className = 'viewport-label note-label' + (item.editing ? ' editing' : '')
+      div.dataset.test = `flat-note-${item.id}`
+      div.textContent = item.text.trim() === '' ? 'Text' : item.text
+      if (item.text.trim() === '') div.classList.add('empty')
+      const down = (e: PointerEvent) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        let moved = false
+        const start = { x: e.clientX, y: e.clientY }
+        // The note keeps its place under the hand: the offset between the
+        // grab and its anchor rides along, so it does not jump to the cursor.
+        const grab = this.pick(e.clientX, e.clientY) ?? item.at
+        const offset: Vec2 = [item.at[0] - grab[0], item.at[1] - grab[1]]
+        div.classList.add('dragging')
+        const move = (ev: PointerEvent) => {
+          if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return
+          moved = true
+          const p = this.pick(ev.clientX, ev.clientY)
+          if (p) this.onNoteDrag?.(item.id, [p[0] + offset[0], p[1] + offset[1]])
+        }
+        const up = () => {
+          document.removeEventListener('pointermove', move)
+          document.removeEventListener('pointerup', up)
+          document.removeEventListener('pointercancel', up)
+          div.classList.remove('dragging')
+          if (!moved) this.onNoteSelect?.(item.id)
+        }
+        document.addEventListener('pointermove', move)
+        document.addEventListener('pointerup', up)
+        document.addEventListener('pointercancel', up)
+      }
+      div.addEventListener('pointerdown', down)
+      const label = new CSS2DObject(div)
+      // Anchored at its lower-left: the spot clicked is where the text begins.
+      label.center.set(0, 1)
+      label.position.set(item.at[0], item.at[1], 0.15)
+      this.noteGroup.add(label)
+      this.noteCleanup.push(() => {
+        div.removeEventListener('pointerdown', down)
+        div.remove()
+      })
+    }
+    this.viewport.invalidate()
+  }
+
   /** The tallies (document units): each pick wears its running number in the
    *  tally's colour, with a crosshair on the exact spot, and the last pick of
    *  a finished tally carries its name. The live one is drawn the same way. */
@@ -876,6 +942,7 @@ export class FlatScene {
     this.setGrid(null)
     this.setCalibrationPicks([])
     this.setCounts([])
+    this.setNotes([])
     this.setFlatElements([])
     this.setFlatDimensions([])
     this.setDraftMarks([], null)

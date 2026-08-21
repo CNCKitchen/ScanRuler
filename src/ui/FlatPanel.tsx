@@ -60,12 +60,17 @@ export function FlatPanel({
   const counts = useFlat((s) => s.counts)
   const counting = useFlat((s) => s.counting)
   const nextCountId = useFlat((s) => s.nextCountId)
+  const notes = useFlat((s) => s.notes)
+  const placingNote = useFlat((s) => s.placingNote)
+  const editingNoteId = useFlat((s) => s.editingNoteId)
+  const editedNote = editingNoteId === null ? undefined : notes.find((n) => n.id === editingNoteId)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
-  const editorOpen = draft !== null || dimDraft !== null || counting !== null
+  const editorOpen =
+    draft !== null || dimDraft !== null || counting !== null || placingNote || editedNote !== undefined
   const editedCount =
     counting?.editId === undefined ? undefined : counts.find((c) => c.id === counting.editId)
   const countColor = flatCountColor(counting?.editId ?? nextCountId)
@@ -294,7 +299,7 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && draft === null && counting === null && (
+      {imageName && draft === null && counting === null && !placingNote && !editedNote && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -321,6 +326,10 @@ export function FlatPanel({
                 number, pinned where you clicked.
               </p>
               <p>
+                <b>Text</b> pins a free note to the sheet — a remark, a part number — wherever you
+                click; drag it to move it, click it to change what it says.
+              </p>
+              <p>
                 <b>Enter</b> or a <b>middle click</b> creates whatever is pending; <b>Esc</b>{' '}
                 discards it.
               </p>
@@ -343,6 +352,59 @@ export function FlatPanel({
               onClick={() => flat.getState().startCount()}
             >
               Count
+            </button>
+            <button
+              data-test="flat-fit-text"
+              disabled={calibrating !== null}
+              onClick={() => flat.getState().startNote()}
+            >
+              Text
+            </button>
+          </div>
+        </div>
+      )}
+
+      {placingNote && (
+        <div className="draftbox" data-test="flat-note-placing">
+          <div className="sec-head">New text</div>
+          <p className="hint">Click the image where the text should sit.</p>
+          <div className="toolrow">
+            <button data-test="flat-note-cancel" onClick={() => flat.getState().cancelNote()}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editedNote && (
+        <div className="draftbox" data-test="flat-note-editor">
+          <div className="sec-head">Text</div>
+          <label className="field">
+            <span>Says</span>
+            <input
+              type="text"
+              autoFocus
+              data-test="flat-note-text"
+              value={editedNote.text}
+              placeholder="Type here…"
+              onChange={(e) => flat.getState().setNoteText(editedNote.id, e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') flat.getState().finishNote()
+                if (e.key === 'Escape') flat.getState().finishNote()
+              }}
+            />
+          </label>
+          <p className="hint">Drag the label on the image to move it.</p>
+          <button
+            className="primary block"
+            data-test="flat-note-done"
+            onClick={() => flat.getState().finishNote()}
+          >
+            Done
+          </button>
+          <div className="toolrow">
+            <button data-test="flat-note-delete" onClick={() => flat.getState().deleteNote(editedNote.id)}>
+              Delete
             </button>
           </div>
         </div>
@@ -395,17 +457,21 @@ export function FlatPanel({
         </div>
       )}
 
-      {elements.length + counts.length > 0 && (
+      {elements.length + counts.length + notes.length > 0 && (
         <div className="group">
           <div className="g-label">
             <span>Elements</span>
             <ShowAllButton
-              anyVisible={elements.some((e) => e.visible) || counts.some((c) => c.visible)}
+              anyVisible={
+                elements.some((e) => e.visible) ||
+                counts.some((c) => c.visible) ||
+                notes.some((n) => n.visible)
+              }
               what="elements"
               testId="flat-elements-show-all"
               onSet={(v) => flat.getState().setAllElementsVisible(v)}
             />
-            <b>{elements.length + counts.length}</b>
+            <b>{elements.length + counts.length + notes.length}</b>
           </div>
           {elements.map((el) => (
             <ElementRow
@@ -445,12 +511,26 @@ export function FlatPanel({
               onDelete={() => flat.getState().deleteCount(c.id)}
             />
           ))}
+          {notes.map((n) => (
+            <ElementRow
+              key={`note-${n.id}`}
+              name={n.text.trim() === '' ? 'Text' : n.text}
+              color="var(--dim)"
+              visible={n.visible}
+              reading={<span className="note-row-kind">text</span>}
+              selected={editingNoteId === n.id}
+              editorOpen={editorOpen && editingNoteId !== n.id}
+              onEdit={() => flat.getState().editNote(n.id)}
+              onToggleVisible={() => flat.getState().toggleNoteVisible(n.id)}
+              onDelete={() => flat.getState().deleteNote(n.id)}
+            />
+          ))}
         </div>
       )}
 
       {imageName && <FlatDimensionSection editorOpen={editorOpen} />}
 
-      {imageName && (elements.length > 0 || dimensions.length > 0 || counts.length > 0) && (
+      {imageName && (elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0) && (
         <>
           <div className="divider" />
           <div className="toolrow">
