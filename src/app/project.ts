@@ -263,7 +263,7 @@ export function applyFlatPart(p: FlatPart): void {
     pxPerMm: p.pxPerMm,
     calSource: p.calSource,
     splitAxes: p.splitAxes,
-    calibrating: null,
+    tool: { kind: 'none' },
     edgeSensitivity: p.edgeSensitivity,
     showEdges: p.showEdges,
     snapToEdge: p.snapToEdge,
@@ -277,13 +277,9 @@ export function applyFlatPart(p: FlatPart): void {
     nextDimId: p.nextDimId,
     dimCounts: p.dimCounts,
     datum: p.datum,
-    datumPicking: null,
     counts: p.counts,
-    counting: null,
     nextCountId: p.nextCountId,
     notes: p.notes ?? [],
-    placingNote: false,
-    editingNoteId: null,
     nextNoteId: p.nextNoteId ?? 1,
   })
 }

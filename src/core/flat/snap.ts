@@ -107,3 +107,40 @@ export class EdgeIndex {
     return out
   }
 }
+
+/** What the stage knows about a click besides where it landed. */
+export interface PickMeta {
+  /** Alt held — inverts the snap setting for this one pick. */
+  alt: boolean
+  /** Document units per screen pixel: how far zoomed in the sheet is. */
+  unitsPerScreenPx: number
+}
+
+/** A hand-sized snap radius in image pixels: what looks like "that edge" on
+ *  screen, however far zoomed in or out the sheet is right now. `pxPerUnit`
+ *  is image pixels per document unit along X. */
+export function snapRadiusPx(meta: Pick<PickMeta, 'unitsPerScreenPx'>, pxPerUnit: number): number {
+  return 10 * meta.unitsPerScreenPx * pxPerUnit
+}
+
+/** The pick as the measurement wants it: on the nearest detected edge when
+ *  snapping is wanted, where the hand put it otherwise. `snap` is the
+ *  setting in force; Alt inverts it for this one pick either way. */
+export function snapPick(
+  px: Vec2,
+  index: EdgeIndex | null,
+  radiusPx: number,
+  snap: boolean,
+  alt: boolean,
+): Vec2 {
+  if (snap === alt || !index) return px
+  return index.nearest(px[0], px[1], radiusPx) ?? px
+}
+
+/** Edge points thinned to a sane count before they join a draft — a long
+ *  edge at 1200 dpi is tens of thousands, and a fit needs nowhere near. */
+export function thinEdgePoints(points: Vec2[], cap = 4000): Vec2[] {
+  return points.length > cap
+    ? points.filter((_, i) => i % Math.ceil(points.length / cap) === 0)
+    : points
+}

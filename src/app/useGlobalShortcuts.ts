@@ -15,8 +15,6 @@ import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
-import { evaluateFlatDimension } from '../core/flat/dimensions'
-import type { FlatFit } from '../core/flat/types'
 
 export function useGlobalShortcuts({
   stopMarking,
@@ -39,33 +37,9 @@ export function useGlobalShortcuts({
       if (!fits.every((f): f is FitData => f !== undefined)) return false
       return !evaluateDimension(dd.type, fits, dd.anchor).invalid
     }
-    // The 2D workspace's own pending things, in the order they take the keys:
-    // the stage tools (calibration, datum), then the element, count and
-    // dimension drafts. Mirrors the buttons: a confirm lands only where the
-    // button would be enabled.
-    const flatConfirmable = (): (() => void) | null => {
-      const f = useFlat.getState()
-      if (f.calibrating || f.datumPicking) return null
-      if (f.draft) return f.draft.fit ? () => useFlat.getState().commitDraft() : null
-      if (f.counting) return f.counting.picks.length > 0 ? () => useFlat.getState().finishCount() : null
-      if (f.editingNoteId !== null) return () => useFlat.getState().finishNote()
-      const dd = f.dimDraft
-      if (!dd || dd.refs.some((r) => r === null)) return null
-      const fits = dd.refs.map((id) => f.elements.find((e) => e.id === id)?.fit)
-      if (!fits.every((x): x is FlatFit => x !== undefined && x !== null)) return null
-      return evaluateFlatDimension(dd.type, fits).invalid ? null : () => useFlat.getState().commitDim()
-    }
-    const flatCancel = (): (() => void) | null => {
-      const f = useFlat.getState()
-      if (f.calibrating) return f.cancelCalibration
-      if (f.datumPicking) return f.cancelDatum
-      if (f.draft) return f.cancelDraft
-      if (f.counting) return f.cancelCount
-      if (f.placingNote) return f.cancelNote
-      if (f.editingNoteId !== null) return f.finishNote
-      if (f.dimDraft) return f.cancelDimDraft
-      return null
-    }
+    // The 2D workspace knows its own pending things — see useFlat.confirmable
+    // and useFlat.retreat.
+    const flatConfirmable = () => useFlat.getState().confirmable()
     /** The panel's confirm button of the moment, if one is enabled: the
      *  `data-confirm` buttons, lowest priority value first. */
     const confirmButton = (): HTMLButtonElement | null => {
@@ -84,7 +58,7 @@ export function useGlobalShortcuts({
       // fire two different actions from one key press.
       if (e.key === 'Enter' && target?.closest('button')) return
       if (useShell.getState().workspace === 'flat') {
-        if (e.key === 'Escape') flatCancel()?.()
+        if (e.key === 'Escape') useFlat.getState().retreat()
         else if (e.key === 'Enter') (flatConfirmable() ?? (() => confirmButton()?.click()))()
         return
       }

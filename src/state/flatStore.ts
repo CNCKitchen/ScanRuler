@@ -24,12 +24,14 @@ import {
 import type { FlatDatum } from '../core/flat/datum'
 import {
   FLAT_DIMENSION_TYPES,
+  evaluateFlatDimension,
   flatDimensionTypeInfo,
   type FlatDimension,
   type FlatDimensionGroup,
 } from '../core/flat/dimensions'
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
+import { snapPick, snapRadiusPx, thinEdgePoints, type EdgeIndex, type PickMeta } from '../core/flat/snap'
 import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
 import { PALETTE } from './palette'
 
@@ -88,6 +90,51 @@ export interface FlatDimDraft {
   refs: (number | null)[]
   editId?: number
   name?: string
+}
+
+/** The stage tool in hand — the one thing a click on the sheet goes to
+ *  before the element draft gets it. Exactly one is ever out: arming any of
+ *  them puts the others away, which is why they are one value and not five
+ *  flags keeping each other false.
+ *
+ *  - `calibrate`: collecting picks (image pixels) against a reference size.
+ *  - `datum`: holding the origin until the +X pick lands.
+ *  - `count`: a tally being clicked out; `editId` when a finished one was
+ *    re-opened to count on.
+ *  - `note`: the Text tool — armed to place (`editId` null), or a note's
+ *    text open in the panel. */
+export type FlatTool =
+  | { kind: 'none' }
+  | { kind: 'calibrate'; mode: CalMode; picks: Vec2[] }
+  | { kind: 'datum'; picks: Vec2[] }
+  | { kind: 'count'; picks: Vec2[]; editId?: number }
+  | { kind: 'note'; editId: number | null }
+
+const NO_TOOL: FlatTool = { kind: 'none' }
+
+type ToolOf<K extends FlatTool['kind']> = Extract<FlatTool, { kind: K }>
+
+/** The tool if it is the one asked for, else null — `toolOf(s, 'count')`
+ *  reads like the old `s.counting` and narrows the same way. */
+export function toolOf<K extends FlatTool['kind']>(
+  s: { tool: FlatTool },
+  kind: K,
+): ToolOf<K> | null {
+  return s.tool.kind === kind ? (s.tool as ToolOf<K>) : null
+}
+
+/** Whether anything is being assembled — a stage tool, an element or a
+ *  dimension draft — so the row keys that would re-open a second thing
+ *  stand down. The datum and calibration tools do not count: their editors
+ *  live in their own groups and do not fight the element list. */
+export function flatEditorOpen(s: {
+  tool: FlatTool
+  draft: FlatDraft | null
+  dimDraft: FlatDimDraft | null
+}): boolean {
+  return (
+    s.draft !== null || s.dimDraft !== null || s.tool.kind === 'count' || s.tool.kind === 'note'
+  )
 }
 
 /** Elements an edited draft must not reference: itself and everything
@@ -152,6 +199,19 @@ function storeProfiles(profiles: CalibrationProfile[]): void {
   } catch {
     // Storage full or blocked — the profiles still work for this session.
   }
+}
+
+/** Put a tool away — only if it is the one in hand, so a stale cancel from
+ *  a tool that was already replaced does not knock out its successor. */
+function putAway(s: { tool: FlatTool }, kind: FlatTool['kind']): { tool: FlatTool } | Record<string, never> {
+  return s.tool.kind === kind ? { tool: NO_TOOL } : {}
+}
+
+/** A spot on the sheet (document units) as image pixels — the frame every
+ *  pick is stored in, so a recalibration moves the measurements and not
+ *  the picks. Bare pixels draw at 1 px per unit. */
+function docToPx(s: { pxPerMm: PixelsPerMm | null }, spot: Vec2): Vec2 {
+  return s.pxPerMm ? [spot[0] * s.pxPerMm.x, spot[1] * s.pxPerMm.y] : [spot[0], spot[1]]
 }
 
 /** The draft's fit, following every change: null-and-no-error while picks or
@@ -229,8 +289,33 @@ interface FlatState {
   calSource: CalSource
   /** Calibrate X and Y separately — scanner transports err per axis. */
   splitAxes: boolean
-  /** The calibration tool is out, collecting picks (in image pixels). */
-  calibrating: { mode: CalMode; picks: Vec2[] } | null
+
+  /** The stage tool in hand, if any — see FlatTool. */
+  tool: FlatTool
+
+  /** A click on the sheet, in document units, routed to whichever tool is
+   *  collecting — the stage tool first, then the element draft. Snapping to
+   *  a detected edge is decided here: calibration and datum picks always
+   *  snap, count and element picks follow `snapToEdge`, a note never does;
+   *  Alt inverts the setting for the one pick. `edges` is the index over the
+   *  detected chains, or null before any were found. */
+  stageClick: (spot: Vec2, meta: PickMeta, edges: EdgeIndex | null) => void
+  /** A draft pin dragged to a new spot — snapping the same way a pick does. */
+  stageDrag: (index: number, spot: Vec2, meta: PickMeta, edges: EdgeIndex | null) => void
+  /** A dragged region over the edge overlay: every detected edge point inside
+   *  it joins the draft, thinned to a sane count. */
+  stageRegion: (min: Vec2, max: Vec2, edges: EdgeIndex | null) => void
+  /** A note dragged across the sheet — where it landed, in document units. */
+  stageNoteDrag: (id: number, spot: Vec2) => void
+  /** The action a confirm (Enter, middle click) lands on right now, or null
+   *  when nothing pending is ready: the element draft, the tally, the open
+   *  note, then the dimension draft. Mirrors the buttons — a confirm lands
+   *  only where the button would be enabled. */
+  confirmable: () => (() => void) | null
+  /** Back out of whatever is pending, outermost first: the stage tool, then
+   *  the element draft, then the dimension draft. Returns whether anything
+   *  was there to retreat from. */
+  retreat: () => boolean
 
   profiles: CalibrationProfile[]
 
@@ -299,8 +384,6 @@ interface FlatState {
   /** The part's own frame: origin and +X, as two picks (image pixels). Null
    *  reads coordinates in the image frame, origin bottom-left. */
   datum: FlatDatum | null
-  /** The datum tool is out, holding its first pick until the second lands. */
-  datumPicking: { picks: Vec2[] } | null
   showGrid: boolean
 
   startDatum: () => void
@@ -310,11 +393,8 @@ interface FlatState {
   clearDatum: () => void
   setShowGrid: (v: boolean) => void
 
-  /** Tallies taken so far, and the one being clicked out. */
+  /** Tallies taken so far; the one being clicked out is the `count` tool. */
   counts: FlatCount[]
-  /** The tally being clicked out; `editId` when a finished one was re-opened
-   *  to count on. */
-  counting: { picks: Vec2[]; editId?: number } | null
   nextCountId: number
 
   startCount: () => void
@@ -329,12 +409,8 @@ interface FlatState {
   deleteCount: (id: number) => void
   toggleCountVisible: (id: number) => void
 
-  /** Text notes on the sheet, and the tool state around them. */
+  /** Text notes on the sheet; placing or editing one is the `note` tool. */
   notes: FlatNote[]
-  /** The Text tool is armed: the next click on the sheet places a note. */
-  placingNote: boolean
-  /** The note whose text is open in the panel, if any. */
-  editingNoteId: number | null
   nextNoteId: number
 
   startNote: () => void
@@ -384,7 +460,110 @@ export const useFlat = create<FlatState>()((set, get) => ({
   pxPerMm: null,
   calSource: 'none',
   splitAxes: false,
-  calibrating: null,
+  tool: NO_TOOL,
+
+  stageClick: (spot, meta, edges) => {
+    const s = get()
+    const px = docToPx(s, spot)
+    const radius = snapRadiusPx(meta, s.pxPerMm?.x ?? 1)
+    const onEdge = snapPick(px, edges, radius, true, meta.alt)
+    const asSet = snapPick(px, edges, radius, s.snapToEdge, meta.alt)
+    switch (s.tool.kind) {
+      case 'calibrate':
+        s.addCalPick(onEdge)
+        return
+      case 'datum':
+        s.addDatumPick(onEdge)
+        return
+      case 'note':
+        // A note goes exactly where the click landed — never onto an edge;
+        // with a note's text open the click falls through to the draft.
+        if (s.tool.editId === null) {
+          s.addNote(px)
+          return
+        }
+        break
+      case 'count':
+        // A tally snaps like a point pick: the checkbox says whether, Alt
+        // inverts it for the one click.
+        s.addCountPick(asSet)
+        return
+      case 'none':
+        break
+    }
+    if (!s.draft) return
+    if (flatMethod(s.draft.method).mode === 'edge') {
+      // An edge tool reads a click as the whole detected edge under it.
+      const chain = edges?.chainNear(px[0], px[1], radius)
+      if (chain) s.addDraftPoints(thinEdgePoints(chain))
+      return
+    }
+    s.addDraftPick(asSet)
+  },
+
+  stageDrag: (index, spot, meta, edges) => {
+    const s = get()
+    const radius = snapRadiusPx(meta, s.pxPerMm?.x ?? 1)
+    s.moveDraftPick(index, snapPick(docToPx(s, spot), edges, radius, s.snapToEdge, meta.alt))
+  },
+
+  stageRegion: (min, max, edges) => {
+    const s = get()
+    if (!s.draft || !edges) return
+    const lo = docToPx(s, min)
+    const hi = docToPx(s, max)
+    s.addDraftPoints(thinEdgePoints(edges.inBox(lo[0], lo[1], hi[0], hi[1])))
+  },
+
+  stageNoteDrag: (id, spot) => {
+    const s = get()
+    s.moveNote(id, docToPx(s, spot))
+  },
+
+  confirmable: () => {
+    const s = get()
+    if (s.tool.kind === 'calibrate' || s.tool.kind === 'datum') return null
+    if (s.draft) return s.draft.fit ? () => get().commitDraft() : null
+    if (s.tool.kind === 'count') return s.tool.picks.length > 0 ? () => get().finishCount() : null
+    if (s.tool.kind === 'note' && s.tool.editId !== null) return () => get().finishNote()
+    const dd = s.dimDraft
+    if (!dd || dd.refs.some((r) => r === null)) return null
+    const fits = dd.refs.map((id) => s.elements.find((e) => e.id === id)?.fit)
+    if (!fits.every((x): x is FlatFit => x !== undefined && x !== null)) return null
+    return evaluateFlatDimension(dd.type, fits).invalid ? null : () => get().commitDim()
+  },
+
+  retreat: () => {
+    const s = get()
+    switch (s.tool.kind) {
+      case 'calibrate':
+        s.cancelCalibration()
+        return true
+      case 'datum':
+        s.cancelDatum()
+        return true
+      case 'note':
+        if (s.tool.editId === null) s.cancelNote()
+        else s.finishNote()
+        return true
+      case 'count':
+        // The element draft outranks an open tally, as it does for a click.
+        if (s.draft) s.cancelDraft()
+        else s.cancelCount()
+        return true
+      case 'none':
+        break
+    }
+    if (s.draft) {
+      s.cancelDraft()
+      return true
+    }
+    if (s.dimDraft) {
+      s.cancelDimDraft()
+      return true
+    }
+    return false
+  },
 
   dimensions: [],
   dimDraft: null,
@@ -479,38 +658,37 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => ({ dimensions: s.dimensions.map((d) => ({ ...d, visible })) })),
 
   counts: [],
-  counting: null,
   nextCountId: 1,
 
-  // One stage tool at a time: the count puts the others away, and they it.
-  startCount: () => set({ counting: { picks: [] }, calibrating: null, datumPicking: null, placingNote: false }),
+  startCount: () => set({ tool: { kind: 'count', picks: [] } }),
   editCount: (id) =>
     set((s) => {
       const c = s.counts.find((x) => x.id === id)
-      if (!c) return {}
-      return { counting: { picks: [...c.picks], editId: id }, calibrating: null, datumPicking: null, placingNote: false }
+      return c ? { tool: { kind: 'count', picks: [...c.picks], editId: id } } : {}
     }),
-  cancelCount: () => set({ counting: null }),
+  cancelCount: () => set((s) => putAway(s, 'count')),
 
   addCountPick: (px) =>
-    set((s) =>
-      s.counting ? { counting: { ...s.counting, picks: [...s.counting.picks, px] } } : {},
-    ),
+    set((s) => {
+      const t = toolOf(s, 'count')
+      return t ? { tool: { ...t, picks: [...t.picks, px] } } : {}
+    }),
 
   undoCountPick: () =>
-    set((s) =>
-      s.counting ? { counting: { ...s.counting, picks: s.counting.picks.slice(0, -1) } } : {},
-    ),
+    set((s) => {
+      const t = toolOf(s, 'count')
+      return t ? { tool: { ...t, picks: t.picks.slice(0, -1) } } : {}
+    }),
 
   finishCount: () =>
     set((s) => {
-      if (!s.counting) return {}
-      if (s.counting.picks.length === 0) return { counting: null }
-      if (s.counting.editId !== undefined) {
-        const picks = s.counting.picks
+      const t = toolOf(s, 'count')
+      if (!t) return {}
+      if (t.picks.length === 0) return { tool: NO_TOOL }
+      if (t.editId !== undefined) {
         return {
-          counts: s.counts.map((c) => (c.id === s.counting!.editId ? { ...c, picks } : c)),
-          counting: null,
+          counts: s.counts.map((c) => (c.id === t.editId ? { ...c, picks: t.picks } : c)),
+          tool: NO_TOOL,
         }
       }
       const id = s.nextCountId
@@ -518,16 +696,16 @@ export const useFlat = create<FlatState>()((set, get) => ({
         id,
         name: `Count ${id}`,
         color: flatCountColor(id),
-        picks: s.counting.picks,
+        picks: t.picks,
         visible: true,
       }
-      return { counts: [...s.counts, count], counting: null, nextCountId: id + 1 }
+      return { counts: [...s.counts, count], tool: NO_TOOL, nextCountId: id + 1 }
     }),
 
   deleteCount: (id) =>
     set((s) => ({
       counts: s.counts.filter((c) => c.id !== id),
-      counting: s.counting?.editId === id ? null : s.counting,
+      tool: toolOf(s, 'count')?.editId === id ? NO_TOOL : s.tool,
     })),
 
   toggleCountVisible: (id) =>
@@ -536,44 +714,42 @@ export const useFlat = create<FlatState>()((set, get) => ({
     })),
 
   notes: [],
-  placingNote: false,
-  editingNoteId: null,
   nextNoteId: 1,
 
-  startNote: () =>
-    set({ placingNote: true, editingNoteId: null, counting: null, calibrating: null, datumPicking: null }),
-  cancelNote: () => set({ placingNote: false, editingNoteId: null }),
+  startNote: () => set({ tool: { kind: 'note', editId: null } }),
+  cancelNote: () => set((s) => putAway(s, 'note')),
   addNote: (px) =>
     set((s) => {
       const id = s.nextNoteId
       return {
         notes: [...s.notes, { id, text: '', at: px, visible: true }],
-        placingNote: false,
-        editingNoteId: id,
+        tool: { kind: 'note', editId: id },
         nextNoteId: id + 1,
       }
     }),
   editNote: (id) =>
-    set((s) => (s.notes.some((n) => n.id === id) ? { editingNoteId: id, placingNote: false } : {})),
+    set((s) => (s.notes.some((n) => n.id === id) ? { tool: { kind: 'note', editId: id } } : {})),
   setNoteText: (id, text) =>
     set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
   moveNote: (id, px) =>
     set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, at: px } : n)) })),
   finishNote: () =>
-    set((s) => ({
-      notes: s.notes.filter((n) => n.id !== s.editingNoteId || n.text.trim() !== ''),
-      editingNoteId: null,
-    })),
+    set((s) => {
+      const editId = toolOf(s, 'note')?.editId ?? null
+      return {
+        notes: s.notes.filter((n) => n.id !== editId || n.text.trim() !== ''),
+        ...putAway(s, 'note'),
+      }
+    }),
   deleteNote: (id) =>
     set((s) => ({
       notes: s.notes.filter((n) => n.id !== id),
-      editingNoteId: s.editingNoteId === id ? null : s.editingNoteId,
+      tool: toolOf(s, 'note')?.editId === id ? NO_TOOL : s.tool,
     })),
   toggleNoteVisible: (id) =>
     set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, visible: !n.visible } : n)) })),
 
   datum: null,
-  datumPicking: null,
   // On while the datum is being placed and after — the grid is the visible
   // proof of where the frame lies; a checkbox puts it away.
   showGrid: true,
@@ -759,7 +935,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
       imageHeight,
       metaPxPerMm,
       imageVersion: s.imageVersion + 1,
-      calibrating: null,
+      tool: NO_TOOL,
       edgeStatus: 'idle' as const,
       edgeCount: 0,
       // Elements are measurements of one image; the calibration is of the
@@ -771,12 +947,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
       dimDraft: null,
       dimCounts: {},
       datum: null,
-      datumPicking: null,
       counts: [],
-      counting: null,
       notes: [],
-      placingNote: false,
-      editingNoteId: null,
       ...(s.calSource === 'measured'
         ? {}
         : {
@@ -796,59 +968,58 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setShowEdges: (showEdges) => set({ showEdges }),
   setSnapToEdge: (snapToEdge) => set({ snapToEdge }),
 
-  startDatum: () => set({ datumPicking: { picks: [] }, calibrating: null, counting: null, placingNote: false }),
-  cancelDatum: () => set({ datumPicking: null }),
+  startDatum: () => set({ tool: { kind: 'datum', picks: [] } }),
+  cancelDatum: () => set((s) => putAway(s, 'datum')),
 
   addDatumPick: (px) =>
     set((s) => {
-      if (!s.datumPicking) return {}
-      const picks = [...s.datumPicking.picks, px]
-      if (picks.length < 2) return { datumPicking: { picks } }
-      return { datum: { originPx: picks[0], xRefPx: picks[1] }, datumPicking: null }
+      const t = toolOf(s, 'datum')
+      if (!t) return {}
+      const picks = [...t.picks, px]
+      if (picks.length < 2) return { tool: { kind: 'datum', picks } }
+      return { datum: { originPx: picks[0], xRefPx: picks[1] }, tool: NO_TOOL }
     }),
 
-  clearDatum: () => set({ datum: null, datumPicking: null }),
+  clearDatum: () => set((s) => ({ datum: null, ...putAway(s, 'datum') })),
   setShowGrid: (showGrid) => set({ showGrid }),
 
-  startCalibration: (mode) => set({ calibrating: { mode, picks: [] }, datumPicking: null, counting: null, placingNote: false }),
-  cancelCalibration: () => set({ calibrating: null }),
+  startCalibration: (mode) => set({ tool: { kind: 'calibrate', mode, picks: [] } }),
+  cancelCalibration: () => set((s) => putAway(s, 'calibrate')),
 
   addCalPick: (px) =>
     set((s) => {
-      if (!s.calibrating) return {}
+      const t = toolOf(s, 'calibrate')
+      if (!t) return {}
       // The distance tool takes exactly two: a third pick moves the second.
-      const limit = s.calibrating.mode === 'distance' ? 2 : Infinity
-      const picks =
-        s.calibrating.picks.length < limit
-          ? [...s.calibrating.picks, px]
-          : [...s.calibrating.picks.slice(0, limit - 1), px]
-      return { calibrating: { ...s.calibrating, picks } }
+      const limit = t.mode === 'distance' ? 2 : Infinity
+      const picks = t.picks.length < limit ? [...t.picks, px] : [...t.picks.slice(0, limit - 1), px]
+      return { tool: { ...t, picks } }
     }),
 
   undoCalPick: () =>
-    set((s) =>
-      s.calibrating
-        ? { calibrating: { ...s.calibrating, picks: s.calibrating.picks.slice(0, -1) } }
-        : {},
-    ),
+    set((s) => {
+      const t = toolOf(s, 'calibrate')
+      return t ? { tool: { ...t, picks: t.picks.slice(0, -1) } } : {}
+    }),
 
   applyCalibration: (trueMm) => {
     const s = get()
-    if (!s.calibrating) return 'The calibration tool is not collecting.'
+    const t = toolOf(s, 'calibrate')
+    if (!t) return 'The calibration tool is not collecting.'
     try {
       const pxPerMm =
-        s.calibrating.mode === 'distance'
-          ? distanceCalibration(s.calibrating.picks[0], s.calibrating.picks[1], trueMm, {
+        t.mode === 'distance'
+          ? distanceCalibration(t.picks[0], t.picks[1], trueMm, {
               current: s.calSource === 'measured' ? s.pxPerMm : null,
               splitAxes: s.splitAxes,
             })
-          : diameterCalibration(s.calibrating.picks, trueMm)
+          : diameterCalibration(t.picks, trueMm)
       // Every fit re-derives from its recorded pixels under the new scale —
       // the measurements move with the calibration, never lag it.
       set({
         pxPerMm,
         calSource: 'measured',
-        calibrating: null,
+        tool: NO_TOOL,
         elements: evaluateFlatElements(s.elements, pxPerMm),
       })
       return null

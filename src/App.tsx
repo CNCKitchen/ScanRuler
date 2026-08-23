@@ -53,7 +53,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { flatCountColor, flatDraftColorOf, useFlat } from './state/flatStore'
+import { flatCountColor, flatDraftColorOf, toolOf, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -200,10 +200,10 @@ export default function App() {
 
   // The calibration tool's picks are stored in image pixels (they must
   // survive the very scale change they cause); the sheet is drawn in mm.
-  const flatCalibrating = useFlat((s) => s.calibrating)
+  const flatCalibrating = useFlat((s) => toolOf(s, 'calibrate'))
   const syncFlatCalPicks = () => {
     const mm = flatMmPerPx()
-    const picks = useFlat.getState().calibrating?.picks ?? []
+    const picks = toolOf(useFlat.getState(), 'calibrate')?.picks ?? []
     flatSceneRef.current?.setCalibrationPicks(picks.map((p) => [p[0] * mm.x, p[1] * mm.y]))
   }
   useEffect(syncFlatCalPicks, [flatCalibrating])
@@ -251,85 +251,15 @@ export default function App() {
   }
   useEffect(syncFlatEdges, [edgeVersion, showEdges])
 
-  /** A spot on the sheet (document units) as image pixels, snapped to the
-   *  nearest detected edge unless Alt says the spot itself is the
-   *  measurement. */
-  const flatSpotToPx = (
-    p: [number, number],
-    meta: { alt: boolean; unitsPerScreenPx: number },
-    snap = true,
-  ) => {
-    const mm = flatMmPerPx()
-    let px: [number, number] = [p[0] / mm.x, p[1] / mm.y]
-    // Alt inverts whatever the setting says, for this one pick.
-    if (snap !== meta.alt && flatEdgeIndexRef.current) {
-      const snapped = flatEdgeIndexRef.current.nearest(px[0], px[1], flatSnapRadiusPx(meta))
-      if (snapped) px = [snapped[0], snapped[1]]
-    }
-    return px
-  }
-
-  /** A hand-sized snap radius in image pixels: what looks like "that edge"
-   *  on screen, however far zoomed in or out the sheet is right now. */
-  const flatSnapRadiusPx = (meta: { unitsPerScreenPx: number }) =>
-    (10 * meta.unitsPerScreenPx) / flatMmPerPx().x
-
-  /** A click on the flat sheet — routed to whichever flat tool is collecting. */
-  const handleFlatPick = (p: [number, number], meta: { alt: boolean; unitsPerScreenPx: number }) => {
-    const flat = useFlat.getState()
-    const px = flatSpotToPx(p, meta)
-    if (flat.calibrating) {
-      flat.addCalPick(px)
-      return
-    }
-    if (flat.datumPicking) {
-      flat.addDatumPick(px)
-      return
-    }
-    if (flat.placingNote) {
-      // A note goes exactly where the click landed — never onto an edge.
-      const mm = flatMmPerPx()
-      flat.addNote([p[0] / mm.x, p[1] / mm.y])
-      return
-    }
-    if (flat.counting) {
-      // A tally snaps like a point pick: the checkbox says whether, Alt
-      // inverts it for the one click.
-      flat.addCountPick(flatSpotToPx(p, meta, flat.snapToEdge))
-      return
-    }
-    if (!flat.draft) return
-    if (flatMethod(flat.draft.method).mode === 'edge') {
-      // An edge tool reads a click as the whole detected edge under it.
-      const chain = flatEdgeIndexRef.current?.chainNear(px[0], px[1], flatSnapRadiusPx(meta))
-      if (chain) flat.addDraftPoints(thinEdgePoints(chain))
-      return
-    }
-    flat.addDraftPick(flatSpotToPx(p, meta, flat.snapToEdge))
-  }
-
-  /** A draft pin dragged across the sheet: the pick moves with the hand,
-   *  snapping to edges along the way, and the fit follows. */
-  const handleFlatPickDrag = (
-    index: number,
-    p: [number, number],
-    meta: { alt: boolean; unitsPerScreenPx: number },
-  ) => {
-    const flat = useFlat.getState()
-    flat.moveDraftPick(index, flatSpotToPx(p, meta, flat.snapToEdge))
-  }
-
-  /** A draft pin clicked without being dragged: the pick is taken back. */
-  const handleFlatPickRemove = (index: number) => useFlat.getState().removeDraftPick(index)
-
   /** The cursor over the sheet while the datum tool holds its first pick:
    *  the grid pivots live around the origin toward the cursor, which is the
    *  crop-tool feedback that makes the second pick aimable. */
   const handleFlatHover = (p: [number, number] | null) => {
     const s = useFlat.getState()
-    if (!s.datumPicking || s.datumPicking.picks.length !== 1 || !p) return
+    const datum = toolOf(s, 'datum')
+    if (!datum || datum.picks.length !== 1 || !p) return
     const mm = flatMmPerPx()
-    const o = s.datumPicking.picks[0]
+    const o = datum.picks[0]
     const origin: [number, number] = [o[0] * mm.x, o[1] * mm.y]
     const dx = p[0] - origin[0]
     const dy = p[1] - origin[1]
@@ -341,47 +271,44 @@ export default function App() {
   // Text notes on the sheet: image pixels in the store, document units on
   // the stage; a drag writes the pixel spot back.
   const flatNotes = useFlat((s) => s.notes)
-  const flatEditingNoteId = useFlat((s) => s.editingNoteId)
+  const flatTool = useFlat((s) => s.tool)
   const syncFlatNotes = () => {
     const s = useFlat.getState()
     const mm = flatMmPerPx()
+    const editingId = toolOf(s, 'note')?.editId ?? null
     flatSceneRef.current?.setNotes(
       s.notes
-        .filter((n) => n.visible || n.id === s.editingNoteId)
+        .filter((n) => n.visible || n.id === editingId)
         .map((n) => ({
           id: n.id,
           text: n.text,
           at: [n.at[0] * mm.x, n.at[1] * mm.y],
-          editing: n.id === s.editingNoteId,
+          editing: n.id === editingId,
         })),
     )
   }
-  useEffect(syncFlatNotes, [flatNotes, flatEditingNoteId, flatScale])
-  const handleFlatNoteDrag = (id: number, p: [number, number]) => {
-    const mm = flatMmPerPx()
-    useFlat.getState().moveNote(id, [p[0] / mm.x, p[1] / mm.y])
-  }
+  useEffect(syncFlatNotes, [flatNotes, flatTool, flatScale])
 
   // The tallies: finished ones under their names, the live one in the colour
   // it will get — every counted feature keeps its number on the sheet.
   const flatCounts = useFlat((s) => s.counts)
-  const flatCounting = useFlat((s) => s.counting)
   const syncFlatCounts = () => {
     const s = useFlat.getState()
     const mm = flatMmPerPx()
     const toMm = (picks: readonly [number, number][]): [number, number][] =>
       picks.map((p) => [p[0] * mm.x, p[1] * mm.y])
+    const counting = toolOf(s, 'count')
     flatSceneRef.current?.setCounts([
       // A re-opened tally is drawn by the live one, in its own colour.
       ...s.counts
-        .filter((c) => c.visible && c.id !== s.counting?.editId)
+        .filter((c) => c.visible && c.id !== counting?.editId)
         .map((c) => ({ picks: toMm(c.picks), color: c.color, name: c.name })),
-      ...(s.counting
-        ? [{ picks: toMm(s.counting.picks), color: flatCountColor(s.counting.editId ?? s.nextCountId) }]
+      ...(counting
+        ? [{ picks: toMm(counting.picks), color: flatCountColor(counting.editId ?? s.nextCountId) }]
         : []),
     ])
   }
-  useEffect(syncFlatCounts, [flatCounts, flatCounting, flatScale])
+  useEffect(syncFlatCounts, [flatCounts, flatTool, flatScale])
 
   // The measured dimensions, drawn on the sheet where they were taken —
   // values are rigid-invariant, so the datum never moves them.
@@ -435,15 +362,14 @@ export default function App() {
   // The committed grid: datum-aligned when one is set and wanted; put away
   // while the datum tool is collecting (its live preview owns the stage).
   const flatDatum = useFlat((s) => s.datum)
-  const flatDatumPicking = useFlat((s) => s.datumPicking)
   const flatShowGrid = useFlat((s) => s.showGrid)
   const syncFlatGrid = () => {
     const s = useFlat.getState()
-    if (s.datumPicking) return
+    if (s.tool.kind === 'datum') return
     const frame = s.datum && s.showGrid ? datumFrame(s.datum, s.pxPerMm) : null
     flatSceneRef.current?.setGrid(frame && { origin: frame.origin, xDir: frame.xDir })
   }
-  useEffect(syncFlatGrid, [flatDatum, flatDatumPicking, flatShowGrid, flatScale])
+  useEffect(syncFlatGrid, [flatDatum, flatTool, flatShowGrid, flatScale])
 
   // What the viewport draws for the flat workspace: the measured elements
   // with their headline values, and the draft's pins and ghost.
@@ -486,29 +412,6 @@ export default function App() {
   }
   useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit, flatDatum])
 
-  /** Edge points thinned to a sane count before they join a draft — a long
-   *  edge at 1200 dpi is tens of thousands, and a fit needs nowhere near. */
-  const thinEdgePoints = (points: [number, number][]) => {
-    const cap = 4000
-    return points.length > cap
-      ? points.filter((_, i) => i % Math.ceil(points.length / cap) === 0)
-      : points
-  }
-
-  /** A dragged region over the edge overlay: every detected edge point
-   *  inside it joins the draft, thinned to a sane count first. */
-  const handleFlatRegion = (min: [number, number], max: [number, number]) => {
-    const flat = useFlat.getState()
-    if (!flat.draft || !flatEdgeIndexRef.current) return
-    const mm = flatMmPerPx()
-    const points = flatEdgeIndexRef.current.inBox(
-      min[0] / mm.x,
-      min[1] / mm.y,
-      max[0] / mm.x,
-      max[1] / mm.y,
-    )
-    flat.addDraftPoints(thinEdgePoints(points))
-  }
 
   const openFile = async (file: File) => {
     if (!isMeshFile(file.name)) {
@@ -1580,20 +1483,22 @@ export default function App() {
                   flatSceneRef.current = s
                   syncFlatImage()
                 }}
-                onPick={handleFlatPick}
-                onPickDrag={handleFlatPickDrag}
-                onPickRemove={handleFlatPickRemove}
-                onNoteDrag={handleFlatNoteDrag}
+                onPick={(p, meta) => useFlat.getState().stageClick(p, meta, flatEdgeIndexRef.current)}
+                onPickDrag={(i, p, meta) =>
+                  useFlat.getState().stageDrag(i, p, meta, flatEdgeIndexRef.current)
+                }
+                onPickRemove={(i) => useFlat.getState().removeDraftPick(i)}
+                onNoteDrag={(id, p) => useFlat.getState().stageNoteDrag(id, p)}
                 onNoteSelect={(id) => useFlat.getState().editNote(id)}
-                onRegion={handleFlatRegion}
+                onRegion={(min, max) => useFlat.getState().stageRegion(min, max, flatEdgeIndexRef.current)}
                 onHover={handleFlatHover}
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
                   active:
                     (flatDraft !== null && flatMethod(flatDraft.method).mode === 'pick') ||
-                    flatCalibrating !== null ||
-                    flatCounting !== null,
+                    flatTool.kind === 'calibrate' ||
+                    flatTool.kind === 'count',
                 }}
               />
             </div>

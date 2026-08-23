@@ -15,7 +15,7 @@ function reset() {
     dimCounts: {},
     pxPerMm: null,
     calSource: 'none',
-    calibrating: null,
+    tool: { kind: 'none' },
     splitAxes: false,
   })
   useFlat.getState().finishImageLoad('t.png', 1000, 800, { x: 10, y: 10 })

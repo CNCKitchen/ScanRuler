@@ -14,7 +14,7 @@ import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
-import { flatCountColor, useFlat } from '../state/flatStore'
+import { flatCountColor, flatEditorOpen, toolOf, useFlat } from '../state/flatStore'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
 import { ShowAllButton } from './ShowAllButton'
@@ -43,7 +43,8 @@ export function FlatPanel({
   const pxPerMm = useFlat((s) => s.pxPerMm)
   const calSource = useFlat((s) => s.calSource)
   const splitAxes = useFlat((s) => s.splitAxes)
-  const calibrating = useFlat((s) => s.calibrating)
+  const tool = useFlat((s) => s.tool)
+  const calibrating = toolOf({ tool }, 'calibrate')
   const profiles = useFlat((s) => s.profiles)
   const edgeStatus = useFlat((s) => s.edgeStatus)
   const edgeCount = useFlat((s) => s.edgeCount)
@@ -53,25 +54,25 @@ export function FlatPanel({
   const draft = useFlat((s) => s.draft)
   const unit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
   const datum = useFlat((s) => s.datum)
-  const datumPicking = useFlat((s) => s.datumPicking)
+  const datumPicking = toolOf({ tool }, 'datum')
   const showGrid = useFlat((s) => s.showGrid)
   const dimensions = useFlat((s) => s.dimensions)
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
-  const counting = useFlat((s) => s.counting)
+  const counting = toolOf({ tool }, 'count')
   const snapToEdge = useFlat((s) => s.snapToEdge)
   const nextCountId = useFlat((s) => s.nextCountId)
   const notes = useFlat((s) => s.notes)
-  const placingNote = useFlat((s) => s.placingNote)
-  const editingNoteId = useFlat((s) => s.editingNoteId)
+  const noteTool = toolOf({ tool }, 'note')
+  const placingNote = noteTool !== null && noteTool.editId === null
+  const editingNoteId = noteTool?.editId ?? null
   const editedNote = editingNoteId === null ? undefined : notes.find((n) => n.id === editingNoteId)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
-  const editorOpen =
-    draft !== null || dimDraft !== null || counting !== null || placingNote || editedNote !== undefined
+  const editorOpen = flatEditorOpen({ tool, draft, dimDraft })
   const editedCount =
     counting?.editId === undefined ? undefined : counts.find((c) => c.id === counting.editId)
   const countColor = flatCountColor(counting?.editId ?? nextCountId)
