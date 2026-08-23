@@ -8,11 +8,9 @@ import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
 import { EDGE_MIN_FEATURE_MM } from './core/flat/edges'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
-import { flatMethod } from './core/flat/construct'
-import { datumFrame, fitInFrame } from './core/flat/datum'
+import { datumFrame } from './core/flat/datum'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, type FlatReportInput } from './core/flat/report'
-import { formatFlatPrimary } from './core/flat/summary'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
@@ -53,7 +51,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { flatCountColor, flatDraftColorOf, toolOf, useFlat } from './state/flatStore'
+import { useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -65,6 +63,8 @@ import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
 import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
+import { useFlatSceneSync } from './app/useFlatSceneSync'
+import { sheetLoupeActive } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
@@ -167,46 +167,14 @@ export default function App() {
     }
   }
 
-  // Put the decoded image on the sheet — once both it and the flat viewport
-  // exist, in whichever order they got there: the image may be dropped before
-  // the workspace has ever been opened, and the viewport unmounts with it.
-  const flatImageVersion = useFlat((s) => s.imageVersion)
-  const flatMmPerPx = () => {
-    const scale = useFlat.getState().pxPerMm
-    return scale ? { x: 1 / scale.x, y: 1 / scale.y } : { x: 1, y: 1 }
-  }
-  const syncFlatImage = () => {
-    const bitmap = flatBitmapRef.current
-    const scene = flatSceneRef.current
-    if (!bitmap || !scene) return
-    void scene.setImage(bitmap, flatMmPerPx())
-    syncFlatCalPicks()
-    syncFlatEdges()
-    syncFlatElements()
-    syncFlatDimensions()
-    syncFlatCounts()
-    syncFlatNotes()
-    syncFlatGrid()
-  }
-  useEffect(syncFlatImage, [flatImageVersion])
-
-  // A new calibration re-lays the sheet in its millimetres and moves whatever
-  // is pinned on it along.
-  const flatScale = useFlat((s) => s.pxPerMm)
-  useEffect(() => {
-    flatSceneRef.current?.setScale(flatMmPerPx())
-    syncFlatCalPicks()
-  }, [flatScale])
-
-  // The calibration tool's picks are stored in image pixels (they must
-  // survive the very scale change they cause); the sheet is drawn in mm.
-  const flatCalibrating = useFlat((s) => toolOf(s, 'calibrate'))
-  const syncFlatCalPicks = () => {
-    const mm = flatMmPerPx()
-    const picks = toolOf(useFlat.getState(), 'calibrate')?.picks ?? []
-    flatSceneRef.current?.setCalibrationPicks(picks.map((p) => [p[0] * mm.x, p[1] * mm.y]))
-  }
-  useEffect(syncFlatCalPicks, [flatCalibrating])
+  // The flat store holds the truth; useFlatSceneSync repeats it to the 2D
+  // viewport, and app/flatSheet says what each layer draws.
+  const flatSync = useFlatSceneSync({
+    sceneRef: flatSceneRef,
+    bitmapRef: flatBitmapRef,
+    edgesRef: flatEdgesRef,
+  })
+  const flatLoupeActive = useFlat(sheetLoupeActive)
 
   /** Run (or re-run) edge detection on the cached grayscale. Superseded
    *  requests come back null and change nothing. */
@@ -242,93 +210,6 @@ export default function App() {
     // On mount there is nothing loaded yet and the detect returns untouched.
     void runEdgeDetect()
   }, [edgeSensitivity, edgeScaleX])
-  const edgeVersion = useFlat((s) => s.edgeVersion)
-  const showEdges = useFlat((s) => s.showEdges)
-  const syncFlatEdges = () => {
-    flatSceneRef.current?.setEdgeChains(
-      useFlat.getState().showEdges ? flatEdgesRef.current : null,
-    )
-  }
-  useEffect(syncFlatEdges, [edgeVersion, showEdges])
-
-  /** The cursor over the sheet while the datum tool holds its first pick:
-   *  the grid pivots live around the origin toward the cursor, which is the
-   *  crop-tool feedback that makes the second pick aimable. */
-  const handleFlatHover = (p: [number, number] | null) => {
-    const s = useFlat.getState()
-    const datum = toolOf(s, 'datum')
-    if (!datum || datum.picks.length !== 1 || !p) return
-    const mm = flatMmPerPx()
-    const o = datum.picks[0]
-    const origin: [number, number] = [o[0] * mm.x, o[1] * mm.y]
-    const dx = p[0] - origin[0]
-    const dy = p[1] - origin[1]
-    const len = Math.hypot(dx, dy)
-    if (len < 1e-6) return
-    flatSceneRef.current?.setGrid({ origin, xDir: [dx / len, dy / len] })
-  }
-
-  // Text notes on the sheet: image pixels in the store, document units on
-  // the stage; a drag writes the pixel spot back.
-  const flatNotes = useFlat((s) => s.notes)
-  const flatTool = useFlat((s) => s.tool)
-  const syncFlatNotes = () => {
-    const s = useFlat.getState()
-    const mm = flatMmPerPx()
-    const editingId = toolOf(s, 'note')?.editId ?? null
-    flatSceneRef.current?.setNotes(
-      s.notes
-        .filter((n) => n.visible || n.id === editingId)
-        .map((n) => ({
-          id: n.id,
-          text: n.text,
-          at: [n.at[0] * mm.x, n.at[1] * mm.y],
-          editing: n.id === editingId,
-        })),
-    )
-  }
-  useEffect(syncFlatNotes, [flatNotes, flatTool, flatScale])
-
-  // The tallies: finished ones under their names, the live one in the colour
-  // it will get — every counted feature keeps its number on the sheet.
-  const flatCounts = useFlat((s) => s.counts)
-  const syncFlatCounts = () => {
-    const s = useFlat.getState()
-    const mm = flatMmPerPx()
-    const toMm = (picks: readonly [number, number][]): [number, number][] =>
-      picks.map((p) => [p[0] * mm.x, p[1] * mm.y])
-    const counting = toolOf(s, 'count')
-    flatSceneRef.current?.setCounts([
-      // A re-opened tally is drawn by the live one, in its own colour.
-      ...s.counts
-        .filter((c) => c.visible && c.id !== counting?.editId)
-        .map((c) => ({ picks: toMm(c.picks), color: c.color, name: c.name })),
-      ...(counting
-        ? [{ picks: toMm(counting.picks), color: flatCountColor(counting.editId ?? s.nextCountId) }]
-        : []),
-    ])
-  }
-  useEffect(syncFlatCounts, [flatCounts, flatTool, flatScale])
-
-  // The measured dimensions, drawn on the sheet where they were taken —
-  // values are rigid-invariant, so the datum never moves them.
-  const flatDimensions = useFlat((s) => s.dimensions)
-  const flatElementsForDims = useFlat((s) => s.elements)
-  const syncFlatDimensions = () => {
-    const s = useFlat.getState()
-    flatSceneRef.current?.setFlatDimensions(
-      evaluateFlatDimensions(s.dimensions, s.elements)
-        .filter((d) => d.dim.visible && d.value.value !== undefined)
-        .map((d) => ({
-          title: d.dim.name,
-          value: d.value.value!,
-          segment: d.value.segment,
-          arc: d.value.arc,
-        })),
-    )
-  }
-  useEffect(syncFlatDimensions, [flatDimensions, flatElementsForDims])
-
   /** Everything the 2D report and CSV need, gathered once. */
   const flatReportInput = (): FlatReportInput => {
     const s = useFlat.getState()
@@ -359,58 +240,6 @@ export default function App() {
     useStore.getState().setStatus(`Measurements exported to ${name}.`)
   }
 
-  // The committed grid: datum-aligned when one is set and wanted; put away
-  // while the datum tool is collecting (its live preview owns the stage).
-  const flatDatum = useFlat((s) => s.datum)
-  const flatShowGrid = useFlat((s) => s.showGrid)
-  const syncFlatGrid = () => {
-    const s = useFlat.getState()
-    if (s.tool.kind === 'datum') return
-    const frame = s.datum && s.showGrid ? datumFrame(s.datum, s.pxPerMm) : null
-    flatSceneRef.current?.setGrid(frame && { origin: frame.origin, xDir: frame.xDir })
-  }
-  useEffect(syncFlatGrid, [flatDatum, flatTool, flatShowGrid, flatScale])
-
-  // What the viewport draws for the flat workspace: the measured elements
-  // with their headline values, and the draft's pins and ghost.
-  const flatElements = useFlat((s) => s.elements)
-  const flatDraft = useFlat((s) => s.draft)
-  const flatUnit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px'))
-  const syncFlatElements = () => {
-    const s = useFlat.getState()
-    const unit = s.pxPerMm ? 'mm' : 'px'
-    // Values read in the datum frame when one is set; the drawn geometry
-    // stays where it was measured.
-    const frame = s.datum ? datumFrame(s.datum, s.pxPerMm) : null
-    // An element open for editing is drawn by its draft, in its own colour,
-    // so the pins and the fit following them are not fighting the original.
-    flatSceneRef.current?.setFlatElements(
-      s.elements
-        .filter((e) => e.visible && e.fit && e.id !== s.draft?.editId)
-        .map((e) => ({
-          fit: e.fit!,
-          color: e.color,
-          name: e.name,
-          value: formatFlatPrimary(fitInFrame(e.fit!, frame), unit),
-        })),
-    )
-    const mm = flatMmPerPx()
-    const picksMm: [number, number][] = (s.draft?.picks ?? []).map((p) => [
-      p[0] * mm.x,
-      p[1] * mm.y,
-    ])
-    // A region-collected draft carries thousands of points — a dot cloud, not
-    // numbered pins.
-    const isEdgeDraft = s.draft ? flatMethod(s.draft.method).mode === 'edge' : false
-    flatSceneRef.current?.setDraftMarks(
-      isEdgeDraft ? [] : picksMm,
-      s.draft?.fit ?? null,
-      isEdgeDraft ? picksMm : undefined,
-      flatDraftColorOf(s),
-    )
-    flatSceneRef.current?.setRegionMode(isEdgeDraft)
-  }
-  useEffect(syncFlatElements, [flatElements, flatDraft, flatUnit, flatDatum])
 
 
   const openFile = async (file: File) => {
@@ -1479,10 +1308,7 @@ export default function App() {
           {onFlat && (
             <div className="viewslot">
               <FlatViewer
-                onReady={(s) => {
-                  flatSceneRef.current = s
-                  syncFlatImage()
-                }}
+                onReady={flatSync.onReady}
                 onPick={(p, meta) => useFlat.getState().stageClick(p, meta, flatEdgeIndexRef.current)}
                 onPickDrag={(i, p, meta) =>
                   useFlat.getState().stageDrag(i, p, meta, flatEdgeIndexRef.current)
@@ -1491,14 +1317,11 @@ export default function App() {
                 onNoteDrag={(id, p) => useFlat.getState().stageNoteDrag(id, p)}
                 onNoteSelect={(id) => useFlat.getState().editNote(id)}
                 onRegion={(min, max) => useFlat.getState().stageRegion(min, max, flatEdgeIndexRef.current)}
-                onHover={handleFlatHover}
+                onHover={flatSync.onHover}
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
-                  active:
-                    (flatDraft !== null && flatMethod(flatDraft.method).mode === 'pick') ||
-                    flatTool.kind === 'calibrate' ||
-                    flatTool.kind === 'count',
+                  active: flatLoupeActive,
                 }}
               />
             </div>
