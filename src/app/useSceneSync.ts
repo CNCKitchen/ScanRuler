@@ -370,7 +370,9 @@ export function useSceneSync({
     (elementsWorkspace &&
       (((dimDraft !== null || (alignDraft !== null && alignDraft.pickSlot === null)) &&
         draft === null) ||
-        (draft !== null && creationMethod(draft.kind, draft.method).mode === 'construct')))
+        (draft !== null &&
+          draft.pickSlot == null &&
+          creationMethod(draft.kind, draft.method).mode === 'construct')))
   useEffect(() => {
     sceneRef.current?.setElementPickEnabled(wantsElementPicks)
   }, [wantsElementPicks])

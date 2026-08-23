@@ -83,13 +83,19 @@ export function RefSelect({
           else onChange(e.target.value === '' ? null : Number(e.target.value))
         }}
       >
-        <option value="">{picking ? 'Picking — click the scan…' : placeholder}</option>
+        <option value="">{placeholder}</option>
         {options.map((el) => (
           <option key={el.id} value={el.id}>
             {el.name}
           </option>
         ))}
-        {onPickNew && <option value="__pick__">+ Pick point on scan…</option>}
+        {/* The same option reads as the pick while one is under way — it is
+            the one the select shows selected then. */}
+        {onPickNew && (
+          <option value="__pick__">
+            {picking ? 'Picking — click the scan…' : '+ Pick point on scan…'}
+          </option>
+        )}
       </select>
     </label>
   )

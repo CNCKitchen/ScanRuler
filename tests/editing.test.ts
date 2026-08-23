@@ -301,3 +301,52 @@ describe('editing a dimension', () => {
     expect(store().dimDraft).toBeNull()
   })
 })
+
+describe('picking a point on the scan for a construction slot', () => {
+
+  it('creates a picked Point element and drops it into the slot', () => {
+    const a = pickPoint([0, 0, 0])
+    store().startDraft('line')
+    store().setDraftMethod('line-two-points')
+    store().setDraftRef(0, a)
+    store().beginDraftPick(1)
+    expect(store().draft?.pickSlot).toBe(1)
+    expect(store().draft?.status).toBe('empty')
+    const id = store().pickDraftPoint([10, 0, 0])
+    expect(id).not.toBeNull()
+    const el = elementById(id!)
+    expect(el.kind).toBe('point')
+    expect(el.source.type).toBe('picked')
+    expect(store().draft?.pickSlot).toBeNull()
+    expect(store().draft?.refs).toEqual([a, id])
+    expect(store().draft?.status).toBe('ready')
+    expect(store().draft?.fit?.kind).toBe('line')
+  })
+
+  it('lets a filled slot go while it waits, and Escape-style cancel keeps the draft', () => {
+    const a = pickPoint([0, 0, 0])
+    const b = pickPoint([5, 5, 0])
+    store().startDraft('line')
+    store().setDraftMethod('line-two-points')
+    store().setDraftRef(0, a)
+    store().setDraftRef(1, b)
+    expect(store().draft?.status).toBe('ready')
+    store().beginDraftPick(0)
+    expect(store().draft?.refs).toEqual([null, b])
+    expect(store().draft?.status).toBe('empty')
+    store().cancelDraftPick()
+    expect(store().draft).not.toBeNull()
+    expect(store().draft?.pickSlot).toBeNull()
+    // No slot is waiting, so a stray click creates nothing.
+    const n = store().elements.length
+    expect(store().pickDraftPoint([1, 1, 1])).toBeNull()
+    expect(store().elements.length).toBe(n)
+  })
+
+  it('refuses slots that do not take a point', () => {
+    store().startDraft('line')
+    store().setDraftMethod('line-plane-plane')
+    store().beginDraftPick(0)
+    expect(store().draft?.pickSlot).toBeUndefined()
+  })
+})

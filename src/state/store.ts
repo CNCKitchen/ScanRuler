@@ -53,6 +53,7 @@ import type {
   FitData,
   FitOutput,
   FitSettings,
+  PointFit,
   SigmaPreset,
   Vec3,
 } from '../core/types'
@@ -133,6 +134,10 @@ export interface Draft {
    *  measured against it — dimensions, constructions — keeps pointing at the
    *  same element and simply re-reads the new geometry. */
   editId?: number
+  /** A point slot of a construction waiting for a click on the scan: the
+   *  click becomes a picked Point element that drops straight into the slot,
+   *  the way a dimension slot collects one — see pickDraftPoint. */
+  pickSlot?: number | null
   /** The element's name while it is open for editing, so it can be changed
    *  along with the geometry. */
   name?: string
@@ -630,6 +635,13 @@ interface AppState {
    *  marking has been cleared. */
   setDraftSelection: (selection: Uint32Array | null) => void
   setDraftRef: (slot: number, id: number | null) => void
+  /** "+ Pick point on scan…" on a construction's point slot: the next click
+   *  on the scan fills it. Whatever was in the slot is let go. */
+  beginDraftPick: (slot: number) => void
+  cancelDraftPick: () => void
+  /** The click the slot was waiting for: a picked Point element is created
+   *  from it and referenced by the slot. Returns the new element's id. */
+  pickDraftPoint: (point: Vec3) => number | null
   setDraftParam: (index: number, value: number) => void
   /** Extend the open draft's cylinder or plane by one side, in millimetres
    *  past the measured surface. Driven by both the panel's fields and the
@@ -978,6 +990,56 @@ export const useStore = create<AppState>()((set, get) => ({
       const refs = s.draft.refs.map((r, i) => (i === slot ? id : r))
       return { draft: evalConstructDraft({ ...s.draft, refs }, s.elements, s.modelSize) }
     }),
+
+  beginDraftPick: (slot) =>
+    set((s) => {
+      if (!s.draft) return {}
+      const m = creationMethod(s.draft.kind, s.draft.method)
+      if (m.mode !== 'construct' || m.slots[slot]?.role !== 'point') return {}
+      const refs = s.draft.refs.map((r, i) => (i === slot ? null : r))
+      return {
+        draft: { ...evalConstructDraft({ ...s.draft, refs }, s.elements, s.modelSize), pickSlot: slot },
+        errorText: null,
+      }
+    }),
+
+  cancelDraftPick: () =>
+    set((s) => (s.draft && s.draft.pickSlot != null ? { draft: { ...s.draft, pickSlot: null } } : {})),
+
+  pickDraftPoint: (point) => {
+    const d = get().draft
+    if (!d || d.pickSlot == null) return null
+    const slot = d.pickSlot
+    const fit: PointFit = { kind: 'point', center: point, sigma: 0, usedPoints: 0, regionSize: 0 }
+    const id = get().nextId
+    const num = get().nextNumber
+    const ofKind = get().nextOfKind.point
+    set((s) => {
+      if (!s.draft) return {}
+      const elements = [
+        ...s.elements,
+        {
+          id,
+          kind: 'point' as const,
+          name: `${elementKindInfo('point').label} ${ofKind}`,
+          color: elementColor(num),
+          source: { type: 'picked' } as ElementSource,
+          status: 'done' as const,
+          visible: true,
+          fit,
+        },
+      ]
+      const refs = s.draft.refs.map((r, i) => (i === slot ? id : r))
+      return {
+        nextId: id + 1,
+        nextNumber: num + 1,
+        nextOfKind: { ...s.nextOfKind, point: ofKind + 1 },
+        elements,
+        draft: evalConstructDraft({ ...s.draft, refs, pickSlot: null }, elements, s.modelSize),
+      }
+    })
+    return id
+  },
 
   setDraftParam: (index, value) =>
     set((s) => {

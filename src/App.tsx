@@ -654,8 +654,12 @@ export default function App() {
     }
     const method = creationMethod(store.draft.kind, store.draft.method)
     // Constructions are assembled in the panel; clicks on the scan are not
-    // theirs to consume.
-    if (method.mode === 'construct') return
+    // theirs to consume — unless a point slot has asked for one, in which
+    // case the click becomes a picked Point element that fills the slot.
+    if (method.mode === 'construct') {
+      if (store.draft.pickSlot != null) store.pickDraftPoint(hit.point)
+      return
+    }
     if (method.mode === 'pick') {
       if (store.draft.kind === 'point') {
         // A picked point is the exact raycast hit — no worker round-trip, and
@@ -1021,6 +1025,8 @@ export default function App() {
     }
     if (draft && draftMode === 'construct') {
       const method = creationMethod(draft.kind, draft.method)
+      if (draft.pickSlot != null)
+        return `Click the scan to pick “${method.slots[draft.pickSlot].label}” · Esc to stop picking`
       const empty = draft.refs.findIndex((r) => r === null)
       if (empty < 0) return null
       return `Click an element in the viewport for “${method.slots[empty].label}” — or choose it in the panel`

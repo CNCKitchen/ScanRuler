@@ -44,6 +44,7 @@ export function DraftEditor({
   const setDraftMethod = useStore((s) => s.setDraftMethod)
   const setDraftName = useStore((s) => s.setDraftName)
   const setDraftRef = useStore((s) => s.setDraftRef)
+  const beginDraftPick = useStore((s) => s.beginDraftPick)
   const setDraftParam = useStore((s) => s.setDraftParam)
   const selectMode = useStore((s) => s.selectMode)
   // The marking itself is the shared tool set (markStore / MarkTools); the
@@ -178,7 +179,11 @@ export function DraftEditor({
                   options={providersFor([slot.role], elements, blocked, slot.kinds)}
                   value={draft.refs[i]}
                   testId={`draft-ref-${i}`}
+                  picking={draft.pickSlot === i}
                   onChange={(id) => setDraftRef(i, id)}
+                  onPickNew={
+                    slot.role === 'point' && !slot.kinds ? () => beginDraftPick(i) : undefined
+                  }
                 />
               ))}
               {method.params.map((p, i) => (

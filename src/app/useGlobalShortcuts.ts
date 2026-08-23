@@ -85,6 +85,9 @@ export function useGlobalShortcuts({
             store.selectMode === 'paint' &&
             creationMethod(store.draft.kind, store.draft.method).mode === 'fit'
           if (marked && useMark.getState().gesture !== null) useMark.getState().setGesture(null)
+          // Likewise a construction slot waiting for a click on the scan: the
+          // first Escape stops the picking, the second discards the draft.
+          else if (store.draft.pickSlot != null) store.cancelDraftPick()
           else cancelDraft()
         } else if (e.key === 'Enter' && store.draft.status === 'ready') confirmDraft()
         return
