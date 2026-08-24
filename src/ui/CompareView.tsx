@@ -33,6 +33,7 @@ export function CompareView({
   const compareRef = useRef<CompareScene | null>(null)
   const navScheme = useStore((s) => s.navScheme)
   const viewTheme = useStore((s) => s.viewTheme)
+  const showBackfaces = useStore((s) => s.showBackfaces)
 
   useEffect(() => {
     const compare = new CompareScene(
@@ -41,6 +42,10 @@ export function CompareView({
       themeById(useStore.getState().viewTheme),
     )
     compare.setNavScheme(schemeById(useStore.getState().navScheme))
+    // Read from the store rather than from the prop, so a half opened with the
+    // switch already on is tinted on its first frame instead of on the next
+    // change of it.
+    compare.setBackfaceTint(useStore.getState().showBackfaces)
     compare.linkTo(scene.viewLink())
     compareRef.current = compare
     return () => {
@@ -56,6 +61,13 @@ export function CompareView({
   useEffect(() => {
     compareRef.current?.setViewTheme(themeById(viewTheme))
   }, [viewTheme])
+
+  // The status strip's switch is one statement about the models, so it holds
+  // for both halves: the scan's viewport takes it in useSceneSync, this one
+  // here.
+  useEffect(() => {
+    compareRef.current?.setBackfaceTint(showBackfaces)
+  }, [showBackfaces])
 
   return (
     <div className="comparehalf" data-test="compare-half">

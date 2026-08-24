@@ -122,6 +122,12 @@ inside of the wall behind it, and in plain grey that reads as part. Switched
 on, it reads as a hole — which is also how an inverted normal gives itself
 away.
 
+It is a statement about the models rather than about one viewport, so it holds
+across the [split view](#both-parts-side-by-side): the reference in the half
+beside the scan is flagged the same way, by the same switch. A reference has
+holes too — an STL that was never closed, a STEP tessellation that came apart
+— and one of those is worth seeing before it is used as the datum for a map.
+
 ### How the part is shown
 
 **View** in the status strip picks what the part is made of and how it is lit,
@@ -622,6 +628,18 @@ On, the gesture goes straight through, which takes a whole rib or boss in one
 sweep and is also the escape hatch for a scan whose normals are inverted. There
 is no depth test behind this, only the facing test: that is how CAD selection
 works everywhere, and it is why the switch exists.
+
+A marked point is only ever paired with reference surface **facing the same way
+it does** — within 60°, which the fit can insist on because it starts from a
+pose that is already right to within a fraction of a millimetre. This is what
+keeps the outside of a thin wall from being fitted to the inside of it. The
+test is applied while the pairing is searched for, not after: across a thin
+wall, inside a bore, or in the gap between a boss and its pocket the *nearest*
+reference surface to a marked point is the one facing back at it, and a fit
+that only threw that pair out afterwards would leave the surface you marked
+contributing nothing at all — with the pose then decided by whichever part of
+the marking happened to land somewhere unambiguous. Searching with the facing
+test inside it pairs the point with the wall it actually came off.
 
 **Max search distance** (1 mm by default) is a hard gate on the fit: a marked
 point that finds no reference surface within it contributes nothing, and

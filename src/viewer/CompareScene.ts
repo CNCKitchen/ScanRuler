@@ -14,12 +14,17 @@ import { CameraLink, type LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
+import { backfaceUniforms, patchBackfaceTint } from './backfaceTint'
 
 export class CompareScene {
   private viewport: OrthoViewport
   private material: THREE.MeshStandardMaterial
   private mesh: THREE.Mesh
   private link: CameraLink | null = null
+  /** This half's own pair of back-face uniforms: the switch is one statement
+   *  about the models, but three.js keeps GPU state per renderer and this is a
+   *  renderer of its own. */
+  private backface: ReturnType<typeof backfaceUniforms>
 
   constructor(container: HTMLDivElement, geometry: THREE.BufferGeometry, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
@@ -46,6 +51,12 @@ export class CompareScene {
     this.material = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide })
     setSurfaceColor(this.material.color, theme)
     applyFinish(this.material, theme)
+    // Double-sided means the far side of every triangle is drawn, so this half
+    // needs the same flag the scan's half has: a reference with a hole in it —
+    // a STEP tessellation that came apart, an open mesh — must not read as
+    // solid part on one side of the screen and as a warning on the other.
+    this.backface = backfaceUniforms(theme.backface)
+    patchBackfaceTint(this.material, this.backface)
     this.mesh = new THREE.Mesh(geometry, this.material)
     this.viewport.scene.add(this.mesh)
 
@@ -75,6 +86,15 @@ export class CompareScene {
     this.viewport.setTheme(theme)
     setSurfaceColor(this.material.color, theme)
     applyFinish(this.material, theme)
+    this.backface.uBackfaceColor.value.setHex(theme.backface)
+    this.viewport.invalidate()
+  }
+
+  /** Which way the reference's surface faces, driven by the one switch in the
+   *  status strip. Opening the split view has to push the switch's current
+   *  state in here, or this half would start off disagreeing with the other. */
+  setBackfaceTint(on: boolean): void {
+    this.backface.uBackfaceTint.value = on ? 1 : 0
     this.viewport.invalidate()
   }
 

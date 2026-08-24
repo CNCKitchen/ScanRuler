@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { alignLocal, MIN_LOCAL_POINTS } from '../src/core/deviation/align'
+import { icp, sampleScan } from '../src/core/deviation/icp'
 import { NominalSurface } from '../src/core/deviation/surface'
 import {
   identityRigid,
@@ -70,6 +71,17 @@ function rotated(normals: Float32Array, pose: Rigid): Float32Array {
 /** Every vertex of the scan, as the marking would hand them over. */
 function allVertices(count: number): Uint32Array {
   return Uint32Array.from({ length: count }, (_, i) => i)
+}
+
+/** The named vertices' triples, packed — what alignLocal does internally, done
+ *  here so a bare icp() run can be given the same selection. */
+function gather(source: Float32Array, vertices: Uint32Array): number[] {
+  const out: number[] = []
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i]
+    out.push(source[v * 3], source[v * 3 + 1], source[v * 3 + 2])
+  }
+  return out
 }
 
 const nominalGraph = buildMeshGraph({ kind: 'soup', positions: boxMesh(SIZE, GRID) })
@@ -172,6 +184,69 @@ describe('local best fit', () => {
     }
     expect(fit(oneFace).underconstrained).toBe(true)
     expect(fit(twoFaces).underconstrained).toBe(false)
+  })
+
+  it('pairs a marked face with reference surface facing the same way, not the nearer far wall', () => {
+    // A thin plate, and a start pose that has slid the scan far enough down
+    // that the *nearest* reference surface to its marked top face is the
+    // plate's underside — which faces back at it. Taking the nearest surface
+    // and rejecting the pair afterwards leaves the marked face contributing
+    // nothing at all; searching with the facing test inside it pairs the face
+    // with the top it actually came off, 0.7 mm away and well inside the gate.
+    const THICKNESS = 1
+    const DROP = 0.7
+    const plate = boxMesh(SIZE, GRID)
+    for (let v = 2; v < plate.length; v += 3) plate[v] *= THICKNESS / SIZE
+    const plateGraph = buildMeshGraph({ kind: 'soup', positions: plate })
+    const plateSurface = new NominalSurface(plateGraph.positions, plateGraph.indices)
+
+    // The interior of the top face only: a rim vertex carries the average of
+    // the top and the side meeting there, which is a second direction and not
+    // what this is testing.
+    const top: number[] = []
+    for (let v = 0; v < plateGraph.vertexCount; v++) {
+      const x = plateGraph.positions[v * 3]
+      const y = plateGraph.positions[v * 3 + 1]
+      const z = plateGraph.positions[v * 3 + 2]
+      if (z < THICKNESS / 2 - 1e-6) continue
+      if (Math.abs(x) > half - 1e-6 || Math.abs(y) > half - 1e-6) continue
+      top.push(v)
+    }
+    const marked = Uint32Array.from(top)
+    expect(marked.length).toBeGreaterThan(MIN_LOCAL_POINTS)
+
+    const dropped = identityRigid()
+    dropped.t[2] = -DROP
+    const positions = moved(plateGraph.positions, dropped)
+    const normals = rotated(plateGraph.normals, dropped)
+
+    // Nearest-surface pairing under the same gate and the same facing rule,
+    // but with the test applied after the search: every marked point finds the
+    // underside first, is thrown out for facing the wrong way, and the fit has
+    // nothing left to work with.
+    const blind = icp(
+      plateSurface,
+      sampleScan(
+        Float32Array.from(gather(positions, marked)),
+        Float32Array.from(gather(normals, marked)),
+        25_000,
+      ),
+      identityRigid(),
+      { minNormalDot: 0.5, maxPairDistance: 1, scoreCap: 1 },
+    )
+    expect(blind.matched).toBe(0)
+
+    const fit = alignLocal(plateSurface, positions, normals, marked, identityRigid(), {
+      maxDistance: 1,
+    })
+    expect(fit.matched).toBeGreaterThan(0)
+    // The plate is lifted back onto the reference, not pulled further down
+    // onto the face it was nearest to.
+    expect(fit.transform.t[2]).toBeCloseTo(DROP, 2)
+    expect(fit.rms).toBeLessThan(0.01)
+    // One flat patch is still one flat patch — the facing search does not make
+    // it constrain anything it did not before.
+    expect(fit.underconstrained).toBe(true)
   })
 
   it('refuses a selection too small to place a part with', () => {

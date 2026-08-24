@@ -15,6 +15,11 @@ import type { ExtendSide } from '../core/elements/extend'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { applyFinish, DEFAULT_THEME, type ViewTheme } from './viewThemes'
+import {
+  backfaceUniforms,
+  BACKFACE_GLSL_FRAGMENT,
+  BACKFACE_GLSL_PREAMBLE,
+} from './backfaceTint'
 
 declare module 'three' {
   interface BufferGeometry {
@@ -158,13 +163,10 @@ export class SceneManager {
    *  shape or painted region) before falling back to a plain surface pick. */
   private elementPickEnabled = false
 
-  /** Back-face tinting, shared by every material that opts in: a flag and a
-   *  colour rather than two materials, so switching it is a uniform write
-   *  instead of a shader recompile mid-session. */
-  private backface = {
-    uBackfaceTint: { value: 0 },
-    uBackfaceColor: { value: new THREE.Color(DEFAULT_THEME.backface) },
-  }
+  /** Back-face tinting, shared by every material of this view that opts in.
+   *  The split view's reference half keeps a pair of its own and is driven
+   *  from the same switch — see backfaceTint.ts. */
+  private backface = backfaceUniforms(DEFAULT_THEME.backface)
 
   /** The marking's tint, as a uniform: recolouring what is marked is one write
    *  here rather than a pass over the mask. Written in the working colour
@@ -487,13 +489,13 @@ export class SceneManager {
           '#include <color_vertex>\n\tvPaint = paint;',
         )
       shader.fragmentShader =
-        'uniform float uBackfaceTint;\nuniform vec3 uBackfaceColor;\n' +
+        BACKFACE_GLSL_PREAMBLE +
         'uniform vec3 uPaintColor;\nvarying float vPaint;\n' +
         shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
           if ( vPaint > 0.998 ) diffuseColor.rgb = uPaintColor;
-          if ( uBackfaceTint > 0.5 && ! gl_FrontFacing ) diffuseColor.rgb = uBackfaceColor;`,
+          ${BACKFACE_GLSL_FRAGMENT}`,
         )
     }
   }

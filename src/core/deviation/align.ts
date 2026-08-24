@@ -303,6 +303,12 @@ export function alignLocal(
     // facing test can be strict — it is what keeps a marked wall from pairing
     // with the other side of a thin one.
     minNormalDot: 0.5,
+    // And it is applied inside the search, not after it: the nearest reference
+    // surface to a point marked on a thin wall, in a bore or in a narrow gap
+    // is the one facing back at it, and rejecting that pair afterwards would
+    // throw the point away rather than pair it with the wall it came off.
+    // Surface the user marked as being the part has to be able to vote.
+    facingSearch: true,
     maxPairDistance: options.maxDistance,
     // A sample that found nothing inside the gate costs exactly the gate, so
     // the score stays comparable between poses that match different subsets.

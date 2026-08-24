@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
-import { MeshBVH, SAH } from 'three-mesh-bvh'
+import { INTERSECTED, MeshBVH, NOT_INTERSECTED, SAH } from 'three-mesh-bvh'
 
 /** Where on a triangle the closest point landed. Which normal is the correct
  *  one to sign a distance with depends on this: a point that projects into the
@@ -148,6 +148,8 @@ export class NominalSurface {
   private probe = new THREE.Vector3()
   private target = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
   private scratch = new Float64Array(4)
+  /** Closest point on the triangle currently under test by closestFacing. */
+  private facingNear = new THREE.Vector3()
 
   constructor(positions: Float32Array, indices: Uint32Array) {
     this.positions = positions
@@ -306,8 +308,69 @@ export class NominalSurface {
     this.probe.set(x, y, z)
     const hit = this.bvh.closestPointToPoint(this.probe, this.target, 0, maxDistance)
     if (!hit) return false
+    this.fillHit(x, y, z, hit.faceIndex, out)
+    return true
+  }
 
-    const f = hit.faceIndex
+  /**
+   * The same query, restricted to surface that faces roughly the way the query
+   * point does: the nearest triangle whose outward normal satisfies
+   * `n · (nx, ny, nz) >= minDot`, within `maxDistance`.
+   *
+   * Plain `closest` takes the nearest surface whatever it is facing, which is
+   * right for measuring — the map wants the distance to the part, and the sign
+   * says which side of it the point fell on. It is wrong for *fitting*: across
+   * a thin wall, inside a bore, or in the gap between a boss and its pocket,
+   * the nearest reference surface to a marked point is the one facing back at
+   * it, and a caller that only rejects such a pair afterwards throws the point
+   * away entirely — so surface the user explicitly marked as being the part
+   * ends up contributing nothing, and the pose is decided by whatever subset
+   * happened to land on same-facing surface. Searching with the facing test
+   * *inside* it pairs the point with the surface it actually came off.
+   *
+   * Bounded and best-first: the traversal order is by box distance and a node
+   * further away than the best triangle so far is not opened, so on the small
+   * gate a fine fit runs under this touches a handful of triangles.
+   */
+  closestFacing(
+    x: number, y: number, z: number,
+    nx: number, ny: number, nz: number,
+    minDot: number,
+    out: ClosestHit,
+    maxDistance = Infinity,
+  ): boolean {
+    const point = this.probe.set(x, y, z)
+    const near = this.facingNear
+    const fn = this.faceNormal
+    let bestFace = -1
+    let bestSq = maxDistance * maxDistance
+    this.bvh.shapecast({
+      boundsTraverseOrder: (box) => box.distanceToPoint(point),
+      intersectsBounds: (_box, _isLeaf, score) =>
+        score! * score! < bestSq ? INTERSECTED : NOT_INTERSECTED,
+      intersectsTriangle: (tri, triIndex) => {
+        // The winding's own normal, not the pseudonormal: this is a question
+        // about the face, and the pseudonormal of whichever feature the point
+        // lands on is only resolved once, for the triangle that wins.
+        const f = triIndex * 3
+        if (fn[f] * nx + fn[f + 1] * ny + fn[f + 2] * nz < minDot) return false
+        tri.closestPointToPoint(point, near)
+        const d2 = near.distanceToSquared(point)
+        if (d2 < bestSq) {
+          bestSq = d2
+          bestFace = triIndex
+        }
+        return false
+      },
+    })
+    if (bestFace < 0) return false
+    this.fillHit(x, y, z, bestFace, out)
+    return true
+  }
+
+  /** Resolve the closest point on one known triangle, and the pseudonormal of
+   *  whichever feature of it that point belongs to. */
+  private fillHit(x: number, y: number, z: number, f: number, out: ClosestHit): void {
     const p = this.positions
     const idx = this.index
     const ia = idx[f * 3], ib = idx[f * 3 + 1], ic = idx[f * 3 + 2]
@@ -365,7 +428,6 @@ export class NominalSurface {
     out.px = s[0]; out.py = s[1]; out.pz = s[2]
     out.nx = nx; out.ny = ny; out.nz = nz
     out.faceIndex = f
-    return true
   }
 }
 

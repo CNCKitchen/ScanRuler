@@ -31,6 +31,15 @@ export interface IcpOptions {
   /** Drop a pair whose scan normal disagrees with the nominal's by more than
    *  `acos(minNormalDot)` — stops a surface from latching onto the far wall. */
   minNormalDot?: number
+  /** Apply that facing test *inside* the closest-point search rather than
+   *  after it: a sample is paired with the nearest reference surface that
+   *  faces the same way it does, instead of with the nearest surface full
+   *  stop — which across a thin wall or inside a bore is the one facing back,
+   *  so the sample would be rejected and contribute nothing at all. Needs a
+   *  finite `maxPairDistance` to search within, and scan normals to search
+   *  with; without either it falls back to the plain query and the test after
+   *  it. */
+  facingSearch?: boolean
   /** Hard ceiling on how far a sample may reach for reference surface, in mm.
    *  Unlike the median cut-off this one does not adapt: it is the user's
    *  statement that nothing further away is the same feature, which is what
@@ -118,6 +127,11 @@ export function icp(
   const rejectMedianFactor = options.rejectMedianFactor ?? 3
   const minNormalDot = options.minNormalDot ?? 0
   const maxPairDistance = options.maxPairDistance ?? Infinity
+  const facingSearch =
+    options.facingSearch === true &&
+    samples.normals !== null &&
+    minNormalDot > 0 &&
+    Number.isFinite(maxPairDistance)
   const tolerance = options.tolerance ?? surface.bboxDiagonal * 1e-7
   const scoreCap = options.scoreCap ?? surface.bboxDiagonal * 0.05
 
@@ -164,7 +178,40 @@ export function icp(
       ok[i] = 0
       rigidApply(transform, samples.xyz[i * 3], samples.xyz[i * 3 + 1], samples.xyz[i * 3 + 2], p)
       q[i * 3] = p[0]; q[i * 3 + 1] = p[1]; q[i * 3 + 2] = p[2]
-      if (!surface.closest(p[0], p[1], p[2], hit)) {
+      // The sample's own normal, carried into the nominal's frame. Rotated
+      // before the query rather than after it, because with a facing-aware
+      // search the query needs it too.
+      let facing = false
+      if (samples.normals) {
+        rigidRotate(
+          transform,
+          samples.normals[i * 3], samples.normals[i * 3 + 1], samples.normals[i * 3 + 2],
+          sn,
+        )
+        facing = true
+      }
+      // Nearest surface first, whatever it faces: for all but a handful of
+      // samples that is the answer, and the BVH's own bounded query is several
+      // times cheaper than a filtered traversal. Only a sample whose nearest
+      // surface faces back at it — across a thin wall, inside a bore, in the
+      // gap between a boss and its pocket — pays for the second, facing-aware
+      // search. Which is exactly the sample a plain rejection would have
+      // thrown away, so the cost lands where the answer changes.
+      let paired = surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
+      if (
+        paired &&
+        facingSearch &&
+        sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot
+      ) {
+        paired = surface.closestFacing(
+          p[0], p[1], p[2],
+          sn[0], sn[1], sn[2],
+          minNormalDot,
+          hit,
+          maxPairDistance,
+        )
+      }
+      if (!paired) {
         scoreSum += scoreCap
         continue
       }
@@ -175,16 +222,14 @@ export function icp(
         scoreSum += scoreCap
         continue
       }
-      if (samples.normals) {
-        rigidRotate(
-          transform,
-          samples.normals[i * 3], samples.normals[i * 3 + 1], samples.normals[i * 3 + 2],
-          sn,
-        )
-        if (sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot) {
-          scoreSum += scoreCap
-          continue
-        }
+      // A pair whose two normals still disagree is dropped. The facing search
+      // filters on the face's own normal, and the pseudonormal of a seam it
+      // hands back is the average of the faces meeting there, so this test can
+      // still fire after it — and where the search was not used, it is the
+      // only thing standing between a marked wall and the far side of it.
+      if (facing && sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot) {
+        scoreSum += scoreCap
+        continue
       }
       cp[i * 3] = hit.px; cp[i * 3 + 1] = hit.py; cp[i * 3 + 2] = hit.pz
       cn[i * 3] = hit.nx; cn[i * 3 + 1] = hit.ny; cn[i * 3 + 2] = hit.nz
