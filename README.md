@@ -1,6 +1,6 @@
 # ScanRuler by CNC Kitchen
 
-**Use it live at <https://scanruler.stefan-755.workers.dev/>** — nothing to
+**Use it live at <https://scanruler.com/>** — nothing to
 install.
 
 Check a 3D scan against what it should have been — entirely in your browser.
@@ -1057,8 +1057,8 @@ it:
   `main` then build and deploy automatically.
 
 Either way the site lands on a `*.workers.dev` URL — the live deployment is at
-<https://scanruler.stefan-755.workers.dev/> — and a custom domain can be
-attached in the Worker's settings if you have one. The GitHub Actions workflow
+<https://scanruler.com/> via a custom domain attached in the Worker's
+settings. The GitHub Actions workflow
 (`.github/workflows/ci.yml`) still runs tests and a build on every push and
 pull request, so a red suite is visible before Cloudflare ships it.
 
