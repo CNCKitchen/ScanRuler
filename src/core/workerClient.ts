@@ -31,6 +31,10 @@ export interface ThicknessResult {
   suggestedHigh: number
 }
 
+/** A message that expects an answer — everything but the abort signal, which
+ *  carries no id and is never replied to on its own. */
+type Request = Exclude<WorkerRequest, { type: 'align-abort' }>
+
 /** Everything about a thickness measurement that the worker needs and the
  *  panel sets — the request minus its bookkeeping. */
 export type ThicknessRequest = Omit<
@@ -70,7 +74,7 @@ export class MeshWorkerClient {
     }
   }
 
-  private request<T>(msg: WorkerRequest, transfer: Transferable[] = []): Promise<T> {
+  private request<T>(msg: Request, transfer: Transferable[] = []): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.pending.set(msg.requestId, { resolve: resolve as (v: never) => void, reject })
       this.worker.postMessage(msg, transfer)
@@ -117,13 +121,32 @@ export class MeshWorkerClient {
     return this.request<LoadedNominal>({ type: 'load-nominal', requestId, name, buffer }, [buffer])
   }
 
-  async align(pairs: PointPair[] | null): Promise<AlignResult> {
+  /** The best fit. With no pairs this is the automatic search; with pairs it
+   *  starts from them, and `vertices` narrows what the refinement is measured
+   *  on. Null back means the user stopped it — see abortAlign. */
+  async align(
+    pairs: PointPair[] | null,
+    vertices?: Uint32Array | null,
+  ): Promise<AlignResult | null> {
     const requestId = this.nextId++
-    const msg: WorkerRequest = pairs
-      ? { type: 'align', requestId, mode: 'points', pairs }
+    const msg: Request = pairs
+      ? { type: 'align', requestId, mode: 'points', pairs, vertices: vertices ?? undefined }
       : { type: 'align', requestId, mode: 'auto' }
-    const res = await this.request<Extract<WorkerResponse, { type: 'align-ok' }>>(msg)
-    return res.result
+    return this.settleAlign(msg)
+  }
+
+  /** Stop the fit that is running. It answers by settling that fit's own
+   *  promise with null, so the caller finds out where it was already waiting;
+   *  with nothing running this is a no-op. */
+  abortAlign(): void {
+    this.worker.postMessage({ type: 'align-abort' } satisfies WorkerRequest)
+  }
+
+  private async settleAlign(msg: Request): Promise<AlignResult | null> {
+    const res = await this.request<
+      Extract<WorkerResponse, { type: 'align-ok' | 'align-stopped' }>
+    >(msg)
+    return res.type === 'align-ok' ? res.result : null
   }
 
   /** Fine-tune the alignment on the marked surface only. The vertex list is
@@ -133,9 +156,9 @@ export class MeshWorkerClient {
     vertices: Uint32Array,
     start: Rigid,
     maxDistance: number,
-  ): Promise<AlignResult> {
+  ): Promise<AlignResult | null> {
     const requestId = this.nextId++
-    const res = await this.request<Extract<WorkerResponse, { type: 'align-ok' }>>({
+    return this.settleAlign({
       type: 'align',
       requestId,
       mode: 'local',
@@ -143,7 +166,6 @@ export class MeshWorkerClient {
       start,
       maxDistance,
     })
-    return res.result
   }
 
   async deviate(transform: Rigid): Promise<DeviationResult> {

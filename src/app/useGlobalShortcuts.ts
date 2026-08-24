@@ -18,11 +18,17 @@ import { useShell } from '../state/shellStore'
 
 export function useGlobalShortcuts({
   stopMarking,
+  abortAlign,
+  stopPicking,
   cancelDraft,
   confirmDraft,
 }: {
   /** Close the deviation workspace's local fine fit marking session. */
   stopMarking: () => void
+  /** Stop the best fit that is running, wherever it has got to. */
+  abortAlign: () => void
+  /** Close the split-screen point picker, selection and all. */
+  stopPicking: () => void
   cancelDraft: () => void
   confirmDraft: () => void
 }) {
@@ -57,6 +63,23 @@ export function useGlobalShortcuts({
       // it right after this handler, and confirming the draft as well would
       // fire two different actions from one key press.
       if (e.key === 'Enter' && target?.closest('button')) return
+      // A best fit that is running owns Escape, wherever it was started from:
+      // it is the one thing on screen that cannot be waited out, and stopping
+      // it costs nothing — the alignment in hand is kept and no measurement is
+      // thrown away.
+      if (useDeviation.getState().alignStatus === 'running') {
+        if (e.key === 'Escape') abortAlign()
+        return
+      }
+      // The split-screen picker backs out one step at a time, like every other
+      // session that takes the mouse: the first Escape stands the selection
+      // gesture down and hands the camera back, the second closes the picker.
+      if (useDeviation.getState().picking) {
+        if (e.key !== 'Escape') return
+        if (useMark.getState().gesture !== null) useMark.getState().setGesture(null)
+        else stopPicking()
+        return
+      }
       if (useShell.getState().workspace === 'flat') {
         if (e.key === 'Escape') useFlat.getState().retreat()
         else if (e.key === 'Enter') (flatConfirmable() ?? (() => confirmButton()?.click()))()

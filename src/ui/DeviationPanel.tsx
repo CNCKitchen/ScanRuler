@@ -39,6 +39,7 @@ export function DeviationPanel({
   onOpenScan,
   onOpenNominal,
   onAlign,
+  onStopAlign,
   onPickPoints,
   onMeasure,
   onStartMarking,
@@ -57,6 +58,8 @@ export function DeviationPanel({
   onOpenScan: (file: File) => void
   onOpenNominal: (file: File) => void
   onAlign: () => void
+  /** Stop the fit that is running, wherever it has got to. */
+  onStopAlign: () => void
   onPickPoints: () => void
   onMeasure: () => void
   /** Bring the marking tools out, and put them away again. */
@@ -95,6 +98,7 @@ export function DeviationPanel({
       align: s.align,
       alignMessage: s.alignMessage,
       alignStatus: s.alignStatus,
+      alignStopping: s.alignStopping,
       bands: s.bands,
       clearProbes: s.clearProbes,
       elementStatus: s.elementStatus,
@@ -316,14 +320,31 @@ export function DeviationPanel({
             'Align automatically'
           )}
         </button>
-        <button
-          className="block"
-          data-test="align-points"
-          disabled={!ready || busy}
-          onClick={onPickPoints}
-        >
-          Align by picking points…
-        </button>
+        {/* A fit can run for a minute on a large reference, and the answer is
+            sometimes visibly wrong long before it finishes. Stopping leaves
+            everything as it was — see alignStopped. While the fine fit's tools
+            are out the stop belongs beside *that* button instead, so there is
+            never a pair of them to choose between. */}
+        {d.alignStatus === 'running' && !d.marking ? (
+          <button
+            className="block"
+            data-test="align-stop"
+            disabled={d.alignStopping}
+            title="Stop the fit where it is — the alignment in hand is kept and nothing is measured. Esc does the same."
+            onClick={onStopAlign}
+          >
+            {d.alignStopping ? 'Stopping…' : 'Stop aligning'}
+          </button>
+        ) : (
+          <button
+            className="block"
+            data-test="align-points"
+            disabled={!ready || busy}
+            onClick={onPickPoints}
+          >
+            Align by picking points…
+          </button>
+        )}
 
         {d.alignMessage && <p className="alarmtext">{d.alignMessage}</p>}
 
@@ -345,8 +366,13 @@ export function DeviationPanel({
                 {d.align!.pairRms !== undefined
                   ? ` · picked points ${d.align!.pairRms.toFixed(2)} mm`
                   : ''}
+                {/* The same number, under the name the step that produced it
+                    gave it: surface "marked" for a fine fit, "selected" in the
+                    picker. */}
                 {d.align!.selected !== undefined
-                  ? ` · ${d.align!.selected.toLocaleString('en-US')} points marked`
+                  ? ` · ${d.align!.selected.toLocaleString('en-US')} points ${
+                      d.align!.source === 'points' ? 'selected' : 'marked'
+                    }`
                   : ''}
               </div>
             </div>
@@ -467,6 +493,17 @@ export function DeviationPanel({
                   'Fit on marked surface'
                 )}
               </button>
+              {d.alignStatus === 'running' && (
+                <button
+                  className="block"
+                  data-test="local-stop"
+                  disabled={d.alignStopping}
+                  title="Stop the fit where it is — the alignment in hand is kept, the marking stays as it is, and nothing is measured. Esc does the same."
+                  onClick={onStopAlign}
+                >
+                  {d.alignStopping ? 'Stopping…' : 'Stop fitting'}
+                </button>
+              )}
               {!enough && (
                 <p className="hint">
                   Drag on the scan to mark the surface to fit on — at least {MIN_LOCAL_POINTS}{' '}

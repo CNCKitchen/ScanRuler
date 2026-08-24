@@ -119,8 +119,9 @@ const calStatus = await page.$eval('[data-test=flat-cal-status]', (el) => el.tex
 check(/600 dpi/.test(calStatus), 'the declared 600 dpi is read from pHYs')
 check((await page.$('[data-test=flat-uncalibrated-chip]')) !== null, 'the uncalibrated alarm is up')
 
-// Screen mapping for the framed sheet.
-const rect = await page.$eval('.viewslot:not([hidden]) .viewport canvas', (el) => {
+// Screen mapping for the framed sheet. Not the loupe, which is a second canvas
+// in the same viewport and is zero-sized until the cursor is over the image.
+const rect = await page.$eval('.viewslot:not([hidden]) .viewport canvas:not(.loupe)', (el) => {
   const r = el.getBoundingClientRect()
   return { x: r.x, y: r.y, w: r.width, h: r.height }
 })

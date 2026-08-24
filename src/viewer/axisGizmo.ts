@@ -8,6 +8,16 @@ const GIZMO_AXES: [THREE.Vector3, number, string][] = [
   [new THREE.Vector3(0, 0, 1), 0x1877c0, 'Z'],
 ]
 
+/** Gap between the gizmo and the two edges it sits in. */
+export const GIZMO_PAD = 14
+
+/** How big the corner it occupies is, for a canvas of this size. Exported
+ *  because the fit-to-view button parks directly above it, and a button that
+ *  guessed would either overlap the gizmo or float away from it. */
+export function gizmoSize(w: number, h: number): number {
+  return Math.min(120, Math.max(74, Math.min(w, h) * 0.18))
+}
+
 /** Canvas-textured letter for an axis tip. */
 function axisLabel(text: string, color: number): THREE.Sprite {
   const canvas = document.createElement('canvas')
@@ -58,16 +68,17 @@ export class AxisGizmo {
   }
 
   /** Draw the gizmo into a bottom-right corner of the given canvas, sharing
-   *  the main camera's orientation so it reads as the part's world axes. */
+   *  the main camera's orientation so it reads as the part's world axes.
+   *  Returns the size of the corner it took. */
   render(
     renderer: THREE.WebGLRenderer,
     mainCamera: THREE.Camera,
     target: THREE.Vector3,
     w: number,
     h: number,
-  ): void {
-    const size = Math.min(120, Math.max(74, Math.min(w, h) * 0.18))
-    const pad = 14
+  ): number {
+    const size = gizmoSize(w, h)
+    const pad = GIZMO_PAD
     this.camera.position
       .subVectors(mainCamera.position, target)
       .normalize()
@@ -82,6 +93,7 @@ export class AxisGizmo {
     renderer.render(this.scene, this.camera)
     renderer.setScissorTest(false)
     renderer.autoClear = true
+    return size
   }
 
   dispose(): void {

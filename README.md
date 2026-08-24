@@ -157,6 +157,16 @@ the split view and in both halves of the point picker the reference is the same
 material as the scan, in the scheme's own bare-surface colour, so the only thing
 that differs between the two pictures is the shape.
 
+Orbiting happens about the point under the cursor and zooming happens towards
+it, which is what makes both feel direct — and is also how a part ends up off
+the frame entirely, with nothing left on screen to aim the next gesture at.
+**Fit to view**, the small button above the axis gizmo in the bottom-right
+corner, puts it back. It does not turn the part: the viewpoint is yours, only
+the centre and the zoom are taken back, so you land looking at what you were
+looking at. Every viewport has one, both halves of the point picker included,
+and it fits whatever is actually being shown — with the scan switched off it
+frames the reference rather than the pair of them.
+
 ### Elements: fitted, picked and constructed
 
 Elements don't have to come from the scan surface. Every element type offers a
@@ -574,6 +584,17 @@ is a multiple of the median, so a pose that slides until only a well-fitting
 patch still corresponds scores *better* on fewer pairs, and the fit walks off
 the part chasing it.
 
+A fit that is visibly heading somewhere wrong does not have to be waited out:
+**Stop aligning** — or `Esc` — ends it wherever it has got to. Nothing is
+half-applied. The pose it had reached is not a measurement, so the part goes
+back where it was, whatever alignment was already in hand is still in hand, and
+the map measured under that one is untouched. (Which is less obvious than it
+sounds from inside a web worker: a worker only reads its inbox between
+messages, and a solid minute of arithmetic never gets between two. The whole
+alignment pipeline is written as a generator that yields once per ICP pass, and
+the worker drives it in slices of a few milliseconds — so the stop lands within
+a pass instead of having nowhere to arrive.)
+
 If the automatic match fails or reports itself ambiguous, press **Align by
 picking points…** for a split screen with the scan on one side and the
 reference on the other, each freely rotatable. Clicks alternate — a feature on
@@ -582,6 +603,17 @@ picks only fix a coarse pose, solved in closed form by Horn's absolute
 orientation, and ICP does the rest, so they only have to be roughly right.
 Points that land nearly in a line are rejected as you place them: the rotation
 about that line would be unconstrained.
+
+The scan's half of that screen also carries the **Window / Brush / Lasso**
+tools, for saying which surface the fit is *measured on*. The points fix the
+pose it starts from; the selection decides what it is allowed to settle onto —
+the other half of getting a scan carrying a fixture, a riser or a run of spray
+into the right place, and the same idea as the local fine fit below, available
+before the first fit rather than only after one. Select nothing and the whole
+scan is fitted, which is what nearly every part wants. `Esc` stands the gesture
+down and hands the clicks back to picking points; a second one closes the
+picker. The selection belongs to the fit being set up there and goes with the
+picker when it closes.
 
 ### Local fine fit
 
@@ -981,6 +1013,7 @@ node scripts/e2e-align.mjs      # 3-2-1 datum alignment + STEP export round-trip
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
+node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, datum, report
 ```
@@ -991,6 +1024,17 @@ fine mesh of the *same* cube with one face raised 0.2 mm and another sunk
 0.15 mm. A correct import has to read those two numbers back off the map — sign
 included — and leave the other four faces flat. It does, to 66.6 % of the scan
 inside ±0.1 mm, which is exactly four faces of six.
+
+`e2e-pick-fit.mjs` builds that pair too, turned off the reference's frame so the
+automatic search has real work to do, and checks the three ways out of a fit
+gone wrong the way you would by eye as well: it zooms the models down to a speck
+and checks **Fit to view** brings the silhouette back to the share of the frame
+it started at, starts a fit and stops it part-way — then checks that no
+alignment was left behind, that the panel says so rather than reporting a
+failure, and that the *next* fit still runs, which is what proves the worker was
+not left wedged — and finally selects surface in the picker with a window,
+watches the tally and the magenta on the part follow it, and reads the point
+count back out of the fit's own readout.
 
 `e2e-split.mjs` builds the same pair, and checks the split view the way you would
 by eye: both halves are photographed and reduced to the share of the frame the

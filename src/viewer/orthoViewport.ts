@@ -320,6 +320,24 @@ export class OrthoViewport {
     this.invalidate()
   }
 
+  /**
+   * Fit the part back on screen without turning it.
+   *
+   * The way out of a lost model: orbiting about the cursor and zooming into a
+   * corner can leave the part off the frame entirely, and re-framing it from
+   * the standard three-quarter view would answer that by throwing away the
+   * viewpoint the user was working from. So the camera keeps the direction it
+   * is looking from and its up vector, and only the centre and the zoom are
+   * taken back — which is what every CAD tool's zoom-to-fit does.
+   */
+  fitCamera(box: THREE.Box3): void {
+    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target)
+    // Nothing to preserve if the camera has somehow ended up on its own target;
+    // the default three-quarter direction is as good an answer as any.
+    if (dir.lengthSq() < 1e-12) dir.set(0.62, 0.42, 1)
+    this.frameCamera(box, null, { dir, up: this.camera.up.clone() })
+  }
+
   /** Adopt another viewport's framing extents. What makes two halves of a split
    *  view read at one scale: same extents and same pixel size means the same
    *  millimetres per pixel, so a feature is the same size in both. */
@@ -370,6 +388,12 @@ export class OrthoViewport {
     this.nav.dispose()
     this.controls.dispose()
     this.renderer.dispose()
-    this.container.innerHTML = ''
+    // Only what this viewport put there. Emptying the container instead would
+    // also take out whatever React had rendered into it — the fit-to-view
+    // button — and React, having not been told, would never put it back. Which
+    // is exactly what happens on every mount under StrictMode, where the first
+    // effect is torn down again immediately.
+    this.renderer.domElement.remove()
+    this.labelRenderer.domElement.remove()
   }
 }

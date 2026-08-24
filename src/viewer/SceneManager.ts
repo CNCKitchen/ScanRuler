@@ -20,6 +20,15 @@ import {
   BACKFACE_GLSL_FRAGMENT,
   BACKFACE_GLSL_PREAMBLE,
 } from './backfaceTint'
+import {
+  paintUniform,
+  setPaintUniform,
+  PAINT_GLSL_FRAGMENT,
+  PAINT_GLSL_PREAMBLE,
+  PAINT_GLSL_VERTEX,
+  PAINT_GLSL_VERTEX_BODY,
+  type PaintUniform,
+} from './paintTint'
 
 declare module 'three' {
   interface BufferGeometry {
@@ -107,9 +116,23 @@ const STAGE_VIEW = {
   up: new THREE.Vector3(0, 0, 1),
 }
 
+/** The scan's marking, as another viewport needs it: the compositor that owns
+ *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
+export interface MarkingChannel {
+  regions: RegionColors
+  paintAttr: () => THREE.BufferAttribute | null
+  setPaintColor: (rgb: [number, number, number]) => void
+}
+
 export class SceneManager {
   private viewport: OrthoViewport
   private gizmo: AxisGizmo
+  /** The div the canvas lives in, kept so the corner the gizmo takes can be
+   *  published to CSS — see drawGizmo. */
+  private container!: HTMLDivElement
+  /** Last gizmo corner published, so the style is written when it changes
+   *  rather than on every frame. */
+  private gizmoCorner = 0
   /** The target coordinate frame, shown while an alignment is being set up. */
   private stage: DatumStage
   /** Stage, lights and surface colours — see viewThemes. Held here as well as
@@ -169,10 +192,8 @@ export class SceneManager {
   private backface = backfaceUniforms(DEFAULT_THEME.backface)
 
   /** The marking's tint, as a uniform: recolouring what is marked is one write
-   *  here rather than a pass over the mask. Written in the working colour
-   *  space, like the vertex colours it is composited with — see the note on
-   *  setSurfaceColor in viewThemes. */
-  private uPaintColor = { value: new THREE.Color(1, 1, 1) }
+   *  here rather than a pass over the mask — see paintTint.ts. */
+  private uPaintColor: PaintUniform = paintUniform()
 
   /** Scratch for picking, which runs every frame the cursor moves: the
    *  barycentric corners and difference vectors, and (in D) the hit point
@@ -227,9 +248,9 @@ export class SceneManager {
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
       },
-      onAfterRender: (w, h) =>
-        this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h),
+      onAfterRender: (w, h) => this.drawGizmo(w, h),
     })
+    this.container = container
     this.gizmo = new AxisGizmo()
     this.stage = new DatumStage(this.scene)
 
@@ -246,14 +267,7 @@ export class SceneManager {
       mesh: () => this.mesh,
       paintAttr: () => this.paintAttr,
       setPaintColor: (rgb) => {
-        // Bytes straight into the working space, the same path the vertex
-        // colours take — through setHex the two would land a gamma apart.
-        this.uPaintColor.value.setRGB(
-          rgb[0] / 255,
-          rgb[1] / 255,
-          rgb[2] / 255,
-          THREE.LinearSRGBColorSpace,
-        )
+        setPaintUniform(this.uPaintColor, rgb)
         this.invalidate()
       },
       invalidate: this.invalidate,
@@ -459,16 +473,9 @@ export class SceneManager {
   }
 
   /**
-   * The scan material's two shader amendments: the hand-marking's tint, and
-   * back-face flagging.
-   *
-   * The marking rides in the per-vertex paint mask rather than in the vertex
-   * colours, because vertex colours are interpolated across every triangle and
-   * an interpolated marking has a blurred border. The mask is interpolated too,
-   * but thresholded just under one: only where all three corners are marked
-   * does the whole face clear the bar, so exactly the triangles the brush took
-   * light up, edge to edge. (In a partly marked triangle the region above the
-   * threshold is a sliver along the marked edge, thinner than a pixel.)
+   * The scan material's two shader amendments: the hand-marking's tint (see
+   * paintTint.ts) and back-face flagging (see backfaceTint.ts). Folded into one
+   * patch here because a material has a single onBeforeCompile.
    *
    * Back faces are flagged in the shader rather than by drawing the mesh a
    * second time with the faces flipped, because the second pass would have to
@@ -483,18 +490,18 @@ export class SceneManager {
       shader.uniforms.uBackfaceColor = this.backface.uBackfaceColor
       shader.uniforms.uPaintColor = this.uPaintColor
       shader.vertexShader =
-        'attribute float paint;\nvarying float vPaint;\n' +
+        PAINT_GLSL_VERTEX +
         shader.vertexShader.replace(
           '#include <color_vertex>',
-          '#include <color_vertex>\n\tvPaint = paint;',
+          `#include <color_vertex>\n\t${PAINT_GLSL_VERTEX_BODY}`,
         )
       shader.fragmentShader =
         BACKFACE_GLSL_PREAMBLE +
-        'uniform vec3 uPaintColor;\nvarying float vPaint;\n' +
+        PAINT_GLSL_PREAMBLE +
         shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
-          if ( vPaint > 0.998 ) diffuseColor.rgb = uPaintColor;
+          ${PAINT_GLSL_FRAGMENT}
           ${BACKFACE_GLSL_FRAGMENT}`,
         )
     }
@@ -505,6 +512,48 @@ export class SceneManager {
   setBackfaceTint(on: boolean): void {
     this.backface.uBackfaceTint.value = on ? 1 : 0
     this.invalidate()
+  }
+
+  /** The gizmo, plus the one thing about it the DOM needs to know: how tall a
+   *  corner it is taking, so the fit-to-view button can sit exactly above it
+   *  at every viewport size. A custom property rather than a React state,
+   *  because this is decided per rendered frame and nothing else depends on
+   *  it. */
+  private drawGizmo(w: number, h: number): void {
+    const size = this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h)
+    if (size === this.gizmoCorner) return
+    this.gizmoCorner = size
+    this.container.style.setProperty('--gizmo-size', `${Math.round(size)}px`)
+  }
+
+  /**
+   * Bring everything on screen back into the frame, from wherever the camera
+   * has wandered to.
+   *
+   * Only what is actually being shown counts: with the scan switched off it is
+   * the reference that has to be fitted, and fitting the pair of them would
+   * leave the one you are looking at small and off to one side. The datum
+   * stage counts too while it is out, because an alignment being set up is read
+   * against it.
+   */
+  fitToView(): void {
+    const box = new THREE.Box3()
+    const moved = this.movedScanBox()
+    if (moved && this.mesh?.visible) box.union(moved)
+    if (this.nominalMesh?.visible && this.nominalMesh.geometry.boundingBox) {
+      box.union(this.nominalMesh.geometry.boundingBox)
+    }
+    if (this.stage.active()) {
+      const e = this.stage.extent()
+      box.union(new THREE.Box3(new THREE.Vector3(-e, -e, -e), new THREE.Vector3(e, e, e)))
+    }
+    // Nothing visible to fit — a hidden scan with no reference beside it. The
+    // part is still loaded, so fit that rather than doing nothing at all.
+    if (box.isEmpty() && moved) box.union(moved)
+    if (box.isEmpty()) return
+    this.viewport.fitCamera(box)
+    this.framedClip.center.copy(this.clipSphere.center)
+    this.framedClip.radius = this.clipSphere.radius
   }
 
   /** Frame the part broadside, and remember what was framed so the alignment
@@ -785,6 +834,27 @@ export class SceneManager {
    *  geometry can safely appear in two canvases. */
   scanGeometry(): THREE.BufferGeometry | null {
     return (this.mesh?.geometry as THREE.BufferGeometry) ?? null
+  }
+
+  /**
+   * The scan's one marking, for a second viewport to lay down as well.
+   *
+   * There is only ever one — the mask is a channel of the mesh, and the mesh is
+   * shared with the split-screen picker (see scanGeometry) — so the picker
+   * marks *this* marking rather than keeping a rival copy: same mask, same
+   * count, same answer to paintedVertices, whichever canvas the gesture landed
+   * on. Only the gestures themselves are per viewport, because they belong to a
+   * camera and a container.
+   */
+  markingChannel(): MarkingChannel {
+    return {
+      regions: this.regions,
+      paintAttr: () => this.paintAttr,
+      setPaintColor: (rgb) => {
+        setPaintUniform(this.uPaintColor, rgb)
+        this.invalidate()
+      },
+    }
   }
 
   /** Half the scan's bounding-box diagonal — the scale hand-made elements

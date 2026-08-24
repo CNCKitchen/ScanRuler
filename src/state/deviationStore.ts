@@ -49,6 +49,10 @@ interface DeviationState extends ProbeSlice {
   alignStatus: AlignStatus
   align: AlignResult | null
   alignMessage: string | null
+  /** A stop has been asked for and the fit has not noticed yet. It notices
+   *  within a pass, but a pass on a big reference is long enough that a button
+   *  which did nothing visible would be pressed again. */
+  alignStopping: boolean
   /** The last fit that used the whole scan, kept so a local fine fit that went
    *  somewhere unhelpful can be taken back off without starting over. */
   globalAlign: AlignResult | null
@@ -149,6 +153,11 @@ interface DeviationState extends ProbeSlice {
   nominalFailed: () => void
   beginAlign: () => void
   resolveAlign: (r: AlignResult) => void
+  /** A stop has been asked for; the fit itself is still unwinding. */
+  stoppingAlign: () => void
+  /** It has stopped. Nothing failed and nothing was measured — the alignment
+   *  that was in hand before it started is still the one in hand. */
+  alignStopped: () => void
   failAlign: (message: string) => void
   failLocal: (message: string) => void
   failMap: (message: string) => void
@@ -180,6 +189,7 @@ const CLEARED = {
   alignStatus: 'idle' as AlignStatus,
   align: null,
   alignMessage: null,
+  alignStopping: false,
   globalAlign: null,
   mapStatus: 'idle' as MapStatus,
   stats: null,
@@ -340,7 +350,20 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
 
   // Showing the reference again for the duration: the whole point of streaming
   // the intermediate poses is that the fit can be watched happening.
-  beginAlign: () => set({ alignStatus: 'running', alignMessage: null, showNominal: true }),
+  beginAlign: () =>
+    set({ alignStatus: 'running', alignMessage: null, alignStopping: false, showNominal: true }),
+
+  stoppingAlign: () => set({ alignStopping: true }),
+
+  // Back to whatever was true before the fit started. A stopped fit leaves no
+  // trace: the pose it had reached is not a measurement, and the map (if any)
+  // was measured under the alignment that is still standing.
+  alignStopped: () =>
+    set((s) => ({
+      alignStatus: s.align ? 'done' : 'idle',
+      alignStopping: false,
+      alignMessage: 'Alignment stopped.',
+    })),
 
   // A new alignment invalidates the map that was measured under the old one.
   resolveAlign: (align) =>
@@ -348,6 +371,7 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
       alignStatus: 'done',
       align,
       alignMessage: null,
+      alignStopping: false,
       // A local fit refines whatever whole-scan fit is in hand; it never
       // becomes the thing to fall back to.
       globalAlign: align.source === 'local' ? s.globalAlign : align,
@@ -357,11 +381,11 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
       probes: [],
     })),
 
-  failAlign: (alignMessage) => set({ alignStatus: 'failed', alignMessage }),
+  failAlign: (alignMessage) => set({ alignStatus: 'failed', alignStopping: false, alignMessage }),
 
   // A local fit that refuses leaves the alignment it was refining exactly
   // where it was — only the message is new.
-  failLocal: (alignMessage) => set({ alignStatus: 'done', alignMessage }),
+  failLocal: (alignMessage) => set({ alignStatus: 'done', alignStopping: false, alignMessage }),
 
   // A measurement that refuses leaves no map behind — and must not tear down
   // the alignment it was measured under.

@@ -9,7 +9,13 @@ import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
-import { alignFromPairs, alignLocal, autoAlign } from './deviation/align'
+import {
+  alignFromPairsSteps,
+  alignLocalSteps,
+  autoAlignSteps,
+  type AlignResult,
+} from './deviation/align'
+import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
@@ -56,8 +62,49 @@ function parseNominal(
   throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, or STEP.`)
 }
 
+/**
+ * The best fit in flight, and whether the user has asked for it to stop.
+ *
+ * It is the one request that does not run to completion inside its own message:
+ * a fit can take a minute, and a worker in the middle of a minute of arithmetic
+ * cannot hear anything, so "stop aligning" would have no way in. Instead the
+ * fit is a generator (see deviation/steps.ts) driven a slice at a time, and
+ * between slices the inbox is read — which is where the abort arrives.
+ */
+let alignRun: { steps: Steps<AlignResult>; requestId: number } | null = null
+let alignAborted = false
+/** Requests that arrived while a fit was in flight. The worker's contract is
+ *  that it answers one thing at a time, and slicing the fit must not quietly
+ *  break it: everything but the abort waits its turn. */
+const queued: Exclude<WorkerRequest, { type: 'align-abort' }>[] = []
+/** How long a slice of the fit may hold the worker before it goes back to the
+ *  inbox. Long enough that the slicing costs nothing measurable, short enough
+ *  that a stop lands within a frame or two. */
+const ALIGN_SLICE_MS = 25
+
 self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data
+  // The abort jumps the queue by definition — it is aimed at the very thing
+  // holding the queue up.
+  if (msg.type === 'align-abort') {
+    alignAborted = true
+    return
+  }
+  if (alignRun) {
+    queued.push(msg)
+    return
+  }
+  handle(msg)
+}
+
+/** Whatever came in while the fit had the floor, now that it does not. Requests
+ *  are taken one at a time, and a fit among them takes the floor again — the
+ *  rest keep waiting, in the order they arrived. */
+function drainQueue(): void {
+  while (queued.length > 0 && !alignRun) handle(queued.shift()!)
+}
+
+function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   const progress = (text: string) => post({ type: 'progress', text })
 
   if (msg.type === 'load') {
@@ -187,25 +234,29 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
             meanDistance,
           }),
       }
-      let result
+      let steps
       if (msg.mode === 'auto') {
-        result = autoAlign(nominal, graph.positions, graph.normals, options)
+        steps = autoAlignSteps(nominal, graph.positions, graph.normals, options)
       } else if (msg.mode === 'points') {
-        result = alignFromPairs(nominal, graph.positions, graph.normals, msg.pairs, options)
+        checkVertices(msg.vertices, graph.vertexCount)
+        steps = alignFromPairsSteps(
+          nominal,
+          graph.positions,
+          graph.normals,
+          msg.pairs,
+          options,
+          msg.vertices,
+        )
       } else {
-        // Same check as a hand-marked fit: an index past the end of the scan
-        // would read whatever follows the position buffer and fit to it.
-        for (let i = 0; i < msg.vertices.length; i++) {
-          if (msg.vertices[i] >= graph.vertexCount) {
-            throw new Error('The marked surface does not belong to the loaded scan.')
-          }
-        }
-        result = alignLocal(nominal, graph.positions, graph.normals, msg.vertices, msg.start, {
+        checkVertices(msg.vertices, graph.vertexCount)
+        steps = alignLocalSteps(nominal, graph.positions, graph.normals, msg.vertices, msg.start, {
           ...options,
           maxDistance: msg.maxDistance,
         })
       }
-      post({ type: 'align-ok', requestId: msg.requestId, result })
+      alignRun = { steps, requestId: msg.requestId }
+      alignAborted = false
+      pumpAlign()
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
@@ -312,6 +363,56 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
   }
+}
+
+/** An index past the end of the scan would read whatever follows the position
+ *  buffer and fit to it. The selection comes from the render thread's copy of
+ *  the mesh, so it can only disagree if the two have drifted apart. */
+function checkVertices(vertices: Uint32Array | undefined, vertexCount: number): void {
+  if (!vertices) return
+  for (let i = 0; i < vertices.length; i++) {
+    if (vertices[i] >= vertexCount) {
+      throw new Error('The marked surface does not belong to the loaded scan.')
+    }
+  }
+}
+
+/**
+ * Run the fit for a slice, then either finish it or come back for another.
+ *
+ * The slice is what makes stopping possible at all: control has to return to
+ * the event loop for the abort to be delivered, and a `setTimeout` is the only
+ * yield a worker has that lets a queued message through first. Whatever pose
+ * the fit had reached is thrown away with it — a half-converged alignment is
+ * not a measurement, and the one that was in hand before is still good.
+ */
+function pumpAlign(): void {
+  const run = alignRun
+  if (!run) return
+  try {
+    const until = performance.now() + ALIGN_SLICE_MS
+    for (;;) {
+      if (alignAborted) {
+        alignRun = null
+        post({ type: 'align-stopped', requestId: run.requestId })
+        break
+      }
+      const step = run.steps.next()
+      if (step.done) {
+        alignRun = null
+        post({ type: 'align-ok', requestId: run.requestId, result: step.value })
+        break
+      }
+      if (performance.now() >= until) {
+        setTimeout(pumpAlign, 0)
+        return
+      }
+    }
+  } catch (e) {
+    alignRun = null
+    post({ type: 'error', requestId: run.requestId, message: errorText(e) })
+  }
+  drainQueue()
 }
 
 function errorText(e: unknown): string {

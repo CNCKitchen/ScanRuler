@@ -502,6 +502,9 @@ export default function App() {
   const {
     openNominal,
     runAlign,
+    abortAlign,
+    startPicking,
+    stopPicking,
     runDeviation,
     runLocalAlign,
     handleStartMarking,
@@ -974,6 +977,8 @@ export default function App() {
   // out — the whole keymap lives in useGlobalShortcuts.
   useGlobalShortcuts({
     stopMarking: handleStopMarking,
+    abortAlign,
+    stopPicking,
     cancelDraft: handleCancelDraft,
     confirmDraft: handleConfirmDraft,
   })
@@ -1237,7 +1242,8 @@ export default function App() {
             onOpenScan={(f) => void openFile(f)}
             onOpenNominal={(f) => void openNominal(f)}
             onAlign={() => void runAlign(false)}
-            onPickPoints={() => useDeviation.getState().startPicking()}
+            onStopAlign={abortAlign}
+            onPickPoints={startPicking}
             onMeasure={() => void runDeviation()}
             onStartMarking={handleStartMarking}
             onStopMarking={handleStopMarking}
@@ -1343,14 +1349,17 @@ export default function App() {
               />
             </div>
           )}
-          {picking && scanGeometry && nominalGeometry && (
+          {picking && sceneRef.current && scanGeometry && nominalGeometry && (
             <SplitPicker
+              scene={sceneRef.current}
               scanGeometry={scanGeometry}
               nominalGeometry={nominalGeometry}
               scanName={fileName ?? 'scan'}
               nominalName={nominalName ?? 'reference'}
               onAlign={() => void runAlign(true)}
-              onCancel={() => useDeviation.getState().stopPicking()}
+              onStop={abortAlign}
+              onClearSelection={clearPaint}
+              onCancel={stopPicking}
             />
           )}
           {!picking && onDeviation && mapReady && showMap && (

@@ -10,6 +10,7 @@ import {
   rigidRotate,
   type Rigid,
 } from './rigid'
+import { runSteps, type Steps } from './steps'
 import { emptyHit, type NominalSurface } from './surface'
 
 /** A thinned copy of the scan, in the scan's own frame, that ICP iterates on.
@@ -123,6 +124,18 @@ export function icp(
   initial: Rigid,
   options: IcpOptions = {},
 ): IcpResult {
+  return runSteps(icpSteps(surface, samples, initial, options))
+}
+
+/** The same fit, handed back a pass at a time — see steps.ts. The seam is at
+ *  the top of the iteration, which is the only place the state is a plain
+ *  transform and nothing is half-computed. */
+export function* icpSteps(
+  surface: NominalSurface,
+  samples: ScanSamples,
+  initial: Rigid,
+  options: IcpOptions = {},
+): Steps<IcpResult> {
   const maxIterations = options.maxIterations ?? 60
   const rejectMedianFactor = options.rejectMedianFactor ?? 3
   const minNormalDot = options.minNormalDot ?? 0
@@ -163,6 +176,7 @@ export function icp(
   const row = new Float64Array(6)
 
   for (let iter = 0; iter < maxIterations; iter++) {
+    yield
     iterations = iter + 1
 
     let found = 0

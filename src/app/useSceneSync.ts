@@ -124,9 +124,15 @@ export function useSceneSync({
   const brushDiameter = useMark((s) => s.diameter)
   const paintSession = painting && paintWorkspace
   const markSession = marking && markWorkspace
+  // The third session that marks is the split-screen picker's, and it marks the
+  // same mask through a viewport of its own. So the main one stands aside
+  // entirely while it is open: disarming here would rub the selection out
+  // (setPaintBrush(null) clears it), and zeroing the tally would have the panel
+  // contradict what is on the part.
+  const picking = useDeviation((s) => s.picking)
   useEffect(() => {
     const scene = sceneRef.current
-    if (!scene) return
+    if (!scene || picking) return
     if (!paintSession && !markSession) {
       scene.setPaintBrush(null)
       if (useMark.getState().count !== 0) useMark.getState().setCount(0)
@@ -140,6 +146,7 @@ export function useSceneSync({
       backfaces: markBackfaces,
     })
   }, [
+    picking,
     paintSession,
     markSession,
     draftColor,
@@ -606,8 +613,8 @@ export function useSceneSync({
 
   // While the split picker is up the main viewport is hidden behind it; stop
   // rendering it rather than paying for a 1.4-million-triangle frame nobody
-  // can see. The mesh and its BVH stay loaded.
-  const picking = useDeviation((s) => s.picking)
+  // can see. The mesh and its BVH stay loaded. (`picking` is read further up,
+  // where the marking layer also has to stand aside for it.)
   useEffect(() => {
     sceneRef.current?.setPaused(picking)
   }, [picking])

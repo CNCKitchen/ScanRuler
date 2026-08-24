@@ -25,7 +25,16 @@ export type WorkerRequest =
     }
   | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer }
   | { type: 'align'; requestId: number; mode: 'auto' }
-  | { type: 'align'; requestId: number; mode: 'points'; pairs: PointPair[] }
+  /** From hand-picked pairs. `vertices` narrows what the refinement after them
+   *  is measured on, exactly as a local fit's marking does; absent means the
+   *  whole scan. */
+  | {
+      type: 'align'
+      requestId: number
+      mode: 'points'
+      pairs: PointPair[]
+      vertices?: Uint32Array
+    }
   /** Fine tuning on the surface the user marked, from the fit already in
    *  hand. The starting pose travels with the request because the worker
    *  holds no alignment of its own — the scan's vertices never move for a
@@ -38,6 +47,12 @@ export type WorkerRequest =
       start: Rigid
       maxDistance: number
     }
+  /** Stop the best fit that is running, wherever it has got to. Not a request
+   *  — it carries no id and is never answered on its own: the alignment it
+   *  interrupts settles as `align-stopped` instead of `align-ok`. It is also
+   *  the one message that jumps the queue, because everything else waits
+   *  behind the very computation it is trying to end. */
+  | { type: 'align-abort' }
   | { type: 'deviate'; requestId: number; transform: Rigid }
   /** Wall thickness of the scan itself — no reference model involved. The
    *  settings that shape the search travel with the request: all of them
@@ -91,6 +106,10 @@ export type WorkerResponse =
       meanDistance: number
     }
   | { type: 'align-ok'; requestId: number; result: AlignResult }
+  /** The fit was stopped part-way by the user. Not an error: nothing went
+   *  wrong, there is simply no answer, and whatever alignment was in hand
+   *  before it started is still the one to use. */
+  | { type: 'align-stopped'; requestId: number }
   | {
       type: 'deviation-ok'
       requestId: number

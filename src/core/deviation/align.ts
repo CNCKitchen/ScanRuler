@@ -2,9 +2,10 @@
 import { symmetricEigen3 } from '../fit/linalg'
 import type { Vec3 } from '../types'
 import { absoluteOrientation } from './absoluteOrientation'
-import { icp, sampleScan, type ScanSamples } from './icp'
+import { icpSteps, sampleScan, type ScanSamples } from './icp'
 import { preAlignCandidates, principalFrame } from './prealign'
 import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
+import { runSteps, type Steps } from './steps'
 import type { NominalSurface } from './surface'
 
 export type AlignSource = 'auto' | 'points' | 'local'
@@ -62,16 +63,16 @@ const FINE_ITERATIONS = 70
 /** Below this the two best starts are effectively tied. */
 const AMBIGUITY_MARGIN = 1.25
 
-function fine(
+function* fine(
   surface: NominalSurface,
   samples: ScanSamples,
   start: Rigid,
   source: AlignSource,
   ambiguous: boolean,
   options: AlignOptions,
-): AlignResult {
+): Steps<AlignResult> {
   const { onProgress, onTransform } = options
-  const r = icp(surface, samples, start, {
+  const r = yield* icpSteps(surface, samples, start, {
     maxIterations: FINE_ITERATIONS,
     rejectMedianFactor: 3,
     // Only once the pose is roughly right is it safe to insist that matched
@@ -113,6 +114,16 @@ export function autoAlign(
   scanNormals: Float32Array | null,
   options: AlignOptions = {},
 ): AlignResult {
+  return runSteps(autoAlignSteps(surface, scanPositions, scanNormals, options))
+}
+
+/** The automatic fit, a pass at a time — see steps.ts. */
+export function* autoAlignSteps(
+  surface: NominalSurface,
+  scanPositions: Float32Array,
+  scanNormals: Float32Array | null,
+  options: AlignOptions = {},
+): Steps<AlignResult> {
   const coarseCount = options.coarseSamples ?? 4000
   const fineCount = options.fineSamples ?? 25_000
   const progress = options.onProgress
@@ -130,31 +141,37 @@ export function autoAlign(
   // Screen all of them briefly, then spend real iterations only on the few
   // that are heading somewhere — 24 candidates run to convergence would cost
   // several times what the final fit does, for no better answer.
-  const screened = candidates.map((start, i) => {
+  const screened = []
+  for (let i = 0; i < candidates.length; i++) {
     progress?.(`Aligning — screening start ${i + 1} of ${candidates.length}…`)
-    return icp(surface, coarse, start, {
-      maxIterations: SCREEN_ITERATIONS,
-      rejectMedianFactor: 2.5,
-      minNormalDot: 0,
-    })
-  })
+    screened.push(
+      yield* icpSteps(surface, coarse, candidates[i], {
+        maxIterations: SCREEN_ITERATIONS,
+        rejectMedianFactor: 2.5,
+        minNormalDot: 0,
+      }),
+    )
+  }
   screened.sort((a, b) => a.score - b.score)
 
   const shortlist = screened.slice(0, SHORTLIST)
-  const scored = shortlist.map((seed, i) => {
+  const scored = []
+  for (let i = 0; i < shortlist.length; i++) {
     progress?.(`Aligning — trying start ${i + 1} of ${shortlist.length}…`)
-    return icp(surface, coarse, seed.transform, {
-      maxIterations: COARSE_ITERATIONS,
-      rejectMedianFactor: 2.5,
-      minNormalDot: 0,
-      // Streamed as well: these are the attempts that take the time, and
-      // watching a candidate swing in and settle is what tells the user the
-      // tool is working rather than stuck.
-      onIteration: options.onTransform
-        ? (it, d, m) => options.onTransform!(m, it, d)
-        : undefined,
-    })
-  })
+    scored.push(
+      yield* icpSteps(surface, coarse, shortlist[i].transform, {
+        maxIterations: COARSE_ITERATIONS,
+        rejectMedianFactor: 2.5,
+        minNormalDot: 0,
+        // Streamed as well: these are the attempts that take the time, and
+        // watching a candidate swing in and settle is what tells the user the
+        // tool is working rather than stuck.
+        onIteration: options.onTransform
+          ? (it, d, m) => options.onTransform!(m, it, d)
+          : undefined,
+      }),
+    )
+  }
   scored.sort((a, b) => a.score - b.score)
 
   const winner = scored[0]
@@ -181,7 +198,7 @@ export function autoAlign(
 
   progress?.('Aligning — refining…')
   const samples = sampleScan(scanPositions, scanNormals, fineCount)
-  return fine(surface, samples, winner.transform, 'auto', ambiguous, options)
+  return yield* fine(surface, samples, winner.transform, 'auto', ambiguous, options)
 }
 
 export interface PointPair {
@@ -197,6 +214,11 @@ export interface PointPair {
  * minimum and three pairs strung out along one edge is not enough — the
  * rotation about that line is unconstrained — so a degenerate pick is rejected
  * with an explanation rather than silently producing a plausible wrong answer.
+ *
+ * `vertices` narrows what the refinement is measured on, the same way a local
+ * fine fit does: a scan carrying a fixture, a riser or a run of spray is one
+ * the picked pose is right about and ICP is then free to drag off it. Empty or
+ * absent means the whole scan, which is what nearly every part wants.
  */
 export function alignFromPairs(
   surface: NominalSurface,
@@ -204,7 +226,22 @@ export function alignFromPairs(
   scanNormals: Float32Array | null,
   pairs: PointPair[],
   options: AlignOptions = {},
+  vertices?: Uint32Array | null,
 ): AlignResult {
+  return runSteps(
+    alignFromPairsSteps(surface, scanPositions, scanNormals, pairs, options, vertices),
+  )
+}
+
+/** The picked-point fit, a pass at a time — see steps.ts. */
+export function* alignFromPairsSteps(
+  surface: NominalSurface,
+  scanPositions: Float32Array,
+  scanNormals: Float32Array | null,
+  pairs: PointPair[],
+  options: AlignOptions = {},
+  vertices?: Uint32Array | null,
+): Steps<AlignResult> {
   if (pairs.length < 3) {
     throw new Error('Pick at least three point pairs — two cannot fix a rotation.')
   }
@@ -219,11 +256,51 @@ export function alignFromPairs(
     )
   }
 
-  options.onProgress?.('Aligning — refining from picked points…')
-  const samples = sampleScan(scanPositions, scanNormals, options.fineSamples ?? 25_000)
-  const result = fine(surface, samples, solved.transform, 'points', false, options)
+  const selected = vertices && vertices.length > 0 ? vertices : null
+  if (selected && selected.length < MIN_LOCAL_POINTS) {
+    throw new Error(
+      `Select more surface — a fit needs at least ${MIN_LOCAL_POINTS} selected points, and this selection has ${selected.length}. Clear the selection to fit on the whole scan.`,
+    )
+  }
+
+  options.onProgress?.(
+    selected
+      ? 'Aligning — refining from picked points, on the selected surface…'
+      : 'Aligning — refining from picked points…',
+  )
+  const source = selected ? gatherVertices(scanPositions, scanNormals, selected) : null
+  const samples = sampleScan(
+    source ? source.positions : scanPositions,
+    source ? source.normals : scanNormals,
+    options.fineSamples ?? 25_000,
+  )
+  const result = yield* fine(surface, samples, solved.transform, 'points', false, options)
   result.pairRms = solved.rms
+  if (selected) result.selected = selected.length
   return result
+}
+
+/** The marked vertices as arrays of their own, which is what the sampler and
+ *  everything downstream of it speak. */
+function gatherVertices(
+  positions: Float32Array,
+  normals: Float32Array | null,
+  vertices: Uint32Array,
+): { positions: Float32Array; normals: Float32Array | null } {
+  const picked = new Float32Array(vertices.length * 3)
+  const pickedNormals = normals ? new Float32Array(vertices.length * 3) : null
+  for (let i = 0; i < vertices.length; i++) {
+    const v = vertices[i]
+    picked[i * 3] = positions[v * 3]
+    picked[i * 3 + 1] = positions[v * 3 + 1]
+    picked[i * 3 + 2] = positions[v * 3 + 2]
+    if (pickedNormals && normals) {
+      pickedNormals[i * 3] = normals[v * 3]
+      pickedNormals[i * 3 + 1] = normals[v * 3 + 1]
+      pickedNormals[i * 3 + 2] = normals[v * 3 + 2]
+    }
+  }
+  return { positions: picked, normals: pickedNormals }
 }
 
 /** Below this there is not enough marked surface to place a part with: six
@@ -270,6 +347,20 @@ export function alignLocal(
   start: Rigid,
   options: LocalAlignOptions,
 ): AlignResult {
+  return runSteps(
+    alignLocalSteps(surface, scanPositions, scanNormals, vertices, start, options),
+  )
+}
+
+/** The fine fit, a pass at a time — see steps.ts. */
+export function* alignLocalSteps(
+  surface: NominalSurface,
+  scanPositions: Float32Array,
+  scanNormals: Float32Array | null,
+  vertices: Uint32Array,
+  start: Rigid,
+  options: LocalAlignOptions,
+): Steps<AlignResult> {
   if (vertices.length < MIN_LOCAL_POINTS) {
     throw new Error(
       `Mark more surface — a local fit needs at least ${MIN_LOCAL_POINTS} marked points, and this selection has ${vertices.length}.`,
@@ -280,23 +371,11 @@ export function alignLocal(
   }
 
   options.onProgress?.('Fine fit — reading the marked surface…')
-  const picked = new Float32Array(vertices.length * 3)
-  const pickedNormals = scanNormals ? new Float32Array(vertices.length * 3) : null
-  for (let i = 0; i < vertices.length; i++) {
-    const v = vertices[i]
-    picked[i * 3] = scanPositions[v * 3]
-    picked[i * 3 + 1] = scanPositions[v * 3 + 1]
-    picked[i * 3 + 2] = scanPositions[v * 3 + 2]
-    if (pickedNormals && scanNormals) {
-      pickedNormals[i * 3] = scanNormals[v * 3]
-      pickedNormals[i * 3 + 1] = scanNormals[v * 3 + 1]
-      pickedNormals[i * 3 + 2] = scanNormals[v * 3 + 2]
-    }
-  }
-  const samples = sampleScan(picked, pickedNormals, options.fineSamples ?? 25_000)
+  const picked = gatherVertices(scanPositions, scanNormals, vertices)
+  const samples = sampleScan(picked.positions, picked.normals, options.fineSamples ?? 25_000)
 
   options.onProgress?.('Fine fit — refining on the marked surface…')
-  const r = icp(surface, samples, start, {
+  const r = yield* icpSteps(surface, samples, start, {
     maxIterations: FINE_ITERATIONS,
     rejectMedianFactor: 3,
     // The pose is already right to within a fraction of a millimetre, so the

@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { SceneManager, type PickHit } from '../viewer/SceneManager'
 import type { ExtendSide } from '../core/elements/extend'
+import { FitButton } from './FitButton'
 
 export function Viewer({
   onReady,
@@ -22,6 +23,7 @@ export function Viewer({
   onExtendDrag?: (side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const sceneRef = useRef<SceneManager | null>(null)
   const pickRef = useRef(onPick)
   pickRef.current = onPick
   const hoverRef = useRef(onHover)
@@ -54,12 +56,17 @@ export function Viewer({
     scene.onElementPick = (id) => elementPickRef.current?.(id)
     scene.onPaintChange = (count) => paintRef.current?.(count)
     scene.onExtendDrag = (side, delta, phase) => extendRef.current?.(side, delta, phase)
+    sceneRef.current = scene
     readyRef.current(scene)
-    return () => scene.dispose()
+    return () => {
+      sceneRef.current = null
+      scene.dispose()
+    }
   }, [])
 
   return (
     <div className="viewport" ref={containerRef}>
+      {webglError === null && <FitButton onFit={() => sceneRef.current?.fitToView()} />}
       {webglError !== null && (
         <div className="webgl-missing" role="alert">
           <b>The 3D view could not be started.</b>

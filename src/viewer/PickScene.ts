@@ -2,8 +2,11 @@
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import type { Vec3 } from '../core/types'
+import { SurfaceMarking, type PaintBrush } from './marking'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
+import { paintUniform, patchPaintTint, setPaintUniform } from './paintTint'
+import type { MarkingChannel } from './SceneManager'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
 
 /** A point picked on the scan while setting up an alignment. */
@@ -26,6 +29,13 @@ export interface PickMarker {
  * with a BVH already built for it in the main viewport, and three.js keeps GPU
  * state per renderer, so the same BufferGeometry can be drawn and raycast in a
  * second canvas at no cost. Disposing it here would destroy the main view.
+ *
+ * The scan's half also marks. Which surface a fit is measured on is a question
+ * about the scan — spray, print supports, the fixture it was scanned on — and
+ * this is where the operator is already looking at it, so the same three
+ * gestures the rest of the tool marks with are offered here. What they lay down
+ * is the scan's one marking (see SceneManager.markingChannel), not a copy of
+ * it.
  */
 export class PickScene {
   private viewport: OrthoViewport
@@ -35,19 +45,52 @@ export class PickScene {
   private markerGeometry: THREE.SphereGeometry
   private markerCleanup: (() => void)[] = []
   private markerRadius: number
+  /** The marking gestures for this canvas, or null in the half that shows the
+   *  reference — a reference is CAD, and there is no surface on it to leave
+   *  out of a fit. */
+  private marking: SurfaceMarking | null = null
+  /** Identity stand-in for the main viewport's part group: this half draws the
+   *  scan in its own coordinates, and the marking still needs somewhere to hang
+   *  its footprint and a frame to convert hits through. */
+  private partGroup = new THREE.Group()
+  private uPaintColor = paintUniform()
+  /** Last cursor position, and whether it has been tested yet — the brush
+   *  footprint is resolved once per frame rather than once per pointermove. */
+  private hoverAt: { x: number; y: number } | null = null
+  private hoverDirty = false
 
   onPick: ((point: Vec3) => void) | null = null
+  /** How many vertices the marking covers, reported when a gesture ends. */
+  onPaintChange: ((count: number) => void) | null = null
 
-  constructor(container: HTMLDivElement, geometry: THREE.BufferGeometry, theme: ViewTheme) {
+  constructor(
+    container: HTMLDivElement,
+    geometry: THREE.BufferGeometry,
+    theme: ViewTheme,
+    channel?: MarkingChannel,
+  ) {
     this.viewport = new OrthoViewport(container, {
       theme,
       navTargets: () => [this.mesh],
+      onPointerDown: (e) =>
+        this.marking != null && this.marking.pointerGesture() !== null
+          ? this.marking.handlePointerDown(e)
+          : false,
+      // A pinch beginning under a live stroke: the stroke keeps what it took
+      // and ends there, rather than being dragged across the part by a hand
+      // that has moved on to navigating.
+      onMultiTouch: () => this.marking?.endGesture(),
+      onTick: () => {
+        this.marking?.drainStroke()
+        this.updateHover()
+      },
       onClick: (x, y) => {
         const point = this.pick(x, y)
         if (point) this.onPick?.(point)
       },
     })
     this.viewport.scene.add(this.markerGroup)
+    this.viewport.scene.add(this.partGroup)
 
     // Flat colour, not the scan's vertex colours: in this view both parts have
     // to look like the same kind of object, so the eye is comparing shapes and
@@ -59,6 +102,10 @@ export class PickScene {
     })
     setSurfaceColor(this.material.color, theme)
     applyFinish(this.material, theme)
+    // The marking is the one thing that does colour this surface, and it
+    // arrives through the mask rather than the vertex colours — see
+    // paintTint.ts.
+    if (channel) patchPaintTint(this.material, this.uPaintColor)
     this.mesh = new THREE.Mesh(geometry, this.material)
     this.viewport.scene.add(this.mesh)
 
@@ -68,9 +115,52 @@ export class PickScene {
     this.markerRadius = Math.max(diagonal * 0.011, 1e-4)
     this.markerGeometry = new THREE.SphereGeometry(1, 20, 14)
 
+    if (channel) this.armMarking(container, channel, theme)
+
     // No broadside axis here: the part is in an arbitrary pose and is about to
     // be turned by hand anyway, so the plain three-quarter view is enough.
     this.viewport.frameCamera(box, null)
+  }
+
+  /** Hang the marking gestures off this canvas, over the scan's shared mask. */
+  private armMarking(
+    container: HTMLDivElement,
+    channel: MarkingChannel,
+    theme: ViewTheme,
+  ): void {
+    this.marking = new SurfaceMarking({
+      container,
+      camera: this.viewport.camera,
+      partGroup: this.partGroup,
+      raycaster: this.viewport.raycaster,
+      regions: channel.regions,
+      setPickRay: (x, y) => this.viewport.setPickRay(x, y),
+      mesh: () => this.mesh,
+      paintAttr: channel.paintAttr,
+      // Both uniforms: one mask, two renderers, and the tint has to be the same
+      // colour on this canvas as on the main one.
+      setPaintColor: (rgb) => {
+        setPaintUniform(this.uPaintColor, rgb)
+        channel.setPaintColor(rgb)
+        this.viewport.invalidate()
+      },
+      invalidate: this.viewport.invalidate,
+      claimDrag: (on) => this.viewport.nav.setPaintMode(on),
+      requestHover: () => {
+        this.hoverDirty = true
+      },
+      onPaintChange: (count) => this.onPaintChange?.(count),
+    })
+    this.marking.setTheme(theme)
+    const canvas = this.viewport.renderer.domElement
+    canvas.addEventListener('pointermove', (e) => {
+      this.hoverAt = { x: e.clientX, y: e.clientY }
+      this.hoverDirty = true
+    })
+    canvas.addEventListener('pointerleave', () => {
+      this.hoverAt = null
+      this.hoverDirty = true
+    })
   }
 
   /** Match the main viewport's buttons: a pose picked here is checked against
@@ -85,7 +175,35 @@ export class PickScene {
     this.viewport.setTheme(theme)
     setSurfaceColor(this.material.color, theme)
     applyFinish(this.material, theme)
+    this.marking?.setTheme(theme)
     this.viewport.invalidate()
+  }
+
+  /** Bring the part back into the frame from wherever it has been turned to,
+   *  without turning it any further — see OrthoViewport.fitCamera. */
+  fitToView(): void {
+    const box = (this.mesh.geometry as THREE.BufferGeometry).boundingBox
+    if (box) this.viewport.fitCamera(box)
+  }
+
+  /** Arm the marking for this half, or pass null to put it away — which also
+   *  rubs out what it marked, the same bargain every other marking session
+   *  makes. Only the scan's half has one. */
+  setPaintBrush(brush: PaintBrush | null): void {
+    this.marking?.setPaintBrush(brush)
+  }
+
+  /** Rub out the marking; the tools stay as they are. */
+  clearPaint(): void {
+    this.marking?.clearPaint()
+  }
+
+  /** One pointer test per frame, and only when the answer could have changed —
+   *  a mouse emits hundreds of moves a second and only the last is on screen. */
+  private updateHover(): void {
+    if (!this.hoverDirty || !this.marking) return
+    this.hoverDirty = false
+    if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
   }
 
   private pick(clientX: number, clientY: number): Vec3 | null {
@@ -124,6 +242,10 @@ export class PickScene {
 
   dispose(): void {
     this.setMarkers([])
+    // The gestures go; the marking itself does not. It lives on the scan's
+    // shared mask, and what becomes of it is decided by whoever opened this
+    // picker, not by the canvas closing.
+    this.marking?.dispose()
     this.markerGeometry.dispose()
     this.material.dispose()
     this.viewport.dispose()

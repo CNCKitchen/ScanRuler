@@ -55,6 +55,10 @@ export function buildDeviationReport(
             : []),
         ]
       : []),
+    // A picked-point fit can be narrowed the same way, in the picker itself.
+    ...(align.source === 'points' && align.selected !== undefined
+      ? [`  fitted on       ${align.selected} scan points, selected by hand`]
+      : []),
     '',
     'Deviation, scan to reference surface, signed outwards:',
     '  positive = outside the reference, negative = inside it',

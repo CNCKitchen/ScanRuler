@@ -1098,6 +1098,53 @@ button.x:disabled {
   -webkit-touch-callout: none;
 }
 
+/* Fit to view, in the bottom-right corner of every viewport that can be
+   orbited — the corner that already answers "where am I looking from".
+   Deliberately quiet: it is a way out of a lost model, not a step in any
+   measurement, so it stays out of the way until it is looked for. */
+.viewfit {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: var(--panel);
+  color: var(--dim);
+  opacity: 0.72;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(18, 22, 26, 0.14);
+}
+
+.viewfit:hover {
+  opacity: 1;
+  color: var(--accent-d);
+  border-color: var(--accent);
+}
+
+.viewfit svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* In the main viewport the axis gizmo already holds that corner, so the button
+   parks directly above it. How tall a corner the gizmo takes depends on the
+   viewport's size, so the scene publishes it — see SceneManager.drawGizmo. */
+.viewport > .viewfit {
+  bottom: calc(var(--gizmo-size, 0px) + 22px);
+}
+
 /* WebGL could not be started: the one state where the stage has nothing to
    show. A plain card in the middle of it, so the failure reads as a message
    from the tool rather than a page that never loaded. */
@@ -2239,6 +2286,67 @@ button.x:disabled {
 
 .splithalf.active .splithead b {
   color: var(--accent-d);
+}
+
+/* The scan half's second line: what the left button does on it, and how much
+   surface has been chosen for the fit so far. Under that half's own heading
+   rather than in the bar at the foot of the window, because the selection is a
+   statement about the scan and only the scan can be marked. */
+.picktools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 11px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+/* In a panel the four modes stack two by two; on one line they run across. */
+.picktools .moderow {
+  display: flex;
+  flex: none;
+  margin: 0;
+}
+
+.picktools .moderow button {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.picktools > button {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.picksize {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.picksize input[type='number'] {
+  width: 4.5rem;
+}
+
+.picksize .slider {
+  width: 6.5rem;
+  margin: 0;
+}
+
+.pickcount {
+  font-size: 11px;
+  color: var(--dim);
+  margin-left: auto;
+}
+
+/* Selected, but not enough of it to fit on — the fit would refuse, so say so
+   where the selecting is happening. */
+.pickcount.short {
+  color: var(--red);
 }
 
 .splitview {

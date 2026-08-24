@@ -8,6 +8,7 @@ import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
+import { rigidToColumnMajor } from '../core/deviation/rigid'
 import { useMark } from '../state/markStore'
 import { buildDeviationReport, buildElementReport } from '../core/deviation/report'
 import { targetFitOf } from './useElementField'
@@ -105,15 +106,76 @@ export function useDeviationWorkspace({
     }
   }
 
+  /**
+   * Put the scan back where the alignment in hand says it goes.
+   *
+   * A fit streams its intermediate poses straight onto the part, so that it can
+   * be watched settling. One that was stopped leaves the last of those on
+   * screen — a pose nobody chose and nothing was measured under — so the fit
+   * that was already in hand (or none at all) has to be put back by hand.
+   */
+  const restoreAlignment = () => {
+    const align = useDeviation.getState().align
+    sceneRef.current?.setAlignment(align ? rigidToColumnMajor(align.transform) : null)
+  }
+
+  /** Stop the fit that is running, wherever it has got to. */
+  const abortAlign = () => {
+    const dev = useDeviation.getState()
+    if (dev.alignStatus !== 'running' || dev.alignStopping) return
+    dev.stoppingAlign()
+    clientRef.current?.abortAlign()
+    useStore.getState().setStatus('Stopping the alignment…')
+  }
+
+  /** What a stopped fit leaves behind: the part back where it was, the message,
+   *  and the picker still open if that is where it was started from. */
+  const alignStopped = () => {
+    restoreAlignment()
+    useDeviation.getState().alignStopped()
+    useStore.getState().setStatus('Alignment stopped — nothing was changed.')
+  }
+
+  /**
+   * Open the split-screen point picker, with a clean sheet.
+   *
+   * The surface selected inside it is the scan's one marking — there is only
+   * one, held on the mesh both viewports share — so the session opens with
+   * nothing marked and takes what it marked away with it. A selection left over
+   * from another workflow is not a statement about this fit, and a marking that
+   * outlived its session would leave the running tally disagreeing with what is
+   * actually on the part.
+   */
+  const startPicking = () => {
+    sceneRef.current?.clearPaint()
+    useMark.getState().reset()
+    useDeviation.getState().startPicking()
+  }
+
+  /** Close it again, selection and all. A no-op when it was not open, so the
+   *  automatic fit can call it without touching a fine fit's marking. */
+  const stopPicking = () => {
+    if (!useDeviation.getState().picking) return
+    sceneRef.current?.clearPaint()
+    useMark.getState().reset()
+    useDeviation.getState().stopPicking()
+  }
+
   /** Run the best fit. With no pairs this is the automatic match; with pairs it
-   *  starts from them instead. Either way ICP does the fine work. */
+   *  starts from them instead, and only the surface selected in the picker (if
+   *  any) is refined on. Either way ICP does the fine work. */
   const runAlign = async (usePairs: boolean) => {
     const dev = useDeviation.getState()
+    const selection = usePairs ? sceneRef.current?.paintedVertices() : null
     dev.beginAlign()
     try {
-      const result = await clientRef.current!.align(usePairs ? dev.pairs : null)
+      const result = await clientRef.current!.align(usePairs ? dev.pairs : null, selection)
+      if (!result) {
+        alignStopped()
+        return
+      }
       useDeviation.getState().resolveAlign(result)
-      useDeviation.getState().stopPicking()
+      stopPicking()
       deviation.current = null
       sceneRef.current?.setFieldColors(null)
       useStore
@@ -124,6 +186,7 @@ export function useDeviationWorkspace({
       void runDeviation()
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
+      restoreAlignment()
       useDeviation.getState().failAlign(message)
       useStore.getState().setStatus('')
     }
@@ -166,6 +229,10 @@ export function useDeviationWorkspace({
         start.transform,
         dev.localMaxDistance,
       )
+      if (!result) {
+        alignStopped()
+        return
+      }
       useDeviation.getState().resolveAlign(result)
       // The fit is what the marking was for, so the gesture stands down and
       // the camera has its buttons back for looking at the result. What was
@@ -235,6 +302,9 @@ export function useDeviationWorkspace({
   return {
     openNominal,
     runAlign,
+    abortAlign,
+    startPicking,
+    stopPicking,
     runDeviation,
     runLocalAlign,
     handleStartMarking,
