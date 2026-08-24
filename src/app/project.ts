@@ -200,7 +200,7 @@ export function applyScanPart(p: ScanPart): void {
     settings: p.settings,
     selectMode: p.selectMode,
     showOverlays: p.showOverlays,
-    showBackfaces: p.showBackfaces,
+    showBackfaces: p.showBackfaces ?? true,
   })
 }
 

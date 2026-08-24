@@ -106,7 +106,9 @@ export interface ScanPart {
   settings: FitSettings
   selectMode: SelectMode
   showOverlays: boolean
-  showBackfaces: boolean
+  /** Absent in projects saved before the switch existed; those load with the
+   *  tint on, same as a fresh session. */
+  showBackfaces?: boolean
 }
 
 export interface DeviationPart {
