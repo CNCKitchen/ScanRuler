@@ -683,8 +683,12 @@ export default function App() {
       if (points.length >= (method.minPicks ?? 1)) runPickFit(points)
       return
     }
+    // The exact hit rides along with the seed triangle: the fit itself only
+    // wants the triangle, but the spot that was clicked is what gets marked on
+    // the part while the element is being made.
     const picks: [number, number, number][] = [...store.draft.picks, faceVertices]
-    store.setDraftPicks(picks)
+    const points = [...store.draft.pickPoints, hit.point]
+    store.setDraftPicks(picks, points)
     void runDraftFit(store.draft.kind, picks)
   }
 
@@ -774,6 +778,11 @@ export default function App() {
         sceneRef.current?.setPaintedVertices(draft.selection, el.color)
         useMark.getState().setCount(draft.selection.length)
       } else if (draft.picks.length > 0) {
+        // Back on the part go the spots the element was measured from. Only the
+        // seed triangles are kept — an element outlives the session it was made
+        // in — so each marker sits in the middle of its triangle rather than on
+        // the pixel that was clicked, which is well inside the click itself.
+        store.setDraftPickPoints(sceneRef.current?.pickPointsOf(draft.picks) ?? [])
         void runDraftFit(draft.kind, draft.picks)
       }
     }
@@ -876,7 +885,9 @@ export default function App() {
     if (draft && creationMethod(draft.kind, draft.method).mode === 'fit') {
       if (draft.selection) void runDraftPaintFit(draft.kind, draft.selection)
       else if (draft.picks.length > 0) {
-        store.setDraftPicks(draft.picks)
+        // The picks are unchanged and so are the marks on them — only the
+        // outlier cut-off moved.
+        store.setDraftPicks(draft.picks, draft.pickPoints)
         void runDraftFit(draft.kind, draft.picks)
       }
     }

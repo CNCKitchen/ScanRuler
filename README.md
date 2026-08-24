@@ -49,6 +49,16 @@ the guidance off outright, and switching it back on starts it over.
    broken into unconnected patches, click a point on each one — every pick
    feeds the same fit. Press **Create …** when the preview looks right (*Undo
    point* drops the last pick, *Cancel* or `Esc` discards). The finished
+   element stays on screen in its own colour.
+
+   **Every point you click is pinned where it landed**, numbered in the order
+   you clicked it, for as long as the element is being made — so which picks
+   have gone in, and which one *Undo point* would take back, is read off the
+   part rather than counted in your head. The pins are the same size on screen
+   at every zoom, so a pin stays a mark on a part you have zoomed right into
+   instead of becoming a blot over the feature you are aiming at. They go when
+   the element is created: from then on its own tint and pin say where it is.
+
    element stays on screen in its own colour. `Enter` or a **middle click**
    does what the confirm button of the moment does — create or save an
    element, add a dimension, apply a calibration, align the part, run the fit
@@ -254,7 +264,7 @@ everything it was built from already in place:
 
 | Re-opening a… | brings back |
 | --- | --- |
-| fitted element | the points that were clicked on it — the fit re-runs and previews at once, so more picks or *Undo point* change the surface it rests on |
+| fitted element | the points that were clicked on it, pinned back on the part where they landed — the fit re-runs and previews at once, so more picks or *Undo point* change the surface it rests on |
 | hand-marked element | the marked surface itself, back on the part under the marking tools, ready to be added to or rubbed out |
 | picked point | the point, so a click on the scan moves it |
 | constructed element | its source elements and typed-in numbers, in their fields |
@@ -491,6 +501,15 @@ underneath, the reading under the cursor still reports it, pinned readings stay
 pinned, and switching it back on brings the scale back reading exactly what it
 read before — nothing is re-measured.
 
+**Bare means bare.** Any elements drawn on the part — the ones on offer when a
+map is measured [against a fitted element](#deviation-from-a-fitted-element) —
+come down to their outlines for as long as the plot is off. A fitted element's
+body lies exactly on the surface it was measured on, so one left standing there
+would be a tint over the very surface the plot was switched off to see. The
+borders and the pins stay, so which element is which is still readable and one
+can still be chosen by clicking its pin; switching the plot back on makes them
+bodies again.
+
 ### The reference straight from CAD
 
 The nominal part is whatever the CAD system says it is, and exporting it to STL
@@ -673,7 +692,10 @@ on the surface being read, so a translucent body there would wash the colour the
 reading is made of — and on a map the colour *is* the measurement. And an outline
 is not something clicks resolve through, so a click on the map it covers still
 pins a reading rather than re-selecting the element under it. The elements **on
-offer** stay bodies, faded, because a body is what you can aim a click at.
+offer** stay bodies, faded, because a body is what you can aim a click at —
+until the [colour plot](#the-colour-plot-off) goes off, when they become
+outlines too: with the map gone the surface itself is what is being looked at,
+and a body lying on it is the one thing that would still be covering it.
 *Show elements on the part* takes them all off for a clean screenshot, and with
 them the clicking; an element hidden by its own eye in the Elements workspace
 stays hidden here too.
@@ -732,11 +754,14 @@ Validated end-to-end against a generated 20 mm CAD cube
 (`npm run e2e:element-deviation`): two planes fitted on two of its faces, chosen
 and swapped by clicking them on the model, and the map on each reading the face as
 flat to 0.000 mm, leaving the underside out while the facing filter is on, and
-reporting it as exactly −20.000 mm with the filter off. The circle element and
-the marked-region scope have their own script (`npm run e2e:circle`): a Ø 12
-coordinate circle reading back exactly, three picks previewing a circle on the
-cube's top face, and a marked window measuring only its own points — zero of
-them while nothing is marked.
+reporting it as exactly −20.000 mm with the filter off — and the part left bare,
+outlines and pins and nothing else, when the colour plot is switched off. The
+circle element and the marked-region scope have their own script
+(`npm run e2e:circle`): a Ø 12 coordinate circle reading back exactly, three
+picks previewing a circle on the cube's top face, and a marked window measuring
+only its own points — zero of them while nothing is marked. It also photographs
+a picked point at two zoom levels: the marker has to come out the same number of
+pixels in both, where one sized to the part would come out nine times the area.
 
 ## Wall thickness
 

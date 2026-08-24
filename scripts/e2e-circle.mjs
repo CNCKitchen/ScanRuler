@@ -53,6 +53,56 @@ const rect = await canvasRect(page)
 
 const at = (fx, fy) => [rect.x + rect.w * fx, rect.y + rect.h * fy]
 
+/** The picked-point markers on the part: what each says and where it sits on
+ *  screen. They are CSS2D pins, so the DOM is where they can be read — and the
+ *  element pins of finished elements wear a different class, so this counts
+ *  only the picks of whatever is being made. */
+const pickPins = () =>
+  page.$$eval('.viewport-label.probe', (els) =>
+    els.map((e) => {
+      const r = e.getBoundingClientRect()
+      return { text: e.textContent.trim(), x: r.x + r.width / 2, y: r.y + r.height / 2 }
+    }),
+  )
+
+/** Saturated pixels in a box around a screen point — the marker dot, measured
+ *  where it is drawn rather than from anything the code claims about it. */
+const dotPixels = async ({ x, y }, half = 40) => {
+  const shot = await page.screenshot({
+    clip: { x: x - half, y: y - half, width: half * 2, height: half * 2 },
+    encoding: 'base64',
+  })
+  return page.evaluate(async (b64) => {
+    const img = new Image()
+    img.src = 'data:image/png;base64,' + b64
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const { data } = ctx.getImageData(0, 0, c.width, c.height)
+    let n = 0
+    for (let i = 0; i < data.length; i += 4) {
+      // The part and the stage are both near-neutral; a marker is not.
+      if (Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]) > 45)
+        n++
+    }
+    return n
+  }, shot)
+}
+
+/** Zoom the viewport about a screen point, in wheel notches (negative zooms
+ *  out). Cursor-centric, so whatever is under the point stays under it. */
+const zoomAt = async ({ x, y }, notches) => {
+  await page.mouse.move(x, y)
+  for (let i = 0; i < Math.abs(notches); i++) {
+    await page.mouse.wheel({ deltaY: notches > 0 ? -120 : 120 })
+    await sleep(40)
+  }
+  await sleep(400)
+}
+
 // ---- a circle from coordinates: the exact numbers must come back ------------
 await click(page, '[data-test=fit-circle]')
 await page.waitForSelector('[data-test=draft-method]')
@@ -117,6 +167,30 @@ console.log('after one pick:', status)
 check(/1 of 3/.test(status), 'the draft counts its picks up to the minimum')
 await page.mouse.click(...at(0.44, 0.46))
 await sleep(300)
+
+// ---- the picks are marked, at a size the zoom cannot change ------------------
+// Every click that feeds an element is marked while the element is being made:
+// with several of them going into one fit, seeing which have landed is half the
+// workflow. Two picks in there is no circle yet, so the markers are the only
+// colour on the part — which is what makes their size measurable.
+let pins = await pickPins()
+console.log('pins after two picks:', JSON.stringify(pins.map((p) => p.text)))
+check(
+  pins.map((p) => p.text).join(',') === '1,2',
+  'each pick is marked on the part, numbered in the order it was clicked',
+)
+const pinned = pins[0]
+const near = await dotPixels(pinned)
+await zoomAt(pinned, 12)
+const zoomedPin = (await pickPins()).find((p) => p.text === pinned.text)
+const far = zoomedPin ? await dotPixels(zoomedPin) : 0
+console.log(`marker pixels: ${near} framed, ${far} zoomed in ~3x`)
+// Sized to the part, a 3x zoom would make it nine times the area. It is sized
+// in pixels instead, so what the operator zooms in to place precisely does not
+// grow over the surface they are aiming at.
+check(far > 0 && far < near * 2, 'a picked point holds its size on screen through a 3x zoom')
+await zoomAt(pinned, -12)
+
 await page.mouse.click(...at(0.56, 0.46))
 if (!(await previewReady(page, { watchStatus: false }))) fail('three picks never previewed a circle')
 const dro = await page.$eval('[data-test=draft-status]', (el) => el.textContent)
@@ -131,6 +205,10 @@ await sleep(400)
 rows = await rowTexts(page)
 console.log('rows:', JSON.stringify(rows))
 check(rows.length === 2 && /Circle 2.*Ø/.test(rows[1]), 'the picked circle is created')
+check(
+  (await pickPins()).length === 0,
+  'the markers belong to the making of it — the finished circle carries its own pin instead',
+)
 
 // The picked circle lies in the cube's top face, so its normal is ±Z and the
 // summary must place its center at the face height, z = SIZE/2 above the middle
@@ -168,19 +246,43 @@ check(
 // ---- the plane the deviation section will measure against -------------------
 const fitPlaneAt = async (spots) => {
   await click(page, '[data-test=fit-plane]')
+  let clicks = 0
   for (const [fx, fy] of spots) {
     await page.mouse.click(...at(fx, fy))
+    clicks++
     if (await previewReady(page)) {
+      // A fit is grown from a click, and the click is the one thing about it
+      // that would otherwise leave no trace of itself.
+      const marked = (await pickPins()).map((p) => p.text)
+      check(
+        marked.length === clicks,
+        `the ${clicks} point(s) the plane was grown from are marked on it (${marked.join()})`,
+      )
       await click(page, '[data-test=create-element]')
       await sleep(400)
-      return true
+      return clicks
     }
   }
-  return false
+  return 0
 }
-if (!(await fitPlaneAt([[0.5, 0.42], [0.46, 0.38], [0.54, 0.46], [0.5, 0.5]]))) {
-  fail('could not fit a plane on the top face')
-}
+const planePicks = await fitPlaneAt([[0.5, 0.42], [0.46, 0.38], [0.54, 0.46], [0.5, 0.5]])
+if (!planePicks) fail('could not fit a plane on the top face')
+
+// Re-opening it puts the same marks back: where a fit was measured from is part
+// of what the element remembers, and it is what tells the operator whether to
+// add a point or start over.
+const editButtons = await page.$$('[data-test=edit-element]')
+await editButtons[editButtons.length - 1].click()
+await sleep(700)
+const reopened = (await pickPins()).map((p) => p.text)
+console.log('pins on the re-opened plane:', JSON.stringify(reopened))
+check(
+  reopened.length === planePicks,
+  `a re-opened fit brings its ${planePicks} points back onto the part`,
+)
+await click(page, '[data-test=cancel-draft]')
+await sleep(300)
+check((await pickPins()).length === 0, 'and takes them away again when the editor is closed')
 
 // ---- the deviation map, restricted to a marked region -----------------------
 await click(page, '[data-test=workspace-deviation]')

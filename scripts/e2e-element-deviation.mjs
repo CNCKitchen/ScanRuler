@@ -222,6 +222,47 @@ check(withElement !== withoutElement, 'the element can be taken off the stage')
 await click(page, '[data-test=toggle-element]')
 await sleep(300)
 
+// ---- the colour plot off leaves the bare part ------------------------------
+// Switching the map off is asking for the surface itself — its shape, its
+// holes, the marks a finish left. An element body lies exactly on the surface
+// it was fitted to, so one left standing there is a tint on the very thing that
+// was asked for; every element drops to its outline instead, which is measured
+// here by taking them off the stage entirely and finding nothing left to take.
+// Measured under the studio theme: the fraction counts saturated pixels, and
+// the default scanner blue would tint the bare surface itself — the very thing
+// this is asking to see left alone. Studio leaves it neutral, so what is
+// counted is the map and the element bodies and nothing else.
+await page.select('[data-test=view-theme]', 'studio')
+await sleep(400)
+const paintedWithMap = await colouredFraction(page)
+await click(page, '[data-test=toggle-colormap]')
+await sleep(500)
+const paintedBare = await colouredFraction(page)
+await click(page, '[data-test=toggle-element]')
+await sleep(400)
+const paintedNoElements = await colouredFraction(page)
+console.log(
+  `coloured stage — map ${(paintedWithMap * 100).toFixed(1)} %, colour plot off ${(paintedBare * 100).toFixed(1)} %, elements off too ${(paintedNoElements * 100).toFixed(1)} %`,
+)
+check(paintedBare < paintedWithMap / 2, 'switching the colour plot off takes the map off the part')
+// What is left between the two is the outlines and the pins — a hair of the
+// stage. A body left standing would be a whole face of the cube, ten times it.
+check(
+  paintedBare - paintedNoElements < 0.02,
+  'and leaves no element body tinting the surface behind it',
+)
+await click(page, '[data-test=toggle-element]')
+await sleep(300)
+await page.screenshot({ path: shotPath('element-deviation-plot-off.png') })
+await click(page, '[data-test=toggle-colormap]')
+await sleep(500)
+check(
+  Math.abs((await colouredFraction(page)) - paintedWithMap) < 0.01,
+  'and switching it back on brings the map and the bodies back exactly as they were',
+)
+await page.select('[data-test=view-theme]', 'scanner')
+await sleep(300)
+
 // ---- pinning a reading, and the report -------------------------------------
 let pinned = 0
 for (const [fx, fy] of [[0.5, 0.42], [0.46, 0.38], [0.54, 0.46]]) {

@@ -631,6 +631,10 @@ interface AppState {
    *  fit pipeline, plus the exact hit points for the pick-mode methods that
    *  need coordinates (a circle through picked points). */
   setDraftPicks: (picks: [number, number, number][], points?: Vec3[]) => void
+  /** Where the open draft's picks landed on the scan, without touching the
+   *  picks or the fit standing on them — a re-opened element getting the spots
+   *  it was measured from back onto the part. */
+  setDraftPickPoints: (points: Vec3[]) => void
   /** The hand-marked surface a draft's fit is running on, or null when the
    *  marking has been cleared. */
   setDraftSelection: (selection: Uint32Array | null) => void
@@ -965,6 +969,9 @@ export const useStore = create<AppState>()((set, get) => ({
         },
       }
     }),
+
+  setDraftPickPoints: (points) =>
+    set((s) => (s.draft ? { draft: { ...s.draft, pickPoints: points } } : {})),
 
   setDraftSelection: (selection) =>
     set((s) =>

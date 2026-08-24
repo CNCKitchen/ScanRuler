@@ -220,6 +220,10 @@ export class SceneManager {
       onTick: () => {
         this.marking.drainStroke()
         this.updateHover()
+        // Anything held at a fixed size on screen — the picked-point markers —
+        // has to be re-scaled when the zoom changes. A no-op on the frames it
+        // has not.
+        this.overlays.setPixelScale(this.viewport.worldPerPixel())
       },
       onAfterRender: (w, h) =>
         this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h),
@@ -785,6 +789,27 @@ export class SceneManager {
    *  (coordinate planes, picked points) are drawn at. */
   modelSize(): number {
     return this.modelRadius
+  }
+
+  /** Where each of a fit's seed triangles sits on the scan, in scan
+   *  coordinates. A seed is a triangle rather than a point, so the middle of it
+   *  is as close as the record gets to the spot that was clicked — near enough
+   *  to mark it on the part when the element is re-opened, which is what an
+   *  element's picks are worth remembering for. */
+  pickPointsOf(picks: readonly [number, number, number][]): Vec3[] {
+    const geometry = this.mesh?.geometry as THREE.BufferGeometry | undefined
+    const position = geometry?.getAttribute('position') as THREE.BufferAttribute | undefined
+    if (!position) return []
+    const out: Vec3[] = []
+    for (const [a, b, c] of picks) {
+      if (a >= position.count || b >= position.count || c >= position.count) continue
+      const p = this.scratchA.fromBufferAttribute(position, a)
+      p.add(this.scratchB.fromBufferAttribute(position, b))
+      p.add(this.scratchB.fromBufferAttribute(position, c))
+      p.divideScalar(3)
+      out.push([p.x, p.y, p.z])
+    }
+    return out
   }
 
   /** Centre of the scan's bounding box, in scan coordinates — the point a

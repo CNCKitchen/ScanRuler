@@ -12,6 +12,17 @@ import type { FitData, Vec3 } from '../core/types'
 import type { PickMarker } from './PickScene'
 import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 
+/** Radius of a picked-point marker, in pixels of the canvas.
+ *
+ *  In pixels rather than in millimetres because a pick is a thing on the
+ *  screen, not a feature of the part: sized to the model it is a speck on a
+ *  casting and a boulder on a set screw, and either way it grows and shrinks
+ *  under zoom — exactly when the operator is zooming *in* to place it
+ *  precisely. Held at one size on screen it stays the same handle at every
+ *  magnification, and the surface under the next click is never buried by the
+ *  last one. */
+const PICK_MARKER_PX = 14
+
 export interface OverlayElement {
   id: number
   name: string
@@ -118,6 +129,12 @@ export class Overlays {
   private selectionCleanup: (() => void)[] = []
   private probeCleanup: (() => void)[] = []
   private pickMarkerCleanup: (() => void)[] = []
+  /** The pick-marker dots alone, so a change of zoom can re-scale them without
+   *  rebuilding anything. */
+  private pickMarkerDots: THREE.Mesh[] = []
+  /** Millimetres per pixel at the current zoom, from the viewport. Zero until
+   *  the first frame has reported one. */
+  private worldPerPixel = 0
   /** Overlay meshes that can stand in for their element in a click, and the
    *  materials to restyle when that element is selected. */
   private overlayPickables: THREE.Mesh[] = []
@@ -185,7 +202,7 @@ export class Overlays {
 
     for (const el of elements) {
       if (el.style === 'outline') {
-        const outline = this.buildOutline(el.fit, el.color)
+        const outline = this.buildOutline(el.fit, el.color, el.muted === true)
         if (outline) {
           this.overlayGroup.add(outline.line)
           this.overlayCleanup.push(outline.dispose)
@@ -560,8 +577,16 @@ export class Overlays {
    *
    *  It is placed by reusing buildShape's own transform, so the outline is the
    *  edge of the very shape the shell would have drawn. Null for the kinds with
-   *  no border to trace. */
-  private buildOutline(fit: FitData, color: string): { line: THREE.LineSegments; dispose: () => void } | null {
+   *  no border to trace.
+   *
+   *  Muted is an element merely on offer rather than the one in use: the same
+   *  border, drawn back, so which of them the reading is measured against is
+   *  still legible at a glance. */
+  private buildOutline(
+    fit: FitData,
+    color: string,
+    muted = false,
+  ): { line: THREE.LineSegments; dispose: () => void } | null {
     const edges =
       fit.kind === 'plane'
         ? this.unitPlaneEdges
@@ -572,7 +597,7 @@ export class Overlays {
     const material = new THREE.LineBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.95,
+      opacity: muted ? 0.5 : 0.95,
       depthWrite: false,
       depthTest: false,
     })
@@ -714,20 +739,43 @@ export class Overlays {
     this.ctx.invalidate()
   }
 
-  /** Mark the points picked for an alignment slot on the part, labelled with
-   *  what they are for. They ride in the part's group like everything else
-   *  measured on the scan. */
+  /** Millimetres per pixel at the current zoom, reported every frame by the
+   *  viewport. Only the picked-point markers ride on it — see PICK_MARKER_PX —
+   *  and only a real change is worth a re-scale and a repaint. */
+  setPixelScale(worldPerPixel: number): void {
+    if (!(worldPerPixel > 0) || worldPerPixel === this.worldPerPixel) return
+    this.worldPerPixel = worldPerPixel
+    if (this.pickMarkerDots.length === 0) return
+    const r = this.pickMarkerRadius()
+    for (const dot of this.pickMarkerDots) dot.scale.setScalar(r)
+    this.ctx.invalidate()
+  }
+
+  /** A pick marker's radius in millimetres: PICK_MARKER_PX pixels' worth at the
+   *  current zoom, falling back to a fraction of the part before the first
+   *  frame has said what a pixel is worth. */
+  private pickMarkerRadius(): number {
+    const r = this.worldPerPixel * PICK_MARKER_PX
+    return r > 0 ? r : Math.max(this.ctx.modelRadius() * 0.009, 1e-5)
+  }
+
+  /** Mark the points picked for an alignment slot or for the element being
+   *  fitted on the part, labelled with what they are for. They ride in the
+   *  part's group like everything else measured on the scan. */
   setPickMarkers(markers: PickMarker[]): void {
     for (const dispose of this.pickMarkerCleanup) dispose()
     this.pickMarkerCleanup = []
     this.pickMarkerGroup.clear()
+    this.pickMarkerDots = []
+    const radius = this.pickMarkerRadius()
     for (const marker of markers) {
       const material = new THREE.MeshBasicMaterial({ color: marker.color, depthTest: false })
       const dot = new THREE.Mesh(this.probeGeometry, material)
       dot.position.set(...marker.point)
-      dot.scale.setScalar(this.ctx.modelRadius() * 0.009)
+      dot.scale.setScalar(radius)
       dot.renderOrder = 4
       this.pickMarkerGroup.add(dot)
+      this.pickMarkerDots.push(dot)
 
       const label = pinLabel('probe', marker.label, '', marker.color)
       label.position.set(...marker.point)

@@ -244,6 +244,15 @@ export class OrthoViewport {
     this.nav.setPickRay(this.raycaster, clientX, clientY)
   }
 
+  /** How many millimetres one pixel of the canvas spans at the current zoom.
+   *  What anything that has to keep its size on *screen* rather than on the
+   *  part — a picked-point marker — is scaled by. Parallel projection, so the
+   *  figure is the same everywhere in the frame and at every depth. */
+  worldPerPixel(): number {
+    const h = this.container.clientHeight || 1
+    return (this.camera.top - this.camera.bottom) / this.camera.zoom / h
+  }
+
   /**
    * Point the camera at the bounding-box centre, then size the frustum to the
    * box's actual on-screen extents.

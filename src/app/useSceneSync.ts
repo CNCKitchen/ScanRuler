@@ -176,6 +176,14 @@ export function useSceneSync({
   const offeredElements = useDeviation((s) => s.source === 'element' && s.showElement)
   const candidates = markWorkspace && offeredElements
   const targetId = useDeviation((s) => s.targetId)
+  // The colour plot is off: the part is meant to be bare — its shape, its
+  // holes, the marks a finish left. An element body lies exactly on the surface
+  // it was fitted to, so a shell there is a tint on the very surface that was
+  // asked for, and it reads as one. Every element drops to its outline instead,
+  // which says where they are without colouring anything. Their centre pins
+  // stay, so one can still be chosen by clicking it on the part.
+  const mapOff = useDeviation((s) => !s.showMap)
+  const bareSurface = markWorkspace && mapOff
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
@@ -212,8 +220,13 @@ export function useSceneSync({
         fit: applyExtension(e.fit!, e.extend),
         // On bare scan every element is a body. Over a map the one being
         // measured against is reduced to its border, and the others stay bodies
-        // so there is something to aim a click at.
-        style: elementsWorkspace || e.id !== targetId ? ('shell' as const) : ('outline' as const),
+        // so there is something to aim a click at — until the map itself is
+        // switched off, when the point is to see the surface and every body
+        // gets out of the way.
+        style:
+          elementsWorkspace || (e.id !== targetId && !bareSurface)
+            ? ('shell' as const)
+            : ('outline' as const),
         muted: !elementsWorkspace && e.id !== targetId,
       }))
     // Distances draw as a line between their two anchor points, angles as an
@@ -268,6 +281,7 @@ export function useSceneSync({
     elementsWorkspace,
     candidates,
     targetId,
+    bareSurface,
     editingElementId,
     editingDimensionId,
   ])
@@ -281,8 +295,19 @@ export function useSceneSync({
   // order they were clicked so the count is readable at a glance. A multi-point
   // pick draft (a circle) marks its points the same way — with several clicks
   // going into one element, seeing which have landed is half the workflow.
+  //
+  // So does a fit: the click that grew the region is the one thing about a
+  // fitted element that leaves no trace of itself otherwise. Marked, it is
+  // clear which spots the surface came from, that a second click landed where
+  // it was meant to, and — when the element is re-opened — where the first pass
+  // took it from. Only while the draft is open: once the element exists, its
+  // own tint and pin are what say where it is.
+  //
+  // A picked *point* is excluded: its ghost already sits on the spot, and a
+  // marker on top of it would only be a second dot on the same place.
+  const draftMode = draft ? creationMethod(draft.kind, draft.method).mode : null
   const pickDraftPoints =
-    draft && creationMethod(draft.kind, draft.method).mode === 'pick' && draft.kind !== 'point'
+    draft && (draftMode === 'fit' || (draftMode === 'pick' && draft.kind !== 'point'))
       ? draft.pickPoints
       : null
   useEffect(() => {
