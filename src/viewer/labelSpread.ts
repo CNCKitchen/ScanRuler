@@ -35,8 +35,14 @@ export function spreadLabels(labelDom: HTMLElement, gap = 2): void {
         const overlapX = b.x0 < p.x1 + gap && b.x1 > p.x0 - gap
         const overlapY = b.y0 + b.dy < p.y1 + p.dy + gap && b.y1 + b.dy > p.y0 + p.dy - gap
         if (overlapX && overlapY) {
-          b.dy = p.y0 + p.dy - gap - b.y1
-          moved = true
+          const nextDy = p.y0 + p.dy - gap - b.y1
+          // Rounding can leave the overlap test true after this exact offset
+          // was applied. Retry only when we actually move upward. Each placed
+          // box supplies one fixed offset, so strict progress bounds retries.
+          if (nextDy < b.dy) {
+            b.dy = nextDy
+            moved = true
+          }
         }
       }
     }
