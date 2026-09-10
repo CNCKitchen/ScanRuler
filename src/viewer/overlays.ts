@@ -152,8 +152,8 @@ export class Overlays {
   private previewShape: THREE.Mesh | null = null
   /** The ends of the ghost, drawn apart from its body: a ghost is translucent
    *  so the scan shows through it, and inside a bore that leaves nothing to
-   *  say where a tube being pulled shorter actually stops. Two rims, always;
-   *  a filled cap on the end the user has hold of. */
+   *  say where a tube being pulled shorter actually stops. Two thin rims,
+   *  always; a near-solid cap on the end the user has hold of. */
   private previewEnds = new THREE.Group()
   private previewEndCleanup: (() => void)[] = []
   private previewFit: FitData | null = null
@@ -161,11 +161,10 @@ export class Overlays {
   /** The colour the element being made will get — its grips wear it, and so
    *  do the marks on the ends they sit on. */
   private previewColor = '#ffffff'
-  /** A rim is a thin ring, the end in hand a fatter one; both lie in XY about
-   *  the origin and are scaled to the tube's radius, so the ring stays the
-   *  same fraction of the bore however big the bore is. The cap is a disc. */
+  /** A rim is a thin ring, the cap a disc; both lie in XY about the origin
+   *  and are scaled to the tube's radius, so the ring stays the same fraction
+   *  of the bore however big the bore is. */
   private unitRim = new THREE.TorusGeometry(1, 0.012, 8, 128)
-  private unitHeldRim = new THREE.TorusGeometry(1, 0.03, 10, 128)
   private unitDisc = new THREE.CircleGeometry(1, 96)
   private unitSphere = new THREE.SphereGeometry(1, 48, 32)
   /** Open-ended so the scan surface stays visible through the tube. */
@@ -754,7 +753,7 @@ export class Overlays {
   /** The two rims of a cylinder ghost, and the cap on the end in hand. Drawn
    *  ahead of the depth buffer, like the grips: the whole point is to be seen
    *  from outside a bore, through its wall. Under the grips in draw order, so
-   *  the arrow stays on top of the rim it sits on. Only a cylinder has ends
+   *  the arrow stays on top of the cap it sits on. Only a cylinder has ends
    *  to mark — a plane's edges are the bars of its grips already. */
   private rebuildPreviewEnds(): void {
     for (const fn of this.previewEndCleanup) fn()
@@ -779,16 +778,15 @@ export class Overlays {
       const held = side === this.previewActiveSide
       const at = centre.clone().addScaledVector(axis, sign * half)
 
-      // The rim: the draft's colour, white when it is the one in hand, the
-      // way its grip goes white under the cursor.
+      // The rim, in the draft's colour.
       const rimMat = new THREE.MeshBasicMaterial({
-        color: held ? 0xffffff : this.previewColor,
+        color: this.previewColor,
         transparent: true,
-        opacity: held ? 1 : 0.85,
+        opacity: 0.85,
         depthTest: false,
         depthWrite: false,
       })
-      const rim = new THREE.Mesh(held ? this.unitHeldRim : this.unitRim, rimMat)
+      const rim = new THREE.Mesh(this.unitRim, rimMat)
       rim.position.copy(at)
       rim.quaternion.copy(pose)
       rim.scale.setScalar(r)
@@ -797,12 +795,12 @@ export class Overlays {
       this.previewEndCleanup.push(() => rimMat.dispose())
       if (!held) continue
 
-      // The cap: a translucent disc across the end, so where the tube stops
-      // reads as a surface and not as one more faint line.
+      // The cap: an almost solid disc across the end in hand, so where the
+      // tube stops reads as a surface — one that can be seen moving.
       const capMat = new THREE.MeshBasicMaterial({
         color: this.previewColor,
         transparent: true,
-        opacity: 0.35,
+        opacity: 0.9,
         depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
@@ -903,7 +901,6 @@ export class Overlays {
     this.unitPlane.dispose()
     this.unitRing.dispose()
     this.unitRim.dispose()
-    this.unitHeldRim.dispose()
     this.unitDisc.dispose()
   }
 }

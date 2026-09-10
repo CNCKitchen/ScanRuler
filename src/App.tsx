@@ -944,25 +944,37 @@ export default function App() {
   // is start + delta — which is what lets a drag run into the clamp and come
   // back out again without losing anything on the way.
   const extendStart = useRef(0)
+  /** A grip is held: the span moves every frame, and a fit confined to it
+   *  waits for the hand to let go rather than running under it. */
+  const extendDragging = useRef(false)
+  const refitAfterDrag = useRef(false)
   const handleExtendDrag = (side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => {
     const store = useStore.getState()
     const fit = store.draft?.fit
     if (!isExtendable(fit)) return
     if (phase === 'start') {
       extendStart.current = sideValue(extensionOf(fit, store.draft?.extend), side)
+      extendDragging.current = true
+      refitAfterDrag.current = false
     } else if (phase === 'move') {
       store.setDraftExtend(side, extendStart.current + delta)
+    } else {
+      extendDragging.current = false
+      if (refitAfterDrag.current) {
+        refitAfterDrag.current = false
+        void refitDraftInWindow()
+      }
     }
   }
 
   // With the fit confined to the drawn span, the two extend numbers are part
-  // of the recipe: whenever they move with the option on, or the option is
+  // of the recipe: whenever they change with the option on, or the option is
   // switched either way, the draft measures again. Keyed on the span itself
   // rather than the extension, so a plane's edges and a cylinder's ends with
   // the option off never trigger it. What a draft opens with is what its fit
   // was made with — the first key of a draft's life is recorded, not acted
-  // on. Debounced, because a grip being dragged moves the span every frame
-  // and the fit should follow the hand, not race it.
+  // on. A field commits once and re-fits at once; a grip changes the span on
+  // every move and re-fits once, when it is let go.
   const draftOpen = useStore((s) => s.draft !== null)
   const windowKey = useStore((s) => {
     const w = fitWindow(s.draft?.extend)
@@ -979,8 +991,8 @@ export default function App() {
       return
     }
     seenWindow.current = windowKey
-    const timer = setTimeout(() => void refitDraftInWindow(), 120)
-    return () => clearTimeout(timer)
+    if (extendDragging.current) refitAfterDrag.current = true
+    else void refitDraftInWindow()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftOpen, windowKey])
 
