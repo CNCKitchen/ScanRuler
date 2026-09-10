@@ -69,6 +69,8 @@ export interface OverlayAngle {
 export interface ProbeMarker {
   id: number
   point: Vec3
+  /** What the pin reads on top — the map it was taken off: DEV or WALL. */
+  title: string
   label: string
   color: string
 }
@@ -815,7 +817,7 @@ export class Overlays {
     }
   }
 
-  /** Pin deviation readings to the part. */
+  /** Pin readings to the part, each titled with the map it came off. */
   setProbes(probes: ProbeMarker[]): void {
     for (const dispose of this.probeCleanup) dispose()
     this.probeCleanup = []
@@ -828,7 +830,7 @@ export class Overlays {
       dot.renderOrder = 4
       this.probeGroup.add(dot)
 
-      const label = pinLabel('probe', 'DEV', probe.label, probe.color)
+      const label = pinLabel('probe', probe.title, probe.label, probe.color)
       label.position.set(...probe.point)
       this.probeGroup.add(label)
 

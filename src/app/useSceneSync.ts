@@ -608,20 +608,22 @@ export function useSceneSync({
 
   // Pins belong to the map they were taken off, and only that map: a thickness
   // in millimetres and a deviation in millimetres look identical on the part,
-  // so showing both at once would be a way to misread one of them.
+  // so showing both at once would be a way to misread one of them. Each pin
+  // says which it is on top, for the same reason.
   const probes = useDeviation((s) => s.probes)
   const thickProbes = useThickness((s) => s.probes)
   useEffect(() => {
     const shown =
       workspace === 'deviation'
-        ? probes.map((p) => ({ ...p, label: `${formatSigned(p.value)} mm` }))
+        ? probes.map((p) => ({ ...p, title: 'DEV', label: `${formatSigned(p.value)} mm` }))
         : workspace === 'thickness'
-          ? thickProbes.map((p) => ({ ...p, label: `${p.value.toFixed(3)} mm` }))
+          ? thickProbes.map((p) => ({ ...p, title: 'WALL', label: `${p.value.toFixed(3)} mm` }))
           : []
     sceneRef.current?.setProbes(
       shown.map((p, i) => ({
         id: p.id,
         point: p.point,
+        title: p.title,
         label: p.label,
         color: i % 2 === 0 ? '#26282a' : '#12629f',
       })),

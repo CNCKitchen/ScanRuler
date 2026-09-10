@@ -885,7 +885,7 @@ export class SceneManager {
     this.overlays.setHighlightedElements(ids)
   }
 
-  /** Pin deviation readings to the part. */
+  /** Pin readings to the part, each titled with the map it came off. */
   setProbes(probes: ProbeMarker[]): void {
     this.overlays.setProbes(probes)
   }

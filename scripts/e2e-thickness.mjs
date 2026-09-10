@@ -146,6 +146,12 @@ const pinned = await page.$$eval('[data-test=thickness-probe-row]', (els) =>
 )
 console.log('pinned:', pinned)
 if (pinned.length !== 1) fail(`expected one pinned reading, got ${pinned.length}`)
+// The pin on the part says what it reads: a wall, not a deviation.
+const pinTitles = await page.$$eval('.viewport-label.probe .label-title', (els) =>
+  els.map((e) => e.textContent.trim()),
+)
+console.log('pin titles:', pinTitles)
+if (pinTitles.join() !== 'WALL') fail(`expected the pin to be titled WALL, got ${pinTitles.join()}`)
 await page.screenshot({ path: shotPath('thickness-pin.png') })
 
 // ---- the cone, the sphere, and back to the other workspaces ----------------
