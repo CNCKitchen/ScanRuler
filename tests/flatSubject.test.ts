@@ -3,7 +3,7 @@
 // with its own sheet of measurements, stashed on the way out and restored
 // on the way back.
 import { beforeEach, describe, expect, it } from 'vitest'
-import { imageScaleX, sheetKeyOf, subjectFromKey, useFlat } from '../src/state/flatStore'
+import { imageScaleX, sectionElementsOf, sheetKeyOf, subjectFromKey, useFlat } from '../src/state/flatStore'
 
 function reset() {
   useFlat.setState({
@@ -184,5 +184,26 @@ describe('the sheet subject', () => {
     expect(s.elements).toHaveLength(1)
     expect(s.pxPerMm).toEqual({ x: 10, y: 10 })
     expect(s.sheets).toEqual({})
+  })
+
+  it("reads a section's elements wherever its sheet is", () => {
+    // On the stage: the store's own list.
+    useFlat.getState().setSubject({ kind: 'section', id: 1 })
+    pickPoint([1, 1])
+    let s = useFlat.getState()
+    expect(sectionElementsOf(s, 1)).toBe(s.elements)
+    expect(sectionElementsOf(s, 1)).toHaveLength(1)
+    expect(sectionElementsOf(s, 2)).toEqual([])
+
+    // Stashed behind another subject: the same element, out of the stash.
+    useFlat.getState().setSubject({ kind: 'section', id: 2 })
+    s = useFlat.getState()
+    expect(sectionElementsOf(s, 1)).toHaveLength(1)
+    expect(sectionElementsOf(s, 1)[0].kind).toBe('point')
+    expect(sectionElementsOf(s, 2)).toEqual([])
+
+    // The one empty list for every section nothing was measured on, so a
+    // subscriber comparing by identity sees nothing change.
+    expect(sectionElementsOf(s, 3)).toBe(sectionElementsOf(s, 7))
   })
 })

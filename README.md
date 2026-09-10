@@ -290,7 +290,15 @@ section's plane and cuts it again on load.
 
 What a section is *for* is the 2D Measure workspace, where it becomes a
 source beside the flatbed image — see [Measuring a
-section](#measuring-a-section).
+section](#measuring-a-section). What is measured there **belongs to the
+section**: the points, lines, circles and arcs fitted on its sheet are drawn
+back on the part in the 3D view, in the section's colour, lying in its plane
+on the cut, hidden with it, and without readouts of their own — the numbers
+are on the sheet, and the section's row says how many elements it carries.
+[Export STEP](#step-export) writes them too, in a group named after the
+section. That is the reverse-engineering hand-off: cut a section through a
+bore, fit its circle on the sheet, and CAD receives a circle in space, in
+the right plane, to sketch on.
 
 ### The assumed dimension — what the feature was designed at
 
@@ -424,9 +432,12 @@ AP214) as **analytic geometry, not tessellation**, in either of two forms —
 | **Cylinder** | a **closed solid body**: the fitted wall, capped at both ends by flat lids |
 | **Sphere** | a **closed solid ball**, two hemispheres meeting at an equator |
 | **Line, Point** | a trimmed line and a point, as they always were |
+| **Section** | what was measured on its sheet — points, lines, circles and arcs — as curves lying in the cutting plane, in a wireframe group named after the section |
 
 Each body is its own named shape representation, tied to the part the way the
-bodies of a multi-body file are, so the element names arrive in the CAD tree.
+bodies of a multi-body file are, so the element names arrive in the CAD tree —
+and each section as a group of its own, its elements inside it. A file can be
+sections alone, with nothing measured in 3D.
 
 **Construction surfaces** is the older form, and still the honest one for
 handing over datums: every element as a trimmed analytic surface or curve in a
@@ -1057,7 +1068,10 @@ One source is on the sheet at a time. **Each keeps its own sheet** — its
 elements, dimensions, datum, tallies and notes — stashed when you switch away
 and back exactly as it was when you return, and saved with the project. A
 section made in the 3D workspace goes straight onto the sheet, so switching
-over finds it there; deleting a section there takes its sheet with it.
+over finds it there; deleting a section there takes its sheet with it. And
+what is fitted on a section's sheet goes back the other way: it is drawn on
+the cut in the 3D view and exported with the section in the STEP file — see
+[Sections](#sections-cutting-the-scan-to-measure-the-cut).
 
 ## Development
 

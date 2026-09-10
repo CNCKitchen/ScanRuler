@@ -19,13 +19,26 @@
 
 import type { FitData, Vec3 } from './types'
 import { orthoBasis } from './fit/linalg'
+import { isFullTurn, type ArcGeometry } from './section/lift'
 import { addScaled } from './vec'
 import { esc, num, placement, StepWriter, vec } from './stepWriter'
 import { writeConeSolid, writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
 
+/** What an element can be written as: the 3D workspace's fits, and the arc
+ *  a section's sheet measures — see core/section/lift. */
+export type StepGeometry = FitData | ArcGeometry
+
 export interface StepElement {
   name: string
-  fit: FitData
+  fit: StepGeometry
+}
+
+/** A section and what was measured on its sheet, stood up in the part. Goes
+ *  out as a wireframe group of its own, named after the section, so the
+ *  elements arrive in the CAD tree under the cut they were taken from. */
+export interface StepSection {
+  name: string
+  elements: StepElement[]
 }
 
 /** Which of the two forms above the file is written in. */
@@ -35,7 +48,7 @@ const TWO_PI = 2 * Math.PI
 const HALF_PI = Math.PI / 2
 
 /** The geometric-set item for one element, returning its entity id. */
-function writeElement(w: StepWriter, name: string, fit: FitData): number {
+function writeElement(w: StepWriter, name: string, fit: StepGeometry): number {
   const label = esc(name)
   switch (fit.kind) {
     case 'point':
@@ -99,6 +112,20 @@ function writeElement(w: StepWriter, name: string, fit: FitData): number {
       const pl = placement(w, fit.center, fit.normal, orthoBasis(fit.normal)[0])
       return w.add(`CIRCLE('${label}',#${pl},${num(Math.max(fit.radius, 1e-6))})`)
     }
+
+    // An arc is its circle trimmed by angle. The parameters are radians from
+    // the placement's reference direction, which is the sheet's +U, so the
+    // sheet's angles are the file's. One that has come all the way round is
+    // written as the circle it is.
+    case 'arc': {
+      const pl = placement(w, fit.center, fit.normal, fit.basisU)
+      const r = num(Math.max(fit.radius, 1e-6))
+      if (isFullTurn(fit.sweep)) return w.add(`CIRCLE('${label}',#${pl},${r})`)
+      const circle = w.add(`CIRCLE('',#${pl},${r})`)
+      return w.add(
+        `TRIMMED_CURVE('${label}',#${circle},(PARAMETER_VALUE(${num(fit.start)})),(PARAMETER_VALUE(${num(fit.start + fit.sweep)})),.T.,.PARAMETER.)`,
+      )
+    }
   }
 }
 
@@ -129,8 +156,22 @@ function writeContext(w: StepWriter, sourceName: string): { shape: number; geomC
   return { shape, geomCtx }
 }
 
-/** Trimmed surfaces and curves, all in one geometric set. */
-function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): void {
+/** A bare root representation for the part's shape: what the bodies and the
+ *  section groups hang off, and all a file with nothing but sections has at
+ *  the top. */
+function writeRoot(w: StepWriter, shape: number, geomCtx: number): number {
+  const origin = placement(w, [0, 0, 0] as Vec3, [0, 0, 1] as Vec3, [1, 0, 0] as Vec3)
+  const root = w.add(`SHAPE_REPRESENTATION('elements',(#${origin}),#${geomCtx})`)
+  w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${root})`)
+  return root
+}
+
+/** Trimmed surfaces and curves, all in one geometric set. Returns the root
+ *  representation the section groups hang off. */
+function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): number {
+  // A set must hold something: with nothing measured in 3D the file is its
+  // sections alone, under a bare root.
+  if (elements.length === 0) return writeRoot(w, shape, geomCtx)
   const items = elements.map((el) => writeElement(w, el.name, el.fit))
   const hasSurface = elements.some((el) =>
     ['plane', 'cylinder', 'cone', 'sphere'].includes(el.fit.kind),
@@ -146,6 +187,7 @@ function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number,
     }('elements',(#${set}),#${geomCtx})`,
   )
   w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${rep})`)
+  return rep
 }
 
 /**
@@ -159,11 +201,8 @@ function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number,
  * multi-body part is assembled in any file a CAD system writes, and it puts
  * each element in the tree under its own name.
  */
-function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): void {
-  const origin = placement(w, [0, 0, 0] as Vec3, [0, 0, 1] as Vec3, [1, 0, 0] as Vec3)
-  const root = w.add(`SHAPE_REPRESENTATION('elements',(#${origin}),#${geomCtx})`)
-  w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${root})`)
-
+function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, geomCtx: number): number {
+  const root = writeRoot(w, shape, geomCtx)
   const relate = (rep: number) => w.add(`SHAPE_REPRESENTATION_RELATIONSHIP('','',#${root},#${rep})`)
   const curves: number[] = []
 
@@ -205,11 +244,34 @@ function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, g
     }
   }
 
-  if (curves.length === 0) return
-  const set = w.add(`GEOMETRIC_CURVE_SET('elements',(${curves.map((i) => `#${i}`).join(',')}))`)
-  relate(
-    w.add(`GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('elements',(#${set}),#${geomCtx})`),
-  )
+  if (curves.length > 0) {
+    const set = w.add(`GEOMETRIC_CURVE_SET('elements',(${curves.map((i) => `#${i}`).join(',')}))`)
+    relate(
+      w.add(`GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('elements',(#${set}),#${geomCtx})`),
+    )
+  }
+  return root
+}
+
+/**
+ * The sections, each as a wireframe representation of its own named after
+ * the section and hung off the root the way a body is — so a section arrives
+ * in the CAD tree as a group, with the points, lines, circles and arcs
+ * measured on its sheet inside it, all lying in the plane it was cut in. The
+ * same in both forms: curves are curves, and a group of them has no
+ * topology to reject. A section nothing was measured on writes nothing.
+ */
+function writeSections(w: StepWriter, sections: StepSection[], root: number, geomCtx: number): void {
+  for (const sec of sections) {
+    if (sec.elements.length === 0) continue
+    const label = esc(sec.name)
+    const items = sec.elements.map((el) => writeElement(w, el.name, el.fit))
+    const set = w.add(`GEOMETRIC_CURVE_SET('${label}',(${items.map((i) => `#${i}`).join(',')}))`)
+    const rep = w.add(
+      `GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('${label}',(#${set}),#${geomCtx})`,
+    )
+    w.add(`SHAPE_REPRESENTATION_RELATIONSHIP('','',#${root},#${rep})`)
+  }
 }
 
 /**
@@ -217,18 +279,23 @@ function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, g
  *
  * `sourceName` is the scan the elements were measured on (recorded in the
  * product name), `timestamp` an ISO date-time for the header, `style` which of
- * the two forms above to write.
+ * the two forms above to write, `sections` the sections with what was
+ * measured on their sheets — a group per section, after the elements.
  */
 export function buildStepFile(
   elements: StepElement[],
   sourceName: string,
   timestamp: string,
   style: StepStyle = 'solids',
+  sections: StepSection[] = [],
 ): string {
   const w = new StepWriter()
   const { shape, geomCtx } = writeContext(w, sourceName)
-  if (style === 'solids') writeSolidBody(w, elements, shape, geomCtx)
-  else writeSurfaceBody(w, elements, shape, geomCtx)
+  const root =
+    style === 'solids'
+      ? writeSolidBody(w, elements, shape, geomCtx)
+      : writeSurfaceBody(w, elements, shape, geomCtx)
+  writeSections(w, sections, root, geomCtx)
 
   return [
     'ISO-10303-21;',

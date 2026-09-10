@@ -360,6 +360,21 @@ export function imageScaleX(s: { subject: FlatSubject; pxPerMm: PixelsPerMm | nu
   return sheet?.pxPerMm?.x ?? null
 }
 
+const NO_ELEMENTS: readonly FlatElement[] = []
+
+/** The elements measured on a section's sheet, wherever that sheet is — on
+ *  the stage or stashed behind another subject — and none for a section
+ *  nothing has been measured on. What the 3D viewport draws beside a
+ *  section's cut and the STEP export writes under its name read from here;
+ *  the sheet stays the truth, in sheet millimetres. */
+export function sectionElementsOf(
+  s: { subject: FlatSubject; elements: FlatElement[]; sheets: Record<string, SheetState> },
+  id: number,
+): readonly FlatElement[] {
+  if (s.subject.kind === 'section' && s.subject.id === id) return s.elements
+  return s.sheets[sheetKeyOf({ kind: 'section', id })]?.elements ?? NO_ELEMENTS
+}
+
 interface FlatState extends SheetState {
   imageName: string | null
   /** Pixel dimensions of the loaded image. */

@@ -4,10 +4,12 @@
 import type { RefObject } from 'react'
 import { applyAssumed } from '../core/elements/assumed'
 import { applyExtension } from '../core/elements/extend'
-import { buildStepFile } from '../core/exportStep'
+import { buildStepFile, type StepSection } from '../core/exportStep'
 import { buildBinaryStl } from '../core/exportStl'
+import { liftFlatFit } from '../core/section/lift'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
+import { sectionElementsOf, useFlat } from '../state/flatStore'
 import type { SceneManager } from '../viewer/SceneManager'
 
 /** Hand a built file to the browser. The link goes into the document for the
@@ -30,11 +32,31 @@ export const saveFile = (name: string, blob: Blob) => {
  *  on. */
 export const exportStem = () => (useStore.getState().fileName ?? 'scan').replace(/\.[^.]+$/, '')
 
-/** Hand the created elements over as analytic STEP geometry. */
+/** Every section with something measured on its sheet, the elements stood
+ *  up in the part under the section's name — what the STEP export writes
+ *  beside the 3D elements. Hidden ones come too, as hidden 3D elements do:
+ *  hiding is a way of looking, not a way of unmeasuring. */
+export const sectionStepGroups = (): StepSection[] => {
+  const flat = useFlat.getState()
+  return useStore
+    .getState()
+    .sections.map((sec) => ({
+      name: sec.name,
+      elements: sectionElementsOf(flat, sec.id)
+        .filter((el) => el.fit)
+        .map((el) => ({ name: el.name, fit: liftFlatFit(sec.frame, el.fit!) })),
+    }))
+    .filter((group) => group.elements.length > 0)
+}
+
+/** Hand the created elements over as analytic STEP geometry — and with
+ *  them, in a group per section, what was measured on the sections. */
 export const exportElementsStep = () => {
   const store = useStore.getState()
   const els = store.elements.filter((e) => e.fit)
-  if (els.length === 0) return
+  const groups = sectionStepGroups()
+  const onSections = groups.reduce((n, g) => n + g.elements.length, 0)
+  if (els.length === 0 && onSections === 0) return
   const assumed = els.filter((e) => e.assumed !== undefined).length
   const text = buildStepFile(
     // What is exported is what is on screen, extensions and all — with the
@@ -46,11 +68,18 @@ export const exportElementsStep = () => {
     store.fileName ?? 'scan',
     new Date().toISOString().slice(0, 19),
     store.stepStyle,
+    groups,
   )
   const name = `${exportStem()}-elements.step`
   saveFile(name, new Blob([text], { type: 'model/step' }))
+  const what: string[] = []
+  if (els.length) what.push(`${els.length} element${els.length === 1 ? '' : 's'}`)
+  if (onSections) {
+    const where = groups.length === 1 ? groups[0].name : `${groups.length} sections`
+    what.push(`${onSections} on ${where}`)
+  }
   store.setStatus(
-    `${els.length} element${els.length === 1 ? '' : 's'} exported to ${name} as ${
+    `${what.join(' and ')} exported to ${name} as ${
       store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
     }${assumed ? ` — ${assumed} at ${assumed === 1 ? 'its' : 'their'} assumed Ø` : ''}.`,
   )

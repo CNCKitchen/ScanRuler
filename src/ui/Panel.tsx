@@ -3,6 +3,7 @@
 // reports. Controls at the top, readouts below, in the order the work happens.
 
 import { useStore, type SelectMode } from '../state/store'
+import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
 import { describeCut } from '../core/section/frame'
@@ -86,6 +87,17 @@ export function Panel({
   const alignDraft = useStore((s) => s.alignDraft)
   const sections = useStore((s) => s.sections)
   const sectionDraft = useStore((s) => s.sectionDraft)
+  // What has been measured on each section's sheet, in the 2D workspace: it
+  // is drawn with the section here and goes into the STEP file under its
+  // name, so the row says how much there is and the export key knows.
+  const flatSubject = useFlat((s) => s.subject)
+  const flatElements = useFlat((s) => s.elements)
+  const flatSheets = useFlat((s) => s.sheets)
+  const measuredOn = (id: number) =>
+    sectionElementsOf({ subject: flatSubject, elements: flatElements, sheets: flatSheets }, id).filter(
+      (el) => el.fit,
+    ).length
+  const anyMeasuredOnSections = sections.some((sec) => measuredOn(sec.id) > 0)
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
@@ -261,6 +273,7 @@ export function Panel({
           {sections.map((sec) => {
             const refName = elements.find((e) => e.id === sec.ref)?.name ?? null
             const chains = sec.cut ? cutSummary(sec.cut).chains : 0
+            const measured = measuredOn(sec.id)
             return (
               <ElementRow
                 key={sec.id}
@@ -272,6 +285,7 @@ export function Panel({
                   sec.cut ? (
                     <b title={describeCut(refName, sec.offset)}>
                       {chains} edge{chains === 1 ? '' : 's'}
+                      {measured > 0 && ` · ${measured} element${measured === 1 ? '' : 's'}`}
                     </b>
                   ) : sec.message ? (
                     <b className="warn" title={sec.message}>
@@ -293,7 +307,8 @@ export function Panel({
             )
           })}
           <p className="hint">
-            Measure a section in the <b>2D Measure</b> workspace.
+            Measure a section in the <b>2D Measure</b> workspace. What you fit on its sheet is drawn
+            on the cut here and goes into the STEP file with the section.
           </p>
         </div>
       )}
@@ -324,6 +339,12 @@ export function Panel({
                   extended to is what gets written, and a sphere, cylinder or circle given an
                   assumed Ø when it was created is written at that Ø — everything else as measured.
                 </p>
+                <p>
+                  What was measured on a section's sheet in 2D Measure — its points, lines, circles
+                  and arcs — comes too, as curves lying in the cutting plane, in a group named after
+                  the section. Cut a section through a bore, fit its circle on the sheet, and CAD
+                  gets a circle in space to sketch on.
+                </p>
               </InfoDot>
             </span>
             <select
@@ -343,9 +364,9 @@ export function Panel({
             />
             <button
               data-test="export-step"
-              disabled={elements.every((e) => !e.fit)}
+              disabled={elements.every((e) => !e.fit) && !anyMeasuredOnSections}
               onClick={onExportStep}
-              title="Export the created elements as analytic geometry in a STEP file"
+              title="Export the created elements — and what was measured on the sections — as analytic geometry in a STEP file"
             >
               Export STEP
             </button>

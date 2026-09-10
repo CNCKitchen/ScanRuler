@@ -5,6 +5,13 @@
  * as a translucent sheet through the part with the cut drawn on top of
  * everything, so the whole of it can be judged from outside, bores included.
  *
+ * What was measured on a section's sheet is drawn with it: the points, lines,
+ * circles and arcs fitted there, stood up in the section's plane (see
+ * core/section/lift), in the section's colour and on the surface like the
+ * cut, a shade heavier so a circle through a rim reads over the chain under
+ * it. They carry no pins of their own — the numbers are on the sheet, and
+ * one label per section is enough.
+ *
  * Fat lines, sized in screen pixels: a cut is a curve lying exactly on a
  * surface, and a one-pixel line there is lost in the shading. The materials
  * need the canvas size, which the viewport reports every tick.
@@ -14,6 +21,7 @@ import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import type { SectionFrame } from '../core/section/frame'
+import { sectionStroke, type SectionGeometry } from '../core/section/lift'
 import type { SectionCut } from '../core/section/slice'
 import type { Vec3 } from '../core/types'
 import { pinLabel } from './overlays'
@@ -24,6 +32,8 @@ export interface SectionOverlayItem {
   color: string
   frame: SectionFrame
   cut: SectionCut | null
+  /** The sheet's elements in the part, the visible ones with a fit. */
+  elements: readonly SectionGeometry[]
 }
 
 export interface SectionOverlayContext {
@@ -44,6 +54,8 @@ export class SectionOverlay {
   private resolution = new THREE.Vector2(1, 1)
   private lineMaterials = new Set<LineMaterial>()
   private unitPlane = new THREE.PlaneGeometry(1, 1)
+  /** The dot a sheet point is drawn as, scaled per section to the model. */
+  private unitSphere = new THREE.SphereGeometry(1, 24, 16)
 
   constructor(private ctx: SectionOverlayContext) {
     ctx.partGroup.add(this.group)
@@ -72,6 +84,7 @@ export class SectionOverlay {
       // On the surface it was cut from, and hidden with it: a section on the
       // far side of the part is read by turning the part, like its tint.
       if (item.cut) this.addPolylines(this.group, this.cleanup, item.cut, item.color, 0.95, 2.5, true)
+      if (item.elements.length > 0) this.addElements(this.group, this.cleanup, item.elements, item.color)
       const label = pinLabel('element-label', item.name, '', item.color)
       const lift = this.ctx.modelRadius() * 0.02
       label.position.set(
@@ -199,9 +212,64 @@ export class SectionOverlay {
     }
   }
 
+  /** The sheet's elements, stood up in the section's plane: lines, circles
+   *  and arcs as fat lines over the cut, points as dots the size of a picked
+   *  point's marker. Drawn ahead of the cut in the same colour, on the
+   *  surface like it. */
+  private addElements(
+    group: THREE.Group,
+    cleanup: (() => void)[],
+    elements: readonly SectionGeometry[],
+    color: string,
+  ): void {
+    const mat = new LineMaterial({
+      color: new THREE.Color(color).getHex(),
+      linewidth: 3.5,
+      transparent: true,
+      opacity: 1,
+      depthTest: true,
+      depthWrite: false,
+      worldUnits: false,
+    })
+    mat.polygonOffset = true
+    mat.polygonOffsetFactor = -3
+    mat.polygonOffsetUnits = -3
+    mat.resolution.copy(this.resolution)
+    this.lineMaterials.add(mat)
+    cleanup.push(() => {
+      this.lineMaterials.delete(mat)
+      mat.dispose()
+    })
+    let dotMat: THREE.MeshBasicMaterial | null = null
+    for (const g of elements) {
+      const stroke = sectionStroke(g)
+      if (!stroke) {
+        dotMat ??= new THREE.MeshBasicMaterial({ color })
+        const dot = new THREE.Mesh(this.unitSphere, dotMat)
+        dot.position.set(g.center[0], g.center[1], g.center[2])
+        dot.scale.setScalar(Math.max(this.ctx.modelRadius() * 0.008, 1e-4))
+        dot.renderOrder = 4
+        group.add(dot)
+        continue
+      }
+      const geo = new LineGeometry()
+      geo.setPositions(stroke)
+      const line = new Line2(geo, mat)
+      line.computeLineDistances()
+      line.renderOrder = 4
+      group.add(line)
+      cleanup.push(() => geo.dispose())
+    }
+    if (dotMat) {
+      const m = dotMat
+      cleanup.push(() => m.dispose())
+    }
+  }
+
   dispose(): void {
     this.setSections([], false)
     this.setPreview(null, null, '#ffffff')
     this.unitPlane.dispose()
+    this.unitSphere.dispose()
   }
 }

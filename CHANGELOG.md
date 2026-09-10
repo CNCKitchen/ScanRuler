@@ -7,6 +7,14 @@ README under "Releases".
 
 ## Unreleased
 
+- **3D Measure** — what is measured on a section's sheet belongs to the
+  section: the points, lines, circles and arcs fitted there in 2D Measure are
+  drawn on the cut in the 3D view, in the section's colour and hidden with
+  it, without readouts of their own — and **Export STEP** writes them in a
+  wireframe group named after the section, as curves in the cutting plane.
+  Cut a section through a bore, fit its circle on the sheet, and CAD gets a
+  circle in space to sketch on. The section's row counts what was measured
+  on it, and the export key is live for sections alone.
 - **2D Measure** — **Export SVG** beside Export CSV: the sheet as a drawing at
   true scale, every detected edge chain as a polyline and every visible
   element as a native line, circle or arc, in layers, turned as the sheet is

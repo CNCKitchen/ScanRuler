@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// What was measured on a section's sheet, stood back up in the part: every
+// 2D element lifted through the section's frame into the plane it was cut
+// in, as geometry the 3D viewport can draw beside the cut and the STEP
+// export can hand to CAD. A section's elements belong to the section — they
+// are drawn in its colour, hidden with it, and written under its name.
+//
+// The sheet's (u, v) are millimetres along the frame's in-plane axes, so a
+// point lifts to origin + u·U + v·V and a direction to du·U + dv·V. A circle
+// takes the cutting plane's normal for its own; an arc keeps its angles,
+// which count from +U towards +V — counter-clockwise about the normal, since
+// U × V = normal — and the same sense a STEP circle is parameterised in.
+//
+// Nothing here is stored: the sheet stays the truth, and the lift is taken
+// again from the frame in force, so a datum alignment that carries the
+// section carries what was measured on it too.
+
+import type { FlatFit, Vec2 } from '../flat/types'
+import type { CircleFit, FitBase, LineFit, PointFit, Vec3 } from '../types'
+import { orthoBasis } from '../fit/linalg'
+import { addScaled, cross, scale } from '../vec'
+import type { SectionFrame } from './frame'
+
+/** Part of a circle in space: from `start` radians, sweeping `sweep`
+ *  counter-clockwise about `normal`, angles counted from `basisU`. Not an
+ *  element kind of its own — the 3D workspace measures whole circles — but
+ *  what a section's arc is once it is stood back up. */
+export interface ArcGeometry extends FitBase {
+  kind: 'arc'
+  center: Vec3
+  normal: Vec3
+  basisU: Vec3
+  radius: number
+  start: number
+  sweep: number
+}
+
+/** A section element in the part: what the sheet's four kinds become. */
+export type SectionGeometry = PointFit | LineFit | CircleFit | ArcGeometry
+
+/** A sheet point in the part. */
+export function liftPoint(frame: SectionFrame, p: Vec2): Vec3 {
+  return addScaled(addScaled(frame.origin, frame.basisU, p[0]), frame.basisV, p[1])
+}
+
+/** A sheet direction in the part — unit if the sheet's was. */
+export function liftDir(frame: SectionFrame, d: Vec2): Vec3 {
+  return addScaled(scale(frame.basisU, d[0]), frame.basisV, d[1])
+}
+
+/** One sheet fit stood up in its section's plane. The residuals come along
+ *  as they were measured — a lifted fit is the same fit, seen from the part. */
+export function liftFlatFit(frame: SectionFrame, fit: FlatFit): SectionGeometry {
+  const stats: FitBase = { sigma: fit.sigma, usedPoints: fit.usedPoints, regionSize: 0 }
+  if (fit.formError !== undefined) stats.formError = fit.formError
+  switch (fit.kind) {
+    case 'point':
+      return { kind: 'point', center: liftPoint(frame, fit.at), ...stats }
+    case 'line':
+      return {
+        kind: 'line',
+        center: liftPoint(frame, fit.center),
+        dir: liftDir(frame, fit.dir),
+        length: fit.length,
+        ...stats,
+      }
+    case 'circle':
+      return {
+        kind: 'circle',
+        center: liftPoint(frame, fit.center),
+        normal: frame.normal,
+        radius: fit.radius,
+        ...stats,
+      }
+    case 'arc':
+      return {
+        kind: 'arc',
+        center: liftPoint(frame, fit.center),
+        normal: frame.normal,
+        basisU: frame.basisU,
+        radius: fit.radius,
+        start: fit.start,
+        sweep: fit.sweep,
+        ...stats,
+      }
+  }
+}
+
+/** An arc that has come all the way round is a circle — what the export
+ *  writes it as, and what the sheet would have called it. */
+export const FULL_TURN = 2 * Math.PI
+export function isFullTurn(sweep: number): boolean {
+  return sweep >= FULL_TURN - 1e-6
+}
+
+/**
+ * The stroke that draws a section element: x,y,z per vertex, in order, a
+ * closed ring for a circle (its first vertex repeated at the end), the swept
+ * part alone for an arc, the measured segment for a line. A point has no
+ * stroke — it is a marker — and returns null. `segments` is how many a full
+ * turn is divided into; an arc gets its share of them, never fewer than two.
+ */
+export function sectionStroke(g: SectionGeometry, segments = 96): number[] | null {
+  switch (g.kind) {
+    case 'point':
+      return null
+    case 'line': {
+      const a = addScaled(g.center, g.dir, -g.length / 2)
+      const b = addScaled(g.center, g.dir, g.length / 2)
+      return [...a, ...b]
+    }
+    case 'circle': {
+      const u = orthoBasis(g.normal)[0]
+      return ring(g.center, g.normal, u, g.radius, 0, FULL_TURN, segments)
+    }
+    case 'arc': {
+      const n = Math.max(2, Math.ceil((segments * g.sweep) / FULL_TURN))
+      return ring(g.center, g.normal, g.basisU, g.radius, g.start, g.sweep, n)
+    }
+  }
+}
+
+function ring(
+  center: Vec3,
+  normal: Vec3,
+  basisU: Vec3,
+  radius: number,
+  start: number,
+  sweep: number,
+  segments: number,
+): number[] {
+  const v = cross(normal, basisU)
+  const out: number[] = []
+  for (let i = 0; i <= segments; i++) {
+    const a = start + (sweep * i) / segments
+    const p = addScaled(addScaled(center, basisU, radius * Math.cos(a)), v, radius * Math.sin(a))
+    out.push(p[0], p[1], p[2])
+  }
+  return out
+}

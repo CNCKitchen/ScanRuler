@@ -9,6 +9,7 @@ import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
 import { evaluateDimensions } from '../core/dimensions'
+import { liftFlatFit } from '../core/section/lift'
 import {
   alignCenterOf,
   alignmentPreview,
@@ -27,6 +28,7 @@ import { schemeById } from '../viewer/navSchemes'
 import { themeById } from '../viewer/viewThemes'
 import { formatSigned } from '../ui/format'
 import { MARK_COLOR, useDeviation } from '../state/deviationStore'
+import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
@@ -316,14 +318,31 @@ export function useSceneSync({
   // drawn by its preview instead.
   const sections = useStore((s) => s.sections)
   const editingSectionId = sectionDraft?.editId
+  // What was measured on each section's sheet comes with it, stood up in its
+  // plane — read off the flat store wherever the sheet is, on the 2D stage or
+  // stashed behind another subject. The stage's element list changes on every
+  // edit there, the stash only when a sheet is swapped or a project loaded.
+  const flatSubject = useFlat((s) => s.subject)
+  const flatElements = useFlat((s) => s.elements)
+  const flatSheets = useFlat((s) => s.sheets)
   useEffect(() => {
+    const flat = { subject: flatSubject, elements: flatElements, sheets: flatSheets }
     sceneRef.current?.setSections(
       sections
         .filter((sec) => sec.visible && sec.cut && sec.id !== editingSectionId)
-        .map((sec) => ({ id: sec.id, name: sec.name, color: sec.color, frame: sec.frame, cut: sec.cut! })),
+        .map((sec) => ({
+          id: sec.id,
+          name: sec.name,
+          color: sec.color,
+          frame: sec.frame,
+          cut: sec.cut!,
+          elements: sectionElementsOf(flat, sec.id)
+            .filter((el) => el.visible && el.fit)
+            .map((el) => liftFlatFit(sec.frame, el.fit!)),
+        })),
       elementsWorkspace && showOverlays,
     )
-  }, [sections, editingSectionId, elementsWorkspace, showOverlays])
+  }, [sections, editingSectionId, elementsWorkspace, showOverlays, flatSubject, flatElements, flatSheets])
 
   // The section being made: its plane through the part, the cut so far, and
   // the grip that slides it. The cut lags the plane by one worker round trip

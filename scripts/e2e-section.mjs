@@ -7,9 +7,16 @@
 // is opened, that switching sources keeps each sheet's measurements, and
 // that deleting the section takes its source away.
 //
+// What was measured on the sheet belongs to the section: back in the 3D
+// workspace its row counts the circle, and the STEP export writes it in a
+// group named after the section, as a circle in the cutting plane.
+//
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-section.mjs
 // Env: CHROME (chrome.exe path), APP_URL, STL (scan path), SHOT_DIR.
+import { mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   canvasRect,
   check,
@@ -203,9 +210,43 @@ await page.select('[data-test="flat-source"]', sectionKey)
 await sleep(300)
 check((await rowTexts(page)).length === 1, 'back on the section, its circle is where it was left')
 
-// ---- deleting the section takes its source away ----------------------------
+// ---- the circle belongs to the section in 3D and in the STEP file -----------
 await click(page, '[data-test="workspace-elements"]')
-await sleep(200)
+await sleep(300)
+const rowWithCircle = await page.$eval('[data-test="section-row"]', (e) =>
+  e.textContent.replace(/\s+/g, ' ').trim(),
+)
+console.log('section row:', rowWithCircle)
+check(/1 edge · 1 element/.test(rowWithCircle), 'the section row counts the circle measured on its sheet')
+await page.screenshot({ path: shotPath('e2e-section-3d.png') })
+
+// The circle is exported with the section, in a wireframe group under its
+// name, as a CIRCLE at the ball's radius whose axis is the cutting plane's
+// normal — the line from ball to ball.
+const cdp = await page.createCDPSession()
+const stepDir = mkdtempSync(join(tmpdir(), 'scanruler-section-'))
+await cdp.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: stepDir })
+await click(page, '[data-test="export-step"]')
+let stepText = null
+for (let i = 0; i < 100 && !stepText; i++) {
+  await sleep(200)
+  const f = readdirSync(stepDir).find((n) => n.endsWith('.step'))
+  if (f) stepText = readFileSync(join(stepDir, f), 'utf8')
+}
+check(Boolean(stepText), 'the STEP file downloaded')
+if (stepText) {
+  check(
+    /GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION\('Section 1'/.test(stepText),
+    'the section is a named wireframe group in the file',
+  )
+  check(/GEOMETRIC_CURVE_SET\('Section 1',\(#\d+\)\)/.test(stepText), 'holding the one curve measured on it')
+  const exported = /CIRCLE\('Circle 1',#\d+,([\d.]+)\)/.exec(stepText)
+  const exportedDia = exported ? 2 * Number(exported[1]) : NaN
+  console.log(`exported Circle 1 Ø ${exportedDia} — ball Ø ${ballDia[1]}`)
+  check(Math.abs(exportedDia - ballDia[1]) < 0.15, 'as a CIRCLE at the diameter read on the sheet')
+}
+
+// ---- deleting the section takes its source away ----------------------------
 const sectionX = await page.$('[data-test="section-row"] .x:not(.edit):not(.eye)')
 await sectionX.click()
 await sleep(200)

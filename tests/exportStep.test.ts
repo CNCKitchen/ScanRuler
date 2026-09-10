@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { buildStepFile, type StepElement } from '../src/core/exportStep'
-import type { CylinderFit, LineFit, PlaneFit, PointFit, SphereFit } from '../src/core/types'
+import { buildStepFile, type StepElement, type StepSection } from '../src/core/exportStep'
+import type { ArcGeometry } from '../src/core/section/lift'
+import type { CircleFit, CylinderFit, LineFit, PlaneFit, PointFit, SphereFit } from '../src/core/types'
 
 const NO_STATS = { sigma: 0, usedPoints: 0, regionSize: 0 }
 
@@ -249,5 +250,104 @@ describe('STEP export as solids and faces', () => {
     )
     expect(wire).not.toContain('MANIFOLD_SOLID_BREP')
     expect(wire).toContain('GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION')
+  })
+})
+
+describe('sections in the STEP file', () => {
+  const circle: CircleFit = { kind: 'circle', center: [10, 1, 7], normal: [1, 0, 0], radius: 4, ...NO_STATS }
+  const arc: ArcGeometry = {
+    kind: 'arc',
+    center: [10, 0, 5],
+    normal: [1, 0, 0],
+    basisU: [0, 1, 0],
+    radius: 2,
+    start: 0,
+    sweep: Math.PI / 2,
+    ...NO_STATS,
+  }
+  const full: ArcGeometry = { ...arc, sweep: 2 * Math.PI }
+  const sections: StepSection[] = [
+    {
+      name: 'Section 1',
+      elements: [
+        { name: 'Circle 1', fit: circle },
+        { name: 'Arc 1', fit: arc },
+        { name: 'Line 1', fit: line },
+        { name: 'Point 1', fit: point },
+      ],
+    },
+    { name: 'Section 2', elements: [] },
+    { name: 'Section 3', elements: [{ name: 'Arc 2', fit: full }] },
+  ]
+
+  it('writes each section with elements as a named wireframe group off the root, in either form', () => {
+    for (const style of ['solids', 'surfaces'] as const) {
+      const text = buildStepFile(ALL, 'scan.stl', STAMP, style, sections)
+      const entities = parse(text)
+      expect(text).toContain("GEOMETRIC_CURVE_SET('Section 1',(")
+      expect(text).toContain("GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('Section 1'")
+      expect(text).toContain("GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('Section 3'")
+      // A section nothing was measured on writes nothing.
+      expect(text).not.toContain("'Section 2'")
+      // Every group hangs off the one root the part's shape is defined by.
+      const defined = idsOf(entities, 'SHAPE_DEFINITION_REPRESENTATION')
+      expect(defined).toHaveLength(1)
+      const root = refs(entities.get(defined[0])!)[1]
+      const groups = idsOf(entities, 'GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION').filter((id) =>
+        /'Section \d'/.test(entities.get(id)!),
+      )
+      expect(groups).toHaveLength(2)
+      const links = idsOf(entities, 'SHAPE_REPRESENTATION_RELATIONSHIP').map((id) => refs(entities.get(id)!))
+      for (const g of groups) expect(links).toContainEqual([root, g])
+      // The group holds its four curves and nothing else; the 3D elements
+      // are where they were.
+      const set = idsOf(entities, 'GEOMETRIC_CURVE_SET').find((id) =>
+        entities.get(id)!.startsWith("GEOMETRIC_CURVE_SET('Section 1'"),
+      )!
+      expect(refs(entities.get(set)!)).toHaveLength(4)
+      expect(text).toMatch(/CIRCLE\('Circle 1',#\d+,4\.\)/)
+      expect(text).toContain("CARTESIAN_POINT('Point 1',(-1.5,0.,2.))")
+      expect(text).toMatch(/RECTANGULAR_TRIMMED_SURFACE\('Plane 1'|MANIFOLD_SURFACE_SHAPE_REPRESENTATION\('Plane 1'/)
+    }
+  })
+
+  it("writes an arc as its circle trimmed by angle from the sheet's +U", () => {
+    const text = buildStepFile([], 'scan.stl', STAMP, 'solids', sections)
+    const entities = parse(text)
+    const m = text.match(
+      /TRIMMED_CURVE\('Arc 1',#(\d+),\(PARAMETER_VALUE\(0\.\)\),\(PARAMETER_VALUE\(([\d.]+)\)\),\.T\.,\.PARAMETER\.\)/,
+    )
+    expect(m).toBeTruthy()
+    expect(Number(m![2])).toBeCloseTo(Math.PI / 2, 9)
+    const circle = entities.get(Number(m![1]))!
+    expect(circle).toMatch(/^CIRCLE\('',#\d+,2\.\)$/)
+    // The placement's axis is the cutting plane's normal and its reference
+    // direction the sheet's +U, so the sheet's angles are the file's.
+    const [, z, x] = refs(entities.get(refs(circle)[0])!).map((id) => entities.get(id)!)
+    expect(z).toBe("DIRECTION('',(1.,0.,0.))")
+    expect(x).toBe("DIRECTION('',(0.,1.,0.))")
+    // Round the whole way it is the circle, under its own name.
+    expect(text).toMatch(/CIRCLE\('Arc 2',#\d+,2\.\)/)
+    expect(text).not.toContain("TRIMMED_CURVE('Arc 2'")
+  })
+
+  it('a file of sections alone stands on a bare root in either form', () => {
+    for (const style of ['solids', 'surfaces'] as const) {
+      const text = buildStepFile([], 'scan.stl', STAMP, style, sections)
+      const entities = parse(text)
+      expect(idsOf(entities, 'SHAPE_REPRESENTATION')).toHaveLength(1)
+      expect(text).not.toMatch(/SET\('[^']*',\(\)\)/)
+      expect(text).not.toContain("GEOMETRIC_SET('elements'")
+      expect(text).not.toContain("GEOMETRIC_CURVE_SET('elements'")
+      for (const m of text.matchAll(/#(\d+)/g)) expect(entities.has(Number(m[1]))).toBe(true)
+      expect(text).toContain("GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION('Section 1'")
+    }
+  })
+
+  it('no sections leaves the file exactly as it was', () => {
+    expect(buildStepFile(ALL, 'scan.stl', STAMP, 'solids', [])).toBe(buildStepFile(ALL, 'scan.stl', STAMP, 'solids'))
+    expect(buildStepFile(ALL, 'scan.stl', STAMP, 'surfaces', [{ name: 'Section 2', elements: [] }])).toBe(
+      buildStepFile(ALL, 'scan.stl', STAMP, 'surfaces'),
+    )
   })
 })
