@@ -313,6 +313,7 @@ export class SceneManager {
         this.hoverDirty = true
       },
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
+      onActiveSide: (side) => this.overlays.setPreviewActiveSide(side),
     })
 
     this.viewport.renderer.domElement.addEventListener('pointermove', (e) => {
@@ -911,8 +912,10 @@ export class SceneManager {
     this.overlays.setPreview(fit)
   }
 
-  /** Put grips on the element being made, or take them away with null. */
+  /** Put grips on the element being made, or take them away with null. The
+   *  ghost's own end marks wear the same colour as the grips on them. */
   setExtendHandles(fit: FitData | null, color: string): void {
+    this.overlays.setPreviewColor(color)
     this.grips.setHandles(fit, color)
   }
 

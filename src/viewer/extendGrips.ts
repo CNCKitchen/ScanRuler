@@ -37,6 +37,10 @@ export interface ExtendGripsContext {
   /** A grip being dragged: which side, and how many millimetres it has been
    *  pulled out (negative in) since the drag began. */
   onExtendDrag(side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end'): void
+  /** The grip the user has hold of — lit under the cursor, or held in a drag
+   *  after the cursor has wandered off it — or null for none. The ghost marks
+   *  that side of itself, so a hand on a grip can see the edge it is moving. */
+  onActiveSide(side: ExtendSide | null): void
 }
 
 export class ExtendGrips {
@@ -49,6 +53,9 @@ export class ExtendGrips {
   private handleCleanup: (() => void)[] = []
   private handleColor = '#ffffff'
   private hoveredHandle: ExtendSide | null = null
+  /** What was last reported through onActiveSide, so it is only said when it
+   *  changes. */
+  private activeSide: ExtendSide | null = null
   private handleDrag: {
     side: ExtendSide
     /** Where the grip sat and which way it grows, in the part's own
@@ -211,6 +218,16 @@ export class ExtendGrips {
     for (const h of this.handles) h.material.color.set(h.side === side ? 0xffffff : this.handleColor)
     this.ctx.claimDrag(side !== null)
     this.ctx.canvas.style.cursor = side !== null ? 'grab' : ''
+    this.syncActiveSide()
+  }
+
+  /** The side in hand is the one being dragged while a drag is on — the hover
+   *  is frozen for its duration — and the lit one otherwise. */
+  private syncActiveSide(): void {
+    const side = this.handleDrag?.side ?? this.hoveredHandle
+    if (side === this.activeSide) return
+    this.activeSide = side
+    this.ctx.onActiveSide(side)
   }
 
   /** A grip under the cursor takes the plain left-drag — the navigator has
@@ -231,6 +248,7 @@ export class ExtendGrips {
     if (t === null) return
     this.handleDrag = { side: grip.side, origin: world.origin, dir: world.dir, start: t }
     this.ctx.canvas.style.cursor = 'grabbing'
+    this.syncActiveSide()
     this.ctx.onExtendDrag(grip.side, 0, 'start')
   }
 
@@ -282,6 +300,7 @@ export class ExtendGrips {
     if (!drag) return
     this.handleDrag = null
     this.ctx.canvas.style.cursor = this.hoveredHandle !== null ? 'grab' : ''
+    this.syncActiveSide()
     this.ctx.onExtendDrag(drag.side, 0, 'end')
     // The cursor may have left the grip while it was held; settle the hover
     // from where it actually is now.
