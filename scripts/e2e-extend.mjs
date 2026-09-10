@@ -17,6 +17,7 @@ import {
   canvasRect,
   check,
   click,
+  drag,
   fail,
   finish,
   launchApp,
@@ -58,6 +59,13 @@ const drawnSize = async () => {
   const t = await page.$eval('[data-test="extend-size"]', (e) => e.textContent)
   return [...t.matchAll(/[\d.]+/g)].map((m) => parseFloat(m[0]))
 }
+/** The point count off the same note: how many the fit rests on, of how many
+ *  the surface has. */
+const pointsOf = async () => {
+  const t = await page.$eval('.draftbox .dro-note', (e) => e.textContent)
+  const m = t.match(/([\d,]+) of ([\d,]+) points/)
+  return m ? [parseInt(m[1].replace(/,/g, ''), 10), parseInt(m[2].replace(/,/g, ''), 10)] : null
+}
 /** The measured patch, off the note under the preview — the measurement, which
  *  nothing here may change. */
 const measuredPatch = async (sel = '.draftbox .dro-note') => {
@@ -76,8 +84,10 @@ const setField = async (side, value) => {
   await page.$eval(sel, (e) => e.blur())
   await sleep(150)
 }
+/** The millimetre fields alone — the fit-inside checkbox is an input under
+ *  the same prefix, and is not a side. */
 const fieldValues = () =>
-  page.$$eval('[data-test^="extend-"] input, input[data-test^="extend-"]', (els) =>
+  page.$$eval('input[type="number"][data-test^="extend-"]', (els) =>
     els.map((e) => parseFloat(e.value)),
   )
 
@@ -247,6 +257,10 @@ await click(page, '[data-test="cancel-draft"]')
 await page.reload({ waitUntil: 'networkidle0' })
 await page.waitForSelector('.panel')
 await loadScan(page, ROD, { settle: 800 })
+// Seen a little from above and to one side, so the rims on the ends of the
+// ghost are ellipses on screen rather than lines seen edge-on.
+await drag(page, [rect.x + rect.w * 0.5, rect.y + rect.h * 0.5], [rect.x + rect.w * 0.5 + 150, rect.y + rect.h * 0.5 + 70])
+await sleep(300)
 
 async function fitCylinder() {
   for (const fy of [0.5, 0.46, 0.54, 0.42, 0.58]) {
@@ -304,6 +318,8 @@ if (onRod) {
         await page.mouse.move(endGrip[0] + (dx * i) / 8, endGrip[1] + (dy * i) / 8)
         await sleep(30)
       }
+      // The end in hand, marked on the ghost while it is held.
+      await page.screenshot({ path: shotPath('e2e-extend-held.png') })
       await page.mouse.up()
       await sleep(150)
       const after = await fieldValues()
@@ -316,6 +332,67 @@ if (onRod) {
     check(Math.abs((await lengthOf()) - length0) > 0.05, 'and the rod on screen grew with it')
     await page.screenshot({ path: shotPath('e2e-extend-cylinder.png') })
   }
+
+  // ---- confine the fit to the span ----------------------------------------
+  //
+  // With the option on, pulling an end in takes the surface past it out of the
+  // fit: the point count drops, the drawn length follows the field, and the
+  // measured length still says how long the rod is.
+
+  await click(page, '[data-test="extend-reset"]')
+  await sleep(300)
+  const whole = await pointsOf()
+  check(whole !== null && whole[1] > 100, `the fit rests on the whole rod (${whole})`)
+  await click(page, '[data-test="extend-fit-inside"]')
+  await sleep(500)
+  const stillWhole = await pointsOf()
+  check(
+    stillWhole !== null && stillWhole[1] === whole[1],
+    `with nothing pulled in the option takes nothing away (${stillWhole})`,
+  )
+
+  await setField('start', -12)
+  await sleep(900)
+  const inside = await pointsOf()
+  check(
+    inside !== null && inside[1] < whole[1] * 0.8 && inside[1] > whole[1] * 0.5,
+    `pulling an end in 12 of ${ROD_H} mm leaves the surface past it out of the fit (${whole[1]} → ${inside && inside[1]} points)`,
+  )
+  const drawnInside = await lengthOf()
+  check(
+    Math.abs(drawnInside - (length0 - 12)) < 0.1,
+    `the rod is drawn 12 mm shorter (${length0} → ${drawnInside})`,
+  )
+  const lengthNote = await page.$eval('.draftbox .dro-note', (e) => e.textContent)
+  const measuredLength = parseFloat((lengthNote.match(/length ([\d.]+) mm/) ?? [])[1])
+  check(
+    Math.abs(measuredLength - ROD_H) < 1.5,
+    `and still reports the length the scan reached (${measuredLength} of ${ROD_H} mm)`,
+  )
+  await page.screenshot({ path: shotPath('e2e-extend-inside.png') })
+
+  await click(page, '[data-test="extend-fit-inside"]')
+  await sleep(900)
+  const back = await pointsOf()
+  check(
+    back !== null && back[1] === whole[1],
+    `switching the option off gives the whole surface back to the fit (${back})`,
+  )
+
+  // Pulled in too far, the fit says so and the fields stay to put it right.
+  await click(page, '[data-test="extend-fit-inside"]')
+  await setField('start', -(ROD_H - 0.05))
+  await sleep(900)
+  const status = await page.$eval('[data-test="draft-status"]', (e) => e.textContent)
+  check(/inside the span/.test(status), `too little surface left inside is reported (${status.trim().slice(0, 60)})`)
+  check(
+    (await page.$('[data-test="extend-start"]')) !== null,
+    'and the fields stay to pull the end back out',
+  )
+  await click(page, '[data-test="extend-reset"]')
+  await sleep(900)
+  const recovered = await pointsOf()
+  check(recovered !== null && recovered[1] === whole[1], `Reset brings the fit back (${recovered})`)
 }
 
 await finish(browser, consoleErrors)

@@ -278,7 +278,11 @@ export function DraftEditor({
           {/* How much of the measured surface to draw, once there is one. A
               cylinder and a plane are the two elements whose size on screen is
               a drawing decision rather than the measurement itself. */}
-          {draft.status === 'ready' && isExtendable(shownFit) && <ExtendFields fit={shownFit} />}
+          {/* A fit confined to its span can fail — too little surface left
+              inside it — and does so keeping the fit it had, so the fields
+              stay to pull the ends back out or switch the option off. */}
+          {(draft.status === 'ready' || (draft.status === 'failed' && draft.fit !== undefined)) &&
+            isExtendable(shownFit) && <ExtendFields fit={shownFit} />}
 
           <button
             className={pulse ? 'primary block pulse' : 'primary block'}

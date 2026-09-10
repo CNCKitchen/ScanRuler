@@ -6,10 +6,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   applyExtension,
   extendedSpans,
+  fitWindow,
+  fitsInside,
   isExtendable,
   isExtended,
   minSide,
   squareExtension,
+  withFitInside,
   withSide,
   zeroExtension,
   type Extension,
@@ -185,6 +188,33 @@ describe('making a plane square', () => {
   })
 })
 
+describe('confining the fit to the span', () => {
+  it('is a cylinder option, and off unless switched on', () => {
+    expect(fitsInside(cylExt(0, -3))).toBe(false)
+    expect(fitsInside(withFitInside(cylExt(0, -3), true))).toBe(true)
+    expect(fitsInside(withFitInside(planeExt(0, -3, 0, 0), true))).toBe(false)
+    expect(fitsInside(undefined)).toBe(false)
+  })
+
+  it('hands the worker the two numbers only while it is on', () => {
+    expect(fitWindow(cylExt(2, -3))).toBeUndefined()
+    expect(fitWindow(withFitInside(cylExt(2, -3), true))).toEqual({ start: 2, end: -3 })
+    expect(fitWindow(withFitInside(planeExt(1, 2, 3, 4), true))).toBeUndefined()
+    expect(fitWindow(undefined)).toBeUndefined()
+  })
+
+  it('switches off cleanly, leaving no trace on the extension', () => {
+    const on = withFitInside(cylExt(0, -3), true)
+    expect(withFitInside(on, false)).toEqual(cylExt(0, -3))
+    expect('fitInside' in withFitInside(on, false)).toBe(false)
+  })
+
+  it('rides along when a side is changed', () => {
+    const on = withFitInside(cylExt(0, 0), true)
+    expect(fitsInside(withSide(cylinder, on, 'end', -4))).toBe(true)
+  })
+})
+
 describe('an extension in the store', () => {
   const store = () => useStore.getState()
   const asOutput = (fit: CylinderFit): FitOutput => ({ ...fit, region: new Uint32Array([1, 2, 3]) })
@@ -252,6 +282,42 @@ describe('an extension in the store', () => {
     store().resetDraftExtend()
     store().commitDraft()
     // Back to nothing at all, not to an extension of nothing.
+    expect(store().elements.find((e) => e.id === id)!.extend).toBeUndefined()
+  })
+
+  it('remembers that the fit is confined to the span, and only when it matters', () => {
+    store().startDraft('cylinder')
+    store().setDraftPicks([[1, 2, 3]])
+    store().resolveDraft(asOutput(cylinder))
+    store().setDraftFitInside(true)
+    expect(fitsInside(store().draft!.extend)).toBe(true)
+    // With nothing pulled in the option takes nothing away, so the element
+    // goes out with no extension at all, as it would without it.
+    expect(fitWindow(store().draft!.extend)).toEqual({ start: 0, end: 0 })
+    store().setDraftExtend('end', -3)
+    expect(fitWindow(store().draft!.extend)).toEqual({ start: 0, end: -3 })
+    // Reset puts the ends back but keeps the choice.
+    store().resetDraftExtend()
+    expect(store().draft!.extend).toEqual({ kind: 'cylinder', start: 0, end: 0, fitInside: true })
+    store().setDraftExtend('end', -3)
+    const id = store().commitDraft()!
+    const el = store().elements.find((e) => e.id === id)!
+    expect(el.extend).toEqual({ kind: 'cylinder', start: 0, end: -3, fitInside: true })
+    expect(fitWindow(el.extend)).toEqual({ start: 0, end: -3 })
+
+    store().editElement(id)
+    expect(fitsInside(store().draft!.extend)).toBe(true)
+    store().setDraftFitInside(false)
+    store().commitDraft()
+    expect(store().elements.find((e) => e.id === id)!.extend).toEqual(cylExt(0, -3))
+  })
+
+  it('drops the confined-fit choice with an extension of nothing', () => {
+    store().startDraft('cylinder')
+    store().setDraftPicks([[1, 2, 3]])
+    store().resolveDraft(asOutput(cylinder))
+    store().setDraftFitInside(true)
+    const id = store().commitDraft()!
     expect(store().elements.find((e) => e.id === id)!.extend).toBeUndefined()
   })
 

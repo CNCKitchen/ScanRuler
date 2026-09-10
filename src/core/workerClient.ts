@@ -2,7 +2,7 @@
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
-import type { ElementKind, FitOutput, FitSettings } from './types'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
@@ -89,7 +89,14 @@ export class MeshWorkerClient {
     return this.request<LoadedMesh>({ type: 'load', requestId, name, buffer }, [buffer])
   }
 
-  async fit(elementType: ElementKind, seeds: number[], settings: FitSettings): Promise<FitOutput> {
+  /** Fit from clicked seeds. `window` confines the fit to a span of the
+   *  surface it finds, for the kinds that can be — see AxialWindow. */
+  async fit(
+    elementType: ElementKind,
+    seeds: number[],
+    settings: FitSettings,
+    window?: AxialWindow,
+  ): Promise<FitOutput> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
       type: 'fit',
@@ -97,6 +104,7 @@ export class MeshWorkerClient {
       elementType,
       seeds,
       settings,
+      window,
     })
     return res.result
   }
@@ -107,6 +115,7 @@ export class MeshWorkerClient {
     elementType: ElementKind,
     vertices: Uint32Array,
     settings: FitSettings,
+    window?: AxialWindow,
   ): Promise<FitOutput> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
@@ -115,6 +124,7 @@ export class MeshWorkerClient {
       elementType,
       vertices,
       settings,
+      window,
     })
     return res.result
   }

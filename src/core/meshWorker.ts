@@ -150,7 +150,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       return
     }
     try {
-      const result = getFitter(msg.elementType)(graph, msg.seeds, msg.settings)
+      const result = getFitter(msg.elementType)(graph, msg.seeds, msg.settings, msg.window)
       post({ type: 'fit-ok', requestId: msg.requestId, result }, [result.region.buffer])
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
@@ -173,7 +173,12 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           throw new Error('The marked surface does not belong to the loaded scan.')
         }
       }
-      const result = getSelectionFitter(msg.elementType)(graph, msg.vertices, msg.settings)
+      const result = getSelectionFitter(msg.elementType)(
+        graph,
+        msg.vertices,
+        msg.settings,
+        msg.window,
+      )
       post({ type: 'fit-ok', requestId: msg.requestId, result }, [result.region.buffer])
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })

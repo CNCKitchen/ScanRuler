@@ -248,6 +248,19 @@ scan. What changes is the shape on screen and the shape in the STEP file — and
 the summary notes what an extended element is *drawn* at, beside what it was
 measured as.
 
+The one exception is deliberate. A cylinder's Extend block has a **Fit only
+inside the span** checkbox: with it on, the best fit uses only the scanned
+surface between the two ends *as drawn*. Pull an end in past a rim the scanner
+caught badly — the rounded-off mouth of a bore, a chamfer that got swept into
+the cylinder — and that surface stops pulling on the axis and the diameter.
+The fit re-runs whenever an end moves (the tinted region on the part shows what
+it now rests on), and its diameter, sigma and point count are then the surface
+inside the span alone. The length it reports is still how far the scan reached,
+so the two numbers in the fields keep meaning millimetres off the same ends.
+While a grip is under the cursor or being dragged, the ghost draws a crisp rim
+on each end and a translucent cap on the end in hand, through the wall of the
+part, so how far a bore has been pulled in can be seen from outside it.
+
 ### The assumed dimension — what the feature was designed at
 
 A hole that measures Ø 5.98 mm was almost certainly drawn at Ø 6 — and

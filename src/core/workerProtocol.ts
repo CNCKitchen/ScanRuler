@@ -3,7 +3,7 @@ import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
-import type { ElementKind, FitOutput, FitSettings } from './types'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings } from './types'
 
 export type WorkerRequest =
   | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer }
@@ -13,6 +13,9 @@ export type WorkerRequest =
       elementType: ElementKind
       seeds: number[]
       settings: FitSettings
+      /** Confine the fit to this span of the surface it finds — a cylinder
+       *  with an end pulled in. Absent, the whole surface goes in. */
+      window?: AxialWindow
     }
   /** Fit to a surface the user marked by hand: the vertices are the region,
    *  so nothing is searched for or grown. */
@@ -22,6 +25,7 @@ export type WorkerRequest =
       elementType: ElementKind
       vertices: Uint32Array
       settings: FitSettings
+      window?: AxialWindow
     }
   | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer }
   | { type: 'align'; requestId: number; mode: 'auto' }

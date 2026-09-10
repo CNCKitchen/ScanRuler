@@ -14,7 +14,13 @@ import { buildFlatCsv, buildFlatReport, type FlatReportInput } from './core/flat
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
-import { extensionOf, isExtendable, sideValue, type ExtendSide } from './core/elements/extend'
+import {
+  extensionOf,
+  fitWindow,
+  isExtendable,
+  sideValue,
+  type ExtendSide,
+} from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
 import type { ElementKind, FitData, PointFit, Vec3 } from './core/types'
@@ -317,10 +323,14 @@ export default function App() {
     selection?: Uint32Array,
   ) => {
     const settings = useStore.getState().settings
+    // A fit confined to the drawn span is confined to it every time it runs.
+    const window = fitWindow(
+      useStore.getState().elements.find((e) => e.id === elementId)?.extend,
+    )
     try {
       const result = selection
-        ? await clientRef.current!.fitSelection(kind, selection, settings)
-        : await clientRef.current!.fit(kind, seeds, settings)
+        ? await clientRef.current!.fitSelection(kind, selection, settings, window)
+        : await clientRef.current!.fit(kind, seeds, settings, window)
       useStore.getState().resolveFit(elementId, result)
       const el = useStore.getState().elements.find((e) => e.id === elementId)
       if (el) sceneRef.current?.applyRegion(elementId, el.color, result.region)
@@ -336,8 +346,9 @@ export default function App() {
     const seq = ++draftSeq.current
     const settings = useStore.getState().settings
     const seeds = picks.flat()
+    const window = fitWindow(useStore.getState().draft?.extend)
     try {
-      const result = await clientRef.current!.fit(kind, seeds, settings)
+      const result = await clientRef.current!.fit(kind, seeds, settings, window)
       if (seq !== draftSeq.current || !useStore.getState().draft) return
       draftRegion.current = result.region
       sceneRef.current?.setPreviewRegion(result.region, draftColorOf(useStore.getState()))
@@ -377,15 +388,46 @@ export default function App() {
   const runDraftPaintFit = async (kind: ElementKind, selection: Uint32Array) => {
     const seq = ++draftSeq.current
     const settings = useStore.getState().settings
+    const window = fitWindow(useStore.getState().draft?.extend)
     useStore.getState().setDraftSelection(selection)
     try {
-      const result = await clientRef.current!.fitSelection(kind, selection, settings)
+      const result = await clientRef.current!.fitSelection(kind, selection, settings, window)
       if (seq !== draftSeq.current || !useStore.getState().draft) return
       draftRegion.current = result.region
       useStore.getState().resolveDraft(result)
     } catch (e) {
       if (seq !== draftSeq.current || !useStore.getState().draft) return
       draftRegion.current = null
+      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** The open draft measured again on the same surface, with the span its fit
+   *  is confined to as it stands now. In place: the fit standing is replaced
+   *  when the new one lands, and nothing goes blank in between — this runs at
+   *  the end of a grip drag, and a ghost that vanished under the hand would
+   *  make the drag look like a mistake. A failure keeps the fit too, so the
+   *  fields stay to be put right. */
+  const refitDraftInWindow = async () => {
+    const d = useStore.getState().draft
+    if (!d || d.kind !== 'cylinder' || creationMethod(d.kind, d.method).mode !== 'fit') return
+    if (!d.selection && d.picks.length === 0) return
+    const seq = ++draftSeq.current
+    const settings = useStore.getState().settings
+    const window = fitWindow(d.extend)
+    try {
+      const result = d.selection
+        ? await clientRef.current!.fitSelection(d.kind, d.selection, settings, window)
+        : await clientRef.current!.fit(d.kind, d.picks.flat(), settings, window)
+      if (seq !== draftSeq.current || !useStore.getState().draft) return
+      draftRegion.current = result.region
+      // A hand-marked surface is already tinted by the marking itself, which
+      // sits above any preview; a grown one shows what the fit now rests on.
+      if (!d.selection)
+        sceneRef.current?.setPreviewRegion(result.region, draftColorOf(useStore.getState()))
+      useStore.getState().resolveDraft(result)
+    } catch (e) {
+      if (seq !== draftSeq.current || !useStore.getState().draft) return
       useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
     }
   }
@@ -912,6 +954,35 @@ export default function App() {
       store.setDraftExtend(side, extendStart.current + delta)
     }
   }
+
+  // With the fit confined to the drawn span, the two extend numbers are part
+  // of the recipe: whenever they move with the option on, or the option is
+  // switched either way, the draft measures again. Keyed on the span itself
+  // rather than the extension, so a plane's edges and a cylinder's ends with
+  // the option off never trigger it. What a draft opens with is what its fit
+  // was made with — the first key of a draft's life is recorded, not acted
+  // on. Debounced, because a grip being dragged moves the span every frame
+  // and the fit should follow the hand, not race it.
+  const draftOpen = useStore((s) => s.draft !== null)
+  const windowKey = useStore((s) => {
+    const w = fitWindow(s.draft?.extend)
+    return w ? `${w.start}:${w.end}` : ''
+  })
+  const seenWindow = useRef<string | null>(null)
+  useEffect(() => {
+    if (!draftOpen) {
+      seenWindow.current = null
+      return
+    }
+    if (seenWindow.current === null || seenWindow.current === windowKey) {
+      seenWindow.current = windowKey
+      return
+    }
+    seenWindow.current = windowKey
+    const timer = setTimeout(() => void refitDraftInWindow(), 120)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftOpen, windowKey])
 
   // Everything the scene is told after a render lives in useSceneSync; the
   // subscriptions here are the ones the JSX below still reads itself.

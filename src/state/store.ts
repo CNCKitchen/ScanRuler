@@ -15,9 +15,11 @@ import {
 import { roleOf } from '../core/elements/refs'
 import {
   extensionOf,
+  fitsInside,
   isExtendable,
   isExtended,
   squareExtension,
+  withFitInside,
   withSide,
   zeroExtension,
   type ExtendSide,
@@ -659,7 +661,12 @@ interface AppState {
   setDraftExtend: (side: ExtendSide, value: number) => void
   /** Grow the shorter axis of the open plane draft out to the longer one. */
   squareDraftExtend: () => void
-  /** Back to exactly the measured surface. */
+  /** Confine the open cylinder draft's fit to its drawn span, or let it take
+   *  the whole surface again. The re-fit that follows is the caller's — the
+   *  store only records the choice. */
+  setDraftFitInside: (on: boolean) => void
+  /** Back to exactly the measured surface. The fit-inside choice stands: with
+   *  nothing pulled in it takes nothing away. */
   resetDraftExtend: () => void
   /** The assumed diameter of the open draft, in millimetres; undefined
    *  clears it, so the element goes out as measured. Anything that is
@@ -1080,11 +1087,19 @@ export const useStore = create<AppState>()((set, get) => ({
       return { draft: { ...d, extend: squareExtension(d.fit, d.extend) } }
     }),
 
+  setDraftFitInside: (on) =>
+    set((s) => {
+      const d = s.draft
+      if (!d || d.fit?.kind !== 'cylinder') return {}
+      return { draft: { ...d, extend: withFitInside(extensionOf(d.fit, d.extend), on) } }
+    }),
+
   resetDraftExtend: () =>
     set((s) => {
       const d = s.draft
       if (!d || !isExtendable(d.fit)) return {}
-      return { draft: { ...d, extend: zeroExtension(d.fit) } }
+      const zero = zeroExtension(d.fit)
+      return { draft: { ...d, extend: withFitInside(zero, fitsInside(d.extend)) } }
     }),
 
   setDraftAssumed: (value) =>

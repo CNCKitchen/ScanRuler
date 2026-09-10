@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { FittedElementKind, FitOutput, FitSettings, MeshGraph } from '../types'
+import type { AxialWindow, FittedElementKind, FitOutput, FitSettings, MeshGraph } from '../types'
 import { fitConeFromSeed, fitConeOnSelection } from '../fit/fitConeFromSeed'
 import { fitCylinderFromSeed, fitCylinderOnSelection } from '../fit/fitCylinderFromSeed'
 import { fitPlaneFromSeed, fitPlaneOnSelection } from '../fit/fitPlaneFromSeed'
@@ -10,7 +10,14 @@ import { fitSphereFromSeed, fitSphereOnSelection } from '../fit/fitSphereFromSee
  *  display pipeline. Cones, slots and circles slot in here the same way.
  *  Points and lines never reach the worker — they are picked or constructed
  *  on the main thread. */
-export type FitFromSeed = (graph: MeshGraph, seeds: number[], settings: FitSettings) => FitOutput
+export type FitFromSeed = (
+  graph: MeshGraph,
+  seeds: number[],
+  settings: FitSettings,
+  /** The span to confine the fit to, for the kinds that can be — a cylinder
+   *  with its ends pulled in. The others take the whole surface regardless. */
+  window?: AxialWindow,
+) => FitOutput
 
 /** The same fit on a surface the user marked by hand, which skips the search
  *  for the right region entirely. */
@@ -18,6 +25,7 @@ export type FitOnSelection = (
   graph: MeshGraph,
   selection: Uint32Array,
   settings: FitSettings,
+  window?: AxialWindow,
 ) => FitOutput
 
 const FITTERS: Record<FittedElementKind, FitFromSeed> = {

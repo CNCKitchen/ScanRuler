@@ -3,7 +3,13 @@ import type { ElementKind, ElementSource, FitData, FitSettings, SigmaPreset, Vec
 import type { EvaluatedDimension } from './dimensions'
 import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
-import { extendedSpans, isExtendable, isExtended, type Extension } from './elements/extend'
+import {
+  extendedSpans,
+  fitsInside,
+  isExtendable,
+  isExtended,
+  type Extension,
+} from './elements/extend'
 import { directionOf, isOrientable, relationWord, type Orient } from './elements/orient'
 import { acuteAngle } from './vec'
 
@@ -206,6 +212,8 @@ export function buildSummary(
           ? `  drawn: ${spans[0].toFixed(4)} mm long`
           : `  drawn: ${spans[0].toFixed(2)} × ${spans[1].toFixed(2)} mm`,
       )
+      // The one case where the drawing reaches back into the measurement.
+      if (fitsInside(el.extend)) lines.push('  fitted to the surface inside that span only')
     }
   }
   if (dimensions.length) lines.push('')
