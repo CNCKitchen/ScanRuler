@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import type { EdgeChains } from '../src/core/flat/edges'
 import { fitCirclePoints, fitLinePoints, flatPoint } from '../src/core/flat/fit'
+import { fitSplinePoints } from '../src/core/flat/spline'
 import { buildFlatSvg, type FlatSvgInput } from '../src/core/flat/svg'
 import type { FlatArcFit } from '../src/core/flat/types'
 
@@ -117,6 +118,28 @@ describe('buildFlatSvg', () => {
     const full = buildFlatSvg(input({ elements: el(arc(0.3, 2 * Math.PI)) }))
     expect(full).toContain('<circle cx="50" cy="40" r="10"/>')
     expect(full).not.toContain('<path')
+  })
+
+  it('draws a spline as its own cubic Béziers, closed with a Z', () => {
+    const pts: [number, number][] = [
+      [10, 10],
+      [30, 20],
+      [50, 10],
+    ]
+    const el = (closed: boolean) => [
+      { fit: fitSplinePoints(pts, [null, null, null], closed), color: '#000', name: 'Spline 1', value: '' },
+    ]
+    const open = buildFlatSvg(input({ elements: el(false) })).match(/<path d="([^"]+)"/)![1]
+    // From the first point, y down: (10, 10) on the sheet is (10, 70) on the page.
+    expect(open.startsWith('M 10 70 C ')).toBe(true)
+    expect((open.match(/ C /g) ?? []).length).toBe(2)
+    expect(open.endsWith(' 50 70')).toBe(true)
+    expect(open).not.toContain('Z')
+    // Every number is a plain coordinate: no exponents, no transform.
+    expect(open).toMatch(/^M( -?[\d.]+){2}( C( -?[\d.]+){6}){2}$/)
+    const closed = buildFlatSvg(input({ elements: el(true) })).match(/<path d="([^"]+)"/)![1]
+    expect((closed.match(/ C /g) ?? []).length).toBe(3)
+    expect(closed.endsWith(' 10 70 Z')).toBe(true)
   })
 
   it('turns the drawing with the sheet', () => {

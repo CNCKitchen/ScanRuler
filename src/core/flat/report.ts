@@ -120,6 +120,9 @@ function fitColumns(fit: FlatFit): (number | '')[] {
       return [fit.center[0], fit.center[1], 2 * fit.radius, '', '', '']
     case 'arc':
       return [fit.center[0], fit.center[1], 2 * fit.radius, '', deg(fit.start), deg(fit.sweep)]
+    // A spline's position is where it starts; its length is the curve's.
+    case 'spline':
+      return [fit.points[0][0], fit.points[0][1], '', fit.length, '', '']
   }
 }
 

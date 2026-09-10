@@ -19,14 +19,14 @@
 
 import type { FitData, Vec3 } from './types'
 import { orthoBasis } from './fit/linalg'
-import { isFullTurn, type ArcGeometry } from './section/lift'
+import { isFullTurn, type ArcGeometry, type SplineGeometry } from './section/lift'
 import { addScaled } from './vec'
 import { esc, num, placement, StepWriter, vec } from './stepWriter'
 import { writeConeSolid, writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
 
 /** What an element can be written as: the 3D workspace's fits, and the arc
- *  a section's sheet measures — see core/section/lift. */
-export type StepGeometry = FitData | ArcGeometry
+ *  and the spline a section's sheet measures — see core/section/lift. */
+export type StepGeometry = FitData | ArcGeometry | SplineGeometry
 
 export interface StepElement {
   name: string
@@ -124,6 +124,21 @@ function writeElement(w: StepWriter, name: string, fit: StepGeometry): number {
       const circle = w.add(`CIRCLE('',#${pl},${r})`)
       return w.add(
         `TRIMMED_CURVE('${label}',#${circle},(PARAMETER_VALUE(${num(fit.start)})),(PARAMETER_VALUE(${num(fit.start + fit.sweep)})),.T.,.PARAMETER.)`,
+      )
+    }
+
+    // A spline is a cubic B-spline in Bézier form: its poles as the control
+    // points, every interior knot of multiplicity three and the ends of four,
+    // so the poles are exactly the sheet's Béziers and CAD reads the curve
+    // back to the bit. The knots are the sheet's chord-length parameter.
+    case 'spline': {
+      const poles = fit.poles.map((p) => w.add(`CARTESIAN_POINT('',(${vec(p)}))`))
+      const segments = (fit.poles.length - 1) / 3
+      const mults = [4, ...new Array<number>(Math.max(segments - 1, 0)).fill(3), 4]
+      return w.add(
+        `B_SPLINE_CURVE_WITH_KNOTS('${label}',3,(${poles.map((i) => `#${i}`).join(',')}),.UNSPECIFIED.,${
+          fit.closed ? '.T.' : '.F.'
+        },.U.,(${mults.join(',')}),(${fit.knots.map(num).join(',')}),.UNSPECIFIED.)`,
       )
     }
   }

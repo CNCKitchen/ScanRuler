@@ -32,6 +32,7 @@ import {
 import { FitError } from '../core/fit/errors'
 import type { PixelsPerMm } from '../core/flat/image'
 import { snapPick, snapRadiusPx, thinEdgePoints, type EdgeIndex, type PickMeta } from '../core/flat/snap'
+import { nearestSplineSegment, type HandleEnd } from '../core/flat/spline'
 import type { FlatElementKind, FlatFit, Vec2 } from '../core/flat/types'
 import { PALETTE } from './palette'
 
@@ -70,6 +71,12 @@ export interface FlatDraft {
   kind: FlatElementKind
   method: string
   picks: Vec2[]
+  /** A spline's tangent handles, one per pick: the offset (image pixels)
+   *  from the pick to the end the curve leaves along, or null while the
+   *  tangent there is automatic. Empty for every other kind. */
+  tangents: (Vec2 | null)[]
+  /** A spline that closes on itself. */
+  closed: boolean
   refs: (number | null)[]
   fit: FlatFit | null
   error: string | null
@@ -77,6 +84,8 @@ export interface FlatDraft {
   /** The name as typed while editing; blank keeps the old one. */
   name?: string
 }
+
+export type { HandleEnd }
 
 /** A tally taken by clicking features one after another — the teeth of a
  *  gear, the holes in a flange. The picks (image pixels) are the count; they
@@ -180,11 +189,27 @@ function freshDraft(kind: FlatElementKind, method: string, edit?: Pick<FlatDraft
     kind,
     method,
     picks: [],
+    tangents: [],
+    closed: false,
     refs: new Array<number | null>(flatMethod(method).slots?.length ?? 0).fill(null),
     fit: null,
     error: null,
     ...edit,
   }
+}
+
+/** The handles kept one per pick: those that exist stay, the rest are
+ *  automatic. */
+function tangentsFor(count: number, tangents: readonly (Vec2 | null)[]): (Vec2 | null)[] {
+  return Array.from({ length: count }, (_, i) => tangents[i] ?? null)
+}
+
+/** A pick-mode draft as the source it is recorded with: a spline's handles
+ *  and closure ride along, nothing else carries them. */
+function pickSource(draft: Pick<FlatDraft, 'kind' | 'method' | 'picks' | 'tangents' | 'closed'>): FlatSource {
+  return draft.kind === 'spline'
+    ? { type: 'picks', method: draft.method, picks: draft.picks, tangents: draft.tangents, closed: draft.closed }
+    : { type: 'picks', method: draft.method, picks: draft.picks }
 }
 
 const PROFILE_KEY = 'scanruler.flat.profiles.v1'
@@ -232,22 +257,15 @@ function docToPx(s: { pxPerMm: PixelsPerMm | null }, spot: Vec2): Vec2 {
 /** The draft's fit, following every change: null-and-no-error while picks or
  *  slots are still missing, null-with-reason when the geometry refuses. */
 function evaluateDraft(
-  draft: Pick<FlatDraft, 'kind' | 'method' | 'picks' | 'refs'>,
+  draft: Pick<FlatDraft, 'kind' | 'method' | 'picks' | 'tangents' | 'closed' | 'refs'>,
   elements: readonly FlatElement[],
   pxPerMm: PixelsPerMm | null,
 ): { fit: FlatFit | null; error: string | null } {
   const m = flatMethod(draft.method)
   try {
     if (m.mode !== 'construct') {
-      if (!flatPicksReady(draft.method, draft.picks)) return { fit: null, error: null }
-      return {
-        fit: evaluateFlatSource(
-          { type: 'picks', method: draft.method, picks: draft.picks },
-          pxPerMm,
-          () => null,
-        ),
-        error: null,
-      }
+      if (!flatPicksReady(draft.method, draft.picks, draft.closed)) return { fit: null, error: null }
+      return { fit: evaluateFlatSource(pickSource(draft), pxPerMm, () => null), error: null }
     }
     const slots = m.slots?.length ?? 0
     if (draft.refs.length < slots || draft.refs.some((r) => r === null)) {
@@ -432,6 +450,10 @@ interface FlatState extends SheetState {
   stageClick: (spot: Vec2, meta: PickMeta, edges: EdgeIndex | null) => void
   /** A draft pin dragged to a new spot — snapping the same way a pick does. */
   stageDrag: (index: number, spot: Vec2, meta: PickMeta, edges: EdgeIndex | null) => void
+  /** One end of a spline draft's tangent handle dragged to a spot on the
+   *  sheet (document units): the tangent at that pick is fixed along it.
+   *  Never snapped — a tangent is a direction, not a place on an edge. */
+  stageHandleDrag: (index: number, end: HandleEnd, spot: Vec2, meta: PickMeta) => void
   /** A dragged region over the edge overlay: every detected edge point inside
    *  it joins the draft, thinned to a sane count. */
   stageRegion: (min: Vec2, max: Vec2, edges: EdgeIndex | null) => void
@@ -461,10 +483,20 @@ interface FlatState extends SheetState {
   editElement: (id: number) => void
   cancelDraft: () => void
   addDraftPick: (px: Vec2) => void
+  /** A pick put into the sequence before the one at `index` — a click on a
+   *  spline's curve, between the points it runs between. */
+  insertDraftPick: (index: number, px: Vec2) => void
   /** A pick dragged to a new place on the sheet. */
   moveDraftPick: (index: number, px: Vec2) => void
   /** Take one pick back by index — a click on its pin. */
   removeDraftPick: (index: number) => void
+  /** Fix the tangent at a spline pick along a handle offset (image pixels),
+   *  or let it go automatic again with null. */
+  setDraftTangent: (index: number, handle: Vec2 | null) => void
+  /** Every tangent automatic again. */
+  freeDraftTangents: () => void
+  /** Whether the spline closes on itself. */
+  setDraftClosed: (closed: boolean) => void
   /** A dragged region's worth of edge points, all at once. */
   addDraftPoints: (px: Vec2[]) => void
   undoDraftPick: () => void
@@ -667,6 +699,15 @@ export const useFlat = create<FlatState>()((set, get) => ({
       if (chain) s.addDraftPoints(thinEdgePoints(chain))
       return
     }
+    // A click on a spline's curve puts the point into the curve there,
+    // between the two fit points it runs between, rather than on the end.
+    if (s.draft.fit?.kind === 'spline') {
+      const near = nearestSplineSegment(s.draft.fit, spot)
+      if (near.dist <= 10 * meta.unitsPerScreenPx) {
+        s.insertDraftPick(near.segment + 1, asSet)
+        return
+      }
+    }
     s.addDraftPick(asSet)
   },
 
@@ -674,6 +715,18 @@ export const useFlat = create<FlatState>()((set, get) => ({
     const s = get()
     const radius = snapRadiusPx(meta, s.pxPerMm?.x ?? 1)
     s.moveDraftPick(index, snapPick(docToPx(s, spot), edges, radius, s.snapToEdge, meta.alt))
+  },
+
+  stageHandleDrag: (index, end, spot, meta) => {
+    const s = get()
+    if (!s.draft || index < 0 || index >= s.draft.picks.length) return
+    const px = docToPx(s, spot)
+    const at = s.draft.picks[index]
+    const off: Vec2 = [px[0] - at[0], px[1] - at[1]]
+    // A handle dragged onto its own point would leave the tangent nothing
+    // to say and nothing to take hold of again: the drag stops short of it.
+    if (Math.hypot(off[0], off[1]) < 3 * meta.unitsPerScreenPx * (s.pxPerMm?.x ?? 1)) return
+    s.setDraftTangent(index, end === 'a' ? off : [-off[0], -off[1]])
   },
 
   stageRegion: (min, max, edges) => {
@@ -939,11 +992,17 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => {
       const el = s.elements.find((e) => e.id === id)
       if (!el) return {}
-      const base = freshDraft(el.kind, el.source.method, { editId: el.id, name: el.name })
+      const src = el.source
+      const base = freshDraft(el.kind, src.method, { editId: el.id, name: el.name })
       const draft =
-        el.source.type === 'picks'
-          ? { ...base, picks: [...el.source.picks] }
-          : { ...base, refs: [...el.source.refs] }
+        src.type === 'picks'
+          ? {
+              ...base,
+              picks: [...src.picks],
+              tangents: tangentsFor(src.picks.length, src.tangents ?? []),
+              closed: src.closed ?? false,
+            }
+          : { ...base, refs: [...src.refs] }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
@@ -957,7 +1016,18 @@ export const useFlat = create<FlatState>()((set, get) => ({
         flatMethod(s.draft.method).minPicks === 1 && s.draft.kind === 'point'
           ? [px]
           : [...s.draft.picks, px]
-      const draft = { ...s.draft, picks }
+      const draft = { ...s.draft, picks, tangents: tangentsFor(picks.length, s.draft.tangents) }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  insertDraftPick: (index, px) =>
+    set((s) => {
+      if (!s.draft || flatMethod(s.draft.method).mode !== 'pick') return {}
+      const at = Math.max(0, Math.min(index, s.draft.picks.length))
+      const picks = [...s.draft.picks.slice(0, at), px, ...s.draft.picks.slice(at)]
+      const kept = tangentsFor(s.draft.picks.length, s.draft.tangents)
+      const tangents = [...kept.slice(0, at), null, ...kept.slice(at)]
+      const draft = { ...s.draft, picks, tangents }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
@@ -973,7 +1043,31 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => {
       if (!s.draft || index < 0 || index >= s.draft.picks.length) return {}
       const picks = s.draft.picks.filter((_, i) => i !== index)
-      const draft = { ...s.draft, picks }
+      const tangents = tangentsFor(s.draft.picks.length, s.draft.tangents).filter((_, i) => i !== index)
+      const draft = { ...s.draft, picks, tangents }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  setDraftTangent: (index, handle) =>
+    set((s) => {
+      if (!s.draft || index < 0 || index >= s.draft.picks.length) return {}
+      const tangents = tangentsFor(s.draft.picks.length, s.draft.tangents)
+      tangents[index] = handle ? [handle[0], handle[1]] : null
+      const draft = { ...s.draft, tangents }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  freeDraftTangents: () =>
+    set((s) => {
+      if (!s.draft) return {}
+      const draft = { ...s.draft, tangents: tangentsFor(s.draft.picks.length, []) }
+      return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
+    }),
+
+  setDraftClosed: (closed) =>
+    set((s) => {
+      if (!s.draft || s.draft.closed === closed) return {}
+      const draft = { ...s.draft, closed }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
@@ -991,7 +1085,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
       if (!s.draft) return {}
       const picks =
         flatMethod(s.draft.method).mode === 'edge' ? [] : s.draft.picks.slice(0, -1)
-      const draft = { ...s.draft, picks }
+      const draft = { ...s.draft, picks, tangents: tangentsFor(picks.length, s.draft.tangents) }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
@@ -1020,7 +1114,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
     const m = flatMethod(s.draft.method)
     const source: FlatSource =
       m.mode !== 'construct'
-        ? { type: 'picks', method: s.draft.method, picks: s.draft.picks }
+        ? pickSource(s.draft)
         : { type: 'construct', method: s.draft.method, refs: s.draft.refs as number[] }
     // An edited element is written back where it stands: same id, same
     // colour, same place in the list — and everything constructed on it

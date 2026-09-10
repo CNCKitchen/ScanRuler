@@ -15,6 +15,7 @@ import {
   flatPoint,
 } from './fit'
 import { flatRefLine, flatRefPoint, type FlatRefRole } from './refs'
+import { fitSplinePoints } from './spline'
 import type { FlatFit, FlatElementKind, Vec2 } from './types'
 import { cross2, mid2, sub2 } from './vec2'
 
@@ -123,7 +124,23 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     hint: "Click the arc's detected edge to take the whole of it, or drag a box along it — every edge point collected feeds the fit, strays are voted out.",
     minPicks: 12,
   },
+  {
+    id: 'flat-spline-pick',
+    kind: 'spline',
+    mode: 'pick',
+    label: 'Through fit points',
+    hint: 'Click the points the curve runs through, in order along the edge — the curve bends smoothly through every one.',
+    minPicks: 2,
+  },
 ]
+
+/** What a spline's picks carry besides where they are: the tangent handle
+ *  set at each point (an offset from the point, or null for an automatic
+ *  tangent) and whether the curve closes on itself. */
+export interface SplinePickOptions {
+  tangents?: readonly (Vec2 | null)[]
+  closed?: boolean
+}
 
 export function flatMethodsForKind(kind: FlatElementKind): FlatMethod[] {
   return FLAT_METHODS.filter((m) => m.kind === kind)
@@ -135,9 +152,20 @@ export function flatMethod(id: string): FlatMethod {
   return m
 }
 
-/** Fit a pick-mode method from its collected points. */
-export function evaluateFlatPicks(methodId: string, points: readonly Vec2[]): FlatFit {
+/** Fit a pick-mode method from its collected points. `spline` is read by the
+ *  spline method alone. */
+export function evaluateFlatPicks(
+  methodId: string,
+  points: readonly Vec2[],
+  spline: SplinePickOptions = {},
+): FlatFit {
   switch (methodId) {
+    case 'flat-spline-pick':
+      return fitSplinePoints(
+        points,
+        points.map((_, i) => spline.tangents?.[i] ?? null),
+        spline.closed ?? false,
+      )
     case 'flat-point-pick': {
       if (points.length < 1) throw new FitError('Click the point first.')
       return flatPoint(points[points.length - 1])

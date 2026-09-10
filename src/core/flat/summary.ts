@@ -18,11 +18,21 @@ export function formatFlatPrimary(fit: FlatFit, unit: string): string {
       return `Ø ${(2 * fit.radius).toFixed(3)} ${unit}`
     case 'arc':
       return `R ${fit.radius.toFixed(3)} ${unit} · ${((fit.sweep * 180) / Math.PI).toFixed(1)}°`
+    case 'spline':
+      return `L ${fit.length.toFixed(3)} ${unit}${fit.closed ? ' · closed' : ''}`
   }
 }
 
-/** σ, form error and point count — empty for geometry with no residuals. */
+/** σ, form error and point count — empty for geometry with no residuals. A
+ *  spline runs exactly through its points and has none; what it has to say
+ *  is how many points, and how many tangents were set by hand. */
 export function formatFlatDetail(fit: FlatFit, unit: string): string {
+  if (fit.kind === 'spline') {
+    const set = fit.fixed.filter(Boolean).length
+    const parts = [`${fit.points.length} fit points`]
+    if (set > 0) parts.push(`${set} tangent${set === 1 ? '' : 's'} set`)
+    return parts.join(' · ')
+  }
   if (fit.usedPoints === 0) return ''
   const parts = [`σ ${fit.sigma.toFixed(4)}`]
   if (fit.formError !== undefined) parts.push(`form ${fit.formError.toFixed(4)} ${unit}`)

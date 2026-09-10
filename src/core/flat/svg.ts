@@ -12,6 +12,7 @@
 // the scale rests on.
 
 import type { EdgeChains } from './edges'
+import { splineBezierForm, splineMidpoint } from './spline'
 import type { FlatFit, Vec2 } from './types'
 
 /** An element as the sheet shows it — the shape app/flatSheet's
@@ -93,6 +94,10 @@ function labelSpot(fit: FlatFit, diag: number): Vec2 {
     const d = fit.radius * 0.7071
     return [fit.center[0] + d, fit.center[1] + d]
   }
+  if (fit.kind === 'spline') {
+    const [x, y] = splineMidpoint(fit)
+    return [x, y + lift]
+  }
   const mid = fit.start + fit.sweep / 2
   return [fit.center[0] + fit.radius * Math.cos(mid), fit.center[1] + fit.radius * Math.sin(mid)]
 }
@@ -163,6 +168,22 @@ export function buildFlatSvg(r: FlatSvgInput): string {
         return [
           `<path d="M ${n(from[0])} ${n(from[1])} A ${n(fit.radius)} ${n(fit.radius)} 0 ${large} 0 ${n(to[0])} ${n(to[1])}"/>`,
         ]
+      }
+      case 'spline': {
+        // The curve's own cubic Béziers, pole for pole: the turn and the flip
+        // are affine, so the poles map through like any point, and a CAD
+        // sketch reads the spline back exactly. A closed one is closed.
+        const { poles } = splineBezierForm(fit)
+        const pt = (p: Vec2) => {
+          const [x, y] = at(p)
+          return `${n(x)} ${n(y)}`
+        }
+        const parts = [`M ${pt(poles[0])}`]
+        for (let k = 1; k + 2 < poles.length; k += 3) {
+          parts.push(`C ${pt(poles[k])} ${pt(poles[k + 1])} ${pt(poles[k + 2])}`)
+        }
+        if (fit.closed) parts.push('Z')
+        return [`<path d="${parts.join(' ')}"/>`]
       }
     }
   }

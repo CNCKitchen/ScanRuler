@@ -13,6 +13,7 @@ import {
   sectionStroke,
   type ArcGeometry,
 } from '../src/core/section/lift'
+import { fitSplinePoints } from '../src/core/flat/spline'
 import type { FlatArcFit, FlatCircleFit, FlatLineFit, FlatPointFit } from '../src/core/flat/types'
 import type { Vec3 } from '../src/core/types'
 
@@ -38,7 +39,7 @@ describe('lifting sheet geometry through the frame', () => {
   it('a point keeps its residuals and gains no region', () => {
     const fit: FlatPointFit = { kind: 'point', at: [1, -1], sigma: 0.02, usedPoints: 1 }
     const g = liftFlatFit(tilted, fit)
-    expect(g.kind).toBe('point')
+    if (g.kind !== 'point') throw new Error('expected a point')
     near(g.center, [10, 1, 4])
     expect(g.sigma).toBe(0.02)
     expect(g.usedPoints).toBe(1)
@@ -106,6 +107,56 @@ describe('lifting sheet geometry through the frame', () => {
     near(stroke.slice(-3), [10, 0, 7])
     // Never fewer than two segments, however small the sweep.
     expect(sectionStroke({ ...g, sweep: 0.01 }, 8)!.length).toBe(3 * 3)
+  })
+
+  it('a spline lifts pole for pole into the plane, and its stroke samples the Béziers', () => {
+    const fit = fitSplinePoints(
+      [
+        [0, 0],
+        [4, 0],
+        [8, 0],
+      ],
+      [null, null, null],
+      false,
+    )
+    const g = liftFlatFit(tilted, fit)
+    if (g.kind !== 'spline') throw new Error('expected a spline')
+    // Two segments: seven poles on the sheet's chord-length knots.
+    expect(g.poles).toHaveLength(7)
+    expect(g.knots).toEqual([0, 4, 8])
+    expect(g.closed).toBe(false)
+    expect(g.usedPoints).toBe(3)
+    near(g.poles[0], [10, 0, 5])
+    near(g.poles[6], [10, 8, 5])
+    // Points on a line make a straight curve: every pole in the plane, on
+    // the sheet's U axis.
+    for (const p of g.poles) {
+      expect(p[0]).toBeCloseTo(10, 9)
+      expect(p[2]).toBeCloseTo(5, 9)
+    }
+    const stroke = sectionStroke(g)!
+    // Sixteen steps per Bézier at the default: 33 vertices for two.
+    expect(stroke.length).toBe(33 * 3)
+    near(stroke.slice(0, 3), [10, 0, 5])
+    near(stroke.slice(48, 51), [10, 4, 5])
+    near(stroke.slice(-3), [10, 8, 5])
+    // A closed curve lifts its return leg too, ending where it began.
+    const ring = liftFlatFit(
+      tilted,
+      fitSplinePoints(
+        [
+          [0, 0],
+          [4, 0],
+          [4, 4],
+        ],
+        [null, null, null],
+        true,
+      ),
+    )
+    if (ring.kind !== 'spline') throw new Error('expected a spline')
+    expect(ring.poles).toHaveLength(10)
+    expect(ring.closed).toBe(true)
+    near(ring.poles[9], ring.poles[0])
   })
 
   it('a point has no stroke, and a full sweep is a circle', () => {

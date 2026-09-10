@@ -15,6 +15,7 @@
 // again from the frame in force, so a datum alignment that carries the
 // section carries what was measured on it too.
 
+import { splineBezierForm } from '../flat/spline'
 import type { FlatFit, Vec2 } from '../flat/types'
 import type { CircleFit, FitBase, LineFit, PointFit, Vec3 } from '../types'
 import { orthoBasis } from '../fit/linalg'
@@ -35,8 +36,19 @@ export interface ArcGeometry extends FitBase {
   sweep: number
 }
 
-/** A section element in the part: what the sheet's four kinds become. */
-export type SectionGeometry = PointFit | LineFit | CircleFit | ArcGeometry
+/** A sheet spline in space: its cubic Béziers pole for pole — 3s + 1 poles
+ *  for s segments, segment k through poles 3k to 3k + 3 — on the sheet's
+ *  chord-length knots, s + 1 of them. The form a STEP B-spline is written in
+ *  directly, and what the 3D viewport samples. */
+export interface SplineGeometry extends FitBase {
+  kind: 'spline'
+  poles: Vec3[]
+  knots: number[]
+  closed: boolean
+}
+
+/** A section element in the part: what the sheet's five kinds become. */
+export type SectionGeometry = PointFit | LineFit | CircleFit | ArcGeometry | SplineGeometry
 
 /** A sheet point in the part. */
 export function liftPoint(frame: SectionFrame, p: Vec2): Vec3 {
@@ -83,6 +95,18 @@ export function liftFlatFit(frame: SectionFrame, fit: FlatFit): SectionGeometry 
         sweep: fit.sweep,
         ...stats,
       }
+    case 'spline': {
+      // The lift is affine, so the Bézier poles lift like any point and the
+      // curve through them is the sheet's curve, stood up.
+      const { poles, knots } = splineBezierForm(fit)
+      return {
+        kind: 'spline',
+        poles: poles.map((p) => liftPoint(frame, p)),
+        knots,
+        closed: fit.closed,
+        ...stats,
+      }
+    }
   }
 }
 
@@ -98,12 +122,30 @@ export function isFullTurn(sweep: number): boolean {
  * closed ring for a circle (its first vertex repeated at the end), the swept
  * part alone for an arc, the measured segment for a line. A point has no
  * stroke — it is a marker — and returns null. `segments` is how many a full
- * turn is divided into; an arc gets its share of them, never fewer than two.
+ * turn is divided into; an arc gets its share of them, never fewer than two,
+ * and a spline a sixth of them per Bézier — sixteen at the default.
  */
 export function sectionStroke(g: SectionGeometry, segments = 96): number[] | null {
   switch (g.kind) {
     case 'point':
       return null
+    case 'spline': {
+      const per = Math.max(2, Math.round(segments / 6))
+      const out: number[] = [...g.poles[0]]
+      for (let k = 0; k + 3 < g.poles.length; k += 3) {
+        const [b0, b1, b2, b3] = g.poles.slice(k, k + 4)
+        for (let i = 1; i <= per; i++) {
+          const u = i / per
+          const v = 1 - u
+          const w0 = v * v * v
+          const w1 = 3 * v * v * u
+          const w2 = 3 * v * u * u
+          const w3 = u * u * u
+          for (let c = 0; c < 3; c++) out.push(w0 * b0[c] + w1 * b1[c] + w2 * b2[c] + w3 * b3[c])
+        }
+      }
+      return out
+    }
     case 'line': {
       const a = addScaled(g.center, g.dir, -g.length / 2)
       const b = addScaled(g.center, g.dir, g.length / 2)

@@ -64,6 +64,14 @@ export function fitInFrame(fit: FlatFit, frame: FlatFrame | null): FlatFit {
     }
   }
   if (fit.kind === 'circle') return { ...fit, center: toFrame(frame, fit.center) }
+  if (fit.kind === 'spline') {
+    const [c, s] = frame.xDir
+    return {
+      ...fit,
+      points: fit.points.map((p) => toFrame(frame, p)),
+      tangents: fit.tangents.map((t) => [t[0] * c + t[1] * s, -t[0] * s + t[1] * c]),
+    }
+  }
   // An arc's start angle is measured from +X, which the frame rotates.
   const angle = Math.atan2(frame.xDir[1], frame.xDir[0])
   return { ...fit, center: toFrame(frame, fit.center), start: fit.start - angle }

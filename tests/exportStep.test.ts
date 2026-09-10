@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
 import { buildStepFile, type StepElement, type StepSection } from '../src/core/exportStep'
-import type { ArcGeometry } from '../src/core/section/lift'
+import type { ArcGeometry, SplineGeometry } from '../src/core/section/lift'
 import type { CircleFit, CylinderFit, LineFit, PlaneFit, PointFit, SphereFit } from '../src/core/types'
 
 const NO_STATS = { sigma: 0, usedPoints: 0, regionSize: 0 }
@@ -329,6 +329,48 @@ describe('sections in the STEP file', () => {
     // Round the whole way it is the circle, under its own name.
     expect(text).toMatch(/CIRCLE\('Arc 2',#\d+,2\.\)/)
     expect(text).not.toContain("TRIMMED_CURVE('Arc 2'")
+  })
+
+  it("writes a spline as a cubic B-spline in Bézier form on the sheet's knots", () => {
+    // Two Béziers: seven poles, knots at the sheet's chord lengths.
+    const spline: SplineGeometry = {
+      kind: 'spline',
+      poles: [
+        [10, 0, 5],
+        [10, 1, 5],
+        [10, 3, 5],
+        [10, 4, 5],
+        [10, 5, 6],
+        [10, 7, 7],
+        [10, 8, 7],
+      ],
+      knots: [0, 4, 8.5],
+      closed: false,
+      ...NO_STATS,
+    }
+    const group = (name: string, fit: SplineGeometry): StepSection[] => [
+      { name: 'Section 4', elements: [{ name, fit }] },
+    ]
+    for (const style of ['solids', 'surfaces'] as const) {
+      const text = buildStepFile([], 'scan.stl', STAMP, style, group('Spline 1', spline))
+      const m = text.match(
+        /B_SPLINE_CURVE_WITH_KNOTS\('Spline 1',3,\(([^)]+)\),\.UNSPECIFIED\.,\.F\.,\.U\.,\(([\d,]+)\),\(([^)]+)\),\.UNSPECIFIED\.\)/,
+      )
+      expect(m).toBeTruthy()
+      const poles = m![1].split(',')
+      expect(poles).toHaveLength(7)
+      // Multiplicities of the degree at the interior knots and one more at
+      // the ends: as many knots as poles plus the degree plus one.
+      expect(m![2]).toBe('4,3,4')
+      expect(m![3]).toBe('0.,4.,8.5')
+      expect(text).toMatch(new RegExp(`^${poles[0]}=CARTESIAN_POINT\\('',\\(10\\.,0\\.,5\\.\\)\\);$`, 'm'))
+      expect(text).toMatch(new RegExp(`^${poles[6]}=CARTESIAN_POINT\\('',\\(10\\.,8\\.,7\\.\\)\\);$`, 'm'))
+      // In the section's wireframe group, like the other curves.
+      expect(text).toContain("GEOMETRIC_CURVE_SET('Section 4',(")
+      for (const ref of text.matchAll(/#(\d+)/g)) expect(text).toMatch(new RegExp(`^#${ref[1]}=`, 'm'))
+    }
+    const closed = buildStepFile([], 'scan.stl', STAMP, 'solids', group('Ring', { ...spline, closed: true }))
+    expect(closed).toMatch(/B_SPLINE_CURVE_WITH_KNOTS\('Ring',3,\([^)]+\),\.UNSPECIFIED\.,\.T\.,\.U\./)
   })
 
   it('a file of sections alone stands on a bare root in either form', () => {

@@ -3,7 +3,8 @@ import type { FlatElementKind, FlatFit, Vec2 } from './types'
 
 /** The proxy geometry a flat element contributes to a measurement — the 2D
  *  half of the metrology reduction in elements/refs.ts: points, circles and
- *  arcs act as a point (their center), lines as a line. */
+ *  arcs act as a point (their center), lines as a line. A spline is a free
+ *  curve with no center and no direction, and plays no part in a dimension. */
 export type FlatRefRole = 'point' | 'line'
 
 export const FLAT_ROLE_PROVIDERS: Record<FlatRefRole, readonly FlatElementKind[]> = {
@@ -11,8 +12,10 @@ export const FLAT_ROLE_PROVIDERS: Record<FlatRefRole, readonly FlatElementKind[]
   line: ['line'],
 }
 
-/** The one role a flat element kind plays in a measurement. */
-export function flatRoleOf(kind: FlatElementKind): FlatRefRole {
+/** The one role a flat element kind plays in a measurement — none for a
+ *  spline. */
+export function flatRoleOf(kind: FlatElementKind): FlatRefRole | null {
+  if (kind === 'spline') return null
   return kind === 'line' ? 'line' : 'point'
 }
 

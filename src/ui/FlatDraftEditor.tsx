@@ -7,7 +7,7 @@
 
 import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
 import { datumFrame, fitInFrame } from '../core/flat/datum'
-import { FLAT_KIND_LABELS } from '../core/flat/elements'
+import { FLAT_KIND_LABELS, flatPicksNeeded } from '../core/flat/elements'
 import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import { flatBlockedRefs, flatDraftColorOf, useFlat } from '../state/flatStore'
@@ -26,6 +26,8 @@ export function FlatDraftEditor() {
   const setDraftName = useFlat((s) => s.setDraftName)
   const setDraftRef = useFlat((s) => s.setDraftRef)
   const undoDraftPick = useFlat((s) => s.undoDraftPick)
+  const setDraftClosed = useFlat((s) => s.setDraftClosed)
+  const freeDraftTangents = useFlat((s) => s.freeDraftTangents)
   const cancelDraft = useFlat((s) => s.cancelDraft)
   const commitDraft = useFlat((s) => s.commitDraft)
 
@@ -38,9 +40,11 @@ export function FlatDraftEditor() {
   const blocked = flatBlockedRefs(draft.editId, elements)
   const unit = pxPerMm ? 'mm' : 'px'
   const frame = datum ? datumFrame(datum, pxPerMm) : null
-  const minPicks = method.minPicks ?? 1
+  const minPicks = flatPicksNeeded(draft.method, draft.closed)
   const picks = draft.picks.length
   const saveWord = edited ? 'save it' : 'create it'
+  const isSpline = draft.kind === 'spline'
+  const tangentsSet = draft.tangents.filter((t) => t !== null).length
 
   // What to do next, in one line — the method's own hint until the first
   // pick lands, then where the fit stands.
@@ -55,9 +59,13 @@ export function FlatDraftEditor() {
             : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; click a longer edge or drag a bigger box.`
           : draft.kind === 'point'
             ? `Drag the pin to move it, click to place it again, or ${saveWord}.`
-            : picks < minPicks
-              ? `${minPicks - picks} more point${minPicks - picks === 1 ? '' : 's'} to go — spread them along the ${noun}. Pins can be dragged.`
-              : `More points refine the fit, drag a pin to move it, or ${saveWord}.`
+            : isSpline
+              ? picks < minPicks
+                ? `${minPicks - picks} more point${minPicks - picks === 1 ? '' : 's'} to go — in order along the curve. Pins can be dragged.`
+                : `Click to add the next point, or on the curve to insert one there. Drag a handle to set the tangent at its point, click it to let it go free again, or ${saveWord}.`
+              : picks < minPicks
+                ? `${minPicks - picks} more point${minPicks - picks === 1 ? '' : 's'} to go — spread them along the ${noun}. Pins can be dragged.`
+                : `More points refine the fit, drag a pin to move it, or ${saveWord}.`
 
   const status = draft.fit ? 'ready' : draft.error ? 'failed' : 'empty'
   const primary = draft.fit ? formatFlatPrimary(fitInFrame(draft.fit, frame), unit) : ''
@@ -99,6 +107,18 @@ export function FlatDraftEditor() {
             onChange={(e) => setSnapToEdge(e.target.checked)}
           />
           <span>Snap to edge</span>
+        </label>
+      )}
+
+      {isSpline && (
+        <label className="checkrow">
+          <input
+            type="checkbox"
+            data-test="flat-draft-closed"
+            checked={draft.closed}
+            onChange={(e) => setDraftClosed(e.target.checked)}
+          />
+          <span>Closed curve</span>
         </label>
       )}
 
@@ -172,6 +192,16 @@ export function FlatDraftEditor() {
         {method.mode !== 'construct' && (
           <button data-test="flat-draft-undo" disabled={picks === 0} onClick={undoDraftPick}>
             {method.mode === 'edge' ? 'Clear points' : 'Undo point'}
+          </button>
+        )}
+        {isSpline && (
+          <button
+            data-test="flat-draft-free-tangents"
+            disabled={tangentsSet === 0}
+            title="Every tangent automatic again — the curve as smooth as it can be through the points"
+            onClick={freeDraftTangents}
+          >
+            Free tangents
           </button>
         )}
         <button data-test="flat-draft-cancel" onClick={cancelDraft}>

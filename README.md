@@ -291,7 +291,7 @@ section's plane and cuts it again on load.
 What a section is *for* is the 2D Measure workspace, where it becomes a
 source beside the flatbed image — see [Measuring a
 section](#measuring-a-section). What is measured there **belongs to the
-section**: the points, lines, circles and arcs fitted on its sheet are drawn
+section**: the points, lines, circles, arcs and splines fitted on its sheet are drawn
 back on the part in the 3D view, in the section's colour, lying in its plane
 on the cut, hidden with it, and without readouts of their own — the numbers
 are on the sheet, and the section's row says how many elements it carries.
@@ -432,7 +432,7 @@ AP214) as **analytic geometry, not tessellation**, in either of two forms —
 | **Cylinder** | a **closed solid body**: the fitted wall, capped at both ends by flat lids |
 | **Sphere** | a **closed solid ball**, two hemispheres meeting at an equator |
 | **Line, Point** | a trimmed line and a point, as they always were |
-| **Section** | what was measured on its sheet — points, lines, circles and arcs — as curves lying in the cutting plane, in a wireframe group named after the section |
+| **Section** | what was measured on its sheet — points, lines, circles, arcs and splines — as curves lying in the cutting plane, in a wireframe group named after the section; a spline goes out as a cubic `B_SPLINE_CURVE_WITH_KNOTS` in Bézier form, exactly the curve on the sheet |
 
 Each body is its own named shape representation, tied to the part the way the
 bodies of a multi-body file are, so the element names arrive in the CAD tree —
@@ -951,7 +951,7 @@ needs to shout is the thin one.
 Switch to the **2D Measure** workspace and drop in a flatbed scan of the part —
 a PNG or JPEG, scanned face-down at the highest optical resolution you have.
 The workspace measures it the way a measuring microscope would: fit points,
-lines, circles and arcs to the part's edges, then measure between them. A
+lines, circles, arcs and splines to the part's edges, then measure between them. A
 flatbed scanner is a surprisingly good comparator — the optics are telecentric
 enough over the glass, and at 600 dpi one pixel is 42 µm with edges located to
 a fraction of that.
@@ -1012,6 +1012,22 @@ Points can also be constructed: the midpoint of two points, the center of a
 circle, or the **intersection of two lines** — the corner two edges meet at,
 which no scan images sharply and no click can hit.
 
+A **Spline** is the free curve a CAD sketch draws through fit points — a cam
+profile, a fillet that is no arc, the outline of a lever — with the controls
+Fusion's fit-point spline gives you. Click its points in order along the
+edge (each snaps like any pick, and every pin drags afterwards); click *on*
+the curve to insert a point between the two it runs between. The curve is a
+cubic through every point, parameterised by chord length and solved for C2
+continuity, so it is as smooth as the points allow. Every point wears a
+**tangent handle**: drag either end to fix the tangent there — direction and
+pull — and the rest of the curve re-solves around it; click a handle to let
+it go automatic again, or **Free tangents** for all of them at once. **Closed
+curve** closes it on itself (three points at least). It reads as its arc
+length, lists its points and how many tangents were set, and takes no part in
+dimensions — a free curve has no center and no direction to measure to — but
+it leaves the tool as a real spline: a path of cubic Béziers in the SVG, and
+on a section, a B-spline in the STEP file.
+
 Fits report σ and the peak-to-peak form error (straightness, circularity) like
 every other fit in the tool. The panel is the 3D Measure workspace's panel with
 the kinds swapped: the same kind buttons, the same draft box, and the same
@@ -1043,7 +1059,7 @@ get trusted.
 
 **Export SVG** writes the sheet as a drawing at true scale — one unit per
 millimetre, turned as the sheet is shown: every detected edge chain as a
-polyline and every visible element as a native line, circle or arc, each
+polyline and every visible element as a native line, circle, arc or spline path, each
 layer its own group, so a CAD sketch can trace the scan's outline against the
 fitted geometry and a vector editor can pick either apart. Nothing sits under
 a transform, and the file's description carries the traceability line.
@@ -1104,6 +1120,7 @@ node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, datum, report
+node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
 

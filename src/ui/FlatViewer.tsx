@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useRef, useState } from 'react'
 import type { Vec2 } from '../core/flat/types'
+import type { HandleEnd } from '../state/flatStore'
 import { FlatScene } from '../viewer/FlatScene'
 import { schemeById } from '../viewer/navSchemes'
 import { themeById } from '../viewer/viewThemes'
@@ -22,6 +23,8 @@ export function FlatViewer({
   onPick,
   onPickDrag,
   onPickRemove,
+  onHandleDrag,
+  onHandleReset,
   onNoteDrag,
   onNoteSelect,
   onRegion,
@@ -36,6 +39,10 @@ export function FlatViewer({
   onPickDrag: (index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   /** A draft pin clicked in place — the pick is to be taken back. */
   onPickRemove: (index: number) => void
+  /** One end of a spline draft's tangent handle dragged to a spot. */
+  onHandleDrag: (index: number, end: HandleEnd, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
+  /** A handle clicked in place — the tangent there goes automatic again. */
+  onHandleReset: (index: number) => void
   /** A text note dragged to a new spot, and one clicked to open for typing. */
   onNoteDrag: (id: number, p: Vec2) => void
   onNoteSelect: (id: number) => void
@@ -61,6 +68,10 @@ export function FlatViewer({
   dragRef.current = onPickDrag
   const removeRef = useRef(onPickRemove)
   removeRef.current = onPickRemove
+  const handleDragRef = useRef(onHandleDrag)
+  handleDragRef.current = onHandleDrag
+  const handleResetRef = useRef(onHandleReset)
+  handleResetRef.current = onHandleReset
   const noteDragRef = useRef(onNoteDrag)
   noteDragRef.current = onNoteDrag
   const noteSelectRef = useRef(onNoteSelect)
@@ -93,6 +104,8 @@ export function FlatViewer({
     scene.onPick = (p, meta) => pickRef.current(p, meta)
     scene.onPickDrag = (i, p, meta) => dragRef.current(i, p, meta)
     scene.onPickRemove = (i) => removeRef.current(i)
+    scene.onHandleDrag = (i, end, p, meta) => handleDragRef.current(i, end, p, meta)
+    scene.onHandleReset = (i) => handleResetRef.current(i)
     scene.onNoteDrag = (id, p) => noteDragRef.current(id, p)
     scene.onNoteSelect = (id) => noteSelectRef.current(id)
     scene.onRegion = (min, max) => regionRef.current(min, max)

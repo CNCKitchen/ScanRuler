@@ -244,6 +244,8 @@ export class SectionOverlay {
     for (const g of elements) {
       const stroke = sectionStroke(g)
       if (!stroke) {
+        // Only a point has no stroke — it is a dot where it was picked.
+        if (g.kind !== 'point') continue
         dotMat ??= new THREE.MeshBasicMaterial({ color })
         const dot = new THREE.Mesh(this.unitSphere, dotMat)
         dot.position.set(g.center[0], g.center[1], g.center[2])

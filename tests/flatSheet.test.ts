@@ -121,6 +121,33 @@ describe('the layers', () => {
     expect(draft.regionMode).toBe(true)
   })
 
+  it('draw a spline draft with a handle through every pin once the curve exists', () => {
+    useFlat.getState().startDraft('spline', 'flat-spline-pick')
+    useFlat.getState().stageClick([10, 10], alt, null)
+    expect(sheetDraft(useFlat.getState()).handles).toEqual([])
+    useFlat.getState().stageClick([30, 10], alt, null)
+    const draft = sheetDraft(useFlat.getState())
+    expect(draft.pins).toEqual([
+      [10, 10],
+      [30, 10],
+    ])
+    expect(draft.fit?.kind).toBe('spline')
+    expect(draft.handles).toHaveLength(2)
+    expect(draft.handles[0].at).toEqual([10, 10])
+    // Two points on a line: the curve leaves the first straight along it, a
+    // third of the way to the second.
+    expect(draft.handles[0].a[0]).toBeCloseTo(10 + 20 / 3, 9)
+    expect(draft.handles[0].a[1]).toBeCloseTo(10, 9)
+    expect(draft.handles[0].fixed).toBe(false)
+    expect(draft.regionMode).toBe(false)
+    // Every other draft carries none.
+    useFlat.getState().cancelDraft()
+    useFlat.getState().startDraft('line', 'flat-line-pick')
+    useFlat.getState().stageClick([10, 10], alt, null)
+    useFlat.getState().stageClick([30, 10], alt, null)
+    expect(sheetDraft(useFlat.getState()).handles).toEqual([])
+  })
+
   it('run the loupe only while picks are placed by hand', () => {
     expect(sheetLoupeActive(useFlat.getState())).toBe(false)
     useFlat.getState().startCount()

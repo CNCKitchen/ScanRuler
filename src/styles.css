@@ -2458,6 +2458,25 @@ button.x:disabled {
   white-space: nowrap;
 }
 
+/* The ends of a spline draft's tangent handles: tool furniture in the
+   annunciator amber, a hollow ring while the tangent is automatic and a
+   filled one once a drag has fixed it. The ring is not the hit target — the
+   scene tests the handle's document spot itself — so it takes no pointer. */
+.spline-handle {
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid #e8a33d;
+  background: rgba(252, 252, 250, 0.94);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+}
+
+.spline-handle.fixed {
+  background: #e8a33d;
+}
+
 /* ---------------- model slots & units ---------------- */
 
 .slot {

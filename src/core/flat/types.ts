@@ -7,7 +7,7 @@
 
 export type Vec2 = [number, number]
 
-export type FlatElementKind = 'point' | 'line' | 'circle' | 'arc'
+export type FlatElementKind = 'point' | 'line' | 'circle' | 'arc' | 'spline'
 
 /** What every flat fit reports regardless of geometry. Mirrors the 3D
  *  FitBase: sigma is the RMS residual, formError the peak-to-peak residual —
@@ -52,4 +52,22 @@ export interface FlatArcFit extends FlatFitBase {
   sweep: number
 }
 
-export type FlatFit = FlatPointFit | FlatLineFit | FlatCircleFit | FlatArcFit
+/** A free curve through fit points — the profile of a cam, a fillet that is
+ *  no arc, the outline of a lever. Cubic Hermite between consecutive points,
+ *  parameterised by chord length, so a segment from `points[k]` to
+ *  `points[k+1]` runs at the derivatives `tangents[k]` and `tangents[k+1]`
+ *  per unit of parameter. The tangents are solved for C2 continuity wherever
+ *  nothing set them by hand — `fixed[i]` says which were — with natural ends
+ *  on an open curve and a periodic wrap on a closed one, whose last segment
+ *  returns to `points[0]`. `length` is the arc length of the whole curve.
+ *  See flat/spline.ts. */
+export interface FlatSplineFit extends FlatFitBase {
+  kind: 'spline'
+  points: Vec2[]
+  tangents: Vec2[]
+  fixed: boolean[]
+  closed: boolean
+  length: number
+}
+
+export type FlatFit = FlatPointFit | FlatLineFit | FlatCircleFit | FlatArcFit | FlatSplineFit

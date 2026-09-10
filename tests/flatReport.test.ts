@@ -5,6 +5,7 @@ import { evaluateFlatDimensions } from '../src/core/flat/dimensions'
 import type { FlatElement } from '../src/core/flat/elements'
 import { fitCirclePoints, fitLinePoints } from '../src/core/flat/fit'
 import { buildFlatCsv, buildFlatReport, type FlatReportInput } from '../src/core/flat/report'
+import { fitSplinePoints } from '../src/core/flat/spline'
 
 function sampleInput(over: Partial<FlatReportInput> = {}): FlatReportInput {
   const circle = fitCirclePoints([
@@ -111,5 +112,46 @@ describe('buildFlatCsv', () => {
     input.dimensions = []
     const csv = buildFlatCsv(input)
     expect(csv).toContain('"Circle ""big"", outer"')
+  })
+})
+
+describe('a spline in the report and the CSV', () => {
+  const spline = fitSplinePoints(
+    [
+      [0, 0],
+      [10, 5],
+      [20, 0],
+    ],
+    [null, [3, 0], null],
+    true,
+  )
+  const element: FlatElement = {
+    id: 4,
+    kind: 'spline',
+    name: 'Spline 1',
+    color: '#000000',
+    source: { type: 'picks', method: 'flat-spline-pick', picks: [], tangents: [null, [70, 0], null], closed: true },
+    fit: spline,
+    error: null,
+    visible: true,
+  }
+  const input = sampleInput({ elements: [element], dimensions: [] })
+
+  it('reads as its length, closed, with its points and the tangents set by hand', () => {
+    const text = buildFlatReport(input)
+    expect(text).toMatch(/Spline 1: L [\d.]+ mm · closed \(3 fit points · 1 tangent set\)/)
+  })
+
+  it('carries its start and its length in the numeric columns', () => {
+    const row = buildFlatCsv(input)
+      .split('\n')
+      .find((l) => l.startsWith('Spline 1'))!
+    const cols = row.split(',')
+    expect(cols[1]).toBe('spline')
+    expect(cols[2]).toBe('0.0000')
+    expect(cols[3]).toBe('0.0000')
+    expect(cols[4]).toBe('')
+    expect(Number(cols[5])).toBeCloseTo(spline.length, 3)
+    expect(cols[10]).toBe('3')
   })
 })

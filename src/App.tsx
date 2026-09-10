@@ -1647,6 +1647,8 @@ export default function App() {
                   useFlat.getState().stageDrag(i, p, meta, activeEdgeIndex())
                 }
                 onPickRemove={(i) => useFlat.getState().removeDraftPick(i)}
+                onHandleDrag={(i, end, p, meta) => useFlat.getState().stageHandleDrag(i, end, p, meta)}
+                onHandleReset={(i) => useFlat.getState().setDraftTangent(i, null)}
                 onNoteDrag={(id, p) => useFlat.getState().stageNoteDrag(id, p)}
                 onNoteSelect={(id) => useFlat.getState().editNote(id)}
                 onRegion={(min, max) => useFlat.getState().stageRegion(min, max, activeEdgeIndex())}

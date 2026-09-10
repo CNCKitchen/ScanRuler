@@ -35,6 +35,7 @@
     "e2e:step": "node scripts/e2e-step.mjs",
     "e2e:local-fit": "node scripts/e2e-local-fit.mjs",
     "e2e:flat": "node scripts/e2e-flat.mjs",
+    "e2e:spline": "node scripts/e2e-spline.mjs",
     "e2e:project": "node scripts/e2e-project.mjs",
     "e2e:surface": "node scripts/e2e-surface.mjs",
     "e2e:section": "node scripts/e2e-section.mjs"

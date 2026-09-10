@@ -11,8 +11,11 @@ import type { FlatElementKind, FlatFit, Vec2 } from './types'
 
 export type FlatSource =
   /** Picked points (by hand, snapped or not) or collected off edge chains —
-   *  either way, image-pixel coordinates through a pick-mode method. */
-  | { type: 'picks'; method: string; picks: Vec2[] }
+   *  either way, image-pixel coordinates through a pick-mode method. A
+   *  spline's picks are its fit points, and it records beside them the
+   *  tangent handle set at each (an offset in image pixels, null where the
+   *  tangent is automatic) and whether the curve closes. */
+  | { type: 'picks'; method: string; picks: Vec2[]; tangents?: (Vec2 | null)[]; closed?: boolean }
   | { type: 'construct'; method: string; refs: number[] }
 
 export interface FlatElement {
@@ -34,12 +37,23 @@ export const FLAT_KIND_LABELS: Record<FlatElementKind, string> = {
   line: 'Line',
   circle: 'Circle',
   arc: 'Arc',
+  spline: 'Spline',
 }
 
 /** px → document units. With no scale in force the document IS pixels. */
 export function picksToDocument(picks: readonly Vec2[], pxPerMm: PixelsPerMm | null): Vec2[] {
   if (!pxPerMm) return picks.map((p) => [p[0], p[1]])
   return picks.map((p) => [p[0] / pxPerMm.x, p[1] / pxPerMm.y])
+}
+
+/** The tangent handles the same way — offsets scale like the picks do, so a
+ *  handle end lands where its pick plus the offset lands. */
+function tangentsToDocument(
+  tangents: readonly (Vec2 | null)[] | undefined,
+  pxPerMm: PixelsPerMm | null,
+): (Vec2 | null)[] {
+  if (!tangents) return []
+  return tangents.map((t) => (t ? picksToDocument([t], pxPerMm)[0] : null))
 }
 
 /**
@@ -53,7 +67,10 @@ export function evaluateFlatSource(
   fitOf: (id: number) => FlatFit | null,
 ): FlatFit {
   if (source.type === 'picks') {
-    return evaluateFlatPicks(source.method, picksToDocument(source.picks, pxPerMm))
+    return evaluateFlatPicks(source.method, picksToDocument(source.picks, pxPerMm), {
+      tangents: tangentsToDocument(source.tangents, pxPerMm),
+      closed: source.closed,
+    })
   }
   const refs = source.refs.map((id) => {
     const fit = fitOf(id)
@@ -86,9 +103,18 @@ export function evaluateFlatElements(
     })
 }
 
+/** How many picks a pick-mode method needs before it fits. A closed spline
+ *  needs a third point: two points closed on themselves is a line traced
+ *  there and back. */
+export function flatPicksNeeded(method: string, closed = false): number {
+  const m = flatMethod(method)
+  const min = m.minPicks ?? 1
+  return m.kind === 'spline' && closed ? Math.max(min, 3) : min
+}
+
 /** Whether a pick-mode draft has enough points to fit. */
-export function flatPicksReady(method: string, picks: readonly Vec2[]): boolean {
-  return picks.length >= (flatMethod(method).minPicks ?? 1)
+export function flatPicksReady(method: string, picks: readonly Vec2[], closed = false): boolean {
+  return picks.length >= flatPicksNeeded(method, closed)
 }
 
 /** An element and everything constructed on it, transitively — what a

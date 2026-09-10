@@ -14,6 +14,7 @@ import { evaluateFlatDimensions, type FlatDimension } from '../core/flat/dimensi
 import type { FlatElement } from '../core/flat/elements'
 import type { FlatDatum } from '../core/flat/datum'
 import type { PixelsPerMm } from '../core/flat/image'
+import { splineHandles, type SplineHandle } from '../core/flat/spline'
 import { formatFlatPrimary } from '../core/flat/summary'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import {
@@ -77,6 +78,9 @@ export interface SheetDraft {
   color: string
   /** The stage takes drags as regions rather than pans. */
   regionMode: boolean
+  /** A spline draft's tangent handles, one per pin, each end draggable —
+   *  none for anything else, or before the curve exists. */
+  handles: SplineHandle[]
 }
 
 export type SheetGrid = { origin: Vec2; xDir: Vec2 } | null
@@ -185,12 +189,14 @@ export function sheetDraft(
   // A region-collected draft carries thousands of points — a dot cloud, not
   // numbered pins.
   const isEdgeDraft = s.draft ? flatMethod(s.draft.method).mode === 'edge' : false
+  const fit = s.draft?.fit ?? null
   return {
     pins: isEdgeDraft ? [] : picks,
-    fit: s.draft?.fit ?? null,
+    fit,
     cloud: isEdgeDraft ? picks : undefined,
     color: flatDraftColorOf(s),
     regionMode: isEdgeDraft,
+    handles: fit?.kind === 'spline' ? splineHandles(fit) : [],
   }
 }
 

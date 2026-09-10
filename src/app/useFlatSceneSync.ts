@@ -60,7 +60,7 @@ export function useFlatSceneSync({
     if (!view) return
     view.setFlatElements(sheetElements(s))
     const draft = sheetDraft(s)
-    view.setDraftMarks(draft.pins, draft.fit, draft.cloud, draft.color)
+    view.setDraftMarks(draft.pins, draft.fit, draft.cloud, draft.color, draft.handles)
     view.setRegionMode(draft.regionMode)
   }
 

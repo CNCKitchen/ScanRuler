@@ -13,7 +13,7 @@ describe('the flat method table', () => {
   it('has unique ids and a method for every kind', () => {
     const ids = FLAT_METHODS.map((m) => m.id)
     expect(new Set(ids).size).toBe(ids.length)
-    for (const kind of ['point', 'line', 'circle', 'arc'] as const) {
+    for (const kind of ['point', 'line', 'circle', 'arc', 'spline'] as const) {
       expect(flatMethodsForKind(kind).length).toBeGreaterThan(0)
     }
   })
@@ -53,6 +53,29 @@ describe('evaluateFlatPicks', () => {
         [-1, 0],
       ]).kind,
     ).toBe('arc')
+  })
+
+  it('hands a spline its handles and its closure', () => {
+    const fit = evaluateFlatPicks(
+      'flat-spline-pick',
+      [
+        [0, 0],
+        [5, 5],
+        [10, 0],
+      ],
+      { closed: true, tangents: [null, [1, 0], null] },
+    )
+    if (fit.kind !== 'spline') throw new Error('not a spline')
+    expect(fit.closed).toBe(true)
+    expect(fit.fixed).toEqual([false, true, false])
+    // Without them, every tangent is automatic and the curve is open.
+    const bare = evaluateFlatPicks('flat-spline-pick', [
+      [0, 0],
+      [5, 5],
+    ])
+    if (bare.kind !== 'spline') throw new Error('not a spline')
+    expect(bare.closed).toBe(false)
+    expect(bare.fixed).toEqual([false, false])
   })
 
   it('moves a picked point rather than adding to it', () => {

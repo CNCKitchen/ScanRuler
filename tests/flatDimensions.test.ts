@@ -24,6 +24,8 @@ describe('the flat dimension table', () => {
     expect(flatRoleOf('circle')).toBe('point')
     expect(flatRoleOf('arc')).toBe('point')
     expect(flatRoleOf('line')).toBe('line')
+    // A free curve has no center and no direction to measure to.
+    expect(flatRoleOf('spline')).toBeNull()
   })
 })
 

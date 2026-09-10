@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { datumFrame, fitInFrame, gridSpacing, toFrame } from '../src/core/flat/datum'
 import { fitLinePoints, flatPoint } from '../src/core/flat/fit'
+import { fitSplinePoints } from '../src/core/flat/spline'
 
 describe('datumFrame', () => {
   it('spans origin and +X from two pixel picks at the scale in force', () => {
@@ -42,6 +43,27 @@ describe('toFrame and fitInFrame', () => {
     expect(inFrame.length).toBeCloseTo(line.length, 12)
     // The 45° line reads as 0° in a 45° frame.
     expect(Math.atan2(inFrame.dir[1], inFrame.dir[0])).toBeCloseTo(0, 6)
+  })
+
+  it("moves a spline's points into the frame and turns its tangents with them", () => {
+    const spline = fitSplinePoints(
+      [
+        [100, 100],
+        [110, 110],
+      ],
+      [null, null],
+      false,
+    )
+    const inFrame = fitInFrame(spline, frame)
+    if (inFrame.kind !== 'spline') throw new Error('kind changed')
+    expect(inFrame.points[0][0]).toBeCloseTo(0, 6)
+    expect(inFrame.points[0][1]).toBeCloseTo(0, 6)
+    expect(inFrame.points[1][0]).toBeCloseTo(Math.hypot(10, 10), 6)
+    expect(inFrame.points[1][1]).toBeCloseTo(0, 6)
+    // The 45° tangent reads as 0° in a 45° frame; the length rides along.
+    expect(Math.atan2(inFrame.tangents[0][1], inFrame.tangents[0][0])).toBeCloseTo(0, 6)
+    expect(inFrame.length).toBe(spline.length)
+    expect(inFrame.fixed).toEqual([false, false])
   })
 
   it('is the identity without a frame', () => {

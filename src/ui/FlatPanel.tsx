@@ -33,7 +33,7 @@ import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
 
-const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc']
+const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc', 'spline']
 
 /** How far round the sheet is shown, in words: quarter turns
  *  counter-clockwise, 1 to 3. */
@@ -374,8 +374,8 @@ export function FlatPanel({
             Create element
             <InfoDot title="Elements">
               <p>
-                Every measurement here starts with an element — a point, a line, a circle or an
-                arc. Dimensions are then measured between them, never between raw pixels.
+                Every measurement here starts with an element — a point, a line, a circle, an arc
+                or a spline. Dimensions are then measured between them, never between raw pixels.
               </p>
               <p>
                 An element is <b>picked</b>, by clicking the points it runs through — with{' '}
@@ -388,6 +388,14 @@ export function FlatPanel({
               </p>
               <p>
                 Which of those a kind offers appears as <i>Created</i> once you choose it.
+              </p>
+              <p>
+                A <b>spline</b> is the free curve a CAD sketch draws through fit points — a cam
+                profile, an outline no arc fits. Click its points in order along the edge (they
+                snap like any pick), click on the curve to insert a point there, and drag the
+                <b> tangent handle</b> at any point to bend the curve through it the way you
+                would in CAD; click a handle to let it go automatic again. It can be closed on
+                itself, and it leaves the tool as a real spline in the SVG and the STEP file.
               </p>
               <p>
                 <b>Count</b> is a tally rather than a fit: click the features one after another

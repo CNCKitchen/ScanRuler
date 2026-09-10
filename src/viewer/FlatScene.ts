@@ -6,6 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { gridSpacing } from '../core/flat/datum'
 import type { EdgeChains } from '../core/flat/edges'
+import { splineMidpoint, splinePolyline, type HandleEnd, type SplineHandle } from '../core/flat/spline'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
 import type { ControlScheme } from './navSchemes'
@@ -74,7 +75,12 @@ export class FlatScene {
    *  on one of them starts a drag instead of a pan or a pick. */
   private draftPicks: Vec2[] = []
   private dragging: { index: number; moved: boolean } | null = null
-  /** A pin is under the cursor: the plain left-drag is its, not the camera's. */
+  /** A spline draft's tangent handles, kept for hit-testing the same way: a
+   *  press on either end drags that end, bending the curve at its pick. */
+  private draftHandles: SplineHandle[] = []
+  private handleDragging: { index: number; end: HandleEnd; moved: boolean } | null = null
+  /** A pin or a handle is under the cursor: the plain left-drag is its, not
+   *  the camera's. */
   private pinHover = false
   /** Detected edge chains. Geometry lives in image pixels; the group's scale
    *  is the px→mm map, so a recalibration is one scale write. */
@@ -99,6 +105,12 @@ export class FlatScene {
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
   /** A draft pick clicked on its pin without being dragged — to take it back. */
   onPickRemove: ((index: number) => void) | null = null
+  /** One end of a spline draft's tangent handle dragged to a new spot. */
+  onHandleDrag:
+    | ((index: number, end: HandleEnd, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void)
+    | null = null
+  /** A handle clicked without being dragged — the tangent goes automatic. */
+  onHandleReset: ((index: number) => void) | null = null
   /** A text note dragged to a new spot on the sheet (document units). */
   onNoteDrag: ((id: number, p: Vec2) => void) | null = null
   /** A text note clicked without being dragged — to open it for typing. */
@@ -120,6 +132,13 @@ export class FlatScene {
       },
       onPointerDown: (e) => {
         if (e.button !== 0 || !this.sheet.visible) return false
+        // A handle end is the smaller target and drawn over the pins: it
+        // gets first claim on a press.
+        const handle = this.handleAt(e.clientX, e.clientY)
+        if (handle) {
+          this.beginHandleDrag(handle.index, handle.end, e)
+          return true
+        }
         const pin = this.pinAt(e.clientX, e.clientY)
         if (pin >= 0) {
           this.beginPinDrag(pin, e)
@@ -326,29 +345,40 @@ export class FlatScene {
   }
 
   private hoverMove = (e: PointerEvent): void => {
-    // The hand over a pin says it can be taken hold of.
-    if (!this.dragging) this.setPinHover(this.sheet.visible && this.pinAt(e.clientX, e.clientY) >= 0)
+    // The hand over a pin or a handle says it can be taken hold of.
+    if (!this.dragging && !this.handleDragging) {
+      this.setPinHover(
+        this.sheet.visible &&
+          (this.pinAt(e.clientX, e.clientY) >= 0 || this.handleAt(e.clientX, e.clientY) !== null),
+      )
+    }
     if (!this.onHoverPoint) return
     const p = this.sheet.visible ? this.pick(e.clientX, e.clientY) : null
     this.onHoverPoint(p, e.clientX, e.clientY)
   }
 
-  /** Which draft pick sits under the cursor, within a hand-sized radius on
-   *  screen — or -1. The pins themselves are DOM labels that take no pointer
-   *  events, so the test is done here against the picks they mark. */
-  private pinAt(clientX: number, clientY: number): number {
-    if (this.draftPicks.length === 0) return -1
+  /** Document spots on screen, in client pixels — for hit-testing the marks
+   *  against the cursor. The marks themselves are DOM labels that take no
+   *  pointer events, so the test is done against what they mark. */
+  private screenOf(points: readonly Vec2[]): [number, number][] {
     const rect = this.container.getBoundingClientRect()
     const cam = this.viewport.camera
     const w = rect.width || 1
     const h = rect.height || 1
     const v = new THREE.Vector3()
+    return points.map((p) => {
+      v.set(p[0], p[1], 0).project(cam)
+      return [rect.x + ((v.x + 1) / 2) * w, rect.y + ((1 - v.y) / 2) * h]
+    })
+  }
+
+  /** Which draft pick sits under the cursor, within a hand-sized radius on
+   *  screen — or -1. */
+  private pinAt(clientX: number, clientY: number): number {
+    if (this.draftPicks.length === 0) return -1
     let best = -1
     let bestD = 12
-    this.draftPicks.forEach((p, i) => {
-      v.set(p[0], p[1], 0).project(cam)
-      const sx = rect.x + ((v.x + 1) / 2) * w
-      const sy = rect.y + ((1 - v.y) / 2) * h
+    this.screenOf(this.draftPicks).forEach(([sx, sy], i) => {
       const d = Math.hypot(sx - clientX, sy - clientY)
       if (d < bestD) {
         bestD = d
@@ -356,6 +386,54 @@ export class FlatScene {
       }
     })
     return best
+  }
+
+  /** Which handle end sits under the cursor — a smaller target than a pin,
+   *  as it is a smaller mark — or null. */
+  private handleAt(clientX: number, clientY: number): { index: number; end: HandleEnd } | null {
+    if (this.draftHandles.length === 0) return null
+    const ends = this.draftHandles.flatMap((hd) => [hd.a, hd.b])
+    let best: { index: number; end: HandleEnd } | null = null
+    let bestD = 9
+    this.screenOf(ends).forEach(([sx, sy], i) => {
+      const d = Math.hypot(sx - clientX, sy - clientY)
+      if (d < bestD) {
+        bestD = d
+        best = { index: i >> 1, end: i % 2 === 0 ? 'a' : 'b' }
+      }
+    })
+    return best
+  }
+
+  /** Drag a handle end: every move reports the new spot through
+   *  onHandleDrag, and a press let go where it landed is a click on the
+   *  handle, which frees the tangent. The same hand-off as a pin drag. */
+  private beginHandleDrag(index: number, end: HandleEnd, e: PointerEvent): void {
+    this.handleDragging = { index, end, moved: false }
+    this.container.style.cursor = 'grabbing'
+    const start = { x: e.clientX, y: e.clientY }
+    const move = (ev: PointerEvent) => {
+      const d = this.handleDragging
+      if (!d) return
+      if (!d.moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return
+      const p = this.pick(ev.clientX, ev.clientY)
+      if (!p) return
+      d.moved = true
+      this.onHandleDrag?.(index, end, p, { alt: ev.altKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+    }
+    const up = () => {
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointercancel', up)
+      const clicked = this.handleDragging !== null && !this.handleDragging.moved
+      this.handleDragging = null
+      this.container.style.cursor = this.pinHover ? 'grab' : ''
+      if (clicked) this.onHandleReset?.(index)
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', up)
+    e.preventDefault()
   }
 
   /** Drag a draft pick: every move reports the new spot through onPickDrag,
@@ -483,6 +561,7 @@ export class FlatScene {
       }
       return [pts]
     }
+    if (fit.kind === 'spline') return [splinePolyline(fit)]
     // A cross for a point, sized off the sheet so it stays visible at the
     // overview and honest when zoomed in.
     const s = Math.max(this.sheetDiag() * 0.006, 1e-6)
@@ -576,6 +655,10 @@ export class FlatScene {
       const d = fit.radius * 0.7071
       return [fit.center[0] + d, fit.center[1] + d]
     }
+    if (fit.kind === 'spline') {
+      const [x, y] = splineMidpoint(fit)
+      return [x, y + lift]
+    }
     const mid = fit.start + fit.sweep / 2
     return [
       fit.center[0] + fit.radius * Math.cos(mid),
@@ -607,19 +690,44 @@ export class FlatScene {
 
   /** The draft on its way to an element: numbered pins on hand picks (which
    *  can be dragged), a dot cloud for region-collected points (thousands of
-   *  pins would be thousands of DOM nodes), and the pending fit drawn in the
-   *  colour the element will have. */
+   *  pins would be thousands of DOM nodes), the pending fit drawn in the
+   *  colour the element will have, and — for a spline — a tangent handle
+   *  through every pick, its two ends draggable, in the tool amber. */
   setDraftMarks(
     picks: readonly Vec2[],
     fit: FlatFit | null,
     cloud?: readonly Vec2[],
     color = '#8b95a3',
+    handles: readonly SplineHandle[] = [],
   ): void {
     for (const dispose of this.draftCleanup) dispose()
     this.draftCleanup = []
     this.draftGroup.clear()
     this.draftPicks = picks.map((p) => [p[0], p[1]])
-    if (this.draftPicks.length === 0 && !this.dragging) this.setPinHover(false)
+    this.draftHandles = handles.map((h) => ({ ...h, at: [...h.at], a: [...h.a], b: [...h.b] }))
+    if (this.draftPicks.length === 0 && !this.dragging && !this.handleDragging) this.setPinHover(false)
+    if (handles.length > 0) {
+      this.addPolylines(
+        this.draftGroup,
+        this.draftCleanup,
+        handles.map((h) => [h.b, h.a]),
+        0xe8a33d,
+        0.8,
+        0.19,
+        1.5,
+      )
+      for (const h of handles) {
+        for (const end of [h.a, h.b]) {
+          const div = document.createElement('div')
+          div.className = 'spline-handle' + (h.fixed ? ' fixed' : '')
+          div.dataset.test = 'flat-handle'
+          const mark = new CSS2DObject(div)
+          mark.position.set(end[0], end[1], 0.21)
+          this.draftGroup.add(mark)
+          this.draftCleanup.push(() => div.remove())
+        }
+      }
+    }
     if (cloud && cloud.length > 0) {
       const positions = new Float32Array(cloud.length * 3)
       cloud.forEach((p, i) => {
