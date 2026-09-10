@@ -206,4 +206,91 @@ describe('writing a project back onto the stores', () => {
     expect(useFlat.getState().calSource).toBe('measured')
     expect(useFlat.getState().showGrid).toBe(false)
   })
+
+  it('saves sections as planes and every subject sheet, and puts them back', () => {
+    const frame = {
+      origin: [1, 2, 3] as [number, number, number],
+      normal: [0, 0, 1] as [number, number, number],
+      basisU: [1, 0, 0] as [number, number, number],
+      basisV: [0, 1, 0] as [number, number, number],
+    }
+    useStore.setState({
+      sections: [
+        {
+          id: 4,
+          name: 'Section 1',
+          color: '#abc',
+          visible: true,
+          frame,
+          ref: null,
+          offset: 2,
+          cut: { points: new Float32Array([0, 0, 3]), offsets: Uint32Array.from([0, 1]) },
+          cutKey: 'k',
+        },
+      ],
+      nextSectionNumber: 2,
+    })
+    // Measuring on the section, with the image's sheet stashed behind it.
+    useFlat.setState({ imageName: 'sheet.png', subject: { kind: 'image' }, sheets: {}, elements: [] })
+    useFlat.getState().setSubject({ kind: 'section', id: 4 })
+    useFlat.getState().startDraft('point', 'flat-point-pick')
+    useFlat.getState().addDraftPick([3, 4])
+    useFlat.getState().commitDraft()
+
+    const { manifest } = collectProject(sources(), null, '0.1.0')
+    const json = JSON.parse(JSON.stringify(manifest))
+    // The polylines are not saved — they are cut again on load.
+    expect(json.scan.sections[0].cut).toBeUndefined()
+    expect(json.scan.sections[0].frame).toEqual(frame)
+    expect(json.flat.subject).toEqual({ kind: 'section', id: 4 })
+    expect(Object.keys(json.flat.sheets).sort()).toEqual(['image', 'section:4'])
+    expect(json.flat.sheets['section:4'].elements).toHaveLength(1)
+    expect(json.flat.calSource).toBe('section')
+
+    useStore.setState({ sections: [], nextSectionNumber: 1 })
+    useFlat.setState({ subject: { kind: 'image' }, sheets: {}, elements: [], calSource: 'none' })
+    applyScanPart(json.scan)
+    expect(useStore.getState().sections).toHaveLength(1)
+    expect(useStore.getState().sections[0].cut).toBeUndefined()
+    expect(useStore.getState().nextSectionNumber).toBe(2)
+    applyFlatPart(json.flat)
+    const f = useFlat.getState()
+    expect(f.subject).toEqual({ kind: 'section', id: 4 })
+    expect(f.elements).toHaveLength(1)
+    expect(f.calSource).toBe('section')
+    expect(Object.keys(f.sheets)).toEqual(['image'])
+
+    // A section the project no longer holds cannot be on the stage.
+    useStore.setState({ sections: [] })
+    applyFlatPart(json.flat)
+    expect(useFlat.getState().subject).toEqual({ kind: 'image' })
+    expect(useFlat.getState().elements).toHaveLength(0)
+    useFlat.setState({ subject: { kind: 'image' }, sheets: {} })
+  })
+
+  it('reads a project from before sections as one image sheet', () => {
+    const { manifest } = collectProject(sources(), null, '0.1.0')
+    const json = JSON.parse(JSON.stringify(manifest))
+    delete json.flat.subject
+    delete json.flat.sheets
+    delete json.scan.sections
+    json.flat.elements = [
+      {
+        id: 1,
+        kind: 'point',
+        name: 'Point 1',
+        color: '#111',
+        source: { type: 'picks', method: 'flat-point-pick', picks: [[1, 2]] },
+        fit: { kind: 'point', at: [1, 2], sigma: 0, usedPoints: 0 },
+        error: null,
+        visible: true,
+      },
+    ]
+    applyScanPart(json.scan)
+    applyFlatPart(json.flat)
+    expect(useStore.getState().sections).toEqual([])
+    expect(useFlat.getState().subject).toEqual({ kind: 'image' })
+    expect(useFlat.getState().elements).toHaveLength(1)
+    expect(useFlat.getState().sheets).toEqual({})
+  })
 })

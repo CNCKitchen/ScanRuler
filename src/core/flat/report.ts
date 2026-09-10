@@ -22,7 +22,11 @@ export interface FlatReportInput {
   imageName: string
   imageWidth: number
   imageHeight: number
-  calSource: 'none' | 'metadata' | 'measured'
+  calSource: 'none' | 'metadata' | 'measured' | 'section'
+  /** Present when the sheet is a section through the 3D scan rather than an
+   *  image: what it is called, which scan it cuts, and where — the image
+   *  fields above are then not what the sheet is. */
+  section?: { name: string; scanName: string; cut: string }
   pxPerMm: PixelsPerMm | null
   datum: FlatDatum | null
   frame: FlatFrame | null
@@ -33,6 +37,7 @@ export interface FlatReportInput {
 }
 
 function scaleLine(r: FlatReportInput): string {
+  if (r.section || r.calSource === 'section') return 'Scale: millimetres of the 3D scan (a section, not an image)'
   if (r.calSource === 'measured' && r.pxPerMm) {
     return r.pxPerMm.x === r.pxPerMm.y
       ? `Scale: CALIBRATED, ${r.pxPerMm.x.toFixed(4)} px/mm`
@@ -44,15 +49,25 @@ function scaleLine(r: FlatReportInput): string {
   return 'Scale: UNCALIBRATED — no scale, all values in PIXELS'
 }
 
+/** The first line: what the sheet is. */
+function titleLine(r: FlatReportInput): string {
+  return r.section
+    ? `ScanRuler 2D measurement — ${r.section.name}: ${r.section.scanName} cut ${r.section.cut}`
+    : `ScanRuler 2D measurement — ${r.imageName} (${r.imageWidth} × ${r.imageHeight} px)`
+}
+
+function frameLine(r: FlatReportInput): string {
+  if (r.frame) return 'Coordinates: part datum frame (origin and +X as picked)'
+  return r.section
+    ? 'Coordinates: section frame, origin at the cutting plane’s centre, y up'
+    : 'Coordinates: image frame, origin bottom-left, y up'
+}
+
 export function buildFlatReport(r: FlatReportInput): string {
   const lines: string[] = []
-  lines.push(`ScanRuler 2D measurement — ${r.imageName} (${r.imageWidth} × ${r.imageHeight} px)`)
+  lines.push(titleLine(r))
   lines.push(scaleLine(r))
-  lines.push(
-    r.frame
-      ? 'Coordinates: part datum frame (origin and +X as picked)'
-      : 'Coordinates: image frame, origin bottom-left, y up',
-  )
+  lines.push(frameLine(r))
   if (r.elements.length > 0) {
     lines.push('')
     lines.push('Elements')
@@ -112,7 +127,11 @@ function fitColumns(fit: FlatFit): (number | '')[] {
  *  raw (no unit suffixes) — the header row carries the unit once. */
 export function buildFlatCsv(r: FlatReportInput): string {
   const rows: string[] = []
-  rows.push(`# ${r.imageName} — ${scaleLine(r)} — ${r.frame ? 'datum frame' : 'image frame'}`)
+  rows.push(
+    `# ${r.section ? `${r.section.name} of ${r.section.scanName}, ${r.section.cut}` : r.imageName} — ${scaleLine(r)} — ${
+      r.frame ? 'datum frame' : r.section ? 'section frame' : 'image frame'
+    }`,
+  )
   rows.push(
     ['name', 'kind', `x_${r.unit}`, `y_${r.unit}`, `diameter_${r.unit}`, `length_${r.unit}`, 'angle_deg', 'sweep_deg', `sigma_${r.unit}`, `form_${r.unit}`, 'points', 'note']
       .map(csv)

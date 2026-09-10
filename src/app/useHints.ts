@@ -30,6 +30,7 @@ function useLadder(): HintResult {
   const draftOpen = useStore((s) => s.draft !== null)
   const dimDraftOpen = useStore((s) => s.dimDraft !== null)
   const alignDraftOpen = useStore((s) => s.alignDraft !== null)
+  const sectionDraftOpen = useStore((s) => s.sectionDraft !== null)
 
   const onElement = useDeviation((s) => s.source === 'element')
   const referenceLoaded = useDeviation((s) => s.nominalName !== null)
@@ -58,6 +59,7 @@ function useLadder(): HintResult {
     draftOpen,
     dimDraftOpen,
     alignDraftOpen,
+    sectionDraftOpen,
     onElement,
     referenceLoaded,
     aligned,

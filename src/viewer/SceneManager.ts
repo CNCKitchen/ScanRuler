@@ -6,12 +6,14 @@ import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
-import { ExtendGrips } from './extendGrips'
+import { ExtendGrips, type GripSide } from './extendGrips'
 import { Overlays, type OverlayElement, type OverlayPair, type OverlayAngle, type ProbeMarker } from './overlays'
+import { SectionOverlay, type SectionOverlayItem } from './sections'
+import type { SectionFrame } from '../core/section/frame'
+import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
-import type { ExtendSide } from '../core/elements/extend'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { applyFinish, DEFAULT_THEME, type ViewTheme } from './viewThemes'
@@ -87,6 +89,8 @@ function principalAxis(positions: Float32Array): THREE.Vector3 {
  *  draw them; consumers keep importing everything from here. */
 export type { OverlayElement, OverlayPair, OverlayAngle, ProbeMarker } from './overlays'
 export type { MarkGesture, PaintBrush } from './marking'
+export type { GripSide, OffsetHandle } from './extendGrips'
+export type { SectionOverlayItem } from './sections'
 
 /** Where a ray met the scan. The barycentric weights come along so a caller
  *  holding a per-vertex field — the deviation map — can read its value at the
@@ -152,6 +156,7 @@ export class SceneManager {
   private marking: SurfaceMarking
   private grips: ExtendGrips
   private overlays: Overlays
+  private sections: SectionOverlay
   /**
    * Everything that lives in the scan's own coordinates: the scan itself, the
    * fitted elements, the pending preview and any pinned readings.
@@ -234,8 +239,9 @@ export class SceneManager {
   /** How many vertices the brush has marked, reported when a stroke ends. */
   onPaintChange: ((count: number) => void) | null = null
   /** A grip being dragged: which side, and how many millimetres it has been
-   *  pulled out (negative in) since the drag began. */
-  onExtendDrag: ((side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
+   *  pulled out (negative in) since the drag began — or, for a section plane's
+   *  grip, how far along its normal it has been moved. */
+  onExtendDrag: ((side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
     null
 
   constructor(container: HTMLDivElement) {
@@ -266,6 +272,9 @@ export class SceneManager {
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
+        // The section curves are fat lines sized in pixels and need the canvas.
+        const el = this.viewport.renderer.domElement
+        this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
       },
       onAfterRender: (w, h) => this.drawGizmo(w, h),
     })
@@ -301,6 +310,12 @@ export class SceneManager {
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
     })
+    this.sections = new SectionOverlay({
+      partGroup: this.partGroup,
+      modelRadius: () => this.modelRadius,
+      modelCenter: () => this.modelCenter(),
+      invalidate: this.invalidate,
+    })
     this.grips = new ExtendGrips({
       partGroup: this.partGroup,
       raycaster: this.raycaster,
@@ -313,7 +328,9 @@ export class SceneManager {
         this.hoverDirty = true
       },
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
-      onActiveSide: (side) => this.overlays.setPreviewActiveSide(side),
+      // Only an element's ghost has ends to mark; a section plane's grip
+      // stands on a sheet that is its own mark.
+      onActiveSide: (side) => this.overlays.setPreviewActiveSide(side === 'offset' ? null : side),
     })
 
     this.viewport.renderer.domElement.addEventListener('pointermove', (e) => {
@@ -919,6 +936,19 @@ export class SceneManager {
     this.grips.setHandles(fit, color)
   }
 
+  /** The finished sections, drawn on the part in their colours. */
+  setSections(items: readonly SectionOverlayItem[], visible: boolean): void {
+    this.sections.setSections(items, visible)
+  }
+
+  /** The section being made: its plane through the part and the cut it
+   *  produces, with a grip on the plane to slide it along its normal. Null
+   *  frame takes all three away. */
+  setSectionPreview(frame: SectionFrame | null, cut: SectionCut | null, color: string): void {
+    this.sections.setPreview(frame, cut, color)
+    this.grips.setOffsetHandle(frame ? { origin: frame.origin, dir: frame.normal } : null, color)
+  }
+
   /** Take the plain left-drag away from the camera, or give it back, for one
    *  reason among several. The navigator only ever hears the total. */
   private claimDrag(reason: 'paint' | 'handle' | 'gizmo', on: boolean): void {
@@ -1230,6 +1260,7 @@ export class SceneManager {
     this.marking.dispose()
     this.grips.dispose()
     this.overlays.dispose()
+    this.sections.dispose()
     this.stage.dispose()
     this.gizmo.dispose()
     this.disposeNominal()

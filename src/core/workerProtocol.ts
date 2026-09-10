@@ -3,7 +3,7 @@ import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
-import type { AxialWindow, ElementKind, FitOutput, FitSettings } from './types'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 
 export type WorkerRequest =
   | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer }
@@ -74,6 +74,9 @@ export type WorkerRequest =
   /** Bake a datum alignment into the scan's vertices, so later fits measure
    *  in the new frame. */
   | { type: 'transform'; requestId: number; transform: Rigid }
+  /** Cut the scan with a plane — see core/section/slice. Chains shorter than
+   *  `minLength` millimetres are dropped as specks. */
+  | { type: 'section'; requestId: number; origin: Vec3; normal: Vec3; minLength: number }
 
 export type WorkerResponse =
   | { type: 'progress'; text: string }
@@ -136,4 +139,6 @@ export type WorkerResponse =
       suggestedHigh: number
     }
   | { type: 'transform-ok'; requestId: number }
+  /** The polylines a plane cuts off the scan, in scan coordinates. */
+  | { type: 'section-ok'; requestId: number; points: Float32Array; offsets: Uint32Array }
   | { type: 'error'; requestId: number; message: string }

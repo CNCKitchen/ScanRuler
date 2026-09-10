@@ -76,7 +76,7 @@ export interface ProbeMarker {
 /** A pin in the 3D view: what it marks on top, the measured value under it, so
  *  the numbers can be read off the model without going back to the panel. An
  *  empty value leaves just the name — nothing is not a number. */
-function pinLabel(kind: string, title: string, value: string, titleColor?: string): CSS2DObject {
+export function pinLabel(kind: string, title: string, value: string, titleColor?: string): CSS2DObject {
   const div = document.createElement('div')
   div.className = `viewport-label ${kind}`
   const t = document.createElement('div')

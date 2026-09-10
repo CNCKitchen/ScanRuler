@@ -11,16 +11,13 @@ import { EdgeIndex } from './core/flat/snap'
 import { datumFrame } from './core/flat/datum'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, type FlatReportInput } from './core/flat/report'
+import type { Vec2 } from './core/flat/types'
+import { canCutAlong, describeCut } from './core/section/frame'
+import { chainBounds, projectCut } from './core/section/slice'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
-import {
-  extensionOf,
-  fitWindow,
-  isExtendable,
-  sideValue,
-  type ExtendSide,
-} from './core/elements/extend'
+import { extensionOf, fitWindow, isExtendable, sideValue } from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
 import type { ElementKind, FitData, PointFit, Vec3 } from './core/types'
@@ -28,10 +25,11 @@ import {
   alignSlotPicks,
   blockedRefs,
   draftColorOf,
+  sectionDraftReady,
   useStore,
   type SelectMode,
 } from './state/store'
-import type { SceneManager, PickHit } from './viewer/SceneManager'
+import type { GripSide, SceneManager, PickHit } from './viewer/SceneManager'
 import { schemeById } from './viewer/navSchemes'
 import { themeById } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
@@ -57,7 +55,7 @@ import { MARK_COLOR, useDeviation } from './state/deviationStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { useFlat } from './state/flatStore'
+import { imageScaleX, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
@@ -69,7 +67,8 @@ import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
 import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
-import { useFlatSceneSync } from './app/useFlatSceneSync'
+import { useSections } from './app/useSections'
+import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
 import { sheetLoupeActive } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
@@ -98,8 +97,19 @@ export default function App() {
   const edgeClientRef = useRef<EdgeClient | null>(null)
   if (!edgeClientRef.current) edgeClientRef.current = new EdgeClient()
   const flatGrayRef = useRef<{ gray: Uint8Array; width: number; height: number } | null>(null)
-  const flatEdgesRef = useRef<EdgeChains | null>(null)
-  const flatEdgeIndexRef = useRef<EdgeIndex | null>(null)
+  // The edges detected on the image, and the index over them for snapping.
+  const imageChainsRef = useRef<EdgeChains | null>(null)
+  const imageIndexRef = useRef<EdgeIndex | null>(null)
+  // The section on the 2D stage laid flat — its chains, their index and the
+  // bounds of the sheet to draw them on — kept until the cut it came from
+  // changes. Only ever one: the sheet holds one subject at a time.
+  const sectionSheetRef = useRef<{
+    id: number
+    key: string
+    chains: EdgeChains
+    index: EdgeIndex
+    bounds: { min: Vec2; max: Vec2 }
+  } | null>(null)
 
   // Region of the pending preview fit, kept out of the store because it is a
   // large typed array that only the scene needs.
@@ -163,7 +173,8 @@ export default function App() {
       flatBitmapRef.current?.close()
       flatBitmapRef.current = bitmap
       flatGrayRef.current = grayscaleOf(bitmap)
-      flatEdgesRef.current = null
+      imageChainsRef.current = null
+      imageIndexRef.current = null
       useFlat.getState().finishImageLoad(file.name, bitmap.width, bitmap.height, meta)
       void runEdgeDetect()
     } catch (e) {
@@ -173,22 +184,65 @@ export default function App() {
     }
   }
 
+  /** A section laid flat for the 2D sheet: its cut projected into its own
+   *  plane, indexed for snapping, and the bounds of a sheet with room round
+   *  it. Computed once per cut and kept — null while the section has no cut
+   *  yet (it is being taken again after a project load). */
+  const sectionSheetOf = (id: number) => {
+    const sec = useStore.getState().sections.find((x) => x.id === id)
+    if (!sec?.cut || !sec.cutKey) return null
+    const cached = sectionSheetRef.current
+    if (cached && cached.id === id && cached.key === sec.cutKey) return cached
+    const chains = projectCut(sec.cut, sec.frame)
+    const raw = chainBounds(chains) ?? { min: [-10, -10] as Vec2, max: [10, 10] as Vec2 }
+    // The sheet is what a click lands on, so it reaches past the last edge —
+    // by a hand's width on a small cut, by a share of a large one.
+    const pad = Math.max(5, 0.08 * Math.hypot(raw.max[0] - raw.min[0], raw.max[1] - raw.min[1]))
+    const entry = {
+      id,
+      key: sec.cutKey,
+      chains,
+      index: new EdgeIndex(chains),
+      bounds: {
+        min: [raw.min[0] - pad, raw.min[1] - pad] as Vec2,
+        max: [raw.max[0] + pad, raw.max[1] + pad] as Vec2,
+      },
+    }
+    sectionSheetRef.current = entry
+    return entry
+  }
+  /** What is on the 2D stage right now, as the viewport wants it. */
+  const activeSheet = (): SheetView | null => {
+    const subject = useFlat.getState().subject
+    if (subject.kind === 'section') {
+      const sheet = sectionSheetOf(subject.id)
+      return sheet ? { kind: 'section', bounds: sheet.bounds, chains: sheet.chains } : null
+    }
+    const bitmap = flatBitmapRef.current
+    return bitmap ? { kind: 'image', bitmap, chains: imageChainsRef.current } : null
+  }
+  /** The edges a pick on the 2D stage snaps to — the subject's own. */
+  const activeEdgeIndex = (): EdgeIndex | null => {
+    const subject = useFlat.getState().subject
+    return subject.kind === 'section' ? (sectionSheetOf(subject.id)?.index ?? null) : imageIndexRef.current
+  }
+
   // The flat store holds the truth; useFlatSceneSync repeats it to the 2D
   // viewport, and app/flatSheet says what each layer draws.
-  const flatSync = useFlatSceneSync({
-    sceneRef: flatSceneRef,
-    bitmapRef: flatBitmapRef,
-    edgesRef: flatEdgesRef,
-  })
+  const flatSync = useFlatSceneSync({ sceneRef: flatSceneRef, sheetOf: activeSheet })
   const flatLoupeActive = useFlat(sheetLoupeActive)
+  const flatSubject = useFlat((s) => s.subject)
 
   /** Run (or re-run) edge detection on the cached grayscale. Superseded
-   *  requests come back null and change nothing. */
+   *  requests come back null and change nothing. The detector only ever
+   *  runs on the image; while a section is on the stage the result is kept
+   *  for the image's return and the stage's edge status is left alone. */
   const runEdgeDetect = async () => {
     const source = flatGrayRef.current
     if (!source) return
     const flat = useFlat.getState()
-    flat.beginEdges()
+    const scale = imageScaleX(flat)
+    if (flat.subject.kind === 'image') flat.beginEdges()
     const chains = await edgeClientRef.current!.detect(
       // The worker takes the buffer by transfer; the cache keeps its own.
       source.gray.slice(),
@@ -198,24 +252,70 @@ export default function App() {
         sensitivity: flat.edgeSensitivity,
         // A chain has to be a feature's worth of millimetres to count —
         // 1 mm at the scale in force, or its 600 dpi equivalent before any.
-        minLength: flat.pxPerMm ? EDGE_MIN_FEATURE_MM * flat.pxPerMm.x : undefined,
+        minLength: scale ? EDGE_MIN_FEATURE_MM * scale : undefined,
       },
     )
     if (!chains) return
-    flatEdgesRef.current = chains
-    flatEdgeIndexRef.current = new EdgeIndex(chains)
-    useFlat.getState().resolveEdges(chainCount(chains))
+    imageChainsRef.current = chains
+    imageIndexRef.current = new EdgeIndex(chains)
+    if (useFlat.getState().subject.kind === 'image') useFlat.getState().resolveEdges(chainCount(chains))
   }
 
-  // The sensitivity slider re-detects, and so does a change of scale (the
-  // minimum feature length is in millimetres); the overlay redraws when
-  // chains land or the toggle moves.
+  // The sensitivity slider re-detects, and so does a change of the image's
+  // scale (the minimum feature length is in millimetres); the overlay redraws
+  // when chains land or the toggle moves.
   const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
-  const edgeScaleX = useFlat((s) => s.pxPerMm?.x ?? null)
+  const edgeScaleX = useFlat(imageScaleX)
   useEffect(() => {
     // On mount there is nothing loaded yet and the detect returns untouched.
     void runEdgeDetect()
   }, [edgeSensitivity, edgeScaleX])
+
+  // The subject changed, or the section on the stage got its cut: the edge
+  // status says what there is to snap to now — the image's detected chains,
+  // the section's cut, or nothing yet.
+  const activeCutKey = useStore((s) =>
+    flatSubject.kind === 'section'
+      ? (s.sections.find((x) => x.id === flatSubject.id)?.cutKey ?? null)
+      : null,
+  )
+  useEffect(() => {
+    const flat = useFlat.getState()
+    if (flatSubject.kind === 'section') {
+      const sheet = sectionSheetOf(flatSubject.id)
+      if (sheet) flat.resolveEdges(chainCount(sheet.chains))
+      else flat.beginEdges()
+      return
+    }
+    const chains = imageChainsRef.current
+    if (chains) flat.resolveEdges(chainCount(chains))
+    else if (flat.edgeStatus !== 'running') flat.failEdges()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flatSubject, activeCutKey])
+
+  // A section deleted in the 3D workspace — or every one, with a new scan —
+  // takes its sheet with it; one that was on the stage gives way to the image.
+  const sectionIds = useStore((s) => s.sections.map((sec) => sec.id).join(','))
+  useEffect(() => {
+    useFlat.getState().dropSections(sectionIds === '' ? [] : sectionIds.split(',').map(Number))
+  }, [sectionIds])
+
+  // Cuts are taken in the mesh worker, for the draft and for sections that
+  // arrive from a project with their planes only.
+  useSections({ clientRef })
+
+  /** The section on the 2D stage, described for the report: its name, the
+   *  scan it cuts, and where. Undefined with the image on the stage. */
+  const activeSectionInfo = () => {
+    const subject = useFlat.getState().subject
+    if (subject.kind !== 'section') return undefined
+    const store = useStore.getState()
+    const sec = store.sections.find((x) => x.id === subject.id)
+    if (!sec) return undefined
+    const refName = store.elements.find((e) => e.id === sec.ref)?.name ?? null
+    return { name: sec.name, scanName: store.fileName ?? 'scan', cut: describeCut(refName, sec.offset) }
+  }
+
   /** Everything the 2D report and CSV need, gathered once. */
   const flatReportInput = (): FlatReportInput => {
     const s = useFlat.getState()
@@ -224,6 +324,7 @@ export default function App() {
       imageWidth: s.imageWidth,
       imageHeight: s.imageHeight,
       calSource: s.calSource,
+      section: activeSectionInfo(),
       pxPerMm: s.pxPerMm,
       datum: s.datum,
       frame: s.datum ? datumFrame(s.datum, s.pxPerMm) : null,
@@ -240,7 +341,10 @@ export default function App() {
   }
 
   const handleFlatExportCsv = () => {
-    const stem = (useFlat.getState().imageName ?? 'scan').replace(/\.[^.]+$/, '')
+    const stem = (activeSectionInfo()?.name ?? useFlat.getState().imageName ?? 'scan').replace(
+      /\.[^.]+$/,
+      '',
+    )
     const name = `${stem}-measurements.csv`
     saveFile(name, new Blob([buildFlatCsv(flatReportInput())], { type: 'text/csv' }))
     useStore.getState().setStatus(`Measurements exported to ${name}.`)
@@ -750,6 +854,18 @@ export default function App() {
       if (useDeviation.getState().source === 'element') handleSelectTarget(id)
       return
     }
+    // A section being made takes the element to cut along; clicking the one
+    // already chosen lets it go again.
+    if (store.sectionDraft && !store.draft) {
+      if (!canCutAlong(el.kind)) {
+        store.setStatus(
+          `${el.name} has no direction to cut across — choose a plane, cylinder, cone, line or circle.`,
+        )
+        return
+      }
+      store.setSectionDraftRef(store.sectionDraft.ref === id ? null : id)
+      return
+    }
     if (store.draft) {
       const method = creationMethod(store.draft.kind, store.draft.method)
       if (method.mode !== 'construct') return
@@ -891,6 +1007,53 @@ export default function App() {
     useStore.getState().setStatus('')
   }
 
+  // ---- Sections ------------------------------------------------------------
+
+  const handleStartSection = () => {
+    clearPreview()
+    clearPaint()
+    useStore.getState().startSection()
+    useStore
+      .getState()
+      .setStatus('Click the element to cut along in the viewport, or choose it in the panel.')
+  }
+
+  const handleEditSection = (id: number) => {
+    clearPreview()
+    clearPaint()
+    useStore.getState().editSection(id)
+    const sec = useStore.getState().sections.find((x) => x.id === id)
+    if (sec)
+      useStore
+        .getState()
+        .setStatus(`Editing ${sec.name} — slide the plane, or choose another element, then save.`)
+  }
+
+  const handleDeleteSection = (id: number) => useStore.getState().removeSection(id)
+
+  const handleCancelSection = () => {
+    useStore.getState().cancelSection()
+    useStore.getState().setStatus('')
+  }
+
+  /** Create the section — and put it on the 2D sheet, so switching to that
+   *  workspace finds it there rather than the image it was measuring before.
+   *  An edit leaves the sheet where it is. */
+  const handleConfirmSection = () => {
+    const store = useStore.getState()
+    if (!sectionDraftReady(store.sectionDraft)) return
+    const editing = store.sectionDraft?.editId !== undefined
+    const id = store.commitSection()
+    if (id === null) return
+    if (!editing) useFlat.getState().setSubject({ kind: 'section', id })
+    const sec = useStore.getState().sections.find((x) => x.id === id)
+    useStore
+      .getState()
+      .setStatus(
+        `${sec?.name ?? 'Section'} ${editing ? 'updated' : 'created'} — measure it in the 2D Measure workspace.`,
+      )
+  }
+
   const handleConfirmDraft = () => {
     const region = draftRegion.current
     const editing = useStore.getState().draft?.editId !== undefined
@@ -948,8 +1111,17 @@ export default function App() {
    *  waits for the hand to let go rather than running under it. */
   const extendDragging = useRef(false)
   const refitAfterDrag = useRef(false)
-  const handleExtendDrag = (side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => {
+  const handleExtendDrag = (side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => {
     const store = useStore.getState()
+    // The grip on a section plane: the drag slides it along its normal, and
+    // the worker cuts again behind it — see useSections.
+    if (side === 'offset') {
+      const d = store.sectionDraft
+      if (!d) return
+      if (phase === 'start') extendStart.current = d.offset
+      else if (phase === 'move') store.setSectionDraftOffset(extendStart.current + delta)
+      return
+    }
     const fit = store.draft?.fit
     if (!isExtendable(fit)) return
     if (phase === 'start') {
@@ -1002,6 +1174,7 @@ export default function App() {
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
+  const sectionDraft = useStore((s) => s.sectionDraft)
   // Whether a fit draft is collecting its surface by hand — it decides which
   // hint rides above the model.
   const painting = useStore(
@@ -1064,6 +1237,8 @@ export default function App() {
     stopPicking,
     cancelDraft: handleCancelDraft,
     confirmDraft: handleConfirmDraft,
+    cancelSection: handleCancelSection,
+    confirmSection: handleConfirmSection,
     viewFrom: (view) => sceneRef.current?.viewFrom(view),
   })
 
@@ -1107,6 +1282,14 @@ export default function App() {
   // While a dimension is collecting references, say which slot a viewport
   // click would fill; a construction slot invites clicks the same way.
   const openSlotHint = (() => {
+    if (!draft && sectionDraft) {
+      if (!sectionDraft.axis)
+        return 'Click the element to cut along — a plane, cylinder, cone, line or circle — or choose it in the panel'
+      const verb = sectionDraft.editId !== undefined ? 'save' : 'create'
+      return sectionDraftReady(sectionDraft)
+        ? `Drag the arrow to slide the plane · Enter or middle-click to ${verb} · Esc to discard`
+        : 'Drag the arrow to slide the plane along the element’s direction, or type the offset in the panel'
+    }
     if (!draft && alignDraft) {
       if (alignDraft.pickSlot !== null) {
         const need = ALIGN_PICK_COUNT[alignDraft.pickSlot]
@@ -1366,6 +1549,11 @@ export default function App() {
             onPickPoint={handleDimensionPick}
             onDelete={handleDelete}
             onEditElement={handleEditElement}
+            onStartSection={handleStartSection}
+            onEditSection={handleEditSection}
+            onDeleteSection={handleDeleteSection}
+            onCancelSection={handleCancelSection}
+            onConfirmSection={handleConfirmSection}
             onCopy={handleCopy}
             onStartAlignment={handleStartAlignment}
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
@@ -1416,14 +1604,14 @@ export default function App() {
             <div className="viewslot">
               <FlatViewer
                 onReady={flatSync.onReady}
-                onPick={(p, meta) => useFlat.getState().stageClick(p, meta, flatEdgeIndexRef.current)}
+                onPick={(p, meta) => useFlat.getState().stageClick(p, meta, activeEdgeIndex())}
                 onPickDrag={(i, p, meta) =>
-                  useFlat.getState().stageDrag(i, p, meta, flatEdgeIndexRef.current)
+                  useFlat.getState().stageDrag(i, p, meta, activeEdgeIndex())
                 }
                 onPickRemove={(i) => useFlat.getState().removeDraftPick(i)}
                 onNoteDrag={(id, p) => useFlat.getState().stageNoteDrag(id, p)}
                 onNoteSelect={(id) => useFlat.getState().editNote(id)}
-                onRegion={(min, max) => useFlat.getState().stageRegion(min, max, flatEdgeIndexRef.current)}
+                onRegion={(min, max) => useFlat.getState().stageRegion(min, max, activeEdgeIndex())}
                 onHover={flatSync.onHover}
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
@@ -1478,7 +1666,7 @@ export default function App() {
               showHistogram={thickShowHistogram}
             />
           )}
-          {onFlat && !flatImageName && (
+          {onFlat && !flatImageName && flatSubject.kind === 'image' && (
             <StartPane
               title="Measuring a flatbed scan"
               blurb="Scan the part face-down on a flatbed scanner and open the image — then fit points, lines and circles to its edges and measure between them, the way a measuring microscope does. PNG or JPEG, at the highest optical resolution you have. Everything stays in this browser."
@@ -1548,7 +1736,7 @@ export default function App() {
           {/* Not a hint but an alarm: every number this workspace shows rests
               on the scale, and until one has been measured the scale is only
               what the file claims about itself — or nothing at all. */}
-          {onFlat && flatImageName && flatCalSource !== 'measured' && (
+          {onFlat && flatSubject.kind === 'image' && flatImageName && flatCalSource !== 'measured' && (
             <div className="warnchip" data-test="flat-uncalibrated-chip">
               {flatCalSource === 'metadata'
                 ? 'UNCALIBRATED — sizes use the file’s nominal dpi. Calibrate against a known length in the panel.'

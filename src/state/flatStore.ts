@@ -37,8 +37,23 @@ import { PALETTE } from './palette'
 
 /** What the numbers on screen rest on. `metadata` is the file's own claim —
  *  honest to measure with, nominal until verified; `measured` is a
- *  calibration taken against a reference; `none` is bare pixels. */
-export type CalSource = 'none' | 'metadata' | 'measured'
+ *  calibration taken against a reference; `none` is bare pixels; `section`
+ *  is a cut through the 3D scan, whose sheet is millimetres by construction. */
+export type CalSource = 'none' | 'metadata' | 'measured' | 'section'
+
+/** What lies on the sheet: the flatbed image, or a section cut through the
+ *  3D scan — see state/store's Section. One at a time: they lie in different
+ *  planes and have nothing to say to each other. */
+export type FlatSubject = { kind: 'image' } | { kind: 'section'; id: number }
+
+/** The key a subject's sheet is stashed under while another is on the stage. */
+export function sheetKeyOf(subject: FlatSubject): string {
+  return subject.kind === 'image' ? 'image' : `section:${subject.id}`
+}
+
+export function subjectFromKey(key: string): FlatSubject {
+  return key.startsWith('section:') ? { kind: 'section', id: Number(key.slice(8)) } : { kind: 'image' }
+}
 
 export type CalMode = 'distance' | 'diameter'
 
@@ -256,7 +271,89 @@ function evaluateDraft(
  *  session, and deletions never make a name come back to mean something new. */
 type NameCounts = Partial<Record<FlatElementKind, number>>
 
-interface FlatState {
+/**
+ * The measuring state that belongs to one subject: everything picked,
+ * fitted, dimensioned, counted or written on its sheet, and the scale it is
+ * read at. The image and every section each have one; the one on the stage
+ * lives in the store's own fields, the others wait in `sheets` under their
+ * key and come back exactly as they were left.
+ */
+export interface SheetState {
+  pxPerMm: PixelsPerMm | null
+  calSource: CalSource
+  elements: FlatElement[]
+  nextId: number
+  nameCounts: NameCounts
+  dimensions: FlatDimension[]
+  nextDimId: number
+  dimCounts: Partial<Record<FlatDimensionGroup, number>>
+  datum: FlatDatum | null
+  counts: FlatCount[]
+  nextCountId: number
+  notes: FlatNote[]
+  nextNoteId: number
+}
+
+/** The sheet on the stage, lifted out of the store. */
+export function sheetOf(s: SheetState): SheetState {
+  return {
+    pxPerMm: s.pxPerMm,
+    calSource: s.calSource,
+    elements: s.elements,
+    nextId: s.nextId,
+    nameCounts: s.nameCounts,
+    dimensions: s.dimensions,
+    nextDimId: s.nextDimId,
+    dimCounts: s.dimCounts,
+    datum: s.datum,
+    counts: s.counts,
+    nextCountId: s.nextCountId,
+    notes: s.notes,
+    nextNoteId: s.nextNoteId,
+  }
+}
+
+/** An empty sheet at the given scale. A section's is millimetres by
+ *  construction; an image's is whatever the file or the scanner says. */
+function freshSheet(pxPerMm: PixelsPerMm | null, calSource: CalSource): SheetState {
+  return {
+    pxPerMm,
+    calSource,
+    elements: [],
+    nextId: 1,
+    nameCounts: {},
+    dimensions: [],
+    nextDimId: 1,
+    dimCounts: {},
+    datum: null,
+    counts: [],
+    nextCountId: 1,
+    notes: [],
+    nextNoteId: 1,
+  }
+}
+
+const freshSectionSheet = () => freshSheet({ x: 1, y: 1 }, 'section')
+
+/** What putting a sheet on the stage clears besides the sheet itself: the
+ *  editors and the tool, which belonged to the sheet that was there. */
+const STAGE_CLEARED = {
+  draft: null,
+  dimDraft: null,
+  tool: NO_TOOL,
+  edgeStatus: 'idle' as const,
+  edgeCount: 0,
+}
+
+/** The image sheet's px/mm along X, wherever that sheet is — on the stage or
+ *  stashed behind a section. What the edge detector sizes its minimum
+ *  feature by, since it only ever runs on the image. */
+export function imageScaleX(s: { subject: FlatSubject; pxPerMm: PixelsPerMm | null; sheets: Record<string, SheetState> }): number | null {
+  const sheet = s.subject.kind === 'image' ? s : s.sheets.image
+  return sheet?.pxPerMm?.x ?? null
+}
+
+interface FlatState extends SheetState {
   imageName: string | null
   /** Pixel dimensions of the loaded image. */
   imageWidth: number
@@ -284,9 +381,20 @@ interface FlatState {
    *  Alt inverts either way for one pick. */
   snapToEdge: boolean
 
-  /** The scale measurements use, or null for bare pixels (drawn at 1 px/mm). */
-  pxPerMm: PixelsPerMm | null
-  calSource: CalSource
+  /** What is on the sheet — see FlatSubject. The image is the default; a
+   *  section made in the 3D workspace can be put on instead. */
+  subject: FlatSubject
+  /** Bumped whenever the subject changes, so the viewport lays a new sheet. */
+  subjectVersion: number
+  /** The other subjects' sheets, as they were left — keyed by sheetKeyOf. */
+  sheets: Record<string, SheetState>
+  /** Put a subject on the stage: the one there is stashed with everything
+   *  measured on it, and the new one's sheet comes back as it was, or fresh. */
+  setSubject: (subject: FlatSubject) => void
+  /** The sections that still exist: the sheets of any others are dropped,
+   *  and a subject among them gives way to the image. */
+  dropSections: (liveIds: readonly number[]) => void
+
   /** Calibrate X and Y separately — scanner transports err per axis. */
   splitAxes: boolean
 
@@ -319,12 +427,11 @@ interface FlatState {
 
   profiles: CalibrationProfile[]
 
-  /** Measured results and the one being built. Sources are image pixels;
+  /** The one being built. The measured results themselves — elements,
+   *  dimensions, datum, counts, notes and the scale — are the SheetState this
+   *  store extends: sources are image pixels (millimetres, on a section),
    *  fits are document units, re-derived whenever the scale moves. */
-  elements: FlatElement[]
   draft: FlatDraft | null
-  nextId: number
-  nameCounts: NameCounts
 
   startDraft: (kind: FlatElementKind, method: string) => void
   /** Re-open an element: the same box it was created in, its picks or its
@@ -362,12 +469,8 @@ interface FlatState {
   setShowEdges: (v: boolean) => void
   setSnapToEdge: (v: boolean) => void
 
-  /** User-created measurements between elements, and the one being built. */
-  dimensions: FlatDimension[]
+  /** The dimension being built. */
   dimDraft: FlatDimDraft | null
-  nextDimId: number
-  /** Per-group name counters — "Distance 3", "Angle 1". */
-  dimCounts: Partial<Record<FlatDimensionGroup, number>>
 
   startDimDraft: () => void
   editDimension: (id: number) => void
@@ -381,9 +484,8 @@ interface FlatState {
   /** Show or hide every dimension at once. */
   setAllDimensionsVisible: (visible: boolean) => void
 
-  /** The part's own frame: origin and +X, as two picks (image pixels). Null
-   *  reads coordinates in the image frame, origin bottom-left. */
-  datum: FlatDatum | null
+  /** The datum-aligned grid over the sheet — a way of looking, kept across
+   *  subjects. (The datum itself is the sheet's.) */
   showGrid: boolean
 
   startDatum: () => void
@@ -393,10 +495,8 @@ interface FlatState {
   clearDatum: () => void
   setShowGrid: (v: boolean) => void
 
-  /** Tallies taken so far; the one being clicked out is the `count` tool. */
-  counts: FlatCount[]
-  nextCountId: number
-
+  /** The tally being clicked out is the `count` tool; the finished ones are
+   *  the sheet's. */
   startCount: () => void
   /** Re-open a tally with its picks back on the sheet, the next click adding
    *  to it; finishing writes back over it. */
@@ -409,10 +509,7 @@ interface FlatState {
   deleteCount: (id: number) => void
   toggleCountVisible: (id: number) => void
 
-  /** Text notes on the sheet; placing or editing one is the `note` tool. */
-  notes: FlatNote[]
-  nextNoteId: number
-
+  /** Placing or editing a text note is the `note` tool. */
   startNote: () => void
   cancelNote: () => void
   /** Place a new note where the click landed (image pixels) and open it for
@@ -459,8 +556,54 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   pxPerMm: null,
   calSource: 'none',
+  subject: { kind: 'image' },
+  subjectVersion: 0,
+  sheets: {},
   splitAxes: false,
   tool: NO_TOOL,
+
+  setSubject: (subject) =>
+    set((s) => {
+      const from = sheetKeyOf(s.subject)
+      const to = sheetKeyOf(subject)
+      if (from === to) return {}
+      const sheets = { ...s.sheets, [from]: sheetOf(s) }
+      const restored =
+        sheets[to] ??
+        (subject.kind === 'section'
+          ? freshSectionSheet()
+          : freshSheet(s.metaPxPerMm, s.metaPxPerMm ? 'metadata' : 'none'))
+      delete sheets[to]
+      return {
+        subject,
+        subjectVersion: s.subjectVersion + 1,
+        sheets,
+        ...restored,
+        ...STAGE_CLEARED,
+      }
+    }),
+
+  dropSections: (liveIds) =>
+    set((s) => {
+      const live = new Set(liveIds)
+      const sheets: Record<string, SheetState> = {}
+      for (const [key, sheet] of Object.entries(s.sheets)) {
+        if (!key.startsWith('section:') || live.has(Number(key.slice(8)))) sheets[key] = sheet
+      }
+      if (s.subject.kind === 'image' || live.has(s.subject.id)) {
+        return Object.keys(sheets).length === Object.keys(s.sheets).length ? {} : { sheets }
+      }
+      // The section on the stage is gone: the image comes back as it was.
+      const restored = sheets.image ?? freshSheet(s.metaPxPerMm, s.metaPxPerMm ? 'metadata' : 'none')
+      delete sheets.image
+      return {
+        subject: { kind: 'image' },
+        subjectVersion: s.subjectVersion + 1,
+        sheets,
+        ...restored,
+        ...STAGE_CLEARED,
+      }
+    }),
 
   stageClick: (spot, meta, edges) => {
     const s = get()
@@ -926,36 +1069,41 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   // A new image adopts its own metadata scale — unless a measured calibration
   // is in force, which describes the scanner rather than the file and is
-  // exactly the thing that should survive an image swap.
+  // exactly the thing that should survive an image swap. The image goes on
+  // the stage: a section that was there is stashed with what was measured
+  // on it.
   finishImageLoad: (imageName, imageWidth, imageHeight, metaPxPerMm) =>
-    set((s) => ({
-      imageBusy: false,
-      imageName,
-      imageWidth,
-      imageHeight,
-      metaPxPerMm,
-      imageVersion: s.imageVersion + 1,
-      tool: NO_TOOL,
-      edgeStatus: 'idle' as const,
-      edgeCount: 0,
-      // Elements are measurements of one image; the calibration is of the
-      // scanner and stays.
-      elements: [],
-      draft: null,
-      nameCounts: {},
-      dimensions: [],
-      dimDraft: null,
-      dimCounts: {},
-      datum: null,
-      counts: [],
-      notes: [],
-      ...(s.calSource === 'measured'
-        ? {}
-        : {
-            pxPerMm: metaPxPerMm,
-            calSource: metaPxPerMm ? ('metadata' as CalSource) : ('none' as CalSource),
-          }),
-    })),
+    set((s) => {
+      const onImage = s.subject.kind === 'image'
+      const image = onImage ? sheetOf(s) : s.sheets.image
+      const scale =
+        image?.calSource === 'measured' && image.pxPerMm
+          ? { pxPerMm: image.pxPerMm, calSource: 'measured' as CalSource }
+          : { pxPerMm: metaPxPerMm, calSource: metaPxPerMm ? ('metadata' as CalSource) : ('none' as CalSource) }
+      const sheets = { ...s.sheets }
+      if (!onImage) sheets[sheetKeyOf(s.subject)] = sheetOf(s)
+      delete sheets.image
+      // Elements are measurements of one image and go; the id counters run
+      // on, so nothing measured later can be mistaken for something gone.
+      const kept = onImage ? s : image ?? freshSheet(null, 'none')
+      return {
+        imageBusy: false,
+        imageName,
+        imageWidth,
+        imageHeight,
+        metaPxPerMm,
+        imageVersion: s.imageVersion + 1,
+        subject: { kind: 'image' },
+        subjectVersion: onImage ? s.subjectVersion : s.subjectVersion + 1,
+        sheets,
+        ...freshSheet(scale.pxPerMm, scale.calSource),
+        nextId: kept.nextId,
+        nextDimId: kept.nextDimId,
+        nextCountId: kept.nextCountId,
+        nextNoteId: kept.nextNoteId,
+        ...STAGE_CLEARED,
+      }
+    }),
 
   imageFailed: () =>
     set({ imageBusy: false, imageName: null, imageWidth: 0, imageHeight: 0, metaPxPerMm: null }),
@@ -983,7 +1131,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
   clearDatum: () => set((s) => ({ datum: null, ...putAway(s, 'datum') })),
   setShowGrid: (showGrid) => set({ showGrid }),
 
-  startCalibration: (mode) => set({ tool: { kind: 'calibrate', mode, picks: [] } }),
+  startCalibration: (mode) =>
+    set((s) => (s.subject.kind === 'image' ? { tool: { kind: 'calibrate', mode, picks: [] } } : {})),
   cancelCalibration: () => set((s) => putAway(s, 'calibrate')),
 
   addCalPick: (px) =>
@@ -1006,6 +1155,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
     const s = get()
     const t = toolOf(s, 'calibrate')
     if (!t) return 'The calibration tool is not collecting.'
+    if (s.subject.kind !== 'image') return 'A section is millimetres already — there is nothing to calibrate.'
     try {
       const pxPerMm =
         t.mode === 'distance'
@@ -1048,7 +1198,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
   applyProfile: (name) =>
     set((s) => {
       const p = s.profiles.find((x) => x.name === name)
-      if (!p) return {}
+      // A profile describes a scanner; a section's sheet is not the scanner's.
+      if (!p || s.subject.kind !== 'image') return {}
       return {
         pxPerMm: { ...p.pxPerMm },
         calSource: 'measured',

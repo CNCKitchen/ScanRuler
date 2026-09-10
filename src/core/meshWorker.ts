@@ -20,6 +20,7 @@ import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
+import { sliceMesh } from './section/slice'
 import type { MeshBVH } from 'three-mesh-bvh'
 
 let graph: MeshGraph | null = null
@@ -289,6 +290,27 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     // of where the part sits.
     scanSolid = null
     post({ type: 'transform-ok', requestId: msg.requestId })
+    return
+  }
+
+  if (msg.type === 'section') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      // The vertices here carry every alignment baked so far, so the cut
+      // lands in the same frame the elements are measured in.
+      const cut = sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, {
+        minLength: msg.minLength,
+      })
+      post(
+        { type: 'section-ok', requestId: msg.requestId, points: cut.points, offsets: cut.offsets },
+        [cut.points.buffer, cut.offsets.buffer],
+      )
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 

@@ -12,7 +12,8 @@ Three workspaces share the loaded scan:
   them, the way metrology software like GOM Inspect does it. Aimed at ball
   bars and other calibrated artefacts. The measured elements can serve as
   datums for a guided **3-2-1 alignment** into the global coordinate system, and be
-  **exported as a STEP file** of analytic geometry.
+  **exported as a STEP file** of analytic geometry. A **section** cuts the
+  scan with a plane taken across any of them, to be measured on the 2D sheet.
 - **Deviation** — paint how far the scan strays from what it should have been as
   a colour map over the part, measured either against a **nominal CAD part**
   (loaded as a mesh or as a **STEP file** tessellated in the browser, and
@@ -261,6 +262,35 @@ The re-fit waits for a dragged grip to be let go. The ghost draws a thin rim on
 each end and, while a grip is under the cursor or being dragged, a near-solid
 cap on that end, through the wall of the part, so how far a bore has been
 pulled in can be seen from outside it.
+
+### Sections: cutting the scan to measure the cut
+
+A wall thickness, a bore's true profile, the shape of a groove — the numbers
+a drawing dimensions on a *section view* are not distances between elements;
+they are read off the outline a plane cuts through the part. **Section**, the
+last key in the element row, cuts the scan with such a plane.
+
+The plane is taken **across an element's direction** and slid along it by an
+offset: a plane's normal, the axis of a cylinder, cone or line, a circle's
+normal. Choose the element in the box or click it in the viewport, then
+type the **offset** in millimetres or **drag the arrow** the plane wears in
+the viewport. The plane is drawn through the part as a translucent sheet
+with the cut on top of it, every chain of it, bores included, and the box
+says how many edge chains the cut produced. Zero cuts through the element's
+own centre — for a face that is the face itself, so offset into the part to
+cut its walls. Chains shorter than a millimetre are dropped as specks.
+
+Sections are listed under the elements with the same edit / hide / delete
+keys, drawn on the part in their colour, and re-open in the box they were
+made in. The plane is **frozen** when the section is created: re-fitting or
+deleting the element it was cut along leaves the section where it is (an
+edit slides it along its own plane, or moves it to another element), and a
+datum alignment carries it with the part. A saved project keeps every
+section's plane and cuts it again on load.
+
+What a section is *for* is the 2D Measure workspace, where it becomes a
+source beside the flatbed image — see [Measuring a
+section](#measuring-a-section).
 
 ### The assumed dimension — what the feature was designed at
 
@@ -1000,11 +1030,27 @@ traceability line — what the scale is, where it came from, and which frame
 coordinates read in — because a figure without that line is how wrong numbers
 get trusted.
 
+### Measuring a section
+
 The workspace's internals deliberately measure abstract 2D geometry, not
-pixels: the scan image is one *source* of edge chains. A section cut through a
-3D scan is the planned second source — the roadmap's section views will land
-their polylines on this same sheet, already in millimetres, and everything
-above (fits, constructions, datum, dimensions, report) applies unchanged.
+pixels: the scan image is one *source* of edge chains, and a **section** cut
+through the 3D scan (see [Sections](#sections-cutting-the-scan-to-measure-the-cut))
+is the other. Once a section exists, a **Measure** dropdown at the top of the
+panel lists the flatbed image and every section; choose one and it is on the
+sheet. A section's cut lands there as edge chains **already in
+millimetres** — no calibration, no alarm, the origin at the cutting plane's
+centre and the sheet seen from the side the plane's normal points to — and
+everything above applies unchanged: picks snap to the cut, an edge-region
+fit takes it point for point (the chains are as fine as the scan's
+triangles), constructions, the datum, dimensions, the report and the CSV all
+read off it. The report's traceability line says it is a section of which
+scan, cut along what, at what offset.
+
+One source is on the sheet at a time. **Each keeps its own sheet** — its
+elements, dimensions, datum, tallies and notes — stashed when you switch away
+and back exactly as it was when you return, and saved with the project. A
+section made in the 3D workspace goes straight onto the sheet, so switching
+over finds it there; deleting a section there takes its sheet with it.
 
 ## Development
 
@@ -1037,6 +1083,7 @@ node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, datum, report
+node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
@@ -1089,8 +1136,9 @@ pull request, so a red suite is visible before Cloudflare ships it.
 - More element types: cones, slots
 - Circles fitted to a marked surface, and datum-based GD&T (position, runout)
 - Point-cloud (faceless PLY) support
-- Export the coloured scan, and section views through the deviation map —
-  landing their outlines on the 2D Measure sheet to be dimensioned there
+- Export the coloured scan, and sections through the deviation map — a
+  section already lands its outline on the 2D Measure sheet; carrying the
+  colour along is what is missing
 - 2D Measure: slot and rectangle features, DXF export of the fitted geometry
 
 ## License

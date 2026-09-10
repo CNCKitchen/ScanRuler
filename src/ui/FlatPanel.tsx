@@ -14,7 +14,16 @@ import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
-import { flatCountColor, flatEditorOpen, toolOf, useFlat } from '../state/flatStore'
+import { describeCut } from '../core/section/frame'
+import {
+  flatCountColor,
+  flatEditorOpen,
+  sheetKeyOf,
+  subjectFromKey,
+  toolOf,
+  useFlat,
+} from '../state/flatStore'
+import { useStore } from '../state/store'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
 import { ShowAllButton } from './ShowAllButton'
@@ -69,6 +78,18 @@ export function FlatPanel({
   const editedNote = editingNoteId === null ? undefined : notes.find((n) => n.id === editingNoteId)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
+  // What is on the sheet: the image, or one of the sections cut in the 3D
+  // workspace — which live in that workspace's store, named after the
+  // elements they were cut along.
+  const subject = useFlat((s) => s.subject)
+  const sections = useStore((s) => s.sections)
+  const scanElements = useStore((s) => s.elements)
+  const scanName = useStore((s) => s.fileName)
+  const onSection = subject.kind === 'section'
+  const activeSection = onSection ? sections.find((x) => x.id === subject.id) : undefined
+  const cutOf = (sec: { ref: number | null; offset: number }) =>
+    describeCut(scanElements.find((e) => e.id === sec.ref)?.name ?? null, sec.offset)
+  const hasSheet = onSection || imageName !== null
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
@@ -105,29 +126,62 @@ export function FlatPanel({
     <aside className="panel">
       <div className="group">
         <div className="sec-head">
-          Image
-          <InfoDot title="The scan image">
+          {sections.length > 0 ? 'Source' : 'Image'}
+          <InfoDot title="What is measured">
             <p>
               A flatbed scan of the part — a <b>PNG</b> or <b>JPEG</b> straight from the scanner.
               Scan at the highest optical resolution you have; the pixels are the measurement.
             </p>
             <p>Drop it anywhere in the window. Nothing is uploaded.</p>
+            <p>
+              Or a <b>section</b>: the 3D scan cut with a plane in the Measure workspace. Its
+              edges lie on the sheet in millimetres already, so there is nothing to calibrate,
+              and they are snapped to, fitted and measured exactly like an image&apos;s. One source
+              is on the sheet at a time; each keeps its own elements, dimensions and datum, and
+              finds them again when it comes back.
+            </p>
           </InfoDot>
         </div>
-        <ModelSlot
-          role="Image"
-          name={imageName}
-          detail={`${imageWidth.toLocaleString('en-US')} × ${imageHeight.toLocaleString('en-US')} px`}
-          dotColor="#8b9099"
-          busy={imageBusy}
-          accept={IMAGE_ACCEPT}
-          formats={IMAGE_FORMATS}
-          onOpen={onOpenImage}
-        />
-        {!imageName && <p className="hint">Drop it anywhere in the window.</p>}
+        {sections.length > 0 && (
+          <label className="field">
+            <span>Measure</span>
+            <select
+              data-test="flat-source"
+              value={sheetKeyOf(subject)}
+              onChange={(e) => flat.getState().setSubject(subjectFromKey(e.target.value))}
+            >
+              <option value="image">{imageName ? `Image — ${imageName}` : 'Flatbed image'}</option>
+              {sections.map((sec) => (
+                <option key={sec.id} value={`section:${sec.id}`}>
+                  {sec.name} — {cutOf(sec)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {!onSection && (
+          <ModelSlot
+            role="Image"
+            name={imageName}
+            detail={`${imageWidth.toLocaleString('en-US')} × ${imageHeight.toLocaleString('en-US')} px`}
+            dotColor="#8b9099"
+            busy={imageBusy}
+            accept={IMAGE_ACCEPT}
+            formats={IMAGE_FORMATS}
+            onOpen={onOpenImage}
+          />
+        )}
+        {!onSection && !imageName && <p className="hint">Drop it anywhere in the window.</p>}
+        {activeSection && (
+          <p className="hint" data-test="flat-section-status">
+            <b>{activeSection.name}</b>: {scanName ?? 'the scan'} cut {cutOf(activeSection)}. The sheet
+            is in millimetres of the scan, origin at the cutting plane&apos;s centre — set a datum to
+            read coordinates off a feature.
+          </p>
+        )}
       </div>
 
-      {imageName && (
+      {imageName && !onSection && (
         <div className="group">
           <div className="sec-head">
             Calibration
@@ -301,7 +355,7 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && draft === null && counting === null && !placingNote && !editedNote && (
+      {hasSheet && draft === null && counting === null && !placingNote && !editedNote && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -539,9 +593,9 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && <FlatDimensionSection editorOpen={editorOpen} />}
+      {hasSheet && <FlatDimensionSection editorOpen={editorOpen} />}
 
-      {imageName && (elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0) && (
+      {hasSheet && (elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0) && (
         <>
           <div className="divider" />
           <div className="toolrow">
@@ -553,7 +607,7 @@ export function FlatPanel({
         </>
       )}
 
-      {imageName && (
+      {hasSheet && (
         <div className="group">
           <div className="sec-head">
             Datum
@@ -615,7 +669,40 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && (
+      {onSection && (
+        <div className="group">
+          <div className="sec-head">
+            Section edges
+            <InfoDot title="Section edges">
+              <p>
+                The polylines the cutting plane produced through the scan, drawn in teal over
+                the sheet. They are what picks snap to and what an edge-region fit consumes —
+                no detector runs, the cut is the edge.
+              </p>
+              <p>
+                The chains are as fine as the scan&apos;s triangles: coarse on a decimated mesh,
+                subpixel-dense on a fine one. Chains shorter than a millimetre are dropped.
+              </p>
+            </InfoDot>
+          </div>
+          <p className="hint" data-test="flat-edge-status">
+            {edgeStatus === 'ready'
+              ? `${edgeCount.toLocaleString('en-US')} edge chains from the cut.`
+              : 'Cutting the scan…'}
+          </p>
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="flat-edge-show"
+              checked={showEdges}
+              onChange={(e) => flat.getState().setShowEdges(e.target.checked)}
+            />
+            <span>Show section edges</span>
+          </label>
+        </div>
+      )}
+
+      {imageName && !onSection && (
         <div className="group">
           <div className="sec-head">
             Edge detection

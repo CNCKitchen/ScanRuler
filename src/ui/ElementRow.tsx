@@ -14,6 +14,7 @@ export function ElementRow({
   selected,
   editorOpen,
   editDisabled,
+  testId = 'element-row',
   onEdit,
   onToggleVisible,
   onDelete,
@@ -32,6 +33,8 @@ export function ElementRow({
   /** The edit key standing down for a reason of the row's own (a fit still
    *  running). */
   editDisabled?: boolean
+  /** What the row is, for the tests — an element unless said otherwise. */
+  testId?: string
   onEdit: () => void
   onToggleVisible: () => void
   onDelete: () => void
@@ -39,7 +42,7 @@ export function ElementRow({
   return (
     <div
       className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '')}
-      data-test="element-row"
+      data-test={testId}
     >
       <span className="dot" style={{ background: color }} />
       <span className="name">{name}</span>

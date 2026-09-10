@@ -7,17 +7,27 @@
  */
 import * as THREE from 'three'
 import type { ExtendSide } from '../core/elements/extend'
-import type { FitData } from '../core/types'
+import type { FitData, Vec3 } from '../core/types'
+
+/** What a grip moves: one side of an element being extended, or the offset
+ *  of a section plane along its normal. */
+export type GripSide = ExtendSide | 'offset'
 
 /** One grip on an element being extended: where it sits, which way its side
  *  grows, and the mesh the cursor has to find to grab it. All in the part's own
  *  coordinates, like every other overlay. */
 interface ExtendGrip {
-  side: ExtendSide
+  side: GripSide
   position: THREE.Vector3
   dir: THREE.Vector3
   mesh: THREE.Mesh
   material: THREE.MeshBasicMaterial
+}
+
+/** Where a section plane's grip sits and which way its offset grows. */
+export interface OffsetHandle {
+  origin: Vec3
+  dir: Vec3
 }
 
 /** Everything the grips are allowed to touch outside themselves. */
@@ -36,11 +46,11 @@ export interface ExtendGripsContext {
   requestHover(): void
   /** A grip being dragged: which side, and how many millimetres it has been
    *  pulled out (negative in) since the drag began. */
-  onExtendDrag(side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end'): void
+  onExtendDrag(side: GripSide, delta: number, phase: 'start' | 'move' | 'end'): void
   /** The grip the user has hold of — lit under the cursor, or held in a drag
    *  after the cursor has wandered off it — or null for none. The ghost marks
    *  that side of itself, so a hand on a grip can see the edge it is moving. */
-  onActiveSide(side: ExtendSide | null): void
+  onActiveSide(side: GripSide | null): void
 }
 
 export class ExtendGrips {
@@ -52,12 +62,17 @@ export class ExtendGrips {
   private handleMeshes: THREE.Mesh[] = []
   private handleCleanup: (() => void)[] = []
   private handleColor = '#ffffff'
-  private hoveredHandle: ExtendSide | null = null
+  /** What the grips are currently built for: the element being extended,
+   *  and/or the section plane being offset. Kept so either can be changed
+   *  without the other being forgotten. */
+  private fit: FitData | null = null
+  private offset: OffsetHandle | null = null
+  private hoveredHandle: GripSide | null = null
   /** What was last reported through onActiveSide, so it is only said when it
    *  changes. */
-  private activeSide: ExtendSide | null = null
+  private activeSide: GripSide | null = null
   private handleDrag: {
-    side: ExtendSide
+    side: GripSide
     /** Where the grip sat and which way it grows, in the part's own
      *  coordinates — the drag is measured along that line. */
     origin: THREE.Vector3
@@ -90,14 +105,37 @@ export class ExtendGrips {
    * point, a line) has no size to give and gets none.
    */
   setHandles(fit: FitData | null, color: string): void {
+    this.fit = fit
+    this.handleColor = color
+    this.rebuild()
+  }
+
+  /** Put a grip on a section plane — an arrow on the plane along its normal,
+   *  whose drag is the offset — or take it away with null. */
+  setOffsetHandle(handle: OffsetHandle | null, color: string): void {
+    this.offset = handle
+    this.handleColor = color
+    this.rebuild()
+  }
+
+  private rebuild(): void {
     for (const fn of this.handleCleanup) fn()
     this.handleCleanup = []
     this.handleGroup.clear()
     this.handles = []
     this.handleMeshes = []
-    this.handleColor = color
     this.ctx.invalidate()
     if (this.hoveredHandle !== null && this.handleDrag === null) this.setHoveredHandle(null)
+
+    if (this.offset) {
+      // Bigger than an element's grips: it stands alone on a bare sheet and
+      // is the one thing there is to take hold of.
+      const size = Math.max(this.ctx.modelRadius() * 0.05, 1e-5)
+      const dir = new THREE.Vector3(...this.offset.dir).normalize()
+      this.addGrip('offset', new THREE.Vector3(...this.offset.origin), dir, size)
+    }
+
+    const fit = this.fit
     if (!fit) return
 
     // Drawn on top of everything, so a grip on the far side of the element is
@@ -144,7 +182,7 @@ export class ExtendGrips {
   /** One grip: an arrow on an axis, or a bar along an edge when the side it
    *  belongs to has an edge to lie on. */
   private addGrip(
-    side: ExtendSide,
+    side: GripSide,
     position: THREE.Vector3,
     dir: THREE.Vector3,
     size: number,
@@ -193,7 +231,7 @@ export class ExtendGrips {
     this.handleGroup.updateWorldMatrix(true, true)
     const hits = this.ctx.raycaster.intersectObjects(this.handleMeshes, false)
     if (hits.length === 0) return null
-    const side = hits[0].object.userData.extendSide as ExtendSide
+    const side = hits[0].object.userData.extendSide as GripSide
     return this.handles.find((h) => h.side === side) ?? null
   }
 
@@ -211,7 +249,7 @@ export class ExtendGrips {
 
   /** Light the grip under the cursor and say so with the pointer, and take the
    *  plain left-drag off the camera for as long as one is under it. */
-  private setHoveredHandle(side: ExtendSide | null): void {
+  private setHoveredHandle(side: GripSide | null): void {
     if (this.hoveredHandle === side) return
     this.hoveredHandle = side
     this.ctx.invalidate()
@@ -311,6 +349,7 @@ export class ExtendGrips {
     document.removeEventListener('pointermove', this.onHandleMove)
     document.removeEventListener('pointerup', this.onHandleUp)
     document.removeEventListener('pointercancel', this.onHandleUp)
+    this.offset = null
     this.setHandles(null, '#ffffff')
     this.unitCone.dispose()
     this.unitBox.dispose()

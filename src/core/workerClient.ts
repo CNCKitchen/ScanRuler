@@ -2,7 +2,8 @@
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
-import type { AxialWindow, ElementKind, FitOutput, FitSettings } from './types'
+import type { SectionCut } from './section/slice'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
@@ -197,5 +198,19 @@ export class MeshWorkerClient {
   async transform(transform: Rigid): Promise<void> {
     const requestId = this.nextId++
     await this.request({ type: 'transform', requestId, transform })
+  }
+
+  /** Cut the scan with a plane: the polylines where it crosses the mesh, in
+   *  scan coordinates. Chains shorter than `minLength` mm are dropped. */
+  async section(origin: Vec3, normal: Vec3, minLength: number): Promise<SectionCut> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'section-ok' }>>({
+      type: 'section',
+      requestId,
+      origin,
+      normal,
+      minLength,
+    })
+    return { points: res.points, offsets: res.offsets }
   }
 }
