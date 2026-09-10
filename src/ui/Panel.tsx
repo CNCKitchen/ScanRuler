@@ -293,8 +293,7 @@ export function Panel({
             )
           })}
           <p className="hint">
-            Measure a section in the <b>2D Measure</b> workspace — it is listed there as a source
-            beside the flatbed image.
+            Measure a section in the <b>2D Measure</b> workspace.
           </p>
         </div>
       )}
