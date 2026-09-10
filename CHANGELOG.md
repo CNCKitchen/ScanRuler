@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
-## Unreleased
+## 0.2.1 — 2026-09-10
 
 - **3D Measure** — a section can be cut along the scan's **coordinate
   planes**: while a new section has nothing to cut across, the XY, YZ and XZ
