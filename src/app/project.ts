@@ -7,7 +7,7 @@
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
-import { useFlat } from '../state/flatStore'
+import { sheetKeyOf, sheetOf, useFlat, type FlatSubject, type SheetState } from '../state/flatStore'
 import { useShell, type Workspace } from '../state/shellStore'
 import {
   alignFromJson,
@@ -21,6 +21,8 @@ import {
   REFERENCE_STEM,
   rigidToJson,
   SCAN_STEM,
+  sectionFromJson,
+  sectionToJson,
   type DeviationPart,
   type FlatPart,
   type ProjectManifest,
@@ -44,13 +46,17 @@ export const emptySources = (): SourceFiles => ({ scan: null, reference: null, i
 export function sessionIsDirty(): boolean {
   const s = useStore.getState()
   const f = useFlat.getState()
+  const sheetHasWork = (sheet: SheetState) =>
+    sheet.elements.length > 0 ||
+    sheet.dimensions.length > 0 ||
+    sheet.counts.length > 0 ||
+    sheet.notes.length > 0
   return (
     s.elements.length > 0 ||
     s.dimensions.length > 0 ||
-    f.elements.length > 0 ||
-    f.dimensions.length > 0 ||
-    f.counts.length > 0 ||
-    f.notes.length > 0
+    s.sections.length > 0 ||
+    sheetHasWork(f) ||
+    Object.values(f.sheets).some(sheetHasWork)
   )
 }
 
@@ -84,6 +90,8 @@ export function collectProject(
       selectMode: s.selectMode,
       showOverlays: s.showOverlays,
       showBackfaces: s.showBackfaces,
+      sections: s.sections.map(sectionToJson),
+      nextSectionNumber: s.nextSectionNumber,
     }
   }
 
@@ -165,6 +173,11 @@ export function collectProject(
     nextCountId: f.nextCountId,
     notes: f.notes,
     nextNoteId: f.nextNoteId,
+    turns: f.turns,
+    // Every subject's sheet, the one on the stage included, so switching
+    // subjects after a load finds each as it was left.
+    subject: f.subject,
+    sheets: { ...f.sheets, [sheetKeyOf(f.subject)]: sheetOf(f) },
   }
 
   return {
@@ -201,6 +214,11 @@ export function applyScanPart(p: ScanPart): void {
     selectMode: p.selectMode,
     showOverlays: p.showOverlays,
     showBackfaces: p.showBackfaces ?? true,
+    // Planes only: the cuts are taken again once the scan is in the worker —
+    // see useSections.
+    sections: (p.sections ?? []).map(sectionFromJson),
+    sectionDraft: null,
+    nextSectionNumber: p.nextSectionNumber ?? 1,
   })
 }
 
@@ -257,23 +275,18 @@ export function applyThicknessPart(p: ThicknessPart): void {
   })
 }
 
-/** The 2D state, onto an image that has already been opened (or none). */
+/** The 2D state, onto an image that has already been opened (or none). The
+ *  sections it may put on the stage are the scan part's, applied first. */
 export function applyFlatPart(p: FlatPart): void {
-  useFlat.setState({
+  // The sheet on the stage and the ones behind it. A project from before
+  // sections holds one sheet, the image's, in the flat fields themselves.
+  const legacy: SheetState = {
     pxPerMm: p.pxPerMm,
     calSource: p.calSource,
-    splitAxes: p.splitAxes,
-    tool: { kind: 'none' },
-    edgeSensitivity: p.edgeSensitivity,
-    showEdges: p.showEdges,
-    snapToEdge: p.snapToEdge,
-    showGrid: p.showGrid,
     elements: p.elements,
-    draft: null,
     nextId: p.nextId,
     nameCounts: p.nameCounts,
     dimensions: p.dimensions,
-    dimDraft: null,
     nextDimId: p.nextDimId,
     dimCounts: p.dimCounts,
     datum: p.datum,
@@ -281,7 +294,37 @@ export function applyFlatPart(p: FlatPart): void {
     nextCountId: p.nextCountId,
     notes: p.notes ?? [],
     nextNoteId: p.nextNoteId ?? 1,
-  })
+    turns: p.turns ?? 0,
+  }
+  // A sheet saved before it could be turned lies the way it was scanned.
+  const sheetFromJson = (sheet: Partial<SheetState>): SheetState =>
+    ({ ...sheet, turns: sheet.turns ?? 0 }) as SheetState
+  let subject: FlatSubject = p.subject ?? { kind: 'image' }
+  // A section that is not in the project any more (or never was) cannot be
+  // on the stage; the image is.
+  if (subject.kind === 'section') {
+    const id = subject.id
+    if (!useStore.getState().sections.some((sec) => sec.id === id)) subject = { kind: 'image' }
+  }
+  const sheets: Record<string, SheetState> = {}
+  for (const [k, sheet] of Object.entries(p.sheets ?? {})) sheets[k] = sheetFromJson(sheet)
+  const key = sheetKeyOf(subject)
+  const active = sheets[key] ?? legacy
+  delete sheets[key]
+  useFlat.setState((s) => ({
+    ...active,
+    subject,
+    subjectVersion: s.subjectVersion + 1,
+    sheets,
+    splitAxes: p.splitAxes,
+    tool: { kind: 'none' },
+    edgeSensitivity: p.edgeSensitivity,
+    showEdges: p.showEdges,
+    snapToEdge: p.snapToEdge,
+    showGrid: p.showGrid,
+    draft: null,
+    dimDraft: null,
+  }))
 }
 
 export function applyWorkspace(w: string): void {

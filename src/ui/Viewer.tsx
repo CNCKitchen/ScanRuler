@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useRef, useState } from 'react'
-import { SceneManager, type PickHit } from '../viewer/SceneManager'
-import type { ExtendSide } from '../core/elements/extend'
+import { SceneManager, type GripSide, type PickHit } from '../viewer/SceneManager'
 import { FitButton } from './FitButton'
 
 export function Viewer({
@@ -19,8 +18,9 @@ export function Viewer({
   onElementPick?: (id: number) => void
   /** A brush stroke ended, with this many vertices marked in total. */
   onPaintChange?: (count: number) => void
-  /** One of the grips on the element being made was dragged this far. */
-  onExtendDrag?: (side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => void
+  /** One of the grips on the element being made — or the one on a section
+   *  plane — was dragged this far. */
+  onExtendDrag?: (side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<SceneManager | null>(null)

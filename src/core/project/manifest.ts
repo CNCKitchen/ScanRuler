@@ -8,7 +8,7 @@
 // The manifest is deliberately a plain data description of the stores, not
 // the stores themselves — drafts, busy flags and readouts never enter it.
 
-import type { Element, SelectMode } from '../../state/store'
+import type { Element, Section, SelectMode } from '../../state/store'
 import type { Dimension } from '../dimensions'
 import type { AlignResult, PointPair } from '../deviation/align'
 import type { Rigid } from '../deviation/rigid'
@@ -16,7 +16,7 @@ import type { MaterialSide } from '../deviation/elementField'
 import type { Probe } from '../../state/probes'
 import type { FitSettings } from '../types'
 import type { ThicknessMethod } from '../thickness/thickness'
-import type { CalSource } from '../../state/flatStore'
+import type { CalSource, FlatSubject, SheetState } from '../../state/flatStore'
 import type { FlatElement } from '../flat/elements'
 import type { FlatDimension } from '../flat/dimensions'
 import type { FlatDatum } from '../flat/datum'
@@ -78,6 +78,19 @@ export function elementFromJson(e: ElementJson): Element {
   } as Element
 }
 
+/** A section without its polylines: the plane is saved, the cut is taken
+ *  again on load — like every other measured thing. */
+export type SectionJson = Omit<Section, 'cut' | 'cutKey' | 'message'>
+
+export function sectionToJson(s: Section): SectionJson {
+  const { cut: _cut, cutKey: _key, message: _message, ...rest } = s
+  return rest
+}
+
+export function sectionFromJson(s: SectionJson): Section {
+  return { ...s }
+}
+
 export type AlignResultJson = Omit<AlignResult, 'transform'> & { transform: RigidJson }
 
 export function alignToJson(a: AlignResult): AlignResultJson {
@@ -109,6 +122,10 @@ export interface ScanPart {
   /** Absent in projects saved before the switch existed; those load with the
    *  tint on, same as a fresh session. */
   showBackfaces?: boolean
+  /** The scan cut with planes, for the 2D workspace. Absent in projects
+   *  saved before sections existed. */
+  sections?: SectionJson[]
+  nextSectionNumber?: number
 }
 
 export interface DeviationPart {
@@ -181,6 +198,16 @@ export interface FlatPart {
   /** Free text notes; absent in projects saved before they existed. */
   notes?: { id: number; text: string; at: Vec2; visible: boolean }[]
   nextNoteId?: number
+  /** Quarter turns the sheet is shown at, counter-clockwise. Absent in
+   *  projects saved before the sheet could be turned — those, and any
+   *  sheet under `sheets` without one, load the way they were scanned. */
+  turns?: number
+  /** What was on the sheet, and every subject's sheet — the image's and each
+   *  section's — keyed by sheetKeyOf, the one on the stage included. The
+   *  flat fields above are that sheet's, kept so an older build reads the
+   *  project as it always did. Absent in projects saved before sections. */
+  subject?: FlatSubject
+  sheets?: Record<string, SheetState>
 }
 
 export interface ProjectManifest {

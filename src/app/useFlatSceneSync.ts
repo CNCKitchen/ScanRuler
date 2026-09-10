@@ -8,6 +8,7 @@ import { useEffect, type MutableRefObject } from 'react'
 import type { EdgeChains } from '../core/flat/edges'
 import type { Vec2 } from '../core/flat/types'
 import { useFlat } from '../state/flatStore'
+import { useStore } from '../state/store'
 import type { FlatScene } from '../viewer/FlatScene'
 import {
   sheetCalibrationPicks,
@@ -21,23 +22,30 @@ import {
   sheetScale,
 } from './flatSheet'
 
+/** What lies on the sheet, as the viewport wants it: the decoded scan image
+ *  with the edges detected on it, or a section's laid-flat cut and the bounds
+ *  of a bare sheet to draw it on. Owned by App, out of the store like every
+ *  big buffer, and asked for rather than passed so that whichever effect
+ *  runs first sees what is there now. */
+export type SheetView =
+  | { kind: 'image'; bitmap: ImageBitmap; chains: EdgeChains | null }
+  | { kind: 'section'; bounds: { min: Vec2; max: Vec2 }; chains: EdgeChains }
+
 export function useFlatSceneSync({
   sceneRef,
-  bitmapRef,
-  edgesRef,
+  sheetOf,
 }: {
   sceneRef: MutableRefObject<FlatScene | null>
-  /** The decoded scan image — out of the store like every big buffer. */
-  bitmapRef: MutableRefObject<ImageBitmap | null>
-  /** The detected edge chains, landing whenever `edgeVersion` bumps. */
-  edgesRef: MutableRefObject<EdgeChains | null>
+  /** The subject on the stage, or null while there is nothing to lay out —
+   *  no image decoded yet, a section still being cut. */
+  sheetOf: () => SheetView | null
 }) {
   const scene = () => sceneRef.current
 
   const pushCalibration = () => scene()?.setCalibrationPicks(sheetCalibrationPicks(useFlat.getState()))
   const pushEdges = () => {
     const s = useFlat.getState()
-    scene()?.setEdgeChains(s.showEdges ? edgesRef.current : null)
+    scene()?.setEdgeChains(s.showEdges ? (sheetOf()?.chains ?? null) : null)
   }
   const pushNotes = () => scene()?.setNotes(sheetNotes(useFlat.getState()))
   const pushCounts = () => scene()?.setCounts(sheetCounts(useFlat.getState()))
@@ -56,15 +64,19 @@ export function useFlatSceneSync({
     view.setRegionMode(draft.regionMode)
   }
 
-  /** Put the decoded image on the sheet and every layer over it — once both
-   *  it and the viewport exist, in whichever order they got there: the image
+  /** Lay the subject on the sheet and every layer over it — once both it
+   *  and the viewport exist, in whichever order they got there: the image
    *  may be dropped before the workspace has ever been opened, and the
    *  viewport unmounts with it. */
   const pushAll = () => {
-    const bitmap = bitmapRef.current
+    const sheet = sheetOf()
     const view = scene()
-    if (!bitmap || !view) return
-    void view.setImage(bitmap, sheetScale(useFlat.getState()))
+    if (!sheet || !view) return
+    // The turn first, so the sheet is framed the way it is to be looked at
+    // rather than framed and then turned.
+    view.setTurns(useFlat.getState().turns)
+    if (sheet.kind === 'image') void view.setImage(sheet.bitmap, sheetScale(useFlat.getState()))
+    else view.setBlankSheet(sheet.bounds.min, sheet.bounds.max)
     pushCalibration()
     pushEdges()
     pushElements()
@@ -74,8 +86,15 @@ export function useFlatSceneSync({
     pushGrid()
   }
 
+  // A new image, a new subject, or a section's cut landing (a section from a
+  // project is cut again after it is chosen) — each lays the sheet afresh.
   const imageVersion = useFlat((s) => s.imageVersion)
-  useEffect(pushAll, [imageVersion])
+  const subject = useFlat((s) => s.subject)
+  const subjectVersion = useFlat((s) => s.subjectVersion)
+  const activeCutKey = useStore((s) =>
+    subject.kind === 'section' ? (s.sections.find((x) => x.id === subject.id)?.cutKey ?? null) : null,
+  )
+  useEffect(pushAll, [imageVersion, subjectVersion, activeCutKey])
 
   // A new calibration re-lays the sheet in its millimetres and moves
   // whatever is pinned on it along.
@@ -108,6 +127,10 @@ export function useFlatSceneSync({
 
   const draft = useFlat((s) => s.draft)
   useEffect(pushElements, [elements, draft, scale, datum])
+
+  // The sheet turned on the stage — the camera rolls, nothing is redrawn.
+  const turns = useFlat((s) => s.turns)
+  useEffect(() => scene()?.setTurns(turns), [turns])
 
   return {
     /** The viewport has mounted — take it and lay the sheet out on it — or

@@ -34,6 +34,18 @@ export interface FitSettings {
   sigma: SigmaPreset
 }
 
+/** The span a cylinder's best fit is confined to, as millimetres past each
+ *  end of the surface it was measured on — the same two numbers the element
+ *  is drawn with (see core/elements/extend). Only a negative side leaves
+ *  anything out: it pulls that end of the window in, and the surface beyond
+ *  it — a badly captured rim at the mouth of a bore, say — stays out of the
+ *  fit. A positive side reaches past the surface, where there is nothing more
+ *  to take in. */
+export interface AxialWindow {
+  start: number
+  end: number
+}
+
 export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'cone' | 'circle'
 
 /** The kinds that are measured by fitting to the scan surface. Points are

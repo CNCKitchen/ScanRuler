@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
-import { OrthoViewport } from './orthoViewport'
-import { AxisGizmo } from './axisGizmo'
+import { OrthoViewport, STANDARD_VIEWS, type StandardView } from './orthoViewport'
+import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
-import { ExtendGrips } from './extendGrips'
+import { ExtendGrips, type GripSide } from './extendGrips'
 import { Overlays, type OverlayElement, type OverlayPair, type OverlayAngle, type ProbeMarker } from './overlays'
+import { SectionOverlay, type SectionOverlayItem } from './sections'
+import type { SectionFrame } from '../core/section/frame'
+import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
-import type { ExtendSide } from '../core/elements/extend'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { applyFinish, DEFAULT_THEME, type ViewTheme } from './viewThemes'
@@ -29,6 +31,13 @@ import {
   PAINT_GLSL_VERTEX_BODY,
   type PaintUniform,
 } from './paintTint'
+import {
+  patchWireframe,
+  SEE_THROUGH_OPACITY,
+  setSurfaceOpacity,
+  spliceWireframe,
+  wireUniforms,
+} from './surfaceModes'
 
 declare module 'three' {
   interface BufferGeometry {
@@ -80,6 +89,8 @@ function principalAxis(positions: Float32Array): THREE.Vector3 {
  *  draw them; consumers keep importing everything from here. */
 export type { OverlayElement, OverlayPair, OverlayAngle, ProbeMarker } from './overlays'
 export type { MarkGesture, PaintBrush } from './marking'
+export type { GripSide, OffsetHandle } from './extendGrips'
+export type { SectionOverlayItem } from './sections'
 
 /** Where a ray met the scan. The barycentric weights come along so a caller
  *  holding a per-vertex field — the deviation map — can read its value at the
@@ -110,11 +121,12 @@ export type { PickMarker }
  *  and the axis gizmo each live in their own module, and this class wires
  *  them to each other and keeps the public face the app talks to. */
 /** The view the datum stage is read from: front-top-right with Z up — the
- *  pose a part standing on the floor plane looks upright in. */
-const STAGE_VIEW = {
-  dir: new THREE.Vector3(0.72, -0.95, 0.55),
-  up: new THREE.Vector3(0, 0, 1),
-}
+ *  pose a part standing on the floor plane looks upright in, and the same
+ *  pose the iso key turns to. */
+const STAGE_VIEW = STANDARD_VIEWS.iso
+
+/** How see-through the reference's ghost is while it is being fitted. */
+const GHOST_OPACITY = 0.5
 
 /** The scan's marking, as another viewport needs it: the compositor that owns
  *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
@@ -144,6 +156,7 @@ export class SceneManager {
   private marking: SurfaceMarking
   private grips: ExtendGrips
   private overlays: Overlays
+  private sections: SectionOverlay
   /**
    * Everything that lives in the scan's own coordinates: the scan itself, the
    * fitted elements, the pending preview and any pinned readings.
@@ -195,6 +208,17 @@ export class SceneManager {
    *  here rather than a pass over the mask — see paintTint.ts. */
   private uPaintColor: PaintUniform = paintUniform()
 
+  /** The mesh mode's switch, shared by the scan and the reference: the
+   *  triangle edges, drawn in the surface shader — see surfaceModes.ts. */
+  private wire = wireUniforms()
+  /** See-through surfaces, so what is inside the scan — the reference, the
+   *  fitted elements, the pinned readings — shows. Held here as well as on
+   *  the materials because a part loaded later has to be dressed the same. */
+  private translucent = false
+  /** Whether the reference is a ghost or a solid part — see setNominalGhost.
+   *  A ghost until the workspace says otherwise, which is how it starts. */
+  private nominalGhost = true
+
   /** Scratch for picking, which runs every frame the cursor moves: the
    *  barycentric corners and difference vectors, and (in D) the hit point
    *  carried into the part's frame. */
@@ -207,7 +231,7 @@ export class SceneManager {
   /** Who currently owns the plain left-drag. The brush and the grips both need
    *  it and must not fight over handing it back — the navigator is told once,
    *  from whether anyone is holding it at all. */
-  private dragClaims = new Set<'paint' | 'handle'>()
+  private dragClaims = new Set<'paint' | 'handle' | 'gizmo'>()
 
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
@@ -215,8 +239,9 @@ export class SceneManager {
   /** How many vertices the brush has marked, reported when a stroke ends. */
   onPaintChange: ((count: number) => void) | null = null
   /** A grip being dragged: which side, and how many millimetres it has been
-   *  pulled out (negative in) since the drag began. */
-  onExtendDrag: ((side: ExtendSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
+   *  pulled out (negative in) since the drag began — or, for a section plane's
+   *  grip, how far along its normal it has been moved. */
+  onExtendDrag: ((side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
     null
 
   constructor(container: HTMLDivElement) {
@@ -247,6 +272,9 @@ export class SceneManager {
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
+        // The section curves are fat lines sized in pixels and need the canvas.
+        const el = this.viewport.renderer.domElement
+        this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
       },
       onAfterRender: (w, h) => this.drawGizmo(w, h),
     })
@@ -282,6 +310,12 @@ export class SceneManager {
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
     })
+    this.sections = new SectionOverlay({
+      partGroup: this.partGroup,
+      modelRadius: () => this.modelRadius,
+      modelCenter: () => this.modelCenter(),
+      invalidate: this.invalidate,
+    })
     this.grips = new ExtendGrips({
       partGroup: this.partGroup,
       raycaster: this.raycaster,
@@ -294,6 +328,9 @@ export class SceneManager {
         this.hoverDirty = true
       },
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
+      // Only an element's ghost has ends to mark; a section plane's grip
+      // stands on a sheet that is its own mark.
+      onActiveSide: (side) => this.overlays.setPreviewActiveSide(side === 'offset' ? null : side),
     })
 
     this.viewport.renderer.domElement.addEventListener('pointermove', (e) => {
@@ -371,8 +408,34 @@ export class SceneManager {
    *  aside for both. While a marking gesture is live the grips never get a
    *  look-in: that one asked first. */
   private handlePointerDown(e: PointerEvent): boolean {
+    // The gizmo corner is a button before it is anything else: tested here
+    // rather than read off the hover, because a finger has no hover.
+    if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const axis = this.gizmoAt(e.clientX, e.clientY)
+      if (axis !== null) {
+        this.viewAlong(axis)
+        return true
+      }
+    }
     if (this.marking.pointerGesture() !== null) return this.marking.handlePointerDown(e)
     return this.grips.handlePointerDown(e)
+  }
+
+  /** The gizmo arrow under a client point, if any. */
+  private gizmoAt(clientX: number, clientY: number): GizmoAxis | null {
+    const rect = this.viewport.renderer.domElement.getBoundingClientRect()
+    return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
+  }
+
+  /** Look down a gizmo arrow: the view from the positive end of that axis,
+   *  or, when the camera is already there, from the negative end — so a
+   *  second click on the same arrow turns the part over. */
+  viewAlong(axis: GizmoAxis): void {
+    const [near, far]: [StandardView, StandardView] =
+      axis === 'x' ? ['right', 'left'] : axis === 'y' ? ['rear', 'front'] : ['top', 'bottom']
+    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize()
+    const there = dir.dot(STANDARD_VIEWS[near].dir) > 0.999
+    this.viewFrom(there ? far : near)
   }
 
   /** A click that survived the drag threshold: an element when element picking
@@ -396,6 +459,15 @@ export class SceneManager {
   private updateHover(): void {
     if (!this.hoverDirty) return
     this.hoverDirty = false
+    // The gizmo's arrows light under the cursor and take the plain left-drag
+    // off the camera while one is under it, the way the grips do: a press on
+    // an arrow is a click on a button, not the start of an orbit.
+    const axis = this.hoverAt ? this.gizmoAt(this.hoverAt.x, this.hoverAt.y) : null
+    if (this.gizmo.setHovered(axis)) {
+      this.viewport.renderer.domElement.style.cursor = axis !== null ? 'pointer' : ''
+      this.claimDrag('gizmo', axis !== null)
+      this.invalidate()
+    }
     if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
     // Grips resolve after the footprint, and never light while a marking
     // gesture is armed — both plain drags are the brush's then.
@@ -423,7 +495,12 @@ export class SceneManager {
 
   /** Replace the displayed mesh. Synchronous and heavy (includes the BVH
    *  build) — callers should show a status message and yield a frame first. */
-  setMesh(positions: Float32Array, indices: Uint32Array, normals: Float32Array): void {
+  setMesh(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+  ): void {
     this.disposeMesh()
     this.setPreview(null)
 
@@ -443,6 +520,10 @@ export class SceneManager {
     const paint = new Uint8Array(vertexCount)
     this.paintAttr = new THREE.BufferAttribute(paint, 1)
     geometry.setAttribute('paint', this.paintAttr)
+    // The corner slots the mesh mode draws the edges from. Without them the
+    // shader sees one slot everywhere and draws no edges, and nothing else
+    // minds.
+    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
@@ -455,6 +536,7 @@ export class SceneManager {
     })
     applyFinish(material, this.theme)
     this.patchScanShader(material)
+    setSurfaceOpacity(material, this.scanOpacity())
     this.mesh = new THREE.Mesh(geometry, material)
     this.partGroup.add(this.mesh)
     // A new scan is not aligned to anything yet, and nothing is being
@@ -473,9 +555,10 @@ export class SceneManager {
   }
 
   /**
-   * The scan material's two shader amendments: the hand-marking's tint (see
-   * paintTint.ts) and back-face flagging (see backfaceTint.ts). Folded into one
-   * patch here because a material has a single onBeforeCompile.
+   * The scan material's shader amendments: the hand-marking's tint (see
+   * paintTint.ts), back-face flagging (see backfaceTint.ts) and the mesh mode's
+   * edges (see surfaceModes.ts). Folded into one patch here because a material
+   * has a single onBeforeCompile.
    *
    * Back faces are flagged in the shader rather than by drawing the mesh a
    * second time with the faces flipped, because the second pass would have to
@@ -504,7 +587,48 @@ export class SceneManager {
           ${PAINT_GLSL_FRAGMENT}
           ${BACKFACE_GLSL_FRAGMENT}`,
         )
+      spliceWireframe(shader, this.wire)
     }
+  }
+
+  /**
+   * See through the parts: the scan and the reference go translucent, so the
+   * reference sitting inside the scan, the fitted elements and the pinned
+   * readings show instead of being hidden by whatever surface is in front of
+   * them. Picking is untouched — a click still lands on the nearest surface,
+   * which is the one the cursor is visibly over.
+   */
+  setTranslucent(on: boolean): void {
+    if (this.translucent === on) return
+    this.translucent = on
+    if (this.mesh) {
+      setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
+    }
+    if (this.nominalMesh) {
+      setSurfaceOpacity(
+        this.nominalMesh.material as THREE.MeshStandardMaterial,
+        this.nominalOpacity(),
+      )
+    }
+    this.invalidate()
+  }
+
+  /** Draw the triangle edges on the scan and the reference — see
+   *  surfaceModes.ts. A uniform write, like the back-face flag. */
+  setWireframe(on: boolean): void {
+    this.wire.uWire.value = on ? 1 : 0
+    this.invalidate()
+  }
+
+  private scanOpacity(): number {
+    return this.translucent ? SEE_THROUGH_OPACITY : 1
+  }
+
+  /** The ghost is see-through in its own right; the see-through mode only
+   *  changes what a solid reference looks like. */
+  private nominalOpacity(): number {
+    if (this.nominalGhost) return GHOST_OPACITY
+    return this.translucent ? SEE_THROUGH_OPACITY : 1
   }
 
   /** Show which way the surface faces: the far side of every triangle gets a
@@ -554,6 +678,12 @@ export class SceneManager {
     this.viewport.fitCamera(box)
     this.framedClip.center.copy(this.clipSphere.center)
     this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** Turn to one of the standard views — top, front, iso and so on — about
+   *  the point the camera is looking at, keeping the zoom. */
+  viewFrom(view: StandardView): void {
+    this.viewport.viewFrom(view)
   }
 
   /** Frame the part broadside, and remember what was framed so the alignment
@@ -755,7 +885,7 @@ export class SceneManager {
     this.overlays.setHighlightedElements(ids)
   }
 
-  /** Pin deviation readings to the part. */
+  /** Pin readings to the part, each titled with the map it came off. */
   setProbes(probes: ProbeMarker[]): void {
     this.overlays.setProbes(probes)
   }
@@ -799,14 +929,29 @@ export class SceneManager {
     this.overlays.setPreview(fit)
   }
 
-  /** Put grips on the element being made, or take them away with null. */
+  /** Put grips on the element being made, or take them away with null. The
+   *  ghost's own end marks wear the same colour as the grips on them. */
   setExtendHandles(fit: FitData | null, color: string): void {
+    this.overlays.setPreviewColor(color)
     this.grips.setHandles(fit, color)
+  }
+
+  /** The finished sections, drawn on the part in their colours. */
+  setSections(items: readonly SectionOverlayItem[], visible: boolean): void {
+    this.sections.setSections(items, visible)
+  }
+
+  /** The section being made: its plane through the part and the cut it
+   *  produces, with a grip on the plane to slide it along its normal. Null
+   *  frame takes all three away. */
+  setSectionPreview(frame: SectionFrame | null, cut: SectionCut | null, color: string): void {
+    this.sections.setPreview(frame, cut, color)
+    this.grips.setOffsetHandle(frame ? { origin: frame.origin, dir: frame.normal } : null, color)
   }
 
   /** Take the plain left-drag away from the camera, or give it back, for one
    *  reason among several. The navigator only ever hears the total. */
-  private claimDrag(reason: 'paint' | 'handle', on: boolean): void {
+  private claimDrag(reason: 'paint' | 'handle' | 'gizmo', on: boolean): void {
     const had = this.dragClaims.size > 0
     if (on) this.dragClaims.add(reason)
     else this.dragClaims.delete(reason)
@@ -900,11 +1045,17 @@ export class SceneManager {
   /** Load the reference part. It never moves: a nominal is the datum a
    *  measurement is taken against, so the alignment is applied to the scan and
    *  the world ends up in the reference's coordinates. */
-  setNominal(positions: Float32Array, indices: Uint32Array, normals: Float32Array): void {
+  setNominal(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+  ): void {
     this.disposeNominal()
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
@@ -913,13 +1064,10 @@ export class SceneManager {
     const material = new THREE.MeshStandardMaterial({
       color: this.theme.nominal,
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.5,
-      // Without this the ghost writes depth and punches holes in the scan
-      // behind it, which reads as missing scan data rather than as a ghost.
-      depthWrite: false,
     })
     applyFinish(material, this.theme)
+    patchWireframe(material, this.wire)
+    setSurfaceOpacity(material, this.nominalOpacity())
     this.nominalMesh = new THREE.Mesh(geometry, material)
     this.nominalMesh.visible = false
     this.nominalMesh.renderOrder = 1
@@ -1045,12 +1193,9 @@ export class SceneManager {
    * at.
    */
   setNominalGhost(ghost: boolean): void {
+    this.nominalGhost = ghost
     if (!this.nominalMesh) return
-    const material = this.nominalMesh.material as THREE.MeshStandardMaterial
-    material.transparent = ghost
-    material.opacity = ghost ? 0.5 : 1
-    material.depthWrite = !ghost
-    material.needsUpdate = true
+    setSurfaceOpacity(this.nominalMesh.material as THREE.MeshStandardMaterial, this.nominalOpacity())
     this.invalidate()
   }
 
@@ -1115,6 +1260,7 @@ export class SceneManager {
     this.marking.dispose()
     this.grips.dispose()
     this.overlays.dispose()
+    this.sections.dispose()
     this.stage.dispose()
     this.gizmo.dispose()
     this.disposeNominal()

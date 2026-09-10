@@ -13,6 +13,7 @@ import { useShell, type Workspace } from '../state/shellStore'
 import { IMAGE_ACCEPT, MESH_ACCEPT, isImageFile, isMeshFile, isStepFile } from '../core/formats'
 import { PROJECT_EXTENSION } from '../core/project/manifest'
 import { isProjectFile } from '../app/useProject'
+import { APP_VERSION } from '../version'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
@@ -68,9 +69,17 @@ export function TopBar({
   return (
     <header className="top">
       <div className="brandmark">SR</div>
-      <div className="brand">
+      {/* The version rides in the caption, and in the tooltip for the narrow
+          layouts that drop the caption: a bug report needs the number, and
+          the imprint carries it too. */}
+      <div className="brand" title={`ScanRuler v${APP_VERSION}`}>
         <b>ScanRuler</b>
-        <span>CNC Kitchen · 3D scan analysis</span>
+        <span>
+          CNC Kitchen · 3D scan analysis ·{' '}
+          <i className="ver" data-test="app-version">
+            v{APP_VERSION}
+          </i>
+        </span>
       </div>
       {/* Both workspaces share the loaded scan, the scene and the camera, so
           switching is free and neither side loses what it had. */}

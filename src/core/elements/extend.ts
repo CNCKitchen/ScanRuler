@@ -13,13 +13,19 @@
 // The values are millimetres per side, positive outward. Negative shrinks, and
 // each side is clamped so the element can never be given away entirely.
 
-import type { CylinderFit, FitData, PlaneFit } from '../types'
+import type { AxialWindow, CylinderFit, FitData, PlaneFit } from '../types'
 import { addScaled } from '../vec'
 
 /** A cylinder grows along its axis: `start` runs against it, `end` with it.
- *  A plane grows along its own in-plane axes, one value per edge. */
+ *  A plane grows along its own in-plane axes, one value per edge.
+ *
+ *  `fitInside` turns a cylinder's two numbers from a drawing decision into a
+ *  mask as well: the best fit then runs only on the scanned surface inside
+ *  the drawn span. That is the one way an extension reaches the measurement
+ *  — an end pulled in with it on leaves the surface beyond that end out of
+ *  the fit, which is how a badly captured rim is kept from bending the axis. */
 export type Extension =
-  | { kind: 'cylinder'; start: number; end: number }
+  | { kind: 'cylinder'; start: number; end: number; fitInside?: boolean }
   | { kind: 'plane'; uMin: number; uMax: number; vMin: number; vMax: number }
 
 export type CylinderSide = 'start' | 'end'
@@ -62,6 +68,30 @@ export function extensionOf(fit: ExtendableFit, ext: Extension | undefined): Ext
 export function isExtended(ext: Extension | undefined): boolean {
   if (!ext) return false
   return sides(ext).some((s) => sideValue(ext, s) !== 0)
+}
+
+/** Whether the extension also confines the fit — a cylinder with the option
+ *  on. Off, absent, and a plane all mean the fit takes the whole surface. */
+export function fitsInside(ext: Extension | undefined): boolean {
+  return ext?.kind === 'cylinder' && ext.fitInside === true
+}
+
+/** The span the fit is confined to, for the worker, or undefined when the
+ *  whole measured surface goes in. Only the two numbers travel: the fitter
+ *  applies them to the surface it finds, and reads the flag from nothing. */
+export function fitWindow(ext: Extension | undefined): AxialWindow | undefined {
+  return ext?.kind === 'cylinder' && ext.fitInside === true
+    ? { start: ext.start, end: ext.end }
+    : undefined
+}
+
+/** The same extension with the fit confined to its span or not. Only a
+ *  cylinder has the option; a plane is handed back unchanged. */
+export function withFitInside(ext: Extension, on: boolean): Extension {
+  if (ext.kind !== 'cylinder') return ext
+  if (on) return { ...ext, fitInside: true }
+  const { fitInside: _off, ...rest } = ext
+  return rest
 }
 
 export function sides(ext: Extension): readonly ExtendSide[] {

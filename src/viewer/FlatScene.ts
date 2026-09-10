@@ -34,6 +34,13 @@ export class FlatScene {
   /** Pixel size of the loaded image; zero while nothing is loaded. */
   private imagePx = { width: 0, height: 0 }
   private mmPerPx: PixelsPerMm = { x: 1, y: 1 }
+  /** Where the sheet lies, in document units: an image from the origin up
+   *  to its size in millimetres, a section around its cut. */
+  private bounds = { x0: 0, y0: 0, x1: 0, y1: 0 }
+  /** Quarter turns the sheet is shown at, counter-clockwise on screen. The
+   *  camera rolls; the sheet and everything drawn on it stay in document
+   *  units, so a pick lands where it lands whichever way up it is looked at. */
+  private turns = 0
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
@@ -106,7 +113,7 @@ export class FlatScene {
   constructor(private container: HTMLDivElement, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
       theme,
-      navTargets: () => (this.imagePx.width ? [this.sheet] : []),
+      navTargets: () => (this.sheet.visible ? [this.sheet] : []),
       onClick: (x, y, e) => {
         const p = this.pick(x, y)
         if (p) this.onPick?.(p, { alt: e?.altKey ?? false, unitsPerScreenPx: this.unitsPerScreenPx() })
@@ -239,7 +246,7 @@ export class FlatScene {
     this.gridGroup.clear()
     this.gridSpacingDrawn = 0
     const frame = this.gridFrame
-    if (!frame || !this.imagePx.width) {
+    if (!frame || !this.sheet.visible) {
       this.viewport.invalidate()
       return
     }
@@ -247,15 +254,14 @@ export class FlatScene {
     this.gridSpacingDrawn = s
 
     // The sheet's corners in frame coordinates bound what needs lines.
-    const w = this.imagePx.width * this.mmPerPx.x
-    const h = this.imagePx.height * this.mmPerPx.y
+    const { x0, y0, x1, y1 } = this.bounds
     const [c, si] = frame.xDir
     const toFrame = (x: number, y: number): Vec2 => {
       const rx = x - frame.origin[0]
       const ry = y - frame.origin[1]
       return [rx * c + ry * si, -rx * si + ry * c]
     }
-    const corners = [toFrame(0, 0), toFrame(w, 0), toFrame(0, h), toFrame(w, h)]
+    const corners = [toFrame(x0, y0), toFrame(x1, y0), toFrame(x0, y1), toFrame(x1, y1)]
     const uMin = Math.min(...corners.map((p) => p[0]))
     const uMax = Math.max(...corners.map((p) => p[0]))
     const vMin = Math.min(...corners.map((p) => p[1]))
@@ -494,7 +500,7 @@ export class FlatScene {
   }
 
   private sheetDiag(): number {
-    return Math.hypot(this.imagePx.width * this.mmPerPx.x, this.imagePx.height * this.mmPerPx.y) || 1
+    return Math.hypot(this.bounds.x1 - this.bounds.x0, this.bounds.y1 - this.bounds.y0) || 1
   }
 
   /** Polylines as screen-space fat lines, `width` pixels wide at any zoom —
@@ -893,41 +899,105 @@ export class FlatScene {
     texture.needsUpdate = true
     this.texture = texture
     this.material.map = texture
+    // The colour multiplies the image; white leaves it alone.
+    this.material.color.set(0xffffff)
     this.material.needsUpdate = true
 
     this.sheet.visible = true
+    this.bounds = this.imageBounds()
     this.layoutSheet()
     this.frame()
   }
 
-  /** The calibration changed: same pixels, different millimetres. */
+  /**
+   * A bare sheet with nothing on it but what is drawn over it — a section
+   * through the 3D scan, whose edges arrive already in millimetres. The
+   * bounds are the cut's, with room around it; the sheet is what a click
+   * lands on, so it has to reach a little past the last edge.
+   */
+  setBlankSheet(min: Vec2, max: Vec2): void {
+    this.texture?.dispose()
+    this.texture = null
+    this.material.map = null
+    this.material.color.set(0xf4f5f7)
+    this.material.needsUpdate = true
+    this.imagePx = { width: 0, height: 0 }
+    this.mmPerPx = { x: 1, y: 1 }
+    this.sheet.visible = true
+    this.bounds = { x0: min[0], y0: min[1], x1: max[0], y1: max[1] }
+    this.layoutSheet()
+    this.frame()
+  }
+
+  /** The calibration changed: same pixels, different millimetres. A bare
+   *  sheet has no pixels to re-lay; only its edge overlay reads the scale. */
   setScale(mmPerPx: PixelsPerMm): void {
     this.mmPerPx = { ...mmPerPx }
-    if (!this.imagePx.width) return
+    if (!this.sheet.visible) return
+    if (!this.texture) {
+      this.layoutEdges()
+      return
+    }
+    this.bounds = this.imageBounds()
     this.layoutSheet()
     this.frame()
   }
 
-  /** Size the unit plane to the document and put its bottom-left at the origin. */
+  /** The image's extent in document units: from the origin, its pixels at
+   *  the scale in force. */
+  private imageBounds(): { x0: number; y0: number; x1: number; y1: number } {
+    return {
+      x0: 0,
+      y0: 0,
+      x1: this.imagePx.width * this.mmPerPx.x,
+      y1: this.imagePx.height * this.mmPerPx.y,
+    }
+  }
+
+  /** Size the unit plane to the sheet's bounds and put it there. */
   private layoutSheet(): void {
-    const w = this.imagePx.width * this.mmPerPx.x
-    const h = this.imagePx.height * this.mmPerPx.y
-    this.sheet.scale.set(w, h, 1)
-    this.sheet.position.set(w / 2, h / 2, 0)
+    const { x0, y0, x1, y1 } = this.bounds
+    this.sheet.scale.set(Math.max(x1 - x0, 1e-6), Math.max(y1 - y0, 1e-6), 1)
+    this.sheet.position.set((x0 + x1) / 2, (y0 + y1) / 2, 0)
     this.sheet.updateMatrixWorld(true)
     this.layoutEdges()
     this.rebuildGrid()
     this.viewport.invalidate()
   }
 
-  /** Frame the whole sheet, face on, y up. */
+  /** Frame the whole sheet, face on, turned as asked — y up at no turns. */
   frame(): void {
-    if (!this.imagePx.width) return
+    if (!this.sheet.visible) return
     const box = new THREE.Box3().setFromObject(this.sheet)
     this.viewport.frameCamera(box, null, {
       dir: new THREE.Vector3(0, 0, 1),
-      up: new THREE.Vector3(0, 1, 0),
+      up: this.screenUp(),
     })
+  }
+
+  /** Show the sheet turned by whole quarter turns, counter-clockwise on
+   *  screen, and fit it to the viewport again: a sheet that was framed
+   *  landscape does not fit its own frame once it stands on end, and a turn
+   *  is the moment to look at the whole of it anyway. */
+  setTurns(turns: number): void {
+    const t = ((Math.round(turns) % 4) + 4) % 4
+    if (t === this.turns) return
+    this.turns = t
+    this.frame()
+  }
+
+  /** The document direction that points up the screen at the current turn:
+   *  +Y untouched, then +X, −Y, −X as the sheet goes round counter-clockwise
+   *  — what was to the right of the origin is above it after one turn. */
+  private screenUp(): THREE.Vector3 {
+    const ups: [number, number][] = [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ]
+    const [x, y] = ups[this.turns]
+    return new THREE.Vector3(x, y, 0)
   }
 
   private pick(clientX: number, clientY: number): Vec2 | null {

@@ -15,9 +15,11 @@ import {
 import { roleOf } from '../core/elements/refs'
 import {
   extensionOf,
+  fitsInside,
   isExtendable,
   isExtended,
   squareExtension,
+  withFitInside,
   withSide,
   zeroExtension,
   type ExtendSide,
@@ -42,7 +44,19 @@ import {
   type AlignSlot,
   type AxisDir,
 } from '../core/alignment'
-import { rigidApply, rigidCompose, type Rigid } from '../core/deviation/rigid'
+import { rigidApply, rigidCompose, rigidRotate, type Rigid } from '../core/deviation/rigid'
+import {
+  axisOfFrame,
+  canCutAlong,
+  cutAxisOf,
+  frameKey,
+  sectionFrameAlong,
+  transformAxis,
+  transformFrame,
+  type CutAxis,
+  type SectionFrame,
+} from '../core/section/frame'
+import { transformCut, type SectionCut } from '../core/section/slice'
 import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
@@ -363,6 +377,81 @@ export function draftColorOf(s: {
   return el?.color ?? elementColor(s.nextNumber)
 }
 
+/**
+ * A section: the scan cut with a plane, to be measured in the 2D workspace.
+ *
+ * The plane is frozen when the section is made — see core/section/frame —
+ * so a section is a record of where the scan was cut, not a construction on
+ * the element it was cut along. It keeps that element and the offset for
+ * the editor and the report, and the polylines the cut produced; a datum
+ * alignment carries frame and polylines along with the part.
+ */
+export interface Section {
+  id: number
+  name: string
+  color: string
+  visible: boolean
+  frame: SectionFrame
+  /** The element it was cut along, if that still exists, and how far along
+   *  its direction. */
+  ref: number | null
+  offset: number
+  /** The polylines, once the worker has cut them; the frame they were cut
+   *  in, as frameKey — a cut that no longer matches its frame is re-taken. */
+  cut?: SectionCut
+  cutKey?: string
+  message?: string
+}
+
+/** A section in the making, or one re-opened: the line it slides along
+ *  (off the reference, or off its own frozen plane), the offset, and the
+ *  cut the worker has taken for the plane those give. */
+export interface SectionDraft {
+  ref: number | null
+  offset: number
+  axis: CutAxis | null
+  /** The in-plane X to keep — an edited section's own, so nudging it does
+   *  not turn the sheet under the measurements taken on it. */
+  seedU?: Vec3
+  /** Derived from axis and offset; null until there is an axis. */
+  frame: SectionFrame | null
+  status: 'empty' | 'slicing' | 'ready' | 'failed'
+  cut?: SectionCut
+  cutKey?: string
+  message?: string
+  editId?: number
+  name?: string
+}
+
+/** The draft's frame and status, re-derived after any change: ready when the
+ *  cut in hand was taken in the very frame the draft now names. */
+function settleSectionDraft(d: SectionDraft): SectionDraft {
+  const frame = d.axis ? sectionFrameAlong(d.axis, d.offset, d.seedU) : null
+  if (!frame) return { ...d, frame: null, status: 'empty', message: undefined }
+  const ready = d.cut !== undefined && d.cutKey === frameKey(frame)
+  return { ...d, frame, status: ready ? 'ready' : 'slicing', message: undefined }
+}
+
+/** Whether the section draft can be created as it stands: cut in the frame it
+ *  names, and cutting something — a plane that misses the scan is nothing to
+ *  measure. What the Create button and the Enter key both read. */
+export function sectionDraftReady(d: SectionDraft | null): boolean {
+  return d !== null && d.status === 'ready' && d.cut !== undefined && d.cut.offsets.length > 1
+}
+
+/** The colour the open section draft is drawn in: an edited section keeps
+ *  its own, a new one takes the next in the palette — the same rule as an
+ *  element draft, off the same counter, so nothing on screen shares a tint. */
+export function sectionDraftColorOf(s: {
+  sectionDraft: SectionDraft | null
+  sections: Section[]
+  nextNumber: number
+}): string {
+  const id = s.sectionDraft?.editId
+  const sec = id === undefined ? undefined : s.sections.find((x) => x.id === id)
+  return sec?.color ?? elementColor(s.nextNumber)
+}
+
 /** Default creation method per kind: the one that touches the scan. */
 function defaultMethod(kind: ElementKind): string {
   if (kind === 'point') return 'pick'
@@ -570,6 +659,11 @@ interface AppState {
   dimensions: Dimension[]
   dimDraft: DimensionDraft | null
   alignDraft: AlignDraft | null
+  /** The scan cut with planes, for the 2D workspace — see Section. */
+  sections: Section[]
+  sectionDraft: SectionDraft | null
+  /** Sections are named "Section 1", "Section 2", … on a counter of their own. */
+  nextSectionNumber: number
   /** Cumulative datum alignment already baked into the scan — inverted to
    *  put the part back where the scanner delivered it. */
   appliedAlignment: Rigid | null
@@ -588,6 +682,12 @@ interface AppState {
   /** Colour the far side of every triangle differently, so holes and inverted
    *  normals stop reading as solid part. */
   showBackfaces: boolean
+  /** Draw the parts see-through, so the reference inside the scan, the fitted
+   *  elements and the pinned readings show. A way of looking for the session,
+   *  not a property of the part: neither this nor the mesh is saved. */
+  translucent: boolean
+  /** Draw the triangle edges on the parts. */
+  wireframe: boolean
   /** Id of the mouse navigation scheme (see viewer/navSchemes). Remembered per
    *  browser, because which buttons orbit is a habit from whichever CAD the
    *  user came from, not a property of the part on screen. */
@@ -653,7 +753,12 @@ interface AppState {
   setDraftExtend: (side: ExtendSide, value: number) => void
   /** Grow the shorter axis of the open plane draft out to the longer one. */
   squareDraftExtend: () => void
-  /** Back to exactly the measured surface. */
+  /** Confine the open cylinder draft's fit to its drawn span, or let it take
+   *  the whole surface again. The re-fit that follows is the caller's — the
+   *  store only records the choice. */
+  setDraftFitInside: (on: boolean) => void
+  /** Back to exactly the measured surface. The fit-inside choice stands: with
+   *  nothing pulled in it takes nothing away. */
   resetDraftExtend: () => void
   /** The assumed diameter of the open draft, in millimetres; undefined
    *  clears it, so the element goes out as measured. Anything that is
@@ -668,6 +773,32 @@ interface AppState {
   failDraft: (message: string) => void
   cancelDraft: () => void
   commitDraft: () => number | null
+  /** Open the box a section is made in: choose the element to cut along and
+   *  the offset, watch the cut on the part, create. Closes any other editor. */
+  startSection: () => void
+  /** Re-open a section on its frozen plane. Changing the offset slides it
+   *  along that plane's normal; choosing another element moves it there. */
+  editSection: (id: number) => void
+  cancelSection: () => void
+  /** Cut along this element, at the current offset — or along nothing. */
+  setSectionDraftRef: (id: number | null) => void
+  setSectionDraftOffset: (mm: number) => void
+  setSectionDraftName: (name: string) => void
+  /** The worker's cut for the frame keyed `cutKey`. A cut for a frame the
+   *  draft has since moved on from is kept as the preview until the next one
+   *  lands, but does not make the draft ready. */
+  resolveSectionDraft: (cutKey: string, cut: SectionCut) => void
+  failSectionDraft: (message: string) => void
+  /** Turn the draft into a section, or write it back over the one being
+   *  edited. Returns the section's id, or null if not ready. */
+  commitSection: () => number | null
+  removeSection: (id: number) => void
+  toggleSectionVisible: (id: number) => void
+  setAllSectionsVisible: (visible: boolean) => void
+  /** A cut taken for a section whose frame is `cutKey` — on project load,
+   *  where the frames are saved and the polylines cut again. */
+  resolveSection: (id: number, cutKey: string, cut: SectionCut) => void
+  failSection: (id: number, message: string) => void
   startAlignment: () => void
   cancelAlignment: () => void
   setAlignmentRef: (slot: AlignSlot, id: number | null) => void
@@ -710,6 +841,8 @@ interface AppState {
   setSelectMode: (mode: SelectMode) => void
   setShowOverlays: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
+  setTranslucent: (v: boolean) => void
+  setWireframe: (v: boolean) => void
   setNavScheme: (id: string) => void
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
@@ -771,6 +904,9 @@ export const useStore = create<AppState>()((set, get) => ({
   dimensions: [],
   dimDraft: null,
   alignDraft: null,
+  sections: [],
+  sectionDraft: null,
+  nextSectionNumber: 1,
   appliedAlignment: null,
   nextId: 1,
   nextNumber: 1,
@@ -781,6 +917,8 @@ export const useStore = create<AppState>()((set, get) => ({
   selectMode: 'auto',
   showOverlays: true,
   showBackfaces: true,
+  translucent: false,
+  wireframe: false,
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
@@ -800,6 +938,10 @@ export const useStore = create<AppState>()((set, get) => ({
       dimensions: [],
       dimDraft: null,
       alignDraft: null,
+      // Sections are cuts through this scan and go with it.
+      sections: [],
+      sectionDraft: null,
+      nextSectionNumber: 1,
       appliedAlignment: null,
       nextNumber: 1,
       nextOfKind: freshCounters(),
@@ -877,6 +1019,15 @@ export const useStore = create<AppState>()((set, get) => ({
           s.modelSize,
         ),
         dimensions: s.dimensions.filter((d) => !d.refs.some((r) => doomed.has(r))),
+        // A section keeps its frozen plane whatever happens to the element
+        // it was cut along; only the name in the record goes.
+        sections: s.sections.map((sec) =>
+          sec.ref !== null && doomed.has(sec.ref) ? { ...sec, ref: null } : sec,
+        ),
+        sectionDraft:
+          s.sectionDraft && s.sectionDraft.ref !== null && doomed.has(s.sectionDraft.ref)
+            ? { ...s.sectionDraft, ref: null }
+            : s.sectionDraft,
         alignDraft: s.alignDraft
           ? {
               ...s.alignDraft,
@@ -919,7 +1070,12 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => ({ elements: s.elements.map((e) => (e.visible === visible ? e : { ...e, visible })) })),
 
   startDraft: (kind) =>
-    set({ draft: freshDraft(kind, defaultMethod(kind)), alignDraft: null, errorText: null }),
+    set({
+      draft: freshDraft(kind, defaultMethod(kind)),
+      alignDraft: null,
+      sectionDraft: null,
+      errorText: null,
+    }),
 
   // How the surface of a re-opened fit was chosen comes back with it: an
   // element marked by hand opens with the marking tools out, one grown from a
@@ -933,6 +1089,7 @@ export const useStore = create<AppState>()((set, get) => ({
         draft,
         selectMode: el.source.type === 'fitted' ? (el.source.selection ? 'paint' : 'auto') : s.selectMode,
         alignDraft: null,
+        sectionDraft: null,
         errorText: null,
       }
     }),
@@ -1070,11 +1227,19 @@ export const useStore = create<AppState>()((set, get) => ({
       return { draft: { ...d, extend: squareExtension(d.fit, d.extend) } }
     }),
 
+  setDraftFitInside: (on) =>
+    set((s) => {
+      const d = s.draft
+      if (!d || d.fit?.kind !== 'cylinder') return {}
+      return { draft: { ...d, extend: withFitInside(extensionOf(d.fit, d.extend), on) } }
+    }),
+
   resetDraftExtend: () =>
     set((s) => {
       const d = s.draft
       if (!d || !isExtendable(d.fit)) return {}
-      return { draft: { ...d, extend: zeroExtension(d.fit) } }
+      const zero = zeroExtension(d.fit)
+      return { draft: { ...d, extend: withFitInside(zero, fitsInside(d.extend)) } }
     }),
 
   setDraftAssumed: (value) =>
@@ -1245,10 +1410,166 @@ export const useStore = create<AppState>()((set, get) => ({
       },
       draft: null,
       dimDraft: null,
+      sectionDraft: null,
       errorText: null,
     }),
 
   cancelAlignment: () => set({ alignDraft: null }),
+
+  startSection: () =>
+    set({
+      sectionDraft: { ref: null, offset: 0, axis: null, frame: null, status: 'empty' },
+      draft: null,
+      dimDraft: null,
+      alignDraft: null,
+      errorText: null,
+    }),
+
+  // The draft opens on the frozen plane, sliding along its own normal: the
+  // element it was cut along may have been re-fitted or deleted since, and
+  // opening the editor must not move a section nobody has touched.
+  editSection: (id) =>
+    set((s) => {
+      const sec = s.sections.find((x) => x.id === id)
+      if (!sec) return {}
+      const refAlive = sec.ref !== null && s.elements.some((e) => e.id === sec.ref && e.fit)
+      return {
+        sectionDraft: settleSectionDraft({
+          ref: refAlive ? sec.ref : null,
+          offset: sec.offset,
+          axis: axisOfFrame(sec.frame, sec.offset),
+          seedU: sec.frame.basisU,
+          frame: sec.frame,
+          status: 'ready',
+          cut: sec.cut,
+          cutKey: sec.cutKey,
+          editId: sec.id,
+          name: sec.name,
+        }),
+        draft: null,
+        dimDraft: null,
+        alignDraft: null,
+        errorText: null,
+      }
+    }),
+
+  cancelSection: () => set({ sectionDraft: null }),
+
+  setSectionDraftRef: (id) =>
+    set((s) => {
+      const d = s.sectionDraft
+      if (!d) return {}
+      if (id === null) return { sectionDraft: settleSectionDraft({ ...d, ref: null, axis: null }) }
+      const el = s.elements.find((e) => e.id === id)
+      if (!el?.fit || !canCutAlong(el.kind)) return {}
+      const axis = cutAxisOf(el.fit)
+      if (!axis) return {}
+      return { sectionDraft: settleSectionDraft({ ...d, ref: id, axis }) }
+    }),
+
+  setSectionDraftOffset: (mm) =>
+    set((s) => {
+      const d = s.sectionDraft
+      if (!d || !Number.isFinite(mm)) return {}
+      return { sectionDraft: settleSectionDraft({ ...d, offset: mm }) }
+    }),
+
+  setSectionDraftName: (name) =>
+    set((s) => (s.sectionDraft ? { sectionDraft: { ...s.sectionDraft, name } } : {})),
+
+  resolveSectionDraft: (cutKey, cut) =>
+    set((s) => {
+      const d = s.sectionDraft
+      if (!d) return {}
+      return { sectionDraft: settleSectionDraft({ ...d, cut, cutKey }) }
+    }),
+
+  failSectionDraft: (message) =>
+    set((s) =>
+      s.sectionDraft ? { sectionDraft: { ...s.sectionDraft, status: 'failed', message } } : {},
+    ),
+
+  commitSection: () => {
+    const d = get().sectionDraft
+    if (!d || !sectionDraftReady(d) || !d.frame || !d.cut) return null
+    const frame = d.frame
+    const cut = d.cut
+    const cutKey = frameKey(frame)
+    if (d.editId !== undefined) {
+      const editId = d.editId
+      set((s) => ({
+        sectionDraft: null,
+        sections: s.sections.map((sec) =>
+          sec.id === editId
+            ? {
+                ...sec,
+                name: d.name?.trim() || sec.name,
+                frame,
+                ref: d.ref,
+                offset: d.offset,
+                cut,
+                cutKey,
+                message: undefined,
+              }
+            : sec,
+        ),
+      }))
+      return editId
+    }
+    const id = get().nextId
+    const num = get().nextNumber
+    const n = get().nextSectionNumber
+    set((s) => ({
+      nextId: id + 1,
+      nextNumber: num + 1,
+      nextSectionNumber: n + 1,
+      sectionDraft: null,
+      sections: [
+        ...s.sections,
+        {
+          id,
+          name: `Section ${n}`,
+          color: elementColor(num),
+          visible: true,
+          frame,
+          ref: d.ref,
+          offset: d.offset,
+          cut,
+          cutKey,
+        },
+      ],
+    }))
+    return id
+  },
+
+  removeSection: (id) =>
+    set((s) => ({
+      sections: s.sections.filter((sec) => sec.id !== id),
+      sectionDraft: s.sectionDraft?.editId === id ? null : s.sectionDraft,
+    })),
+
+  toggleSectionVisible: (id) =>
+    set((s) => ({
+      sections: s.sections.map((sec) => (sec.id === id ? { ...sec, visible: !sec.visible } : sec)),
+    })),
+  setAllSectionsVisible: (visible) =>
+    set((s) => ({
+      sections: s.sections.map((sec) => (sec.visible === visible ? sec : { ...sec, visible })),
+    })),
+
+  resolveSection: (id, cutKey, cut) =>
+    set((s) => ({
+      sections: s.sections.map((sec) =>
+        sec.id === id && frameKey(sec.frame) === cutKey
+          ? { ...sec, cut, cutKey, message: undefined }
+          : sec,
+      ),
+    })),
+
+  failSection: (id, message) =>
+    set((s) => ({
+      sections: s.sections.map((sec) => (sec.id === id ? { ...sec, message } : sec)),
+    })),
 
   setAlignmentRef: (slot, id) =>
     set((s) => (s.alignDraft ? { alignDraft: withSlotRef(s.alignDraft, slot, id) } : {})),
@@ -1336,6 +1657,34 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const moved = new Float64Array(3)
       rigidApply(m, s.modelCenter[0], s.modelCenter[1], s.modelCenter[2], moved)
+      // A section is a cut through the scan: its plane and its polylines move
+      // with the part, and nothing has to be cut again.
+      const moveSection = (sec: Section): Section => {
+        const frame = transformFrame(sec.frame, m)
+        return {
+          ...sec,
+          frame,
+          cut: sec.cut ? transformCut(sec.cut, m) : undefined,
+          cutKey: sec.cut ? frameKey(frame) : undefined,
+        }
+      }
+      const moveDraft = (d: SectionDraft): SectionDraft => {
+        const out = new Float64Array(3)
+        let seedU = d.seedU
+        if (seedU) {
+          rigidRotate(m, seedU[0], seedU[1], seedU[2], out)
+          seedU = [out[0], out[1], out[2]]
+        }
+        const frame = d.frame ? transformFrame(d.frame, m) : null
+        return settleSectionDraft({
+          ...d,
+          axis: d.axis ? transformAxis(d.axis, m) : null,
+          seedU,
+          frame,
+          cut: d.cut ? transformCut(d.cut, m) : undefined,
+          cutKey: d.cut && frame ? frameKey(frame) : undefined,
+        })
+      }
       return {
         alignDraft: null,
         appliedAlignment: s.appliedAlignment ? rigidCompose(m, s.appliedAlignment) : m,
@@ -1349,6 +1698,8 @@ export const useStore = create<AppState>()((set, get) => ({
           })),
           s.modelSize,
         ),
+        sections: s.sections.map(moveSection),
+        sectionDraft: s.sectionDraft ? moveDraft(s.sectionDraft) : null,
       }
     }),
 
@@ -1363,6 +1714,7 @@ export const useStore = create<AppState>()((set, get) => ({
         pickSlot: null,
       },
       alignDraft: null,
+      sectionDraft: null,
     }),
 
   editDimension: (id) =>
@@ -1379,6 +1731,7 @@ export const useStore = create<AppState>()((set, get) => ({
           name: d.name,
         },
         alignDraft: null,
+        sectionDraft: null,
       }
     }),
 
@@ -1513,6 +1866,8 @@ export const useStore = create<AppState>()((set, get) => ({
   setSelectMode: (selectMode) => set({ selectMode }),
   setShowOverlays: (showOverlays) => set({ showOverlays }),
   setShowBackfaces: (showBackfaces) => set({ showBackfaces }),
+  setTranslucent: (translucent) => set({ translucent }),
+  setWireframe: (wireframe) => set({ wireframe }),
   setNavScheme: (navScheme) => {
     try {
       localStorage.setItem(NAV_SCHEME_KEY, navScheme)

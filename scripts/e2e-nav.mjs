@@ -272,6 +272,67 @@ check(!g.orbited, `freecad middle-drag pans, not orbits (${g.red} pivot px)`)
 g = await orbitsUnder({ buttons: ['middle'], chord: 'left' })
 check(g.orbited, `freecad middle+left chord orbits (${g.red} pivot px)`)
 
+// ---- the number keys turn to the standard views ----
+// Each key is a fixed orientation about whatever the screen centre is on, so
+// the same key twice has to land on the same frame and a different key on a
+// different one — a check on the pose rather than on the picture, which the
+// orbits above have left arbitrary. Top then front then top is not a round
+// trip in position (each turn pivots on the surface under the centre, which
+// differs per view), so the repeat is checked back to back. Ctrl+1 is the
+// browser's own tab switch and must leave the camera alone.
+await page.keyboard.press('1')
+await sleep(250)
+const top = await sample()
+check(top.area > 0.005, `the part is on screen from the top — area ${top.area.toFixed(4)}`)
+await page.keyboard.press('1')
+await sleep(250)
+const topAgain = await sample()
+const topDiff = await pixelDiff(page, topAgain.png, top.png)
+check(topDiff < 0.5, `the 1 key pressed again holds the top view (${topDiff.toFixed(3)}% off)`)
+await page.keyboard.down('Control')
+await page.keyboard.press('3')
+await page.keyboard.up('Control')
+await sleep(250)
+const ctrl = await sample()
+const ctrlDiff = await pixelDiff(page, ctrl.png, top.png)
+check(ctrlDiff < 0.5, `Ctrl+3 is left to the browser (${ctrlDiff.toFixed(3)}% off the top view)`)
+await page.keyboard.press('3')
+await sleep(250)
+const front = await sample()
+check(top.hash !== front.hash, 'the 3 key turns from top to front')
+check(front.area > 0.005, `the part is on screen from the front — area ${front.area.toFixed(4)}`)
+
+// ---- the gizmo arrows are buttons for the same views ----
+// From the front the Z arrow points straight up the gizmo: it sits in the
+// bottom-right corner at gizmoSize(w, h) with a 14px pad, its tip 1.1 of 1.75
+// half-extents above the centre. One click looks down Z (top); the arrow then
+// points straight at the viewer, its tip on the gizmo centre, and a second
+// click there turns the part over (bottom) — which the 2 key then holds.
+const gizmoSize = Math.min(120, Math.max(74, Math.min(rect.w, rect.h) * 0.18))
+const gizmoCentre = [rect.x + rect.w - 14 - gizmoSize / 2, rect.y + rect.h - 14 - gizmoSize / 2]
+const zTip = [gizmoCentre[0], gizmoCentre[1] - (1.1 / 1.75) * (gizmoSize / 2)]
+const canvasCursor = () => page.evaluate(() => document.querySelector('.viewport canvas').style.cursor)
+await page.mouse.move(...zTip)
+await sleep(150)
+const cursor = await canvasCursor()
+check(cursor === 'pointer', `hovering the Z arrow shows a pointer (cursor "${cursor}")`)
+await page.mouse.click(...zTip)
+await sleep(250)
+const zOnce = await sample()
+check(zOnce.hash !== front.hash, 'clicking the Z arrow turns the view')
+await page.mouse.click(...gizmoCentre)
+await sleep(250)
+const zTwice = await sample()
+check(zTwice.hash !== zOnce.hash, 'clicking it again turns the part over')
+await page.keyboard.press('2')
+await sleep(250)
+const bottom = await sample()
+const bottomDiff = await pixelDiff(page, bottom.png, zTwice.png)
+check(bottomDiff < 0.5, `and that is the bottom view the 2 key holds (${bottomDiff.toFixed(3)}% off)`)
+await page.mouse.move(...mid)
+await sleep(150)
+check((await canvasCursor()) === '', 'the pointer goes back to normal off the gizmo')
+
 // ---- picking still works after all that ----
 // A drag must not read as a click, and a click must not read as a drag: sweep
 // the frame for a point that starts a sphere draft and previews a fit.

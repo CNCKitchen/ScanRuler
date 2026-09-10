@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import type { ExtendSide } from '../core/elements/extend'
 import type { FitData, Vec3 } from '../core/types'
 import type { PickMarker } from './PickScene'
 import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
@@ -68,6 +69,8 @@ export interface OverlayAngle {
 export interface ProbeMarker {
   id: number
   point: Vec3
+  /** What the pin reads on top — the map it was taken off: DEV or WALL. */
+  title: string
   label: string
   color: string
 }
@@ -75,7 +78,7 @@ export interface ProbeMarker {
 /** A pin in the 3D view: what it marks on top, the measured value under it, so
  *  the numbers can be read off the model without going back to the panel. An
  *  empty value leaves just the name — nothing is not a number. */
-function pinLabel(kind: string, title: string, value: string, titleColor?: string): CSS2DObject {
+export function pinLabel(kind: string, title: string, value: string, titleColor?: string): CSS2DObject {
   const div = document.createElement('div')
   div.className = `viewport-label ${kind}`
   const t = document.createElement('div')
@@ -149,6 +152,22 @@ export class Overlays {
   private highlightIds = new Set<number>()
   private lastOverlayElements: OverlayElement[] = []
   private previewShape: THREE.Mesh | null = null
+  /** The ends of the ghost, drawn apart from its body: a ghost is translucent
+   *  so the scan shows through it, and inside a bore that leaves nothing to
+   *  say where a tube being pulled shorter actually stops. Two thin rims,
+   *  always; a near-solid cap on the end the user has hold of. */
+  private previewEnds = new THREE.Group()
+  private previewEndCleanup: (() => void)[] = []
+  private previewFit: FitData | null = null
+  private previewActiveSide: ExtendSide | null = null
+  /** The colour the element being made will get — its grips wear it, and so
+   *  do the marks on the ends they sit on. */
+  private previewColor = '#ffffff'
+  /** A rim is a thin ring, the cap a disc; both lie in XY about the origin
+   *  and are scaled to the tube's radius, so the ring stays the same fraction
+   *  of the bore however big the bore is. */
+  private unitRim = new THREE.TorusGeometry(1, 0.012, 8, 128)
+  private unitDisc = new THREE.CircleGeometry(1, 96)
   private unitSphere = new THREE.SphereGeometry(1, 48, 32)
   /** Open-ended so the scan surface stays visible through the tube. */
   private unitCylinder = new THREE.CylinderGeometry(1, 1, 1, 64, 1, true)
@@ -170,6 +189,7 @@ export class Overlays {
     ctx.partGroup.add(this.overlayGroup)
     ctx.partGroup.add(this.selectionGroup)
     ctx.partGroup.add(this.previewGroup)
+    this.previewGroup.add(this.previewEnds)
     ctx.partGroup.add(this.probeGroup)
     ctx.partGroup.add(this.pickMarkerGroup)
   }
@@ -700,6 +720,8 @@ export class Overlays {
       ownedGeometry(this.previewShape)?.dispose()
       this.previewShape = null
     }
+    this.previewFit = fit
+    this.rebuildPreviewEnds()
     if (!fit) return
     const mat = new THREE.MeshStandardMaterial({
       color: this.accents.ghost,
@@ -714,7 +736,88 @@ export class Overlays {
     this.previewGroup.add(this.previewShape)
   }
 
-  /** Pin deviation readings to the part. */
+  /** The end of the ghost the user has hold of, or null for none. */
+  setPreviewActiveSide(side: ExtendSide | null): void {
+    if (this.previewActiveSide === side) return
+    this.previewActiveSide = side
+    this.rebuildPreviewEnds()
+    this.ctx.invalidate()
+  }
+
+  /** The colour the ghost's end marks wear — the draft's own. */
+  setPreviewColor(color: string): void {
+    if (this.previewColor === color) return
+    this.previewColor = color
+    this.rebuildPreviewEnds()
+    this.ctx.invalidate()
+  }
+
+  /** The two rims of a cylinder ghost, and the cap on the end in hand. Drawn
+   *  ahead of the depth buffer, like the grips: the whole point is to be seen
+   *  from outside a bore, through its wall. Under the grips in draw order, so
+   *  the arrow stays on top of the cap it sits on. Only a cylinder has ends
+   *  to mark — a plane's edges are the bars of its grips already. */
+  private rebuildPreviewEnds(): void {
+    for (const fn of this.previewEndCleanup) fn()
+    this.previewEndCleanup = []
+    this.previewEnds.clear()
+    const fit = this.previewFit
+    if (!fit || fit.kind !== 'cylinder') return
+
+    const axis = new THREE.Vector3(...fit.axis).normalize()
+    const centre = new THREE.Vector3(...fit.center)
+    const r = Math.max(fit.radius, 1e-5)
+    const half = Math.max(fit.length, 1e-5) / 2
+    // The ring and the disc lie in XY with Z as their normal; turn Z onto
+    // the axis.
+    const pose = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis)
+
+    const ends: [ExtendSide, number][] = [
+      ['start', -1],
+      ['end', 1],
+    ]
+    for (const [side, sign] of ends) {
+      const held = side === this.previewActiveSide
+      const at = centre.clone().addScaledVector(axis, sign * half)
+
+      // The rim, in the draft's colour.
+      const rimMat = new THREE.MeshBasicMaterial({
+        color: this.previewColor,
+        transparent: true,
+        opacity: 0.85,
+        depthTest: false,
+        depthWrite: false,
+      })
+      const rim = new THREE.Mesh(this.unitRim, rimMat)
+      rim.position.copy(at)
+      rim.quaternion.copy(pose)
+      rim.scale.setScalar(r)
+      rim.renderOrder = 5
+      this.previewEnds.add(rim)
+      this.previewEndCleanup.push(() => rimMat.dispose())
+      if (!held) continue
+
+      // The cap: an almost solid disc across the end in hand, so where the
+      // tube stops reads as a surface — one that can be seen moving.
+      const capMat = new THREE.MeshBasicMaterial({
+        color: this.previewColor,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+      const cap = new THREE.Mesh(this.unitDisc, capMat)
+      cap.position.copy(at)
+      cap.quaternion.copy(pose)
+      cap.scale.setScalar(r)
+      cap.renderOrder = 4
+      this.previewEnds.add(cap)
+      this.previewEndCleanup.push(() => capMat.dispose())
+    }
+  }
+
+  /** Pin readings to the part, each titled with the map it came off. */
   setProbes(probes: ProbeMarker[]): void {
     for (const dispose of this.probeCleanup) dispose()
     this.probeCleanup = []
@@ -727,7 +830,7 @@ export class Overlays {
       dot.renderOrder = 4
       this.probeGroup.add(dot)
 
-      const label = pinLabel('probe', 'DEV', probe.label, probe.color)
+      const label = pinLabel('probe', probe.title, probe.label, probe.color)
       label.position.set(...probe.point)
       this.probeGroup.add(label)
 
@@ -799,5 +902,7 @@ export class Overlays {
     this.unitCylinder.dispose()
     this.unitPlane.dispose()
     this.unitRing.dispose()
+    this.unitRim.dispose()
+    this.unitDisc.dispose()
   }
 }

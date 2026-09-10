@@ -7,6 +7,7 @@ import { parseOBJ } from './parsers/obj'
 import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
+import { wireSlots } from './geometry/wireSlots'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
 import {
@@ -19,6 +20,7 @@ import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
+import { sliceMesh } from './section/slice'
 import type { MeshBVH } from 'three-mesh-bvh'
 
 let graph: MeshGraph | null = null
@@ -119,6 +121,9 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const indices = graph.indices.slice()
       const positions = graph.positions.slice()
       const normals = graph.normals.slice()
+      // The mesh mode's corner slots ride along: they come off the adjacency
+      // the graph already holds, and the render thread has no adjacency.
+      const slots = wireSlots(graph.adjOffsets, graph.adjList, graph.vertexCount)
       post(
         {
           type: 'loaded',
@@ -126,10 +131,11 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           positions,
           indices,
           normals,
+          wireSlots: slots,
           vertexCount: graph.vertexCount,
           triangleCount: indices.length / 3,
         },
-        [positions.buffer, indices.buffer, normals.buffer],
+        [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
       )
     } catch (e) {
       graph = null
@@ -145,7 +151,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       return
     }
     try {
-      const result = getFitter(msg.elementType)(graph, msg.seeds, msg.settings)
+      const result = getFitter(msg.elementType)(graph, msg.seeds, msg.settings, msg.window)
       post({ type: 'fit-ok', requestId: msg.requestId, result }, [result.region.buffer])
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
@@ -168,7 +174,12 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           throw new Error('The marked surface does not belong to the loaded scan.')
         }
       }
-      const result = getSelectionFitter(msg.elementType)(graph, msg.vertices, msg.settings)
+      const result = getSelectionFitter(msg.elementType)(
+        graph,
+        msg.vertices,
+        msg.settings,
+        msg.window,
+      )
       post({ type: 'fit-ok', requestId: msg.requestId, result }, [result.region.buffer])
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
@@ -189,6 +200,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const positions = g.positions.slice()
       const indices = g.indices.slice()
       const normals = g.normals.slice()
+      const slots = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
       post(
         {
           type: 'nominal-loaded',
@@ -196,12 +208,13 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           positions,
           indices,
           normals,
+          wireSlots: slots,
           vertexCount: g.vertexCount,
           triangleCount: g.triangleCount,
           bboxDiagonal: nominal.bboxDiagonal,
           step,
         },
-        [positions.buffer, indices.buffer, normals.buffer],
+        [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
       )
     } catch (e) {
       nominal = null
@@ -277,6 +290,27 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     // of where the part sits.
     scanSolid = null
     post({ type: 'transform-ok', requestId: msg.requestId })
+    return
+  }
+
+  if (msg.type === 'section') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      // The vertices here carry every alignment baked so far, so the cut
+      // lands in the same frame the elements are measured in.
+      const cut = sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, {
+        minLength: msg.minLength,
+      })
+      post(
+        { type: 'section-ok', requestId: msg.requestId, points: cut.points, offsets: cut.offsets },
+        [cut.points.buffer, cut.offsets.buffer],
+      )
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 

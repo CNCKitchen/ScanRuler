@@ -1,7 +1,7 @@
 {
   "name": "scanruler",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "AGPL-3.0-only",
   "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
@@ -35,7 +35,9 @@
     "e2e:step": "node scripts/e2e-step.mjs",
     "e2e:local-fit": "node scripts/e2e-local-fit.mjs",
     "e2e:flat": "node scripts/e2e-flat.mjs",
-    "e2e:project": "node scripts/e2e-project.mjs"
+    "e2e:project": "node scripts/e2e-project.mjs",
+    "e2e:surface": "node scripts/e2e-surface.mjs",
+    "e2e:section": "node scripts/e2e-section.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

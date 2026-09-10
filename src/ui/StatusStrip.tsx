@@ -19,6 +19,10 @@ export function StatusStrip() {
   const setShowOverlays = useStore((s) => s.setShowOverlays)
   const showBackfaces = useStore((s) => s.showBackfaces)
   const setShowBackfaces = useStore((s) => s.setShowBackfaces)
+  const translucent = useStore((s) => s.translucent)
+  const setTranslucent = useStore((s) => s.setTranslucent)
+  const wireframe = useStore((s) => s.wireframe)
+  const setWireframe = useStore((s) => s.setWireframe)
   const openImprint = useStore((s) => s.openImprint)
   const navScheme = useStore((s) => s.navScheme)
   const setNavScheme = useStore((s) => s.setNavScheme)
@@ -151,6 +155,27 @@ export function StatusStrip() {
           ▩ <span className="btxt">COLOUR PLOT</span>
         </button>
       )}
+      {/* Two more ways of seeing the parts, beside the back faces because they
+          are the same kind of switch: about the models, in every viewport
+          that shows one, and never about what has been measured. */}
+      <button
+        className={translucent ? 'surf on' : 'surf'}
+        data-test="toggle-translucent"
+        aria-pressed={translucent}
+        onClick={() => setTranslucent(!translucent)}
+        title="See through the parts — the reference inside the scan, the fitted elements and the pinned readings show instead of hiding behind the surface in front of them"
+      >
+        ◧ <span className="btxt">TRANSPARENT</span>
+      </button>
+      <button
+        className={wireframe ? 'surf on' : 'surf'}
+        data-test="toggle-wireframe"
+        aria-pressed={wireframe}
+        onClick={() => setWireframe(!wireframe)}
+        title="Draw the triangle edges on the parts, to see how fine the scan is and where it is patchy. The mesh comes up as you zoom in: from a distance the triangles are smaller than a pixel, and the edges fade out rather than turning the part black"
+      >
+        ▦ <span className="btxt">MESH</span>
+      </button>
       <button
         className={showBackfaces ? 'on' : ''}
         data-test="toggle-backfaces"

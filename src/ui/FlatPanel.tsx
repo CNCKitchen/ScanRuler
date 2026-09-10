@@ -14,7 +14,16 @@ import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
-import { flatCountColor, flatEditorOpen, toolOf, useFlat } from '../state/flatStore'
+import { describeCut } from '../core/section/frame'
+import {
+  flatCountColor,
+  flatEditorOpen,
+  sheetKeyOf,
+  subjectFromKey,
+  toolOf,
+  useFlat,
+} from '../state/flatStore'
+import { useStore } from '../state/store'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
 import { ShowAllButton } from './ShowAllButton'
@@ -26,14 +35,23 @@ import { NumberField } from './NumberField'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc']
 
+/** How far round the sheet is shown, in words: quarter turns
+ *  counter-clockwise, 1 to 3. */
+function describeTurns(turns: number): string {
+  if (turns === 2) return 'upside down'
+  return turns === 1 ? 'a quarter turn counter-clockwise' : 'a quarter turn clockwise'
+}
+
 export function FlatPanel({
   onOpenImage,
   onCopy,
   onExportCsv,
+  onExportSvg,
 }: {
   onOpenImage: (file: File) => void
   onCopy: () => void
   onExportCsv: () => void
+  onExportSvg: () => void
 }) {
   const imageName = useFlat((s) => s.imageName)
   const imageWidth = useFlat((s) => s.imageWidth)
@@ -56,6 +74,7 @@ export function FlatPanel({
   const datum = useFlat((s) => s.datum)
   const datumPicking = toolOf({ tool }, 'datum')
   const showGrid = useFlat((s) => s.showGrid)
+  const turns = useFlat((s) => s.turns)
   const dimensions = useFlat((s) => s.dimensions)
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
@@ -69,6 +88,21 @@ export function FlatPanel({
   const editedNote = editingNoteId === null ? undefined : notes.find((n) => n.id === editingNoteId)
   const flat = useFlat
   const frame = datum ? datumFrame(datum, pxPerMm) : null
+  // What is on the sheet: the image, or one of the sections cut in the 3D
+  // workspace — which live in that workspace's store, named after the
+  // elements they were cut along.
+  const subject = useFlat((s) => s.subject)
+  const sections = useStore((s) => s.sections)
+  const scanElements = useStore((s) => s.elements)
+  const scanName = useStore((s) => s.fileName)
+  const onSection = subject.kind === 'section'
+  const activeSection = onSection ? sections.find((x) => x.id === subject.id) : undefined
+  const cutOf = (sec: { ref: number | null; offset: number }) =>
+    describeCut(scanElements.find((e) => e.id === sec.ref)?.name ?? null, sec.offset)
+  const hasSheet = onSection || imageName !== null
+  // Anything the report and the CSV would have to say.
+  const hasMeasurements =
+    elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
@@ -105,29 +139,62 @@ export function FlatPanel({
     <aside className="panel">
       <div className="group">
         <div className="sec-head">
-          Image
-          <InfoDot title="The scan image">
+          {sections.length > 0 ? 'Source' : 'Image'}
+          <InfoDot title="What is measured">
             <p>
               A flatbed scan of the part — a <b>PNG</b> or <b>JPEG</b> straight from the scanner.
               Scan at the highest optical resolution you have; the pixels are the measurement.
             </p>
             <p>Drop it anywhere in the window. Nothing is uploaded.</p>
+            <p>
+              Or a <b>section</b>: the 3D scan cut with a plane in the Measure workspace. Its
+              edges lie on the sheet in millimetres already, so there is nothing to calibrate,
+              and they are snapped to, fitted and measured exactly like an image&apos;s. One source
+              is on the sheet at a time; each keeps its own elements, dimensions and datum, and
+              finds them again when it comes back.
+            </p>
           </InfoDot>
         </div>
-        <ModelSlot
-          role="Image"
-          name={imageName}
-          detail={`${imageWidth.toLocaleString('en-US')} × ${imageHeight.toLocaleString('en-US')} px`}
-          dotColor="#8b9099"
-          busy={imageBusy}
-          accept={IMAGE_ACCEPT}
-          formats={IMAGE_FORMATS}
-          onOpen={onOpenImage}
-        />
-        {!imageName && <p className="hint">Drop it anywhere in the window.</p>}
+        {sections.length > 0 && (
+          <label className="field">
+            <span>Measure</span>
+            <select
+              data-test="flat-source"
+              value={sheetKeyOf(subject)}
+              onChange={(e) => flat.getState().setSubject(subjectFromKey(e.target.value))}
+            >
+              <option value="image">{imageName ? `Image — ${imageName}` : 'Flatbed image'}</option>
+              {sections.map((sec) => (
+                <option key={sec.id} value={`section:${sec.id}`}>
+                  {sec.name} — {cutOf(sec)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {!onSection && (
+          <ModelSlot
+            role="Image"
+            name={imageName}
+            detail={`${imageWidth.toLocaleString('en-US')} × ${imageHeight.toLocaleString('en-US')} px`}
+            dotColor="#8b9099"
+            busy={imageBusy}
+            accept={IMAGE_ACCEPT}
+            formats={IMAGE_FORMATS}
+            onOpen={onOpenImage}
+          />
+        )}
+        {!onSection && !imageName && <p className="hint">Drop it anywhere in the window.</p>}
+        {activeSection && (
+          <p className="hint" data-test="flat-section-status">
+            <b>{activeSection.name}</b>: {scanName ?? 'the scan'} cut {cutOf(activeSection)}. The sheet
+            is in millimetres of the scan, origin at the cutting plane&apos;s centre — set a datum to
+            read coordinates off a feature.
+          </p>
+        )}
       </div>
 
-      {imageName && (
+      {imageName && !onSection && (
         <div className="group">
           <div className="sec-head">
             Calibration
@@ -301,7 +368,7 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && draft === null && counting === null && !placingNote && !editedNote && (
+      {hasSheet && draft === null && counting === null && !placingNote && !editedNote && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -539,21 +606,29 @@ export function FlatPanel({
         </div>
       )}
 
-      {imageName && <FlatDimensionSection editorOpen={editorOpen} />}
+      {hasSheet && <FlatDimensionSection editorOpen={editorOpen} />}
 
-      {imageName && (elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0) && (
+      {hasSheet && (hasMeasurements || edgeStatus === 'ready') && (
         <>
           <div className="divider" />
           <div className="toolrow">
-            <CopyButton label="Copy report" onCopy={onCopy} />
-            <button data-test="flat-export-csv" onClick={onExportCsv}>
+            <CopyButton label="Copy report" disabled={!hasMeasurements} onCopy={onCopy} />
+            <button data-test="flat-export-csv" disabled={!hasMeasurements} onClick={onExportCsv}>
               Export CSV
+            </button>
+            <button
+              data-test="flat-export-svg"
+              disabled={edgeStatus !== 'ready' && elements.length === 0}
+              onClick={onExportSvg}
+              title="Save the sheet as an SVG at true scale — the detected edges and the fitted elements, turned as shown — for a CAD sketch or a vector editor"
+            >
+              Export SVG
             </button>
           </div>
         </>
       )}
 
-      {imageName && (
+      {hasSheet && (
         <div className="group">
           <div className="sec-head">
             Datum
@@ -568,6 +643,11 @@ export function FlatPanel({
                 corner or a circle center, run X along a reference edge. The grid shows where
                 the frame lies.
               </p>
+              <p>
+                <b>Rotate 90°</b> turns the sheet on the stage a quarter turn at a time — the
+                image or the section as it is looked at, not the frame. Coordinates, the grid
+                and every measurement stay where they are on the part.
+              </p>
             </InfoDot>
           </div>
           <p className="hint" data-test="flat-datum-status">
@@ -577,7 +657,9 @@ export function FlatPanel({
                 : 'Now click a point along +X — the grid follows the cursor.'
               : datum
                 ? 'Datum set — coordinates read in the part frame.'
-                : 'Image frame — origin at the bottom-left of the sheet.'}
+                : onSection
+                  ? 'Section frame — origin at the centre of the cut.'
+                  : "Image frame — origin at the image's bottom-left corner."}
           </p>
           {!datumPicking ? (
             <div className="toolrow">
@@ -612,10 +694,64 @@ export function FlatPanel({
               <span>Show grid</span>
             </label>
           )}
+          <div className="toolrow">
+            <button
+              data-test="flat-turn-ccw"
+              title="Turn the sheet a quarter turn counter-clockwise"
+              onClick={() => flat.getState().turnSheet(1)}
+            >
+              ↺ Rotate 90°
+            </button>
+            <button
+              data-test="flat-turn-cw"
+              title="Turn the sheet a quarter turn clockwise"
+              onClick={() => flat.getState().turnSheet(-1)}
+            >
+              Rotate 90° ↻
+            </button>
+          </div>
+          {turns !== 0 && (
+            <p className="hint" data-test="flat-turn-status">
+              {`Shown ${describeTurns(turns)} — measurements are unchanged.`}
+            </p>
+          )}
         </div>
       )}
 
-      {imageName && (
+      {onSection && (
+        <div className="group">
+          <div className="sec-head">
+            Section edges
+            <InfoDot title="Section edges">
+              <p>
+                The polylines the cutting plane produced through the scan, drawn in teal over
+                the sheet. They are what picks snap to and what an edge-region fit consumes —
+                no detector runs, the cut is the edge.
+              </p>
+              <p>
+                The chains are as fine as the scan&apos;s triangles: coarse on a decimated mesh,
+                subpixel-dense on a fine one. Chains shorter than a millimetre are dropped.
+              </p>
+            </InfoDot>
+          </div>
+          <p className="hint" data-test="flat-edge-status">
+            {edgeStatus === 'ready'
+              ? `${edgeCount.toLocaleString('en-US')} edge chains from the cut.`
+              : 'Cutting the scan…'}
+          </p>
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="flat-edge-show"
+              checked={showEdges}
+              onChange={(e) => flat.getState().setShowEdges(e.target.checked)}
+            />
+            <span>Show section edges</span>
+          </label>
+        </div>
+      )}
+
+      {imageName && !onSection && (
         <div className="group">
           <div className="sec-head">
             Edge detection

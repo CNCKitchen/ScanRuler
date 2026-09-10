@@ -191,6 +191,14 @@ body {
   font-family: var(--cond);
 }
 
+/* The version is a number, not another word of the caption: lowercase v,
+   digits kept close. */
+.brand .ver {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
 /* The loaded part, named on the chassis the way a machine names its job. */
 .partchip {
   margin-left: 10px;
@@ -1849,8 +1857,11 @@ button.x:disabled {
 
   /* The deviation workspace hangs two more keys here than the others do, so
      those two are what makes the room — glyph only, with the title attribute
-     carrying the name, well before the keys beside them give up their words. */
-  .strip .viewsw .btxt {
+     carrying the name, well before the keys beside them give up their words.
+     The two surface switches go the same way: with them the row is one key
+     longer in every workspace. */
+  .strip .viewsw .btxt,
+  .strip .surf .btxt {
     display: none;
   }
 

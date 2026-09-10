@@ -10,6 +10,7 @@ import { useStore } from '../state/store'
 import {
   extendedSpans,
   extensionOf,
+  fitsInside,
   isExtended,
   sideValue,
   sides,
@@ -30,6 +31,7 @@ export function ExtendFields({ fit }: { fit: ExtendableFit }) {
   const extend = useStore((s) => s.draft?.extend)
   const setDraftExtend = useStore((s) => s.setDraftExtend)
   const squareDraftExtend = useStore((s) => s.squareDraftExtend)
+  const setDraftFitInside = useStore((s) => s.setDraftFitInside)
   const resetDraftExtend = useStore((s) => s.resetDraftExtend)
 
   const ext = extensionOf(fit, extend)
@@ -57,6 +59,12 @@ export function ExtendFields({ fit }: { fit: ExtendableFit }) {
               the shape you see and the shape CAD receives get longer. Negative values pull an edge
               back in.
             </p>
+            <p>
+              The one exception is a cylinder with <b>Fit only inside the span</b> on: the best fit
+              then uses only the scanned surface between the two ends as drawn. Pull an end in past
+              a rim the scanner caught badly — the mouth of a bore, a chamfer — and that part stops
+              pulling on the axis and the diameter.
+            </p>
           </InfoDot>
         </span>
         <b data-test="extend-size">
@@ -77,6 +85,30 @@ export function ExtendFields({ fit }: { fit: ExtendableFit }) {
           />
         ))}
       </div>
+
+      {!plane && (
+        <label className="checkrow" title="Use only the scanned surface between the two ends as drawn">
+          <input
+            type="checkbox"
+            data-test="extend-fit-inside"
+            checked={fitsInside(ext)}
+            onChange={(e) => setDraftFitInside(e.target.checked)}
+          />
+          Fit only inside the span
+          <InfoDot title="Fitting inside the span">
+            <p>
+              Pull an end in with a negative value, and with this on the surface beyond that end is
+              left out of the best fit — for the mouth of a bore the scanner rounded off, or a
+              chamfer that got swept into the cylinder.
+            </p>
+            <p>
+              The fit re-runs whenever an end moves. Its diameter, sigma and point count are then
+              the surface inside the span alone; the length it reports is still how far the scan
+              reached, so the two numbers here stay measured from the same ends.
+            </p>
+          </InfoDot>
+        </label>
+      )}
 
       <div className="toolrow">
         {plane && (

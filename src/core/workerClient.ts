@@ -2,13 +2,17 @@
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
-import type { ElementKind, FitOutput, FitSettings } from './types'
+import type { SectionCut } from './section/slice'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
   positions: Float32Array
   indices: Uint32Array
   normals: Float32Array
+  /** The corner slots the viewport's mesh mode draws the edges from — see
+   *  geometry/wireSlots.ts. */
+  wireSlots: Uint8Array
   vertexCount: number
   triangleCount: number
 }
@@ -86,7 +90,14 @@ export class MeshWorkerClient {
     return this.request<LoadedMesh>({ type: 'load', requestId, name, buffer }, [buffer])
   }
 
-  async fit(elementType: ElementKind, seeds: number[], settings: FitSettings): Promise<FitOutput> {
+  /** Fit from clicked seeds. `window` confines the fit to a span of the
+   *  surface it finds, for the kinds that can be — see AxialWindow. */
+  async fit(
+    elementType: ElementKind,
+    seeds: number[],
+    settings: FitSettings,
+    window?: AxialWindow,
+  ): Promise<FitOutput> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
       type: 'fit',
@@ -94,6 +105,7 @@ export class MeshWorkerClient {
       elementType,
       seeds,
       settings,
+      window,
     })
     return res.result
   }
@@ -104,6 +116,7 @@ export class MeshWorkerClient {
     elementType: ElementKind,
     vertices: Uint32Array,
     settings: FitSettings,
+    window?: AxialWindow,
   ): Promise<FitOutput> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'fit-ok' }>>({
@@ -112,6 +125,7 @@ export class MeshWorkerClient {
       elementType,
       vertices,
       settings,
+      window,
     })
     return res.result
   }
@@ -184,5 +198,19 @@ export class MeshWorkerClient {
   async transform(transform: Rigid): Promise<void> {
     const requestId = this.nextId++
     await this.request({ type: 'transform', requestId, transform })
+  }
+
+  /** Cut the scan with a plane: the polylines where it crosses the mesh, in
+   *  scan coordinates. Chains shorter than `minLength` mm are dropped. */
+  async section(origin: Vec3, normal: Vec3, minLength: number): Promise<SectionCut> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'section-ok' }>>({
+      type: 'section',
+      requestId,
+      origin,
+      normal,
+      minLength,
+    })
+    return { points: res.points, offsets: res.offsets }
   }
 }

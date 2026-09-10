@@ -3,7 +3,7 @@ import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
-import type { ElementKind, FitOutput, FitSettings } from './types'
+import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 
 export type WorkerRequest =
   | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer }
@@ -13,6 +13,9 @@ export type WorkerRequest =
       elementType: ElementKind
       seeds: number[]
       settings: FitSettings
+      /** Confine the fit to this span of the surface it finds — a cylinder
+       *  with an end pulled in. Absent, the whole surface goes in. */
+      window?: AxialWindow
     }
   /** Fit to a surface the user marked by hand: the vertices are the region,
    *  so nothing is searched for or grown. */
@@ -22,6 +25,7 @@ export type WorkerRequest =
       elementType: ElementKind
       vertices: Uint32Array
       settings: FitSettings
+      window?: AxialWindow
     }
   | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer }
   | { type: 'align'; requestId: number; mode: 'auto' }
@@ -70,6 +74,9 @@ export type WorkerRequest =
   /** Bake a datum alignment into the scan's vertices, so later fits measure
    *  in the new frame. */
   | { type: 'transform'; requestId: number; transform: Rigid }
+  /** Cut the scan with a plane — see core/section/slice. Chains shorter than
+   *  `minLength` millimetres are dropped as specks. */
+  | { type: 'section'; requestId: number; origin: Vec3; normal: Vec3; minLength: number }
 
 export type WorkerResponse =
   | { type: 'progress'; text: string }
@@ -79,6 +86,9 @@ export type WorkerResponse =
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array
+      /** One byte per vertex, for the viewport's mesh mode — see
+       *  geometry/wireSlots.ts. */
+      wireSlots: Uint8Array
       vertexCount: number
       triangleCount: number
     }
@@ -89,6 +99,7 @@ export type WorkerResponse =
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array
+      wireSlots: Uint8Array
       vertexCount: number
       triangleCount: number
       bboxDiagonal: number
@@ -128,4 +139,6 @@ export type WorkerResponse =
       suggestedHigh: number
     }
   | { type: 'transform-ok'; requestId: number }
+  /** The polylines a plane cuts off the scan, in scan coordinates. */
+  | { type: 'section-ok'; requestId: number; points: Float32Array; offsets: Uint32Array }
   | { type: 'error'; requestId: number; message: string }

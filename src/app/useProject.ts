@@ -25,11 +25,10 @@ import {
   sessionIsDirty,
   type SourceFiles,
 } from './project'
+import { APP_VERSION } from '../version'
 
 export const isProjectFile = (name: string) =>
   name.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`)
-
-const APP_VERSION = '0.1.0'
 
 export function useProject({
   sources,

@@ -13,6 +13,7 @@ import {
   alignCenterOf,
   alignmentPreview,
   draftColorOf,
+  sectionDraftColorOf,
   useStore,
   orientedDraft,
 } from '../state/store'
@@ -162,6 +163,16 @@ export function useSceneSync({
     sceneRef.current?.setBackfaceTint(showBackfaces)
   }, [showBackfaces])
 
+  // The other two ways of seeing the parts, from the same row of switches.
+  const translucent = useStore((s) => s.translucent)
+  useEffect(() => {
+    sceneRef.current?.setTranslucent(translucent)
+  }, [translucent])
+  const wireframe = useStore((s) => s.wireframe)
+  useEffect(() => {
+    sceneRef.current?.setWireframe(wireframe)
+  }, [wireframe])
+
   // Keep viewport overlays in sync with the elements and the dimensions the
   // user created between them.
   const elements = useStore((s) => s.elements)
@@ -194,12 +205,14 @@ export function useSceneSync({
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
-  // Elements referenced by the dimension, construction or alignment being
-  // built read as selected in the viewport, however they were chosen.
+  const sectionDraft = useStore((s) => s.sectionDraft)
+  // Elements referenced by the dimension, construction, alignment or section
+  // being built read as selected in the viewport, however they were chosen.
   const highlightIds = [
     ...(dimDraft?.refs ?? []),
     ...(draft?.refs ?? []),
     ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
+    sectionDraft?.ref ?? null,
   ].filter((r): r is number => r !== null)
   const highlightKey = highlightIds.join(',')
   // What is open in an editor is drawn as the pending preview instead of as
@@ -297,6 +310,31 @@ export function useSceneSync({
     sceneRef.current?.setHighlightedElements(highlightIds)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [highlightKey])
+
+  // The sections, drawn on the part in the measure workspace like the
+  // elements — and put away with them elsewhere. The one open for editing is
+  // drawn by its preview instead.
+  const sections = useStore((s) => s.sections)
+  const editingSectionId = sectionDraft?.editId
+  useEffect(() => {
+    sceneRef.current?.setSections(
+      sections
+        .filter((sec) => sec.visible && sec.cut && sec.id !== editingSectionId)
+        .map((sec) => ({ id: sec.id, name: sec.name, color: sec.color, frame: sec.frame, cut: sec.cut! })),
+      elementsWorkspace && showOverlays,
+    )
+  }, [sections, editingSectionId, elementsWorkspace, showOverlays])
+
+  // The section being made: its plane through the part, the cut so far, and
+  // the grip that slides it. The cut lags the plane by one worker round trip
+  // while the grip is dragged, and is shown as it stands until the fresh one
+  // lands — see useSections.
+  const sectionFrame = sectionDraft?.frame ?? null
+  const sectionCut = sectionDraft?.cut ?? null
+  const sectionColor = useStore(sectionDraftColorOf)
+  useEffect(() => {
+    sceneRef.current?.setSectionPreview(sectionFrame, sectionCut, sectionColor)
+  }, [sectionFrame, sectionCut, sectionColor])
 
   // Points picked for the alignment stay marked on the part, numbered in the
   // order they were clicked so the count is readable at a glance. A multi-point
@@ -400,7 +438,9 @@ export function useSceneSync({
   const wantsElementPicks =
     candidates ||
     (elementsWorkspace &&
-      (((dimDraft !== null || (alignDraft !== null && alignDraft.pickSlot === null)) &&
+      (((dimDraft !== null ||
+        sectionDraft !== null ||
+        (alignDraft !== null && alignDraft.pickSlot === null)) &&
         draft === null) ||
         (draft !== null &&
           draft.pickSlot == null &&
@@ -568,20 +608,22 @@ export function useSceneSync({
 
   // Pins belong to the map they were taken off, and only that map: a thickness
   // in millimetres and a deviation in millimetres look identical on the part,
-  // so showing both at once would be a way to misread one of them.
+  // so showing both at once would be a way to misread one of them. Each pin
+  // says which it is on top, for the same reason.
   const probes = useDeviation((s) => s.probes)
   const thickProbes = useThickness((s) => s.probes)
   useEffect(() => {
     const shown =
       workspace === 'deviation'
-        ? probes.map((p) => ({ ...p, label: `${formatSigned(p.value)} mm` }))
+        ? probes.map((p) => ({ ...p, title: 'DEV', label: `${formatSigned(p.value)} mm` }))
         : workspace === 'thickness'
-          ? thickProbes.map((p) => ({ ...p, label: `${p.value.toFixed(3)} mm` }))
+          ? thickProbes.map((p) => ({ ...p, title: 'WALL', label: `${p.value.toFixed(3)} mm` }))
           : []
     sceneRef.current?.setProbes(
       shown.map((p, i) => ({
         id: p.id,
         point: p.point,
+        title: p.title,
         label: p.label,
         color: i % 2 === 0 ? '#26282a' : '#12629f',
       })),
@@ -608,6 +650,7 @@ export function useSceneSync({
     if (workspace === 'elements') return
     if (useStore.getState().draft) cancelDraft()
     if (useStore.getState().alignDraft) useStore.getState().cancelAlignment()
+    if (useStore.getState().sectionDraft) useStore.getState().cancelSection()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace, source])
 

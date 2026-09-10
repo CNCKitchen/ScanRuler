@@ -6,15 +6,32 @@
 // on the page instead: the panel marks its confirm button of the moment with
 // `data-confirm`, and the key or click presses it. The middle click only
 // counts when it isn't a drag — the middle button also drives the camera.
+//
+// The number keys turn the camera to the standard views, PrusaSlicer's way:
+// 0 iso, 1 top, 2 bottom, 3 front, 4 rear, 5 left, 6 right. They work whatever
+// else is pending — a part is turned to see where the next pick goes, and
+// making the draft first stand down would defeat that.
 import { useEffect } from 'react'
 import { creationMethod } from '../core/elements/construct'
 import { evaluateDimension } from '../core/dimensions'
 import type { FitData } from '../core/types'
-import { useStore } from '../state/store'
+import { sectionDraftReady, useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
+import type { StandardView } from '../viewer/orthoViewport'
+
+/** The number row, bound as PrusaSlicer binds it. */
+const VIEW_KEYS: Record<string, StandardView> = {
+  '0': 'iso',
+  '1': 'top',
+  '2': 'bottom',
+  '3': 'front',
+  '4': 'rear',
+  '5': 'left',
+  '6': 'right',
+}
 
 export function useGlobalShortcuts({
   stopMarking,
@@ -22,6 +39,9 @@ export function useGlobalShortcuts({
   stopPicking,
   cancelDraft,
   confirmDraft,
+  cancelSection,
+  confirmSection,
+  viewFrom,
 }: {
   /** Close the deviation workspace's local fine fit marking session. */
   stopMarking: () => void
@@ -31,6 +51,11 @@ export function useGlobalShortcuts({
   stopPicking: () => void
   cancelDraft: () => void
   confirmDraft: () => void
+  /** The section being made: discard it, or create it. */
+  cancelSection: () => void
+  confirmSection: () => void
+  /** Turn the 3D viewport's camera to a standard view. */
+  viewFrom: (view: StandardView) => void
 }) {
   useEffect(() => {
     // Mirrors the "Add dimension" button: every slot filled and the preview
@@ -63,6 +88,15 @@ export function useGlobalShortcuts({
       // it right after this handler, and confirming the draft as well would
       // fire two different actions from one key press.
       if (e.key === 'Enter' && target?.closest('button')) return
+      // The view keys belong to the 3D viewport alone: the 2D workspace has no
+      // camera to turn, and the split picker's halves are posed by hand. Bare
+      // keys only — Ctrl+1 and the like are the browser's tab switching.
+      const view = VIEW_KEYS[e.key]
+      if (view && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (useShell.getState().workspace === 'flat' || useDeviation.getState().picking) return
+        viewFrom(view)
+        return
+      }
       // A best fit that is running owns Escape, wherever it was started from:
       // it is the one thing on screen that cannot be waited out, and stopping
       // it costs nothing — the alignment in hand is kept and no measurement is
@@ -123,6 +157,11 @@ export function useGlobalShortcuts({
         } else if (e.key === 'Enter') confirmButton()?.click()
         return
       }
+      if (store.sectionDraft) {
+        if (e.key === 'Escape') cancelSection()
+        else if (e.key === 'Enter' && sectionDraftReady(store.sectionDraft)) confirmSection()
+        return
+      }
       if (store.dimDraft) {
         if (e.key === 'Escape') store.cancelDimension()
         else if (e.key === 'Enter' && dimensionReady()) store.commitDimension()
@@ -131,12 +170,13 @@ export function useGlobalShortcuts({
       if (e.key === 'Enter') confirmButton()?.click()
     }
     /** What a confirm would land on right now, if anything. */
-    const confirmable = (): 'draft' | 'dimension' | 'flat' | 'button' | null => {
+    const confirmable = (): 'draft' | 'dimension' | 'section' | 'flat' | 'button' | null => {
       const button = () => (confirmButton() ? 'button' : null)
       if (useShell.getState().workspace === 'flat') return flatConfirmable() ? 'flat' : button()
       const store = useStore.getState()
       if (store.draft) return store.draft.status === 'ready' ? 'draft' : null
       if (store.dimDraft) return dimensionReady() ? 'dimension' : null
+      if (store.sectionDraft) return sectionDraftReady(store.sectionDraft) ? 'section' : null
       return button()
     }
     let middleDown: { x: number; y: number } | null = null
@@ -157,6 +197,7 @@ export function useGlobalShortcuts({
       const what = confirmable()
       if (what === 'draft') confirmDraft()
       else if (what === 'dimension') useStore.getState().commitDimension()
+      else if (what === 'section') confirmSection()
       else if (what === 'flat') flatConfirmable()?.()
       else if (what === 'button') confirmButton()?.click()
     }

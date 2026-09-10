@@ -5,6 +5,8 @@
 import { useStore, type SelectMode } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
+import { describeCut } from '../core/section/frame'
+import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
@@ -17,6 +19,7 @@ import { ShowAllButton } from './ShowAllButton'
 import { ElementRow } from './ElementRow'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
+import { SectionEditor } from './SectionEditor'
 
 export function Panel({
   onOpenScan,
@@ -29,6 +32,11 @@ export function Panel({
   onPickPoint,
   onDelete,
   onEditElement,
+  onStartSection,
+  onEditSection,
+  onDeleteSection,
+  onCancelSection,
+  onConfirmSection,
   onCopy,
   onStartAlignment,
   onApplyAlignment,
@@ -52,6 +60,12 @@ export function Panel({
   /** Re-open an element: the same box it was created in, with its seeds or its
    *  marked surface back on the scan. */
   onEditElement: (id: number) => void
+  /** Cut the scan with a plane, to measure the cut in the 2D workspace. */
+  onStartSection: () => void
+  onEditSection: (id: number) => void
+  onDeleteSection: (id: number) => void
+  onCancelSection: () => void
+  onConfirmSection: () => void
   onCopy: () => void
   onStartAlignment: () => void
   /** Bake the computed datum alignment into the part. */
@@ -70,25 +84,32 @@ export function Panel({
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
+  const sections = useStore((s) => s.sections)
+  const sectionDraft = useStore((s) => s.sectionDraft)
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
   const setAllElementsVisible = useStore((s) => s.setAllElementsVisible)
+  const toggleSectionVisible = useStore((s) => s.toggleSectionVisible)
+  const setAllSectionsVisible = useStore((s) => s.setAllSectionsVisible)
   // Which shape to fit is the user's to decide, so the ring goes round the row
   // rather than singling one of them out.
   const pulseKind = usePulse('kindrow')
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
-  const editorOpen = draft !== null || dimDraft !== null || alignDraft !== null
+  const editorOpen =
+    draft !== null || dimDraft !== null || alignDraft !== null || sectionDraft !== null
 
-  // Elements currently referenced by the dimension, construction or alignment
-  // being built — marked in the list to mirror their glow in the viewport.
+  // Elements currently referenced by the dimension, construction, alignment
+  // or section being built — marked in the list to mirror their glow in the
+  // viewport.
   const selectedIds = new Set(
     [
       ...(dimDraft?.refs ?? []),
       ...(draft?.refs ?? []),
       ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
+      sectionDraft?.ref ?? null,
     ].filter((r): r is number => r !== null),
   )
 
@@ -123,7 +144,7 @@ export function Panel({
         onResetAlignment={onResetAlignment}
       />
 
-      {draft === null && (
+      {draft === null && sectionDraft === null && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -142,6 +163,11 @@ export function Panel({
               <p>
                 Which of those a kind offers appears as <i>Created</i> once you choose it.
               </p>
+              <p>
+                <b>Section</b> is not an element but a cut: the scan sliced with a plane taken
+                across an element&apos;s direction, to be measured on the sheet of the 2D Measure
+                workspace.
+              </p>
             </InfoDot>
           </div>
           <div className={pulseKind && !busy ? 'kindrow pulse' : 'kindrow'}>
@@ -155,6 +181,14 @@ export function Panel({
                 {k.label}
               </button>
             ))}
+            <button
+              data-test="fit-section"
+              disabled={!fileName || busy}
+              title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
+              onClick={onStartSection}
+            >
+              Section
+            </button>
           </div>
         </div>
       )}
@@ -166,6 +200,8 @@ export function Panel({
         onCancelDraft={onCancelDraft}
         onConfirmDraft={onConfirmDraft}
       />
+
+      <SectionEditor onCancel={onCancelSection} onConfirm={onConfirmSection} />
 
       {elements.length > 0 && (
         <div className="group">
@@ -207,6 +243,58 @@ export function Panel({
               onDelete={() => onDelete(el.id)}
             />
           ))}
+        </div>
+      )}
+
+      {sections.length > 0 && (
+        <div className="group">
+          <div className="g-label">
+            <span>Sections</span>
+            <ShowAllButton
+              anyVisible={sections.some((sec) => sec.visible)}
+              what="sections"
+              testId="sections-show-all"
+              onSet={setAllSectionsVisible}
+            />
+            <b>{sections.length}</b>
+          </div>
+          {sections.map((sec) => {
+            const refName = elements.find((e) => e.id === sec.ref)?.name ?? null
+            const chains = sec.cut ? cutSummary(sec.cut).chains : 0
+            return (
+              <ElementRow
+                key={sec.id}
+                testId="section-row"
+                name={sec.name}
+                color={sec.color}
+                visible={sec.visible}
+                reading={
+                  sec.cut ? (
+                    <b title={describeCut(refName, sec.offset)}>
+                      {chains} edge{chains === 1 ? '' : 's'}
+                    </b>
+                  ) : sec.message ? (
+                    <b className="warn" title={sec.message}>
+                      ⚠
+                    </b>
+                  ) : (
+                    <b className="working">
+                      <span className="spinner" />
+                      cutting
+                    </b>
+                  )
+                }
+                selected={sectionDraft?.editId === sec.id}
+                editorOpen={editorOpen}
+                onEdit={() => onEditSection(sec.id)}
+                onToggleVisible={() => toggleSectionVisible(sec.id)}
+                onDelete={() => onDeleteSection(sec.id)}
+              />
+            )
+          })}
+          <p className="hint">
+            Measure a section in the <b>2D Measure</b> workspace.
+          </p>
         </div>
       )}
 

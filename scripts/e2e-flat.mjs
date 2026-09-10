@@ -11,7 +11,7 @@
 // with soft-shouldered edges, a 240 px circle and a 600 px wide rectangle —
 // so the assertions can be tight.
 import { deflateSync } from 'node:zlib'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   APP_URL,
@@ -21,6 +21,7 @@ import {
   check,
   drag,
   finish,
+  repoFile,
   shotPath,
   sleep,
 } from './e2e-lib.mjs'
@@ -95,6 +96,16 @@ const RECT_WIDTH = mm(RECT.x1 - RECT.x0)
 // ---- the session ------------------------------------------------------------
 
 const { browser, page, consoleErrors } = await launchApp()
+// Downloads land in a folder of their own, for the SVG export at the end.
+const DL_DIR = repoFile('e2e-out/flat-dl')
+rmSync(DL_DIR, { recursive: true, force: true })
+mkdirSync(DL_DIR, { recursive: true })
+const cdp = await browser.target().createCDPSession()
+await cdp.send('Browser.setDownloadBehavior', {
+  behavior: 'allow',
+  downloadPath: DL_DIR,
+  eventsEnabled: true,
+})
 await browser
   .defaultBrowserContext()
   .overridePermissions(APP_URL.replace(/\/$/, ''), [
@@ -220,6 +231,49 @@ check(
   (await page.$eval('[data-test=flat-draft-picks]', (el) => el.textContent)) === '0 picks',
   'a click on a pin removes that pick',
 )
+await click(page, '[data-test=flat-draft-cancel]')
+
+// ---- the sheet turned a quarter turn -----------------------------------------
+// Rotate 90° rolls the view and re-fits the sheet: what was to the right of
+// the disc is above it. A raw (Alt) pick through the turned view must still
+// read the document spot under the cursor, and turning back restores the
+// framing every later pick in this script is aimed by.
+await click(page, '[data-test=flat-turn-ccw]')
+await sleep(300)
+check(
+  /quarter turn counter-clockwise/.test(await page.$eval('[data-test=flat-turn-status]', (el) => el.textContent)),
+  'the datum group says the sheet is shown a quarter turn round',
+)
+// The turned sheet stands on end: document +X runs up the screen, +Y left.
+const frustT = Math.max((SHEET_W / 2) * 1.08, ((SHEET_H / 2) * 1.08) / aspect)
+const toScreenTurned = (mx, my) => [
+  rect.x + (rect.w * (-(my - SHEET_H / 2) / (frustT * aspect) + 1)) / 2,
+  rect.y + (rect.h * (1 - (mx - SHEET_W / 2) / frustT)) / 2,
+]
+const spot = [DISC_C[0] + 9, DISC_C[1] - 7]
+await click(page, '[data-test=flat-fit-point]')
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreenTurned(...spot))
+await page.keyboard.up('Alt')
+await sleep(200)
+const turnedRead = await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)
+const turnedX = Number((turnedRead.match(/X (-?[\d.]+)/) ?? [])[1])
+const turnedY = Number((turnedRead.match(/Y (-?[\d.]+)/) ?? [])[1])
+check(
+  Math.abs(turnedX - spot[0]) < 0.15 && Math.abs(turnedY - spot[1]) < 0.15,
+  `a pick through the turned view reads the spot under the cursor (${turnedX}, ${turnedY} for ${spot.map((v) => v.toFixed(2))})`,
+)
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-turn-cw]')
+await sleep(300)
+check((await page.$('[data-test=flat-turn-status]')) === null, 'turning back clears the notice')
+await click(page, '[data-test=flat-fit-point]')
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreen(...spot))
+await page.keyboard.up('Alt')
+await sleep(200)
+const backX = Number(((await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)).match(/X (-?[\d.]+)/) ?? [])[1])
+check(Math.abs(backX - spot[0]) < 0.15, `and the sheet is framed as before (x ${backX.toFixed(2)})`)
 await click(page, '[data-test=flat-draft-cancel]')
 
 // ---- a line along the rectangle's top edge ---------------------------------
@@ -448,6 +502,43 @@ check(/Scale: CALIBRATED/.test(report), 'the report says the scale is calibrated
 check(/part datum frame/.test(report), 'and that coordinates are in the datum frame')
 check(/Ø/.test(report) && /Distance to line/.test(report), 'and carries elements and dimensions')
 check(/Count 1: 4/.test(report), 'and the tally')
+
+// ---- the SVG ---------------------------------------------------------------
+// The sheet as a drawing at true scale: the edge chains as polylines, the
+// elements as native shapes, y down like the image — so the disc's centre in
+// the file is where it is in the image, in millimetres.
+await click(page, '[data-test=flat-export-svg]')
+let svgFile = null
+for (let i = 0; i < 50 && !svgFile; i++) {
+  await sleep(200)
+  const done = readdirSync(DL_DIR).filter((f) => f.endsWith('.svg'))
+  if (done.length) svgFile = join(DL_DIR, done[0])
+}
+check(!!svgFile, 'Export SVG downloads an .svg file')
+if (svgFile) {
+  check(/flat-fixture-sheet\.svg$/.test(svgFile), `named after the image: ${svgFile}`)
+  const svg = readFileSync(svgFile, 'utf8')
+  const width = Number((svg.match(/<svg[^>]*\swidth="([\d.]+)mm"/) ?? [])[1])
+  check(
+    Math.abs(width - SHEET_W) < 0.05,
+    `the drawing is the sheet's width in millimetres (${width} for ${SHEET_W.toFixed(3)})`,
+  )
+  const polylines = (svg.match(/<polyline /g) ?? []).length
+  check(polylines >= 2, `the edge chains are polylines (${polylines})`)
+  const circle = svg.match(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)"/)
+  check(!!circle, 'the fitted circle is a <circle>')
+  if (circle) {
+    const [cx, cy, rad] = circle.slice(1).map(Number)
+    check(Math.abs(2 * rad - DISC_DIA) < 0.1, `at its measured diameter (Ø ${(2 * rad).toFixed(3)})`)
+    check(
+      Math.abs(cx - mm(DISC.cx)) < 0.1 && Math.abs(cy - mm(DISC.cy)) < 0.1,
+      `where the disc is, y down like the image (${cx}, ${cy})`,
+    )
+  }
+  check(/<g id="element-\d+" data-name="Line 1"[^>]*>\s*<title>[^<]*<\/title>\s*<line /.test(svg), 'and the fitted line is a <line>')
+  check(/Scale: CALIBRATED/.test(svg), 'the file carries the traceability line')
+}
+check(/Sheet exported/.test(await page.$eval('.strip', (el) => el.textContent)), 'status says exported')
 
 await page.screenshot({ path: shotPath('flat-final.png') })
 await finish(browser, consoleErrors)

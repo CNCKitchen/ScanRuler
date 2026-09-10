@@ -34,6 +34,8 @@ export function CompareView({
   const navScheme = useStore((s) => s.navScheme)
   const viewTheme = useStore((s) => s.viewTheme)
   const showBackfaces = useStore((s) => s.showBackfaces)
+  const translucent = useStore((s) => s.translucent)
+  const wireframe = useStore((s) => s.wireframe)
 
   useEffect(() => {
     const compare = new CompareScene(
@@ -46,6 +48,8 @@ export function CompareView({
     // switch already on is tinted on its first frame instead of on the next
     // change of it.
     compare.setBackfaceTint(useStore.getState().showBackfaces)
+    compare.setTranslucent(useStore.getState().translucent)
+    compare.setWireframe(useStore.getState().wireframe)
     compare.linkTo(scene.viewLink())
     compareRef.current = compare
     return () => {
@@ -68,6 +72,12 @@ export function CompareView({
   useEffect(() => {
     compareRef.current?.setBackfaceTint(showBackfaces)
   }, [showBackfaces])
+  useEffect(() => {
+    compareRef.current?.setTranslucent(translucent)
+  }, [translucent])
+  useEffect(() => {
+    compareRef.current?.setWireframe(wireframe)
+  }, [wireframe])
 
   return (
     <div className="comparehalf" data-test="compare-half">

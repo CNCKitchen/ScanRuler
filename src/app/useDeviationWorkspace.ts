@@ -53,7 +53,7 @@ export function useDeviationWorkspace({
       const buffer = await file.arrayBuffer()
       sources.current.reference = { name: file.name, bytes: new Uint8Array(buffer.slice(0)) }
       const mesh = await clientRef.current!.loadNominal(file.name, buffer)
-      sceneRef.current?.setNominal(mesh.positions, mesh.indices, mesh.normals)
+      sceneRef.current?.setNominal(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots)
       sceneRef.current?.setAlignment(null)
       useDeviation
         .getState()
