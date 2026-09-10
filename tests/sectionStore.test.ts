@@ -5,7 +5,7 @@
 // carries it with the part.
 import { beforeEach, describe, expect, it } from 'vitest'
 import { rigidFromAxisAngle } from '../src/core/deviation/rigid'
-import { frameKey } from '../src/core/section/frame'
+import { frameKey, tiltOf, turnAxis } from '../src/core/section/frame'
 import type { SectionCut } from '../src/core/section/slice'
 import { sectionDraftReady, useStore, type Element } from '../src/state/store'
 import type { CylinderFit, PlaneFit } from '../src/core/types'
@@ -210,5 +210,140 @@ describe('the section draft', () => {
     useStore.getState().beginLoad('other.stl')
     expect(useStore.getState().sections).toHaveLength(0)
     expect(useStore.getState().nextSectionNumber).toBe(1)
+  })
+})
+
+describe('a section across a coordinate plane', () => {
+  beforeEach(fresh)
+
+  it('goes through the part’s centre, and its offset is its coordinate', () => {
+    useStore.setState({ modelCenter: [10, 20, 30] })
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftRef('z')
+    let d = useStore.getState().sectionDraft!
+    expect(d.ref).toBe('z')
+    expect(d.offset).toBe(30)
+    // The plane — and the gizmo on it — sits at the part's centre.
+    expect(d.frame?.origin).toEqual([10, 20, 30])
+    expect(d.frame?.normal).toEqual([0, 0, 1])
+    expect(d.frame?.basisU).toEqual([1, 0, 0])
+    expect(d.refDir).toEqual([0, 0, 1])
+    expect(d.status).toBe('slicing')
+
+    // Another plane: through the centre again, on its own axis.
+    useStore.getState().setSectionDraftRef('x')
+    d = useStore.getState().sectionDraft!
+    expect(d.offset).toBe(10)
+    expect(d.frame?.origin).toEqual([10, 20, 30])
+
+    // Typed to a coordinate, it is at that coordinate.
+    useStore.getState().setSectionDraftOffset(-4)
+    d = useStore.getState().sectionDraft!
+    expect(d.frame?.origin).toEqual([-4, 20, 30])
+    useStore.getState().resolveSectionDraft(frameKey(d.frame!), squareCut(0))
+    const id = useStore.getState().commitSection()!
+    const sec = useStore.getState().sections.find((x) => x.id === id)!
+    expect(sec.ref).toBe('x')
+    expect(sec.refDir).toEqual([1, 0, 0])
+    expect(sec.offset).toBe(-4)
+
+    // Re-opened, it is still across the YZ plane — a coordinate plane
+    // cannot be deleted — and slides along it.
+    useStore.getState().editSection(id)
+    d = useStore.getState().sectionDraft!
+    expect(d.ref).toBe('x')
+    expect(d.status).toBe('ready')
+    useStore.getState().setSectionDraftOffset(2)
+    expect(useStore.getState().sectionDraft!.frame?.origin).toEqual([2, 20, 30])
+  })
+
+  it('is untouched when an element is deleted', () => {
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftRef('y')
+    const d = useStore.getState().sectionDraft!
+    useStore.getState().resolveSectionDraft(frameKey(d.frame!), squareCut(0))
+    useStore.getState().commitSection()
+    useStore.getState().removeElement(1)
+    expect(useStore.getState().sections[0].ref).toBe('y')
+  })
+})
+
+describe('a section plane turned by the gizmo', () => {
+  beforeEach(fresh)
+
+  /** Turn the draft's plane `degrees` about its sheet's U, the way a ring
+   *  drag does: from the line it slid along when the ring was taken. */
+  const turnAboutU = (degrees: number) => {
+    const d = useStore.getState().sectionDraft!
+    useStore.getState().setSectionDraftAxis(turnAxis(d.axis!, d.offset, d.frame!.basisU, degrees))
+  }
+
+  it('keeps its reference and its offset, and reads its tilt off the reference', () => {
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftRef(1)
+    useStore.getState().setSectionDraftOffset(-2)
+    turnAboutU(15)
+    let d = useStore.getState().sectionDraft!
+    expect(d.ref).toBe(1)
+    expect(d.offset).toBe(-2)
+    expect(d.status).toBe('slicing')
+    // Still through the point the gizmo sat on: 2 mm into the face at z = 10.
+    expect(d.frame!.origin[2]).toBeCloseTo(8, 12)
+    expect(tiltOf(d.refDir, d.frame!.normal)).toBeCloseTo(15, 9)
+    // The offset still slides it along its own, tilted, normal — one more
+    // millimetre from the pivot at z = 8, down the tilted direction.
+    useStore.getState().setSectionDraftOffset(-3)
+    d = useStore.getState().sectionDraft!
+    expect(tiltOf(d.refDir, d.frame!.normal)).toBeCloseTo(15, 9)
+    expect(d.frame!.origin[2]).toBeCloseTo(8 - Math.cos(Math.PI / 12), 9)
+
+    // Created, the record carries the tilt; re-opened, so does the draft.
+    useStore.getState().resolveSectionDraft(frameKey(d.frame!), squareCut(0))
+    const id = useStore.getState().commitSection()!
+    const sec = useStore.getState().sections.find((x) => x.id === id)!
+    expect(tiltOf(sec.refDir, sec.frame.normal)).toBeCloseTo(15, 9)
+    useStore.getState().editSection(id)
+    d = useStore.getState().sectionDraft!
+    expect(tiltOf(d.refDir, d.frame!.normal)).toBeCloseTo(15, 9)
+
+    // Choosing the reference again squares the plane up, offset kept.
+    useStore.getState().setSectionDraftRef(1)
+    d = useStore.getState().sectionDraft!
+    expect(tiltOf(d.refDir, d.frame!.normal)).toBe(0)
+    expect(d.offset).toBe(-3)
+    expect(d.frame!.normal).toEqual([0, 0, 1])
+  })
+
+  it('squares up to a coordinate plane without jumping back to the centre', () => {
+    useStore.setState({ modelCenter: [0, 0, 30] })
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftRef('z')
+    useStore.getState().setSectionDraftOffset(12)
+    turnAboutU(10)
+    expect(tiltOf(useStore.getState().sectionDraft!.refDir, useStore.getState().sectionDraft!.frame!.normal)).toBeCloseTo(10, 9)
+    useStore.getState().setSectionDraftRef('z')
+    const d = useStore.getState().sectionDraft!
+    expect(d.offset).toBe(12)
+    expect(d.frame!.origin).toEqual([0, 0, 12])
+  })
+
+  it('does nothing without a plane to turn', () => {
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftAxis({ origin: [0, 0, 0], dir: [0, 0, 1] })
+    expect(useStore.getState().sectionDraft!.axis).toBeNull()
+  })
+
+  it('keeps its tilt reading through an alignment', () => {
+    useStore.getState().startSection()
+    useStore.getState().setSectionDraftRef('z')
+    turnAboutU(25)
+    const d = useStore.getState().sectionDraft!
+    useStore.getState().resolveSectionDraft(frameKey(d.frame!), squareCut(0))
+    useStore.getState().commitSection()
+    useStore.getState().applyAlignment(rigidFromAxisAngle([1, 1, 0], 1.1))
+    const sec = useStore.getState().sections[0]
+    expect(tiltOf(sec.refDir, sec.frame.normal)).toBeCloseTo(25, 9)
+    // The reference direction went with the part, so it no longer is Z.
+    expect(Math.abs(sec.refDir![2])).toBeLessThan(0.999)
   })
 })

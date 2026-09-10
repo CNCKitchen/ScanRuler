@@ -15,8 +15,14 @@ import {
 import {
   describeCut,
   frameKey,
+  sectionFrameAlong,
   sectionFrameFrom,
+  sectionRefName,
+  tiltOf,
   transformFrame,
+  turnAxis,
+  worldCutAxis,
+  worldPlaneName,
   type SectionFrame,
 } from '../src/core/section/frame'
 import { rigidFromAxisAngle } from '../src/core/deviation/rigid'
@@ -242,5 +248,88 @@ describe('the section frame', () => {
     expect(describeCut('Plane 1', 2)).toBe('along Plane 1, +2.000 mm')
     expect(describeCut('Plane 1', -0.5)).toBe('along Plane 1, −0.500 mm')
     expect(describeCut(null, 3)).toMatch(/deleted element/)
+    expect(describeCut('Plane 1', 2, 4.25)).toBe('along Plane 1, +2.000 mm, tilted 4.3°')
+    expect(describeCut(null, 3, 10)).toBe('+3.000 mm from a deleted element, tilted 10.0°')
+  })
+})
+
+describe('the coordinate planes', () => {
+  it('are right-handed frames through the origin, named as CAD names them', () => {
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const a = worldCutAxis(axis)
+      const f = sectionFrameAlong(a, 0)!
+      expect(f.origin).toEqual([0, 0, 0])
+      // U × V = normal, and U is the next axis round.
+      const [u, v, n] = [f.basisU, f.basisV, f.normal]
+      expect(u[0] * v[1] * n[2] + u[1] * v[2] * n[0] + u[2] * v[0] * n[1]).toBeCloseTo(1, 12)
+    }
+    expect(worldCutAxis('z').basisU).toEqual([1, 0, 0])
+    expect(worldCutAxis('x').basisU).toEqual([0, 1, 0])
+    expect(worldCutAxis('y').basisU).toEqual([0, 0, 1])
+    expect(worldPlaneName('z')).toBe('XY plane')
+    expect(worldPlaneName('x')).toBe('YZ plane')
+    expect(worldPlaneName('y')).toBe('XZ plane')
+    // The offset along a coordinate axis is the plane's coordinate on it,
+    // wherever the line is put through.
+    expect(sectionFrameAlong(worldCutAxis('z'), 12.5)!.origin).toEqual([0, 0, 12.5])
+    expect(worldCutAxis('z', [10, 20, 30]).origin).toEqual([10, 20, 0])
+    expect(sectionFrameAlong(worldCutAxis('y', [10, 20, 30]), 5)!.origin).toEqual([10, 5, 30])
+  })
+
+  it('name a reference for the record: element, plane or nothing', () => {
+    const elements = [{ id: 7, name: 'Plane 1' }]
+    expect(sectionRefName(7, elements)).toBe('Plane 1')
+    expect(sectionRefName(8, elements)).toBeNull()
+    expect(sectionRefName('y', elements)).toBe('XZ plane')
+    expect(sectionRefName(null, elements)).toBeNull()
+  })
+})
+
+describe('turning a plane by hand', () => {
+  // A plane 5 mm up the Z axis, turned about its own X.
+  const axis = worldCutAxis('z')
+
+  it('pivots about the plane’s own origin and keeps the offset', () => {
+    const before = sectionFrameAlong(axis, 5)!
+    const turned = turnAxis(axis, 5, before.basisU, 30)
+    const after = sectionFrameAlong(turned, 5)!
+    // The plane still passes through the point the gizmo sat on…
+    expect(after.origin[0]).toBeCloseTo(before.origin[0], 12)
+    expect(after.origin[1]).toBeCloseTo(before.origin[1], 12)
+    expect(after.origin[2]).toBeCloseTo(before.origin[2], 12)
+    // …its normal has swung 30° from Z toward −Y (right-handed about +X)…
+    expect(after.normal[0]).toBeCloseTo(0, 12)
+    expect(after.normal[1]).toBeCloseTo(-Math.sin(Math.PI / 6), 12)
+    expect(after.normal[2]).toBeCloseTo(Math.cos(Math.PI / 6), 12)
+    // …the axis it turned about is still the sheet's X…
+    expect(after.basisU[0]).toBeCloseTo(1, 12)
+    // …and the tilt off the reference reads the angle.
+    expect(tiltOf(axis.dir, after.normal)).toBeCloseTo(30, 9)
+    expect(tiltOf(axis.dir, before.normal)).toBe(0)
+    expect(tiltOf(undefined, after.normal)).toBe(0)
+  })
+
+  it('composes: a turn about V after one about U is the pair of rotations', () => {
+    const f0 = sectionFrameAlong(axis, 5)!
+    const a1 = turnAxis(axis, 5, f0.basisU, 20)
+    const f1 = sectionFrameAlong(a1, 5)!
+    const a2 = turnAxis(a1, 5, f1.basisV, -35)
+    const f2 = sectionFrameAlong(a2, 5)!
+    // Still through the pivot, still a unit normal, and the tilt is the
+    // angle between the two normals whatever route it took.
+    for (let i = 0; i < 3; i++) expect(f2.origin[i]).toBeCloseTo(f0.origin[i], 10)
+    expect(Math.hypot(...f2.normal)).toBeCloseTo(1, 12)
+    const dot = f0.normal[0] * f2.normal[0] + f0.normal[1] * f2.normal[1] + f0.normal[2] * f2.normal[2]
+    expect(tiltOf(axis.dir, f2.normal)).toBeCloseTo((Math.acos(dot) * 180) / Math.PI, 9)
+    // Turned back the same way, the plane is square again.
+    const a3 = turnAxis(a2, 5, f2.basisV, 35)
+    const f3 = sectionFrameAlong(a3, 5)!
+    const a4 = turnAxis(a3, 5, f3.basisU, -20)
+    expect(tiltOf(axis.dir, sectionFrameAlong(a4, 5)!.normal)).toBe(0)
+  })
+
+  it('leaves a degenerate or unfinished turn alone', () => {
+    expect(turnAxis(axis, 5, [1, 0, 0], NaN)).toBe(axis)
+    expect(turnAxis({ origin: [0, 0, 0], dir: [0, 0, 0] }, 5, [1, 0, 0], 10).dir).toEqual([0, 0, 0])
   })
 })

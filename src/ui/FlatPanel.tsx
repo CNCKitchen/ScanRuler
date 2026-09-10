@@ -14,7 +14,7 @@ import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
 import { IMAGE_ACCEPT, IMAGE_FORMATS } from '../core/formats'
-import { describeCut } from '../core/section/frame'
+import { describeCut, sectionRefName, tiltOf } from '../core/section/frame'
 import {
   flatCountColor,
   flatEditorOpen,
@@ -97,8 +97,8 @@ export function FlatPanel({
   const scanName = useStore((s) => s.fileName)
   const onSection = subject.kind === 'section'
   const activeSection = onSection ? sections.find((x) => x.id === subject.id) : undefined
-  const cutOf = (sec: { ref: number | null; offset: number }) =>
-    describeCut(scanElements.find((e) => e.id === sec.ref)?.name ?? null, sec.offset)
+  const cutOf = (sec: (typeof sections)[number]) =>
+    describeCut(sectionRefName(sec.ref, scanElements), sec.offset, tiltOf(sec.refDir, sec.frame.normal))
   const hasSheet = onSection || imageName !== null
   // Anything the report and the CSV would have to say.
   const hasMeasurements =

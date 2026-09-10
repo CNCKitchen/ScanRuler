@@ -251,7 +251,8 @@ describe('writing a project back onto the stores', () => {
           color: '#abc',
           visible: true,
           frame,
-          ref: null,
+          ref: 'z',
+          refDir: [0, 0, 1],
           offset: 2,
           cut: { points: new Float32Array([0, 0, 3]), offsets: Uint32Array.from([0, 1]) },
           cutKey: 'k',
@@ -281,6 +282,10 @@ describe('writing a project back onto the stores', () => {
     applyScanPart(json.scan)
     expect(useStore.getState().sections).toHaveLength(1)
     expect(useStore.getState().sections[0].cut).toBeUndefined()
+    // What it was cut across comes back whole: a coordinate plane, and the
+    // direction its tilt is read against.
+    expect(useStore.getState().sections[0].ref).toBe('z')
+    expect(useStore.getState().sections[0].refDir).toEqual([0, 0, 1])
     expect(useStore.getState().nextSectionNumber).toBe(2)
     applyFlatPart(json.flat)
     const f = useFlat.getState()

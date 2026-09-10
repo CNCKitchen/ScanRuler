@@ -6,7 +6,7 @@ import { useStore, type SelectMode } from '../state/store'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS } from '../core/elements/kinds'
-import { describeCut } from '../core/section/frame'
+import { describeCut, sectionRefName, tiltOf } from '../core/section/frame'
 import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
 import type { Rigid } from '../core/deviation/rigid'
@@ -122,7 +122,7 @@ export function Panel({
       ...(draft?.refs ?? []),
       ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
       sectionDraft?.ref ?? null,
-    ].filter((r): r is number => r !== null),
+    ].filter((r): r is number => typeof r === 'number'),
   )
 
   return (
@@ -271,7 +271,11 @@ export function Panel({
             <b>{sections.length}</b>
           </div>
           {sections.map((sec) => {
-            const refName = elements.find((e) => e.id === sec.ref)?.name ?? null
+            const where = describeCut(
+              sectionRefName(sec.ref, elements),
+              sec.offset,
+              tiltOf(sec.refDir, sec.frame.normal),
+            )
             const chains = sec.cut ? cutSummary(sec.cut).chains : 0
             const measured = measuredOn(sec.id)
             return (
@@ -283,7 +287,7 @@ export function Panel({
                 visible={sec.visible}
                 reading={
                   sec.cut ? (
-                    <b title={describeCut(refName, sec.offset)}>
+                    <b title={where}>
                       {chains} edge{chains === 1 ? '' : 's'}
                       {measured > 0 && ` · ${measured} element${measured === 1 ? '' : 's'}`}
                     </b>

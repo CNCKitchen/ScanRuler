@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useRef, useState } from 'react'
+import type { WorldAxis } from '../core/section/frame'
 import { SceneManager, type GripSide, type PickHit } from '../viewer/SceneManager'
 import { FitButton } from './FitButton'
 
@@ -8,6 +9,7 @@ export function Viewer({
   onPick,
   onHover,
   onElementPick,
+  onWorldPlanePick,
   onPaintChange,
   onExtendDrag,
 }: {
@@ -16,10 +18,13 @@ export function Viewer({
   onHover?: (hit: PickHit | null) => void
   /** A click that landed on an existing element while element picking is on. */
   onElementPick?: (id: number) => void
+  /** A click on one of the coordinate planes offered to a section. */
+  onWorldPlanePick?: (axis: WorldAxis) => void
   /** A brush stroke ended, with this many vertices marked in total. */
   onPaintChange?: (count: number) => void
-  /** One of the grips on the element being made — or the one on a section
-   *  plane — was dragged this far. */
+  /** One of the grips on the element being made — or of the gizmo on a
+   *  section plane — was dragged this far: millimetres, or degrees for a
+   *  ring. */
   onExtendDrag?: (side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -30,6 +35,8 @@ export function Viewer({
   hoverRef.current = onHover
   const elementPickRef = useRef(onElementPick)
   elementPickRef.current = onElementPick
+  const worldPlaneRef = useRef(onWorldPlanePick)
+  worldPlaneRef.current = onWorldPlanePick
   const paintRef = useRef(onPaintChange)
   paintRef.current = onPaintChange
   const extendRef = useRef(onExtendDrag)
@@ -54,6 +61,7 @@ export function Viewer({
     scene.onPick = (hit) => pickRef.current(hit)
     scene.onHover = (hit) => hoverRef.current?.(hit)
     scene.onElementPick = (id) => elementPickRef.current?.(id)
+    scene.onWorldPlanePick = (axis) => worldPlaneRef.current?.(axis)
     scene.onPaintChange = (count) => paintRef.current?.(count)
     scene.onExtendDrag = (side, delta, phase) => extendRef.current?.(side, delta, phase)
     sceneRef.current = scene

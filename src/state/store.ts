@@ -50,11 +50,14 @@ import {
   canCutAlong,
   cutAxisOf,
   frameKey,
+  isWorldAxis,
   sectionFrameAlong,
   transformAxis,
   transformFrame,
+  worldCutAxis,
   type CutAxis,
   type SectionFrame,
+  type SectionRef,
 } from '../core/section/frame'
 import { transformCut, type SectionCut } from '../core/section/slice'
 import { PALETTE } from './palette'
@@ -392,10 +395,14 @@ export interface Section {
   color: string
   visible: boolean
   frame: SectionFrame
-  /** The element it was cut along, if that still exists, and how far along
-   *  its direction. */
-  ref: number | null
+  /** What it was cut across — an element, if that still exists, or a
+   *  coordinate plane — and how far along its direction. */
+  ref: SectionRef | null
   offset: number
+  /** The direction the reference gave when the section was made, so the
+   *  record can say how far the plane was turned off it by hand — see
+   *  turnAxis and tiltOf in core/section/frame. Moves with the part. */
+  refDir?: Vec3
   /** The polylines, once the worker has cut them; the frame they were cut
    *  in, as frameKey — a cut that no longer matches its frame is re-taken. */
   cut?: SectionCut
@@ -407,9 +414,13 @@ export interface Section {
  *  (off the reference, or off its own frozen plane), the offset, and the
  *  cut the worker has taken for the plane those give. */
 export interface SectionDraft {
-  ref: number | null
+  ref: SectionRef | null
   offset: number
+  /** The line the plane slides along: the reference's, or where the gizmo's
+   *  rings have turned it to. */
   axis: CutAxis | null
+  /** The reference's own direction — what the tilt is read against. */
+  refDir?: Vec3
   /** The in-plane X to keep — an edited section's own, so nudging it does
    *  not turn the sheet under the measurements taken on it. */
   seedU?: Vec3
@@ -780,9 +791,14 @@ interface AppState {
    *  along that plane's normal; choosing another element moves it there. */
   editSection: (id: number) => void
   cancelSection: () => void
-  /** Cut along this element, at the current offset — or along nothing. */
-  setSectionDraftRef: (id: number | null) => void
+  /** Take the plane across an element, or across a coordinate axis — the
+   *  XY, YZ or XZ plane, moved to pass through the part's centre. */
+  setSectionDraftRef: (ref: SectionRef | null) => void
   setSectionDraftOffset: (mm: number) => void
+  /** The plane turned by hand: the gizmo's rings hand back the line it now
+   *  slides along. The reference stays, as the record of what the plane was
+   *  taken from and the direction its tilt is read against. */
+  setSectionDraftAxis: (axis: CutAxis) => void
   setSectionDraftName: (name: string) => void
   /** The worker's cut for the frame keyed `cutKey`. A cut for a frame the
    *  draft has since moved on from is kept as the preview until the next one
@@ -1022,10 +1038,10 @@ export const useStore = create<AppState>()((set, get) => ({
         // A section keeps its frozen plane whatever happens to the element
         // it was cut along; only the name in the record goes.
         sections: s.sections.map((sec) =>
-          sec.ref !== null && doomed.has(sec.ref) ? { ...sec, ref: null } : sec,
+          typeof sec.ref === 'number' && doomed.has(sec.ref) ? { ...sec, ref: null } : sec,
         ),
         sectionDraft:
-          s.sectionDraft && s.sectionDraft.ref !== null && doomed.has(s.sectionDraft.ref)
+          s.sectionDraft && typeof s.sectionDraft.ref === 'number' && doomed.has(s.sectionDraft.ref)
             ? { ...s.sectionDraft, ref: null }
             : s.sectionDraft,
         alignDraft: s.alignDraft
@@ -1432,12 +1448,15 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const sec = s.sections.find((x) => x.id === id)
       if (!sec) return {}
-      const refAlive = sec.ref !== null && s.elements.some((e) => e.id === sec.ref && e.fit)
+      const refAlive =
+        isWorldAxis(sec.ref) ||
+        (sec.ref !== null && s.elements.some((e) => e.id === sec.ref && e.fit))
       return {
         sectionDraft: settleSectionDraft({
           ref: refAlive ? sec.ref : null,
           offset: sec.offset,
           axis: axisOfFrame(sec.frame, sec.offset),
+          refDir: sec.refDir,
           seedU: sec.frame.basisU,
           frame: sec.frame,
           status: 'ready',
@@ -1455,16 +1474,36 @@ export const useStore = create<AppState>()((set, get) => ({
 
   cancelSection: () => set({ sectionDraft: null }),
 
-  setSectionDraftRef: (id) =>
+  setSectionDraftRef: (ref) =>
     set((s) => {
       const d = s.sectionDraft
       if (!d) return {}
-      if (id === null) return { sectionDraft: settleSectionDraft({ ...d, ref: null, axis: null }) }
-      const el = s.elements.find((e) => e.id === id)
+      if (ref === null)
+        return { sectionDraft: settleSectionDraft({ ...d, ref: null, axis: null, refDir: undefined }) }
+      if (isWorldAxis(ref)) {
+        // The coordinate plane is offered where the part is — through its
+        // centre — and that is where choosing it puts the plane, gizmo and
+        // all: its offset is the centre's coordinate on the axis. Chosen
+        // again, it keeps the offset it has: that is how a turned plane is
+        // squared up again.
+        const c = s.modelCenter
+        const axis = worldCutAxis(ref, c)
+        const offset =
+          d.ref === ref ? d.offset : c[0] * axis.dir[0] + c[1] * axis.dir[1] + c[2] * axis.dir[2]
+        return { sectionDraft: settleSectionDraft({ ...d, ref, axis, refDir: axis.dir, offset }) }
+      }
+      const el = s.elements.find((e) => e.id === ref)
       if (!el?.fit || !canCutAlong(el.kind)) return {}
       const axis = cutAxisOf(el.fit)
       if (!axis) return {}
-      return { sectionDraft: settleSectionDraft({ ...d, ref: id, axis }) }
+      return { sectionDraft: settleSectionDraft({ ...d, ref, axis, refDir: axis.dir }) }
+    }),
+
+  setSectionDraftAxis: (axis) =>
+    set((s) => {
+      const d = s.sectionDraft
+      if (!d || !d.axis) return {}
+      return { sectionDraft: settleSectionDraft({ ...d, axis }) }
     }),
 
   setSectionDraftOffset: (mm) =>
@@ -1506,6 +1545,7 @@ export const useStore = create<AppState>()((set, get) => ({
                 name: d.name?.trim() || sec.name,
                 frame,
                 ref: d.ref,
+                refDir: d.refDir,
                 offset: d.offset,
                 cut,
                 cutKey,
@@ -1533,6 +1573,7 @@ export const useStore = create<AppState>()((set, get) => ({
           visible: true,
           frame,
           ref: d.ref,
+          refDir: d.refDir,
           offset: d.offset,
           cut,
           cutKey,
@@ -1659,27 +1700,29 @@ export const useStore = create<AppState>()((set, get) => ({
       rigidApply(m, s.modelCenter[0], s.modelCenter[1], s.modelCenter[2], moved)
       // A section is a cut through the scan: its plane and its polylines move
       // with the part, and nothing has to be cut again.
+      const turn = (v: Vec3 | undefined): Vec3 | undefined => {
+        if (!v) return v
+        const out = new Float64Array(3)
+        rigidRotate(m, v[0], v[1], v[2], out)
+        return [out[0], out[1], out[2]]
+      }
       const moveSection = (sec: Section): Section => {
         const frame = transformFrame(sec.frame, m)
         return {
           ...sec,
           frame,
+          refDir: turn(sec.refDir),
           cut: sec.cut ? transformCut(sec.cut, m) : undefined,
           cutKey: sec.cut ? frameKey(frame) : undefined,
         }
       }
       const moveDraft = (d: SectionDraft): SectionDraft => {
-        const out = new Float64Array(3)
-        let seedU = d.seedU
-        if (seedU) {
-          rigidRotate(m, seedU[0], seedU[1], seedU[2], out)
-          seedU = [out[0], out[1], out[2]]
-        }
         const frame = d.frame ? transformFrame(d.frame, m) : null
         return settleSectionDraft({
           ...d,
           axis: d.axis ? transformAxis(d.axis, m) : null,
-          seedU,
+          refDir: turn(d.refDir),
+          seedU: turn(d.seedU),
           frame,
           cut: d.cut ? transformCut(d.cut, m) : undefined,
           cutKey: d.cut && frame ? frameKey(frame) : undefined,

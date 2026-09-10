@@ -608,6 +608,20 @@ select:disabled {
   min-width: 108px;
 }
 
+/* The tilt readout in the section box: the angle, what it is read against,
+   and the key that squares the plane up again. */
+.field .tilt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.field .tilt button {
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
 .toolrow {
   display: flex;
   gap: 6px;

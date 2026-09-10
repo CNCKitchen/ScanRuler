@@ -215,7 +215,7 @@ export function useSceneSync({
     ...(draft?.refs ?? []),
     ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
     sectionDraft?.ref ?? null,
-  ].filter((r): r is number => r !== null)
+  ].filter((r): r is number => typeof r === 'number')
   const highlightKey = highlightIds.join(',')
   // What is open in an editor is drawn as the pending preview instead of as
   // itself, so the old geometry does not sit inside the new one.
@@ -354,6 +354,15 @@ export function useSceneSync({
   useEffect(() => {
     sceneRef.current?.setSectionPreview(sectionFrame, sectionCut, sectionColor)
   }, [sectionFrame, sectionCut, sectionColor])
+
+  // The coordinate planes on offer while the section has nothing to cut
+  // across yet, through the part's centre — the very point choosing one puts
+  // the plane through, so what was clicked is what is cut.
+  const modelCenter = useStore((s) => s.modelCenter)
+  const offerWorldPlanes = elementsWorkspace && sectionDraft !== null && sectionDraft.axis === null
+  useEffect(() => {
+    sceneRef.current?.setWorldPlanes(offerWorldPlanes ? modelCenter : null)
+  }, [offerWorldPlanes, modelCenter])
 
   // Points picked for the alignment stay marked on the part, numbered in the
   // order they were clicked so the count is readable at a glance. A multi-point

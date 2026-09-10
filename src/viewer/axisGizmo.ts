@@ -6,10 +6,14 @@ import * as THREE from 'three'
 
 export type GizmoAxis = 'x' | 'y' | 'z'
 
+/** The colour each axis is drawn in — here, and wherever else the scan's
+ *  axes are shown, like the coordinate planes a section is offered. */
+export const AXIS_COLORS: Record<GizmoAxis, number> = { x: 0xe5534b, y: 0x2e7d46, z: 0x1877c0 }
+
 const GIZMO_AXES: [GizmoAxis, THREE.Vector3, number, string][] = [
-  ['x', new THREE.Vector3(1, 0, 0), 0xe5534b, 'X'],
-  ['y', new THREE.Vector3(0, 1, 0), 0x2e7d46, 'Y'],
-  ['z', new THREE.Vector3(0, 0, 1), 0x1877c0, 'Z'],
+  ['x', new THREE.Vector3(1, 0, 0), AXIS_COLORS.x, 'X'],
+  ['y', new THREE.Vector3(0, 1, 0), AXIS_COLORS.y, 'Y'],
+  ['z', new THREE.Vector3(0, 0, 1), AXIS_COLORS.z, 'Z'],
 ]
 
 /** Half-extent of the gizmo camera, in gizmo units. */

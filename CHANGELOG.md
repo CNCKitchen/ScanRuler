@@ -7,6 +7,16 @@ README under "Releases".
 
 ## Unreleased
 
+- **3D Measure** — a section can be cut along the scan's **coordinate
+  planes**: while a new section has nothing to cut across, the XY, YZ and XZ
+  planes are offered through the part's centre as translucent sheets in the
+  axis colours, and a click on one — or its entry in the **Cut along** box —
+  takes it, the offset then being the plane's coordinate on that axis. And
+  the arrow a section plane wears has become a **gizmo**: drag the arrow to
+  slide the plane, drag one of the two rings to **tilt** it about one of the
+  sheet's axes, through the point the gizmo sits on. A tilted plane is
+  recorded with its tilt off what it was taken across, the box shows the
+  angle, and **Square** turns it back.
 - **2D Measure** — a **Spline** beside the other kinds: the free curve a CAD
   sketch draws through fit points, with the controls Fusion's fit-point
   spline has. Click the points in order (they snap to the edge like any

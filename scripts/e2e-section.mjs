@@ -69,12 +69,45 @@ check(
   /No element chosen/.test(await page.$eval('[data-test="section-status"]', (e) => e.textContent)),
   'and it opens empty',
 )
-await selectByLabel(page, '[data-test="section-ref"]', 'Line 1')
 const readStatus = () => page.$eval('[data-test="section-status"]', (e) => e.textContent)
-await page.waitForFunction(
-  () => /edge chain|misses/.test(document.querySelector('[data-test="section-status"]')?.textContent ?? ''),
-  { timeout: 20_000 },
+const cutSettled = () =>
+  page.waitForFunction(
+    () => /edge chain|misses/.test(document.querySelector('[data-test="section-status"]')?.textContent ?? ''),
+    { timeout: 20_000 },
+  )
+
+// ---- the coordinate planes on offer -----------------------------------------
+// With nothing chosen the XY, YZ and XZ planes stand through the part's
+// centre. A click on one — where it stands clear of the bar — takes it; the
+// bar lies across the view, so a point well above its middle is on a plane
+// and on nothing else.
+await sleep(300)
+await page.screenshot({ path: shotPath('e2e-section-planes.png') })
+await page.mouse.click(rect.x + rect.w * 0.5, rect.y + rect.h * 0.12)
+await sleep(300)
+const clickedRef = await page.$eval('[data-test="section-ref"]', (el) => el.value)
+console.log(`a click on a coordinate plane chose: ${JSON.stringify(clickedRef)}`)
+check(/^[xyz]$/.test(clickedRef), 'clicking a coordinate plane in the viewport takes it')
+
+// The XY plane by name: through the bar's centre it cuts the bar, and its
+// offset reads as a Z coordinate rather than a distance from anything.
+await selectByLabel(page, '[data-test="section-ref"]', 'XY plane')
+await cutSettled()
+console.log('cut on the XY plane through the centre:', await readStatus())
+check(/edge chain/.test(await readStatus()), 'the XY plane through the part’s centre cuts the bar')
+check(
+  (await page.$eval('[data-test="section-offset"]', (el) => el.previousElementSibling?.textContent)) === 'Z (mm)',
+  'and its offset field is the plane’s Z coordinate',
 )
+check(
+  (await page.$eval('[data-test="section-hint"]', (e) => e.textContent)).includes('ring'),
+  'the box offers the rings that tilt the plane',
+)
+await page.screenshot({ path: shotPath('e2e-section-gizmo.png') })
+
+// ---- along the line through the balls --------------------------------------
+await selectByLabel(page, '[data-test="section-ref"]', 'Line 1')
+await cutSettled()
 console.log('cut at the middle of the bar:', await readStatus())
 const midPoints = Number(
   ((await page.$eval('[data-test="section-points"]', (e) => e.textContent).catch(() => '0')) ?? '0').replace(/[^\d]/g, ''),

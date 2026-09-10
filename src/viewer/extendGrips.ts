@@ -1,17 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /**
- * Grips for extending the element being made: one per end of a cylinder, one
- * per edge of a plane. Live only while a draft is open, and always on top of
+ * Grips for extending the element being made — one per end of a cylinder,
+ * one per edge of a plane — and the gizmo a section plane wears: an arrow
+ * that slides it, two rings that tilt it. Live only while a draft is open,
+ * and always on top of
  * everything — a grip that could hide inside the part it belongs to would be a
  * grip that cannot be grabbed.
  */
 import * as THREE from 'three'
 import type { ExtendSide } from '../core/elements/extend'
-import type { FitData, Vec3 } from '../core/types'
+import type { SectionFrame } from '../core/section/frame'
+import type { FitData } from '../core/types'
 
-/** What a grip moves: one side of an element being extended, or the offset
- *  of a section plane along its normal. */
-export type GripSide = ExtendSide | 'offset'
+/** What a grip moves: one side of an element being extended, or — on the
+ *  gizmo a section plane wears — its offset along its normal (the arrow) or
+ *  its tilt about one of its in-plane axes (the two rings). */
+export type GripSide = ExtendSide | 'offset' | 'tiltU' | 'tiltV'
+
+/** The gizmo's own sides, as against an element's. */
+export function isSectionSide(side: GripSide | null): side is 'offset' | 'tiltU' | 'tiltV' {
+  return side === 'offset' || side === 'tiltU' || side === 'tiltV'
+}
 
 /** One grip on an element being extended: where it sits, which way its side
  *  grows, and the mesh the cursor has to find to grab it. All in the part's own
@@ -22,12 +31,6 @@ interface ExtendGrip {
   dir: THREE.Vector3
   mesh: THREE.Mesh
   material: THREE.MeshBasicMaterial
-}
-
-/** Where a section plane's grip sits and which way its offset grows. */
-export interface OffsetHandle {
-  origin: Vec3
-  dir: Vec3
 }
 
 /** Everything the grips are allowed to touch outside themselves. */
@@ -44,8 +47,9 @@ export interface ExtendGripsContext {
   /** Ask for a hover pass on the next frame (the cursor may have left the grip
    *  while it was held). */
   requestHover(): void
-  /** A grip being dragged: which side, and how many millimetres it has been
-   *  pulled out (negative in) since the drag began. */
+  /** A grip being dragged: which side, and how far it has come since the
+   *  drag began — millimetres pulled out (negative in) for an arrow or a
+   *  bar, degrees turned for a ring. */
   onExtendDrag(side: GripSide, delta: number, phase: 'start' | 'move' | 'end'): void
   /** The grip the user has hold of — lit under the cursor, or held in a drag
    *  after the cursor has wandered off it — or null for none. The ghost marks
@@ -66,25 +70,34 @@ export class ExtendGrips {
    *  and/or the section plane being offset. Kept so either can be changed
    *  without the other being forgotten. */
   private fit: FitData | null = null
-  private offset: OffsetHandle | null = null
+  private plane: SectionFrame | null = null
   private hoveredHandle: GripSide | null = null
   /** What was last reported through onActiveSide, so it is only said when it
    *  changes. */
   private activeSide: GripSide | null = null
   private handleDrag: {
     side: GripSide
-    /** Where the grip sat and which way it grows, in the part's own
-     *  coordinates — the drag is measured along that line. */
+    /** Where the grip sat and which way it grows — or, for a ring, the pivot
+     *  and the axis it turns about — in world coordinates, where the pointer
+     *  ray is cast. */
     origin: THREE.Vector3
     dir: THREE.Vector3
-    /** Line parameter the drag started at, so what is reported is how far it
-     *  has come rather than where it is. */
+    /** Where the drag started — a line parameter, or an angle about the
+     *  ring's axis — so what is reported is how far it has come rather than
+     *  where it is. */
     start: number
+    /** A ring's angle basis in its plane, and the turn so far: angles come
+     *  back modulo a full circle and are unwrapped step by step, so a hand
+     *  that goes round past the seam is not thrown back. */
+    ring: { b1: THREE.Vector3; b2: THREE.Vector3; last: number; turned: number } | null
   } | null = null
   /** Grip shapes: an arrow for an end that grows along an axis, a bar for an
    *  edge that grows across itself. Both unit-sized about their own middle. */
   private unitCone = new THREE.ConeGeometry(0.5, 1, 20)
   private unitBox = new THREE.BoxGeometry(1, 1, 1)
+  /** A ring of unit radius, its tube a fixed share of it — thick enough to
+   *  take hold of, thin enough to read as a line. */
+  private unitRing = new THREE.TorusGeometry(1, 0.045, 10, 72)
 
   constructor(private ctx: ExtendGripsContext) {
     ctx.partGroup.add(this.handleGroup)
@@ -110,10 +123,11 @@ export class ExtendGrips {
     this.rebuild()
   }
 
-  /** Put a grip on a section plane — an arrow on the plane along its normal,
-   *  whose drag is the offset — or take it away with null. */
-  setOffsetHandle(handle: OffsetHandle | null, color: string): void {
-    this.offset = handle
+  /** Put the gizmo on a section plane — an arrow along its normal whose drag
+   *  is the offset, and a ring about each in-plane axis whose drag tilts the
+   *  plane about it — or take it away with null. */
+  setPlaneHandles(frame: SectionFrame | null, color: string): void {
+    this.plane = frame
     this.handleColor = color
     this.rebuild()
   }
@@ -127,12 +141,18 @@ export class ExtendGrips {
     this.ctx.invalidate()
     if (this.hoveredHandle !== null && this.handleDrag === null) this.setHoveredHandle(null)
 
-    if (this.offset) {
-      // Bigger than an element's grips: it stands alone on a bare sheet and
-      // is the one thing there is to take hold of.
+    if (this.plane) {
+      // Bigger than an element's grips: the gizmo stands alone on a bare
+      // sheet and is the one thing there is to take hold of.
       const size = Math.max(this.ctx.modelRadius() * 0.05, 1e-5)
-      const dir = new THREE.Vector3(...this.offset.dir).normalize()
-      this.addGrip('offset', new THREE.Vector3(...this.offset.origin), dir, size)
+      const origin = new THREE.Vector3(...this.plane.origin)
+      this.addGrip('offset', origin, new THREE.Vector3(...this.plane.normal).normalize(), size)
+      // A ring about each in-plane axis, both through the arrow: dragging a
+      // ring carries the arrow's tip round it, so a hand on one sees where
+      // the normal is going. Wider than the arrow, so neither hides it.
+      const radius = Math.max(this.ctx.modelRadius() * 0.13, 1e-5)
+      this.addRing('tiltU', origin, new THREE.Vector3(...this.plane.basisU).normalize(), radius)
+      this.addRing('tiltV', origin, new THREE.Vector3(...this.plane.basisV).normalize(), radius)
     }
 
     const fit = this.fit
@@ -220,6 +240,28 @@ export class ExtendGrips {
     this.handleCleanup.push(() => material.dispose())
   }
 
+  /** One ring: a torus about `about` through `centre`, whose drag turns the
+   *  plane about that axis — which is what its `dir` records. */
+  private addRing(side: GripSide, centre: THREE.Vector3, about: THREE.Vector3, radius: number): void {
+    const material = new THREE.MeshBasicMaterial({
+      color: side === this.hoveredHandle ? 0xffffff : this.handleColor,
+      transparent: true,
+      opacity: 0.85,
+      depthTest: false,
+      depthWrite: false,
+    })
+    const mesh = new THREE.Mesh(this.unitRing, material)
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), about)
+    mesh.scale.setScalar(radius)
+    mesh.position.copy(centre)
+    mesh.renderOrder = 6
+    mesh.userData.extendSide = side
+    this.handleGroup.add(mesh)
+    this.handles.push({ side, position: centre.clone(), dir: about.clone(), mesh, material })
+    this.handleMeshes.push(mesh)
+    this.handleCleanup.push(() => material.dispose())
+  }
+
   /** The grip under the cursor, if the cursor is on one. Grips are tested
    *  before anything else and ignore what is in front of them: they are drawn
    *  on top, so they have to be grabbable on top. */
@@ -282,9 +324,26 @@ export class ExtendGrips {
 
   private beginHandleDrag(grip: ExtendGrip, clientX: number, clientY: number): void {
     const world = this.gripLine(grip)
-    const t = this.paramAlong(world.origin, world.dir, clientX, clientY)
-    if (t === null) return
-    this.handleDrag = { side: grip.side, origin: world.origin, dir: world.dir, start: t }
+    if (grip.side === 'tiltU' || grip.side === 'tiltV') {
+      // Any two perpendiculars of the axis do for reading angles — only
+      // differences are reported — as long as (b1, b2, axis) is right-handed,
+      // so the angle grows with the turn it is asking for.
+      const b1 = perpendicularTo(world.dir)
+      const b2 = world.dir.clone().cross(b1).normalize()
+      const a = this.angleAround(world.origin, world.dir, b1, b2, clientX, clientY)
+      if (a === null) return
+      this.handleDrag = {
+        side: grip.side,
+        origin: world.origin,
+        dir: world.dir,
+        start: a,
+        ring: { b1, b2, last: a, turned: 0 },
+      }
+    } else {
+      const t = this.paramAlong(world.origin, world.dir, clientX, clientY)
+      if (t === null) return
+      this.handleDrag = { side: grip.side, origin: world.origin, dir: world.dir, start: t, ring: null }
+    }
     this.ctx.canvas.style.cursor = 'grabbing'
     this.syncActiveSide()
     this.ctx.onExtendDrag(grip.side, 0, 'start')
@@ -325,9 +384,49 @@ export class ExtendGrips {
     return (b * w.dot(ray.direction) - w.dot(dir)) / denom
   }
 
+  /**
+   * Where the cursor is around an axis, in radians: the pointer ray meets the
+   * plane through the pivot square to the axis, and that point's angle about
+   * the pivot is read in the (b1, b2) basis — growing with a right-handed
+   * turn about the axis, the sense the plane is turned in.
+   *
+   * Null when the ray runs nearly in that plane — the ring is seen edge on,
+   * and a hair of pointer travel would swing the plane wildly. Holding still
+   * is the honest response, as it is for an arrow seen end on.
+   */
+  private angleAround(
+    pivot: THREE.Vector3,
+    axis: THREE.Vector3,
+    b1: THREE.Vector3,
+    b2: THREE.Vector3,
+    clientX: number,
+    clientY: number,
+  ): number | null {
+    this.ctx.setPickRay(clientX, clientY)
+    const ray = this.ctx.raycaster.ray
+    const denom = ray.direction.dot(axis)
+    if (Math.abs(denom) < 0.1) return null
+    const t = pivot.clone().sub(ray.origin).dot(axis) / denom
+    const w = ray.origin.clone().addScaledVector(ray.direction, t).sub(pivot)
+    if (w.lengthSq() < 1e-12) return null
+    return Math.atan2(w.dot(b2), w.dot(b1))
+  }
+
   private onHandleMove = (e: PointerEvent): void => {
     const drag = this.handleDrag
     if (!drag) return
+    if (drag.ring) {
+      const a = this.angleAround(drag.origin, drag.dir, drag.ring.b1, drag.ring.b2, e.clientX, e.clientY)
+      if (a === null) return
+      // The step since the last reading, taken the short way round.
+      let step = a - drag.ring.last
+      if (step > Math.PI) step -= 2 * Math.PI
+      else if (step < -Math.PI) step += 2 * Math.PI
+      drag.ring.last = a
+      drag.ring.turned += step
+      this.ctx.onExtendDrag(drag.side, (drag.ring.turned * 180) / Math.PI, 'move')
+      return
+    }
     const t = this.paramAlong(drag.origin, drag.dir, e.clientX, e.clientY)
     if (t === null) return
     this.ctx.onExtendDrag(drag.side, t - drag.start, 'move')
@@ -349,9 +448,25 @@ export class ExtendGrips {
     document.removeEventListener('pointermove', this.onHandleMove)
     document.removeEventListener('pointerup', this.onHandleUp)
     document.removeEventListener('pointercancel', this.onHandleUp)
-    this.offset = null
+    this.plane = null
     this.setHandles(null, '#ffffff')
     this.unitCone.dispose()
     this.unitBox.dispose()
+    this.unitRing.dispose()
   }
+}
+
+/** Some unit vector square to `v`: the cross with whichever axis `v` leans
+ *  least along, so it is never degenerate. */
+function perpendicularTo(v: THREE.Vector3): THREE.Vector3 {
+  const ax = Math.abs(v.x)
+  const ay = Math.abs(v.y)
+  const az = Math.abs(v.z)
+  const helper =
+    ax <= ay && ax <= az
+      ? new THREE.Vector3(1, 0, 0)
+      : ay <= az
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(0, 0, 1)
+  return helper.cross(v).normalize()
 }

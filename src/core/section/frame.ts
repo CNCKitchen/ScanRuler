@@ -18,9 +18,9 @@
 // points to — for a plane fitted on a face, from outside the part.
 
 import { orthoBasis } from '../fit/linalg'
-import { rigidApply, rigidRotate, type Rigid } from '../deviation/rigid'
+import { rigidApply, rigidFromAxisAngle, rigidRotate, type Rigid } from '../deviation/rigid'
 import type { ElementKind, FitData, Vec3 } from '../types'
-import { addScaled, cross, dot, normalize } from '../vec'
+import { addScaled, angleBetween, cross, dot, normalize } from '../vec'
 
 export interface SectionFrame {
   origin: Vec3
@@ -35,6 +35,56 @@ export const SECTION_REF_KINDS: readonly ElementKind[] = ['plane', 'cylinder', '
 
 export function canCutAlong(kind: ElementKind): boolean {
   return SECTION_REF_KINDS.includes(kind)
+}
+
+/** One of the scan's own coordinate axes — after a datum alignment, the
+ *  datum's. */
+export type WorldAxis = 'x' | 'y' | 'z'
+
+/** What a section is taken across: an element, by id, or a coordinate axis
+ *  — the plane square to it, the way a CAD sketch is put on the XY plane. */
+export type SectionRef = number | WorldAxis
+
+export const WORLD_AXES: readonly WorldAxis[] = ['x', 'y', 'z']
+
+export function isWorldAxis(ref: unknown): ref is WorldAxis {
+  return ref === 'x' || ref === 'y' || ref === 'z'
+}
+
+export function worldAxisDir(axis: WorldAxis): Vec3 {
+  return axis === 'x' ? [1, 0, 0] : axis === 'y' ? [0, 1, 0] : [0, 0, 1]
+}
+
+/** The coordinate plane across an axis, named as CAD names it: the XY plane
+ *  is the one the Z axis stands on. */
+export function worldPlaneName(axis: WorldAxis): string {
+  return axis === 'x' ? 'YZ plane' : axis === 'y' ? 'XZ plane' : 'XY plane'
+}
+
+/**
+ * The line a section slides along a coordinate axis, parallel to it through
+ * `through` — the part's centre, so the plane's gizmo sits on the part
+ * rather than at the world origin, which a scan may lie nowhere near. The
+ * line starts where it crosses the coordinate plane through the origin, so
+ * the offset along it is the plane's coordinate on that axis. The in-plane
+ * X is the next axis round, and the sheet's Y the one after — a right-handed
+ * frame with the sheet seen from the axis's positive end.
+ */
+export function worldCutAxis(axis: WorldAxis, through: Vec3 = [0, 0, 0]): CutAxis {
+  const dir = worldAxisDir(axis)
+  const basisU: Vec3 = axis === 'x' ? [0, 1, 0] : axis === 'y' ? [0, 0, 1] : [1, 0, 0]
+  return { origin: addScaled(through, dir, -dot(through, dir)), dir, basisU }
+}
+
+/** What a reference reads as in the list and the report: the element's
+ *  name, a coordinate plane's, or null for an element since deleted. */
+export function sectionRefName(
+  ref: SectionRef | null,
+  elements: readonly { id: number; name: string }[],
+): string | null {
+  if (ref === null) return null
+  if (isWorldAxis(ref)) return worldPlaneName(ref)
+  return elements.find((e) => e.id === ref)?.name ?? null
 }
 
 /** The line a section slides along: a point on it, the direction the offset
@@ -96,6 +146,44 @@ export function axisOfFrame(frame: SectionFrame, offset: number): CutAxis {
   }
 }
 
+/**
+ * The line turned by hand: the gizmo's ring rotates the plane `degrees`
+ * about `about` — a unit direction lying in the plane — through the plane's
+ * own origin, the point the gizmo sits on. The plane pivots where the hand
+ * is and keeps its offset, so the line it slides along is moved to keep
+ * both: it leaves the element it was taken along, which is why a turned
+ * section carries its reference's direction separately — see tiltOf.
+ */
+export function turnAxis(axis: CutAxis, offset: number, about: Vec3, degrees: number): CutAxis {
+  const dir = normalize(axis.dir)
+  if (!dir || !Number.isFinite(degrees)) return axis
+  const off = Number.isFinite(offset) ? offset : 0
+  const pivot = addScaled(axis.origin, dir, off)
+  const m = rigidFromAxisAngle(about, (degrees * Math.PI) / 180)
+  const out = new Float64Array(3)
+  rigidRotate(m, dir[0], dir[1], dir[2], out)
+  const turned: Vec3 = [out[0], out[1], out[2]]
+  let basisU = axis.basisU
+  if (basisU) {
+    rigidRotate(m, basisU[0], basisU[1], basisU[2], out)
+    basisU = [out[0], out[1], out[2]]
+  }
+  return { origin: addScaled(pivot, turned, -off), dir: turned, basisU }
+}
+
+/** How far a plane has been turned off the direction it was taken across,
+ *  in degrees — zero for one still square to its reference, and for one
+ *  whose reference gave no direction to compare with. */
+export function tiltOf(refDir: Vec3 | null | undefined, normal: Vec3): number {
+  if (!refDir) return 0
+  const a = normalize(refDir)
+  const b = normalize(normal)
+  if (!a || !b) return 0
+  const deg = angleBetween(a, b)
+  // The hair a rotation and its inverse leave behind is not a tilt.
+  return deg < 0.005 ? 0 : deg
+}
+
 /** The axis carried through a rigid motion of the scan. */
 export function transformAxis(axis: CutAxis, m: Rigid): CutAxis {
   const out = new Float64Array(3)
@@ -143,8 +231,11 @@ export function frameKey(frame: SectionFrame): string {
   return `${v(frame.origin)}|${v(frame.normal)}|${v(frame.basisU)}`
 }
 
-/** "along Plane 1, +2.000 mm" — for the list row, the report and the sheet. */
-export function describeCut(refName: string | null, offset: number): string {
+/** "along Plane 1, +2.000 mm" — for the list row, the report and the sheet.
+ *  A plane turned off its reference by the gizmo says by how much: "along
+ *  Plane 1, +2.000 mm, tilted 4.3°". */
+export function describeCut(refName: string | null, offset: number, tilt = 0): string {
   const mm = `${offset >= 0 ? '+' : '−'}${Math.abs(offset).toFixed(3)} mm`
-  return refName ? `along ${refName}, ${mm}` : `${mm} from a deleted element`
+  const turned = tilt > 0 ? `, tilted ${tilt.toFixed(1)}°` : ''
+  return refName ? `along ${refName}, ${mm}${turned}` : `${mm} from a deleted element${turned}`
 }

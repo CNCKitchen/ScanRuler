@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The box a section is made or edited in: the element to cut along, the
-// offset along its direction — typed here or dragged on the part — and what
-// the cut produces. Renders nothing without a section draft.
+// The box a section is made or edited in: what to cut across — an element,
+// or one of the scan's coordinate planes — the offset along its direction,
+// typed here or dragged on the part, the tilt the gizmo's rings have given
+// it, and what the cut produces. Renders nothing without a section draft.
 
 import { cutSummary } from '../core/section/slice'
-import { SECTION_REF_KINDS } from '../core/section/frame'
+import {
+  isWorldAxis,
+  SECTION_REF_KINDS,
+  sectionRefName,
+  tiltOf,
+  WORLD_AXES,
+  worldPlaneName,
+  type SectionRef,
+} from '../core/section/frame'
 import { sectionDraftColorOf, sectionDraftReady, useStore } from '../state/store'
 import { InfoDot } from './InfoDot'
-import { NameField, providersFor, RefSelect } from './RefSelect'
+import { NameField, providersFor } from './RefSelect'
 
 export function SectionEditor({
   onCancel,
@@ -31,12 +40,14 @@ export function SectionEditor({
   const summary = draft.cut ? cutSummary(draft.cut) : null
   const ready = sectionDraftReady(draft)
   const orphan = draft.axis !== null && draft.ref === null
+  const tilt = draft.frame ? tiltOf(draft.refDir, draft.frame.normal) : 0
+  const refName = sectionRefName(draft.ref, elements)
 
   const hint = !draft.axis
-    ? 'Choose the element to cut along — click it in the viewport, or pick it above. The plane runs across its direction: a plane’s normal, the axis of a cylinder, cone or line, a circle’s normal.'
+    ? 'Choose what to cut across — click an element or one of the XY, YZ, XZ planes in the viewport, or pick it above. The plane runs across an element’s direction: a plane’s normal, the axis of a cylinder, cone or line, a circle’s normal.'
     : orphan
-      ? 'The element this was cut along has gone; the plane stays where it was. Slide the offset along it, or choose another element to move it.'
-      : 'Slide the plane along the element’s direction — drag the arrow on the part, or type the offset — then create.'
+      ? 'The element this was cut along has gone; the plane stays where it was. Slide or tilt it with the gizmo, or choose another element to move it.'
+      : 'Slide the plane along its direction — drag the arrow, or type the offset — and tilt it by dragging one of the rings, then create.'
 
   return (
     <div className="draftbox" style={{ borderLeftColor: color }} data-test="section-editor">
@@ -52,9 +63,18 @@ export function SectionEditor({
           </p>
           <p>
             The plane is taken <b>across an element’s direction</b> — a plane’s normal, the
-            axis of a cylinder, cone or line, a circle’s normal — and moved along it by the
-            offset. Zero cuts through the element’s own centre: for a face that is the face
-            itself, so offset into the part to cut through its walls.
+            axis of a cylinder, cone or line, a circle’s normal — or across one of the scan’s
+            <b> coordinate axes</b>: while nothing is chosen, the XY, YZ and XZ planes are
+            offered through the part’s centre, and clicking one takes it. The plane is moved
+            along its direction by the offset. Zero cuts through the element’s own centre — for
+            a face that is the face itself, so offset into the part to cut through its walls —
+            and for a coordinate plane the offset is the plane’s coordinate on that axis.
+          </p>
+          <p>
+            The gizmo on the plane <b>slides</b> it by the arrow and <b>tilts</b> it by the two
+            rings, each about one of the sheet’s own axes through the point the gizmo sits on. A
+            tilted plane is recorded with its tilt off what it was taken across; <b>Square</b>{' '}
+            turns it back.
           </p>
           <p>
             The plane is fixed when the section is created. Re-fitting or deleting the element
@@ -68,17 +88,37 @@ export function SectionEditor({
         <NameField value={draft.name ?? ''} testId="section-name" onChange={setName} />
       )}
 
-      <RefSelect
-        label="Cut along"
-        options={options}
-        value={draft.ref}
-        testId="section-ref"
-        placeholder={orphan ? '(deleted element)' : 'Select…'}
-        onChange={setRef}
-      />
+      <label className="field">
+        <span>Cut along</span>
+        <select
+          data-test="section-ref"
+          value={draft.ref ?? ''}
+          onChange={(e) => setRef(parseRef(e.target.value))}
+        >
+          <option value="">{orphan ? '(deleted element)' : 'Select…'}</option>
+          <optgroup label="Coordinate planes">
+            {WORLD_AXES.map((a) => (
+              <option key={a} value={a}>
+                {worldPlaneName(a)}
+              </option>
+            ))}
+          </optgroup>
+          {options.length > 0 && (
+            <optgroup label="Elements">
+              {options.map((el) => (
+                <option key={el.id} value={el.id}>
+                  {el.name}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </label>
 
       <label className="field">
-        <span>Offset (mm)</span>
+        {/* A plane still square to a coordinate axis has a coordinate, not an
+            offset: its Z is what the field holds. */}
+        <span>{isWorldAxis(draft.ref) && tilt === 0 ? `${draft.ref.toUpperCase()} (mm)` : 'Offset (mm)'}</span>
         <input
           type="number"
           step="any"
@@ -98,6 +138,25 @@ export function SectionEditor({
           }}
         />
       </label>
+
+      {tilt > 0 && (
+        <div className="field">
+          <span>Tilt</span>
+          <span className="tilt" data-test="section-tilt">
+            {tilt.toFixed(1)}°{refName ? ` off ${refName}` : ''}
+            {draft.ref !== null && (
+              <button
+                type="button"
+                data-test="section-square"
+                title="Turn the plane square to what it was taken across again"
+                onClick={() => setRef(draft.ref)}
+              >
+                Square
+              </button>
+            )}
+          </span>
+        </div>
+      )}
 
       <p className="hint" data-test="section-hint">
         {hint}
@@ -154,6 +213,14 @@ export function SectionEditor({
       </div>
     </div>
   )
+}
+
+/** The select's value back into a reference: an axis letter, an element id,
+ *  or nothing. */
+function parseRef(value: string): SectionRef | null {
+  if (value === '') return null
+  if (isWorldAxis(value)) return value
+  return Number(value)
 }
 
 /** Three decimals is a micrometre — past what a grip dragged across the

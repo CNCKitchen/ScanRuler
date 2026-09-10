@@ -6,10 +6,10 @@ import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
-import { ExtendGrips, type GripSide } from './extendGrips'
+import { ExtendGrips, isSectionSide, type GripSide } from './extendGrips'
 import { Overlays, type OverlayElement, type OverlayPair, type OverlayAngle, type ProbeMarker } from './overlays'
 import { SectionOverlay, type SectionOverlayItem } from './sections'
-import type { SectionFrame } from '../core/section/frame'
+import type { SectionFrame, WorldAxis } from '../core/section/frame'
 import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
@@ -89,7 +89,7 @@ function principalAxis(positions: Float32Array): THREE.Vector3 {
  *  draw them; consumers keep importing everything from here. */
 export type { OverlayElement, OverlayPair, OverlayAngle, ProbeMarker } from './overlays'
 export type { MarkGesture, PaintBrush } from './marking'
-export type { GripSide, OffsetHandle } from './extendGrips'
+export type { GripSide } from './extendGrips'
 export type { SectionOverlayItem } from './sections'
 
 /** Where a ray met the scan. The barycentric weights come along so a caller
@@ -236,6 +236,8 @@ export class SceneManager {
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
   onElementPick: ((id: number) => void) | null = null
+  /** A click on one of the coordinate planes offered to a section. */
+  onWorldPlanePick: ((axis: WorldAxis) => void) | null = null
   /** How many vertices the brush has marked, reported when a stroke ends. */
   onPaintChange: ((count: number) => void) | null = null
   /** A grip being dragged: which side, and how many millimetres it has been
@@ -328,9 +330,9 @@ export class SceneManager {
         this.hoverDirty = true
       },
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
-      // Only an element's ghost has ends to mark; a section plane's grip
+      // Only an element's ghost has ends to mark; a section plane's gizmo
       // stands on a sheet that is its own mark.
-      onActiveSide: (side) => this.overlays.setPreviewActiveSide(side === 'offset' ? null : side),
+      onActiveSide: (side) => this.overlays.setPreviewActiveSide(isSectionSide(side) ? null : side),
     })
 
     this.viewport.renderer.domElement.addEventListener('pointermove', (e) => {
@@ -441,6 +443,13 @@ export class SceneManager {
   /** A click that survived the drag threshold: an element when element picking
    *  is on and one is under the cursor, a surface pick otherwise. */
   private handleClick(x: number, y: number): void {
+    // A coordinate plane on offer is the nearest thing to the eye wherever
+    // it stands in front of the part, and a click there is for it.
+    const plane = this.worldPlaneAt(x, y)
+    if (plane !== null) {
+      this.onWorldPlanePick?.(plane)
+      return
+    }
     if (this.elementPickEnabled) {
       const id = this.elementAt(x, y)
       if (id !== null) {
@@ -467,6 +476,13 @@ export class SceneManager {
       this.viewport.renderer.domElement.style.cursor = axis !== null ? 'pointer' : ''
       this.claimDrag('gizmo', axis !== null)
       this.invalidate()
+    }
+    // A coordinate plane on offer lights under the cursor the way an element
+    // does — except under the gizmo corner, which is a button first.
+    const plane =
+      this.hoverAt && axis === null ? this.worldPlaneAt(this.hoverAt.x, this.hoverAt.y) : null
+    if (this.sections.setHoveredWorldPlane(plane)) {
+      this.viewport.renderer.domElement.style.cursor = plane !== null ? 'pointer' : ''
     }
     if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
     // Grips resolve after the footprint, and never light while a marking
@@ -942,11 +958,36 @@ export class SceneManager {
   }
 
   /** The section being made: its plane through the part and the cut it
-   *  produces, with a grip on the plane to slide it along its normal. Null
-   *  frame takes all three away. */
+   *  produces, with the gizmo that slides and tilts the plane. Null frame
+   *  takes all three away. */
   setSectionPreview(frame: SectionFrame | null, cut: SectionCut | null, color: string): void {
     this.sections.setPreview(frame, cut, color)
-    this.grips.setOffsetHandle(frame ? { origin: frame.origin, dir: frame.normal } : null, color)
+    this.grips.setPlaneHandles(frame, color)
+  }
+
+  /** The coordinate planes offered to a section that has nothing to cut
+   *  across yet, through `centre`; null takes them away. */
+  setWorldPlanes(centre: Vec3 | null): void {
+    this.sections.setWorldPlanes(centre)
+    // The cursor may be over a plane that has just gone, or one that has
+    // just arrived under it.
+    this.hoverDirty = true
+  }
+
+  /** The coordinate plane under a client point, if one is on offer there
+   *  with nothing of the part in front of it: the planes are translucent
+   *  and the part shows through them, so what the eye sees nearest is what
+   *  a click takes. */
+  private worldPlaneAt(clientX: number, clientY: number): WorldAxis | null {
+    if (!this.sections.hasWorldPlanes()) return null
+    this.setPickRay(clientX, clientY)
+    const hit = this.sections.worldPlaneHit(this.raycaster)
+    if (!hit) return null
+    if (this.mesh?.visible) {
+      const part = this.raycaster.intersectObject(this.mesh, false)[0]
+      if (part && part.distance < hit.distance) return null
+    }
+    return hit.axis
   }
 
   /** Take the plain left-drag away from the camera, or give it back, for one

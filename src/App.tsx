@@ -13,7 +13,15 @@ import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
 import { buildFlatSvg } from './core/flat/svg'
 import type { Vec2 } from './core/flat/types'
-import { canCutAlong, describeCut } from './core/section/frame'
+import {
+  canCutAlong,
+  describeCut,
+  sectionRefName,
+  tiltOf,
+  turnAxis,
+  type CutAxis,
+  type WorldAxis,
+} from './core/section/frame'
 import { chainBounds, projectCut } from './core/section/slice'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod } from './core/elements/construct'
@@ -313,8 +321,12 @@ export default function App() {
     const store = useStore.getState()
     const sec = store.sections.find((x) => x.id === subject.id)
     if (!sec) return undefined
-    const refName = store.elements.find((e) => e.id === sec.ref)?.name ?? null
-    return { name: sec.name, scanName: store.fileName ?? 'scan', cut: describeCut(refName, sec.offset) }
+    const where = describeCut(
+      sectionRefName(sec.ref, store.elements),
+      sec.offset,
+      tiltOf(sec.refDir, sec.frame.normal),
+    )
+    return { name: sec.name, scanName: store.fileName ?? 'scan', cut: where }
   }
 
   /** Everything the 2D report and CSV need, gathered once. */
@@ -1052,7 +1064,9 @@ export default function App() {
     useStore.getState().startSection()
     useStore
       .getState()
-      .setStatus('Click the element to cut along in the viewport, or choose it in the panel.')
+      .setStatus(
+        'Click the element or coordinate plane to cut along in the viewport, or choose it in the panel.',
+      )
   }
 
   const handleEditSection = (id: number) => {
@@ -1063,7 +1077,7 @@ export default function App() {
     if (sec)
       useStore
         .getState()
-        .setStatus(`Editing ${sec.name} — slide the plane, or choose another element, then save.`)
+        .setStatus(`Editing ${sec.name} — slide or tilt the plane, or choose another element, then save.`)
   }
 
   const handleDeleteSection = (id: number) => useStore.getState().removeSection(id)
@@ -1089,6 +1103,14 @@ export default function App() {
       .setStatus(
         `${sec?.name ?? 'Section'} ${editing ? 'updated' : 'created'} — measure it in the 2D Measure workspace.`,
       )
+  }
+
+  /** A click on one of the coordinate planes offered while the section has
+   *  nothing to cut across: the plane is taken there. */
+  const handleWorldPlanePick = (axis: WorldAxis) => {
+    const store = useStore.getState()
+    if (!store.sectionDraft || store.draft) return
+    store.setSectionDraftRef(axis)
   }
 
   const handleConfirmDraft = () => {
@@ -1148,15 +1170,39 @@ export default function App() {
    *  waits for the hand to let go rather than running under it. */
   const extendDragging = useRef(false)
   const refitAfterDrag = useRef(false)
+  /** The line a section plane slid along when a ring was taken hold of, and
+   *  the axis the ring turns it about: every move turns that line by the
+   *  whole angle so far, so the plane never drifts under a hand that goes
+   *  back and forth. */
+  const turnStart = useRef<{ axis: CutAxis; about: Vec3; offset: number } | null>(null)
   const handleExtendDrag = (side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => {
     const store = useStore.getState()
-    // The grip on a section plane: the drag slides it along its normal, and
+    // The arrow on a section plane: the drag slides it along its normal, and
     // the worker cuts again behind it — see useSections.
     if (side === 'offset') {
       const d = store.sectionDraft
       if (!d) return
       if (phase === 'start') extendStart.current = d.offset
       else if (phase === 'move') store.setSectionDraftOffset(extendStart.current + delta)
+      return
+    }
+    // A ring on it: the drag tilts the plane about one of its own axes,
+    // through the point the gizmo sits on. `delta` is degrees.
+    if (side === 'tiltU' || side === 'tiltV') {
+      const d = store.sectionDraft
+      if (!d?.axis || !d.frame) return
+      if (phase === 'start') {
+        turnStart.current = {
+          axis: d.axis,
+          about: side === 'tiltU' ? d.frame.basisU : d.frame.basisV,
+          offset: d.offset,
+        }
+      } else if (phase === 'move' && turnStart.current) {
+        const t = turnStart.current
+        store.setSectionDraftAxis(turnAxis(t.axis, t.offset, t.about, delta))
+      } else if (phase === 'end') {
+        turnStart.current = null
+      }
       return
     }
     const fit = store.draft?.fit
@@ -1321,11 +1367,11 @@ export default function App() {
   const openSlotHint = (() => {
     if (!draft && sectionDraft) {
       if (!sectionDraft.axis)
-        return 'Click the element to cut along — a plane, cylinder, cone, line or circle — or choose it in the panel'
+        return 'Click the element to cut along — a plane, cylinder, cone, line or circle — or one of the XY, YZ, XZ planes, or choose in the panel'
       const verb = sectionDraft.editId !== undefined ? 'save' : 'create'
       return sectionDraftReady(sectionDraft)
-        ? `Drag the arrow to slide the plane · Enter or middle-click to ${verb} · Esc to discard`
-        : 'Drag the arrow to slide the plane along the element’s direction, or type the offset in the panel'
+        ? `Drag the arrow to slide the plane, a ring to tilt it · Enter or middle-click to ${verb} · Esc to discard`
+        : 'Drag the arrow to slide the plane along its direction, a ring to tilt it, or type the offset in the panel'
     }
     if (!draft && alignDraft) {
       if (alignDraft.pickSlot !== null) {
@@ -1617,6 +1663,7 @@ export default function App() {
               onPick={handlePick}
               onHover={handleHover}
               onElementPick={handleElementPick}
+              onWorldPlanePick={handleWorldPlanePick}
               onPaintChange={handlePaintChange}
               onExtendDrag={handleExtendDrag}
             />

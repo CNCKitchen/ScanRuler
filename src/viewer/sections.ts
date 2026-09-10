@@ -12,6 +12,10 @@
  * it. They carry no pins of their own — the numbers are on the sheet, and
  * one label per section is enough.
  *
+ * While a section has nothing to cut across yet, the scan's coordinate
+ * planes are on offer through the part's centre, each a faint sheet in its
+ * axis's colour that lights under the cursor — see setWorldPlanes.
+ *
  * Fat lines, sized in screen pixels: a cut is a curve lying exactly on a
  * surface, and a one-pixel line there is lost in the shading. The materials
  * need the canvas size, which the viewport reports every tick.
@@ -20,11 +24,18 @@ import * as THREE from 'three'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
-import type { SectionFrame } from '../core/section/frame'
+import { WORLD_AXES, worldCutAxis, type SectionFrame, type WorldAxis } from '../core/section/frame'
 import { sectionStroke, type SectionGeometry } from '../core/section/lift'
 import type { SectionCut } from '../core/section/slice'
 import type { Vec3 } from '../core/types'
+import { AXIS_COLORS } from './axisGizmo'
 import { pinLabel } from './overlays'
+
+/** How the coordinate planes on offer are drawn: faint, and brighter under
+ *  the cursor — the part has to stay legible through three of them. */
+const WORLD_SHEET_OPACITY = 0.1
+const WORLD_SHEET_LIT_OPACITY = 0.28
+const WORLD_BORDER_OPACITY = 0.55
 
 export interface SectionOverlayItem {
   id: number
@@ -51,6 +62,17 @@ export class SectionOverlay {
   private previewGroup = new THREE.Group()
   private cleanup: (() => void)[] = []
   private previewCleanup: (() => void)[] = []
+  private worldGroup = new THREE.Group()
+  private worldPlanes: {
+    axis: WorldAxis
+    mesh: THREE.Mesh
+    sheet: THREE.MeshBasicMaterial
+    border: THREE.LineBasicMaterial
+  }[] = []
+  /** The sheets alone, for the ray test — built once with the planes. */
+  private worldMeshes: THREE.Mesh[] = []
+  private worldCleanup: (() => void)[] = []
+  private hoveredWorld: WorldAxis | null = null
   private resolution = new THREE.Vector2(1, 1)
   private lineMaterials = new Set<LineMaterial>()
   private unitPlane = new THREE.PlaneGeometry(1, 1)
@@ -60,6 +82,7 @@ export class SectionOverlay {
   constructor(private ctx: SectionOverlayContext) {
     ctx.partGroup.add(this.group)
     ctx.partGroup.add(this.previewGroup)
+    ctx.partGroup.add(this.worldGroup)
   }
 
   /** The canvas size, for the fat-line materials — every tick, a no-op
@@ -162,6 +185,101 @@ export class SectionOverlay {
     })
 
     if (cut) this.addPolylines(this.previewGroup, this.previewCleanup, cut, color, 1, 3, false)
+  }
+
+  /** The coordinate planes on offer while a section has nothing to cut
+   *  across yet: the XY, YZ and XZ planes through `centre`, sized like the
+   *  preview sheet, each in its axis's colour. The part hides what is behind
+   *  it, so a plane reads as running through the part rather than lying on
+   *  it. Null takes them away. */
+  setWorldPlanes(centre: Vec3 | null): void {
+    for (const fn of this.worldCleanup) fn()
+    this.worldCleanup = []
+    this.worldGroup.clear()
+    this.worldPlanes = []
+    this.worldMeshes = []
+    this.ctx.invalidate()
+    if (!centre) return
+    const half = this.ctx.modelRadius() * 1.15
+    const c = new THREE.Vector3(...centre)
+    for (const axis of WORLD_AXES) {
+      const { dir, basisU } = worldCutAxis(axis)
+      const n = new THREE.Vector3(...dir)
+      const u = new THREE.Vector3(...basisU!)
+      const v = n.clone().cross(u)
+      const color = AXIS_COLORS[axis]
+      const sheet = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: WORLD_SHEET_OPACITY,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+      const mesh = new THREE.Mesh(this.unitPlane, sheet)
+      mesh.position.copy(c)
+      mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, n))
+      mesh.scale.set(2 * half, 2 * half, 1)
+      mesh.renderOrder = 1
+      mesh.userData.worldAxis = axis
+      this.worldGroup.add(mesh)
+      this.worldMeshes.push(mesh)
+      const corners = [
+        [-1, -1],
+        [1, -1],
+        [1, 1],
+        [-1, 1],
+        [-1, -1],
+      ].map(([a, b]) => c.clone().addScaledVector(u, a * half).addScaledVector(v, b * half))
+      const borderGeo = new THREE.BufferGeometry().setFromPoints(corners)
+      const border = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity: WORLD_BORDER_OPACITY,
+        depthTest: false,
+      })
+      const line = new THREE.Line(borderGeo, border)
+      line.renderOrder = 3
+      this.worldGroup.add(line)
+      this.worldPlanes.push({ axis, mesh, sheet, border })
+      this.worldCleanup.push(() => {
+        sheet.dispose()
+        border.dispose()
+        borderGeo.dispose()
+      })
+    }
+    // Rebuilt under a cursor that is already on one: keep that one lit.
+    this.applyWorldHover()
+  }
+
+  hasWorldPlanes(): boolean {
+    return this.worldMeshes.length > 0
+  }
+
+  /** The coordinate plane the ray meets first, and how far along it — for
+   *  the owner to weigh against whatever of the part is in front of it. */
+  worldPlaneHit(raycaster: THREE.Raycaster): { axis: WorldAxis; distance: number } | null {
+    if (this.worldMeshes.length === 0) return null
+    this.worldGroup.updateWorldMatrix(true, true)
+    const hit = raycaster.intersectObjects(this.worldMeshes, false)[0]
+    return hit ? { axis: hit.object.userData.worldAxis as WorldAxis, distance: hit.distance } : null
+  }
+
+  /** Light the coordinate plane under the cursor, or none. Returns whether
+   *  anything changed, so the owner knows to set the cursor. */
+  setHoveredWorldPlane(axis: WorldAxis | null): boolean {
+    if (this.hoveredWorld === axis) return false
+    this.hoveredWorld = axis
+    this.applyWorldHover()
+    return true
+  }
+
+  private applyWorldHover(): void {
+    for (const p of this.worldPlanes) {
+      const lit = p.axis === this.hoveredWorld
+      p.sheet.opacity = lit ? WORLD_SHEET_LIT_OPACITY : WORLD_SHEET_OPACITY
+      p.border.opacity = lit ? 1 : WORLD_BORDER_OPACITY
+    }
+    this.ctx.invalidate()
   }
 
   /** The chains of a cut as screen-space fat lines. `onSurface` hides them
@@ -271,6 +389,7 @@ export class SectionOverlay {
   dispose(): void {
     this.setSections([], false)
     this.setPreview(null, null, '#ffffff')
+    this.setWorldPlanes(null)
     this.unitPlane.dispose()
     this.unitSphere.dispose()
   }

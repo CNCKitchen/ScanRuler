@@ -272,13 +272,22 @@ last key in the element row, cuts the scan with such a plane.
 
 The plane is taken **across an element's direction** and slid along it by an
 offset: a plane's normal, the axis of a cylinder, cone or line, a circle's
-normal. Choose the element in the box or click it in the viewport, then
-type the **offset** in millimetres or **drag the arrow** the plane wears in
-the viewport. The plane is drawn through the part as a translucent sheet
-with the cut on top of it, every chain of it, bores included, and the box
-says how many edge chains the cut produced. Zero cuts through the element's
-own centre — for a face that is the face itself, so offset into the part to
-cut its walls. Chains shorter than a millimetre are dropped as specks.
+normal. Choose the element in the box or click it in the viewport — or take
+one of the scan's **coordinate planes**: while nothing is chosen, the XY, YZ
+and XZ planes are drawn through the part's centre as translucent sheets in
+the axis colours, and clicking one (or choosing it in the box) cuts along
+it, the offset then simply being the plane's coordinate on that axis. Then
+type the **offset** in millimetres or use the **gizmo** the plane wears in
+the viewport: drag its arrow to slide the plane along its direction, or one
+of its two rings to **tilt** it about one of the sheet's own axes, through
+the point the gizmo sits on. A tilted plane is recorded with its tilt off
+what it was taken across ("along Plane 1, −2.000 mm, tilted 4.3°"), the box
+shows the angle, and **Square** turns it back. The plane is drawn through the
+part as a translucent sheet with the cut on top of it, every chain of it,
+bores included, and the box says how many edge chains the cut produced. Zero
+cuts through the element's own centre — for a face that is the face itself,
+so offset into the part to cut its walls. Chains shorter than a millimetre
+are dropped as specks.
 
 Sections are listed under the elements with the same edit / hide / delete
 keys, drawn on the part in their colour, and re-open in the box they were
