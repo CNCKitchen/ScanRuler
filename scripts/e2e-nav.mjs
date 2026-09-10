@@ -302,6 +302,37 @@ const front = await sample()
 check(top.hash !== front.hash, 'the 3 key turns from top to front')
 check(front.area > 0.005, `the part is on screen from the front — area ${front.area.toFixed(4)}`)
 
+// ---- the gizmo arrows are buttons for the same views ----
+// From the front the Z arrow points straight up the gizmo: it sits in the
+// bottom-right corner at gizmoSize(w, h) with a 14px pad, its tip 1.1 of 1.75
+// half-extents above the centre. One click looks down Z (top); the arrow then
+// points straight at the viewer, its tip on the gizmo centre, and a second
+// click there turns the part over (bottom) — which the 2 key then holds.
+const gizmoSize = Math.min(120, Math.max(74, Math.min(rect.w, rect.h) * 0.18))
+const gizmoCentre = [rect.x + rect.w - 14 - gizmoSize / 2, rect.y + rect.h - 14 - gizmoSize / 2]
+const zTip = [gizmoCentre[0], gizmoCentre[1] - (1.1 / 1.75) * (gizmoSize / 2)]
+const canvasCursor = () => page.evaluate(() => document.querySelector('.viewport canvas').style.cursor)
+await page.mouse.move(...zTip)
+await sleep(150)
+const cursor = await canvasCursor()
+check(cursor === 'pointer', `hovering the Z arrow shows a pointer (cursor "${cursor}")`)
+await page.mouse.click(...zTip)
+await sleep(250)
+const zOnce = await sample()
+check(zOnce.hash !== front.hash, 'clicking the Z arrow turns the view')
+await page.mouse.click(...gizmoCentre)
+await sleep(250)
+const zTwice = await sample()
+check(zTwice.hash !== zOnce.hash, 'clicking it again turns the part over')
+await page.keyboard.press('2')
+await sleep(250)
+const bottom = await sample()
+const bottomDiff = await pixelDiff(page, bottom.png, zTwice.png)
+check(bottomDiff < 0.5, `and that is the bottom view the 2 key holds (${bottomDiff.toFixed(3)}% off)`)
+await page.mouse.move(...mid)
+await sleep(150)
+check((await canvasCursor()) === '', 'the pointer goes back to normal off the gizmo')
+
 // ---- picking still works after all that ----
 // A drag must not read as a click, and a click must not read as a drag: sweep
 // the frame for a point that starts a sphere draft and previews a fit.

@@ -2,7 +2,7 @@
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
 import { OrthoViewport, STANDARD_VIEWS, type StandardView } from './orthoViewport'
-import { AxisGizmo } from './axisGizmo'
+import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
@@ -226,7 +226,7 @@ export class SceneManager {
   /** Who currently owns the plain left-drag. The brush and the grips both need
    *  it and must not fight over handing it back — the navigator is told once,
    *  from whether anyone is holding it at all. */
-  private dragClaims = new Set<'paint' | 'handle'>()
+  private dragClaims = new Set<'paint' | 'handle' | 'gizmo'>()
 
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
@@ -390,8 +390,34 @@ export class SceneManager {
    *  aside for both. While a marking gesture is live the grips never get a
    *  look-in: that one asked first. */
   private handlePointerDown(e: PointerEvent): boolean {
+    // The gizmo corner is a button before it is anything else: tested here
+    // rather than read off the hover, because a finger has no hover.
+    if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      const axis = this.gizmoAt(e.clientX, e.clientY)
+      if (axis !== null) {
+        this.viewAlong(axis)
+        return true
+      }
+    }
     if (this.marking.pointerGesture() !== null) return this.marking.handlePointerDown(e)
     return this.grips.handlePointerDown(e)
+  }
+
+  /** The gizmo arrow under a client point, if any. */
+  private gizmoAt(clientX: number, clientY: number): GizmoAxis | null {
+    const rect = this.viewport.renderer.domElement.getBoundingClientRect()
+    return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
+  }
+
+  /** Look down a gizmo arrow: the view from the positive end of that axis,
+   *  or, when the camera is already there, from the negative end — so a
+   *  second click on the same arrow turns the part over. */
+  viewAlong(axis: GizmoAxis): void {
+    const [near, far]: [StandardView, StandardView] =
+      axis === 'x' ? ['right', 'left'] : axis === 'y' ? ['rear', 'front'] : ['top', 'bottom']
+    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize()
+    const there = dir.dot(STANDARD_VIEWS[near].dir) > 0.999
+    this.viewFrom(there ? far : near)
   }
 
   /** A click that survived the drag threshold: an element when element picking
@@ -415,6 +441,15 @@ export class SceneManager {
   private updateHover(): void {
     if (!this.hoverDirty) return
     this.hoverDirty = false
+    // The gizmo's arrows light under the cursor and take the plain left-drag
+    // off the camera while one is under it, the way the grips do: a press on
+    // an arrow is a click on a button, not the start of an orbit.
+    const axis = this.hoverAt ? this.gizmoAt(this.hoverAt.x, this.hoverAt.y) : null
+    if (this.gizmo.setHovered(axis)) {
+      this.viewport.renderer.domElement.style.cursor = axis !== null ? 'pointer' : ''
+      this.claimDrag('gizmo', axis !== null)
+      this.invalidate()
+    }
     if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
     // Grips resolve after the footprint, and never light while a marking
     // gesture is armed — both plain drags are the brush's then.
@@ -883,7 +918,7 @@ export class SceneManager {
 
   /** Take the plain left-drag away from the camera, or give it back, for one
    *  reason among several. The navigator only ever hears the total. */
-  private claimDrag(reason: 'paint' | 'handle', on: boolean): void {
+  private claimDrag(reason: 'paint' | 'handle' | 'gizmo', on: boolean): void {
     const had = this.dragClaims.size > 0
     if (on) this.dragClaims.add(reason)
     else this.dragClaims.delete(reason)

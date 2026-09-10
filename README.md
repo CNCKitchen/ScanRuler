@@ -406,7 +406,9 @@ turn the part to the standard views the way PrusaSlicer's do — **0** iso,
 **1** top, **2** bottom, **3** front, **4** rear, **5** left, **6** right, Z
 up — about the point you are looking at and at the zoom you are at, so a
 feature you have zoomed into stays on screen and just shows another face;
-the fit button brings the whole part back. On a touch screen the
+the fit button brings the whole part back. The gizmo's arrows do the same
+with the mouse: click one to look down that axis, and click it again to turn
+the part over and look from the other end. On a touch screen the
 tablet gestures do the same three things — **one finger turns, two fingers pan
 and pinch to zoom, a tap picks** — and with the marking brush armed the single
 finger paints while two fingers still move the part.
