@@ -16,6 +16,7 @@ import {
   evaluateFlatElements,
   evaluateFlatSource,
   flatDependentsOf,
+  flatPicksNeeded,
   flatPicksReady,
   FLAT_KIND_LABELS,
   type FlatElement,
@@ -488,8 +489,13 @@ interface FlatState extends SheetState {
   insertDraftPick: (index: number, px: Vec2) => void
   /** A pick dragged to a new place on the sheet. */
   moveDraftPick: (index: number, px: Vec2) => void
-  /** Take one pick back by index — a click on its pin. */
+  /** Take one pick back by index. */
   removeDraftPick: (index: number) => void
+  /** A plain click on a draft pin. On an open spline with points enough to
+   *  close, a click on its first pin closes the curve — the way a sketch's
+   *  pen closes a path on the point it started from; any other pin click
+   *  takes the pick back. */
+  clickDraftPin: (index: number) => void
   /** Fix the tangent at a spline pick along a handle offset (image pixels),
    *  or let it go automatic again with null. */
   setDraftTangent: (index: number, handle: Vec2 | null) => void
@@ -1047,6 +1053,17 @@ export const useFlat = create<FlatState>()((set, get) => ({
       const draft = { ...s.draft, picks, tangents }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
+
+  clickDraftPin: (index) => {
+    const s = get()
+    if (!s.draft) return
+    const d = s.draft
+    if (d.kind === 'spline' && index === 0 && !d.closed && d.picks.length >= flatPicksNeeded(d.method, true)) {
+      s.setDraftClosed(true)
+      return
+    }
+    s.removeDraftPick(index)
+  },
 
   setDraftTangent: (index, handle) =>
     set((s) => {

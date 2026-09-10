@@ -394,8 +394,9 @@ export function FlatPanel({
                 profile, an outline no arc fits. Click its points in order along the edge (they
                 snap like any pick), click on the curve to insert a point there, and drag the
                 <b> tangent handle</b> at any point to bend the curve through it the way you
-                would in CAD; click a handle to let it go automatic again. It can be closed on
-                itself, and it leaves the tool as a real spline in the SVG and the STEP file.
+                would in CAD; click a handle to let it go automatic again. Click the first point
+                again to close the curve on itself, and it leaves the tool as a real spline in
+                the SVG and the STEP file.
               </p>
               <p>
                 <b>Count</b> is a tally rather than a fit: click the features one after another

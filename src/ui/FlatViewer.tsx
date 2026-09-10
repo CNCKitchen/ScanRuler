@@ -22,7 +22,7 @@ export function FlatViewer({
   onReady,
   onPick,
   onPickDrag,
-  onPickRemove,
+  onPinClick,
   onHandleDrag,
   onHandleReset,
   onNoteDrag,
@@ -37,8 +37,9 @@ export function FlatViewer({
   onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   /** A draft pin dragged to a new spot, by index. */
   onPickDrag: (index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
-  /** A draft pin clicked in place — the pick is to be taken back. */
-  onPickRemove: (index: number) => void
+  /** A draft pin clicked in place — the pick taken back, or a spline closed
+   *  on its first point; the store decides. */
+  onPinClick: (index: number) => void
   /** One end of a spline draft's tangent handle dragged to a spot. */
   onHandleDrag: (index: number, end: HandleEnd, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   /** A handle clicked in place — the tangent there goes automatic again. */
@@ -66,8 +67,8 @@ export function FlatViewer({
   pickRef.current = onPick
   const dragRef = useRef(onPickDrag)
   dragRef.current = onPickDrag
-  const removeRef = useRef(onPickRemove)
-  removeRef.current = onPickRemove
+  const pinClickRef = useRef(onPinClick)
+  pinClickRef.current = onPinClick
   const handleDragRef = useRef(onHandleDrag)
   handleDragRef.current = onHandleDrag
   const handleResetRef = useRef(onHandleReset)
@@ -103,7 +104,7 @@ export function FlatViewer({
     scene.setNavScheme(schemeById(useStore.getState().navScheme))
     scene.onPick = (p, meta) => pickRef.current(p, meta)
     scene.onPickDrag = (i, p, meta) => dragRef.current(i, p, meta)
-    scene.onPickRemove = (i) => removeRef.current(i)
+    scene.onPinClick = (i) => pinClickRef.current(i)
     scene.onHandleDrag = (i, end, p, meta) => handleDragRef.current(i, end, p, meta)
     scene.onHandleReset = (i) => handleResetRef.current(i)
     scene.onNoteDrag = (id, p) => noteDragRef.current(id, p)

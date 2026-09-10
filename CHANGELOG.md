@@ -14,8 +14,9 @@ README under "Releases".
   drag the **tangent handle** at any point to bend the curve through it — a
   dragged tangent stays put while the rest re-solve around it for the
   smoothest curve, a click on the handle lets it go automatic again, and
-  **Free tangents** frees them all. **Closed curve** closes it on itself. It
-  reads as its arc length, is drawn on a section's cut in 3D, and leaves the
+  **Free tangents** frees them all. A click on the first point closes the
+  curve on itself, as does **Closed curve**. It reads as its arc length, is
+  drawn on a section's cut in 3D, and leaves the
   tool as a real spline: a path of cubic Béziers in the SVG, a cubic
   `B_SPLINE_CURVE_WITH_KNOTS` in the STEP file.
 - **3D Measure** — what is measured on a section's sheet belongs to the

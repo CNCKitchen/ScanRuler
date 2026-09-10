@@ -164,18 +164,22 @@ check(lenMoved > len5 + 0.5, `dragging a pin moves its point and the curve with 
 await drag(page, toScreen(...onDisc(90)), toScreen(...onDisc(100, 0.2)), { steps: 10 })
 check(Math.abs((await readLength()) - len5) < 0.02, 'and back again')
 
-// ---- closed, then created --------------------------------------------------
-await click(page, '[data-test=flat-draft-closed]')
+// ---- closed by a click on the first pin, then created -----------------------
+check(/click the first pin to close/.test(await hint()), 'the hint offers the first pin to close on')
+const first = (await pins()).find((p) => p.n === '1')
+await page.mouse.click(first.x, first.y)
 await sleep(200)
 const lenClosed = await readLength()
 check(
   lenClosed > len5 && /closed/.test(await status()),
-  `closing the curve adds the return leg (L ${len5} → ${lenClosed})`,
+  `a click on the first pin closes the curve, adding the return leg (L ${len5} → ${lenClosed})`,
 )
+check((await picks()) === '5 picks', 'and takes no pick back')
+check(await page.$eval('[data-test=flat-draft-closed]', (el) => el.checked), 'the Closed curve box follows')
 check((await handles()).length === 10, 'the closed curve keeps a handle at every point')
 await click(page, '[data-test=flat-draft-closed]')
 await sleep(150)
-check(!/closed/.test(await status()), 'opened again')
+check(!/closed/.test(await status()), 'the box opens it again')
 await page.screenshot({ path: shotPath('spline-draft.png') })
 await click(page, '[data-test=flat-create-element]')
 await sleep(200)

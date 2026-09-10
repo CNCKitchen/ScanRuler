@@ -1646,7 +1646,7 @@ export default function App() {
                 onPickDrag={(i, p, meta) =>
                   useFlat.getState().stageDrag(i, p, meta, activeEdgeIndex())
                 }
-                onPickRemove={(i) => useFlat.getState().removeDraftPick(i)}
+                onPinClick={(i) => useFlat.getState().clickDraftPin(i)}
                 onHandleDrag={(i, end, p, meta) => useFlat.getState().stageHandleDrag(i, end, p, meta)}
                 onHandleReset={(i) => useFlat.getState().setDraftTangent(i, null)}
                 onNoteDrag={(id, p) => useFlat.getState().stageNoteDrag(id, p)}

@@ -1021,8 +1021,9 @@ cubic through every point, parameterised by chord length and solved for C2
 continuity, so it is as smooth as the points allow. Every point wears a
 **tangent handle**: drag either end to fix the tangent there — direction and
 pull — and the rest of the curve re-solves around it; click a handle to let
-it go automatic again, or **Free tangents** for all of them at once. **Closed
-curve** closes it on itself (three points at least). It reads as its arc
+it go automatic again, or **Free tangents** for all of them at once. Click the
+first point again to close the curve on itself, the way a sketch's pen closes
+a path — or tick **Closed curve** (three points at least). It reads as its arc
 length, lists its points and how many tangents were set, and takes no part in
 dimensions — a free curve has no center and no direction to measure to — but
 it leaves the tool as a real spline: a path of cubic Béziers in the SVG, and

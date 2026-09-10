@@ -363,6 +363,44 @@ describe('the spline draft', () => {
     useFlat.getState().cancelDraft()
   })
 
+  it('closes on a click on its first pin, and takes any other pin back', () => {
+    useFlat.getState().startDraft('spline', 'flat-spline-pick')
+    useFlat.getState().addDraftPick([100, 100])
+    useFlat.getState().addDraftPick([300, 200])
+    // Two points cannot close: the first pin's click is a pin click.
+    useFlat.getState().clickDraftPin(0)
+    expect(useFlat.getState().draft!.picks).toEqual([[300, 200]])
+    expect(useFlat.getState().draft!.closed).toBe(false)
+    useFlat.getState().addDraftPick([500, 100])
+    useFlat.getState().addDraftPick([100, 100])
+    useFlat.getState().clickDraftPin(0)
+    let draft = useFlat.getState().draft!
+    expect(draft.picks).toHaveLength(3)
+    expect(draft.closed).toBe(true)
+    expect(splineFit().closed).toBe(true)
+    // Closed, the first pin is a pin like any other: a click takes it back.
+    useFlat.getState().clickDraftPin(2)
+    expect(useFlat.getState().draft!.picks).toEqual([
+      [300, 200],
+      [500, 100],
+    ])
+    useFlat.getState().clickDraftPin(0)
+    draft = useFlat.getState().draft!
+    expect(draft.picks).toEqual([[500, 100]])
+    expect(draft.closed).toBe(true)
+    // Any other kind: a pin click is a pick taken back.
+    useFlat.getState().cancelDraft()
+    useFlat.getState().startDraft('line', 'flat-line-pick')
+    useFlat.getState().addDraftPick([100, 100])
+    useFlat.getState().addDraftPick([300, 200])
+    useFlat.getState().addDraftPick([500, 100])
+    useFlat.getState().clickDraftPin(0)
+    expect(useFlat.getState().draft!.picks).toEqual([
+      [300, 200],
+      [500, 100],
+    ])
+  })
+
   it('waits for a third point once closed rather than failing on two', () => {
     useFlat.getState().startDraft('spline', 'flat-spline-pick')
     useFlat.getState().addDraftPick([100, 100])

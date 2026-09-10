@@ -103,8 +103,9 @@ export class FlatScene {
   onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
   /** A draft pick being dragged to a new place on the sheet, by index. */
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
-  /** A draft pick clicked on its pin without being dragged — to take it back. */
-  onPickRemove: ((index: number) => void) | null = null
+  /** A draft pin clicked without being dragged — the store decides what that
+   *  means: the pick taken back, or a spline closed on its first point. */
+  onPinClick: ((index: number) => void) | null = null
   /** One end of a spline draft's tangent handle dragged to a new spot. */
   onHandleDrag:
     | ((index: number, end: HandleEnd, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void)
@@ -438,8 +439,8 @@ export class FlatScene {
 
   /** Drag a draft pick: every move reports the new spot through onPickDrag,
    *  and the release ends it. A press let go where it landed is a click on
-   *  the pin, which takes the pick back. The navigator never sees the press,
-   *  so the sheet stays put under the drag. */
+   *  the pin, reported through onPinClick. The navigator never sees the
+   *  press, so the sheet stays put under the drag. */
   private beginPinDrag(index: number, e: PointerEvent): void {
     this.dragging = { index, moved: false }
     this.container.style.cursor = 'grabbing'
@@ -462,8 +463,8 @@ export class FlatScene {
       this.dragging = null
       this.container.style.cursor = this.pinHover ? 'grab' : ''
       if (clicked) {
-        this.onPickRemove?.(index)
-        // The pin under the hand is gone; the cursor says so.
+        this.onPinClick?.(index)
+        // The pin under the hand may be gone; the next move re-checks.
         this.setPinHover(false)
       }
     }

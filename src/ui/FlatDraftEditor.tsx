@@ -45,6 +45,8 @@ export function FlatDraftEditor() {
   const saveWord = edited ? 'save it' : 'create it'
   const isSpline = draft.kind === 'spline'
   const tangentsSet = draft.tangents.filter((t) => t !== null).length
+  // An open spline with points enough to close: a click on its first pin does.
+  const closesOnFirstPin = isSpline && !draft.closed && picks >= flatPicksNeeded(draft.method, true)
 
   // What to do next, in one line — the method's own hint until the first
   // pick lands, then where the fit stands.
@@ -62,7 +64,7 @@ export function FlatDraftEditor() {
             : isSpline
               ? picks < minPicks
                 ? `${minPicks - picks} more point${minPicks - picks === 1 ? '' : 's'} to go — in order along the curve. Pins can be dragged.`
-                : `Click to add the next point, or on the curve to insert one there. Drag a handle to set the tangent at its point, click it to let it go free again, or ${saveWord}.`
+                : `Click to add the next point, or on the curve to insert one there${closesOnFirstPin ? '; click the first pin to close the curve' : ''}. Drag a handle to set the tangent at its point, click it to let it go free again, or ${saveWord}.`
               : picks < minPicks
                 ? `${minPicks - picks} more point${minPicks - picks === 1 ? '' : 's'} to go — spread them along the ${noun}. Pins can be dragged.`
                 : `More points refine the fit, drag a pin to move it, or ${saveWord}.`
