@@ -1043,6 +1043,13 @@ to agree on both numbers, before and after a drag in either half and after a
 zoom — which is a check no amount of asserting on camera matrices would give,
 since the claim being made is about what is on the screen.
 
+## Local development with Docker
+```bash
+docker build -t scanrulerdev:latest -f dev.Dockerfile .
+docker run --rm -d --name scanrulerdev -p 8080:5173 -v $(pwd)/src:/app/src scanrulerdev
+```
+Open Url: http://localhost:8080/
+
 ## Deploying to Cloudflare
 
 The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no
@@ -1061,6 +1068,13 @@ Either way the site lands on a `*.workers.dev` URL — the live deployment is at
 settings. The GitHub Actions workflow
 (`.github/workflows/ci.yml`) still runs tests and a build on every push and
 pull request, so a red suite is visible before Cloudflare ships it.
+
+## Run locally with Docker
+```bash
+docker build -t scanruler:latest -f Dockerfile .
+docker run --rm -d --name scanruler -p 8080:80 scanruler
+```
+Open Url: http://localhost:8080/
 
 ## Roadmap
 
