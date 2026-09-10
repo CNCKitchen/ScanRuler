@@ -72,6 +72,9 @@ export function useFlatSceneSync({
     const sheet = sheetOf()
     const view = scene()
     if (!sheet || !view) return
+    // The turn first, so the sheet is framed the way it is to be looked at
+    // rather than framed and then turned.
+    view.setTurns(useFlat.getState().turns)
     if (sheet.kind === 'image') void view.setImage(sheet.bitmap, sheetScale(useFlat.getState()))
     else view.setBlankSheet(sheet.bounds.min, sheet.bounds.max)
     pushCalibration()
@@ -124,6 +127,10 @@ export function useFlatSceneSync({
 
   const draft = useFlat((s) => s.draft)
   useEffect(pushElements, [elements, draft, scale, datum])
+
+  // The sheet turned on the stage — the camera rolls, nothing is redrawn.
+  const turns = useFlat((s) => s.turns)
+  useEffect(() => scene()?.setTurns(turns), [turns])
 
   return {
     /** The viewport has mounted — take it and lay the sheet out on it — or

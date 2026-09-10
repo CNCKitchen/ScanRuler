@@ -292,6 +292,11 @@ export interface SheetState {
   nextCountId: number
   notes: FlatNote[]
   nextNoteId: number
+  /** Quarter turns the sheet is shown at, counter-clockwise on screen —
+   *  0 to 3. A way of looking that belongs to the sheet: a scan lies on the
+   *  glass one way, a section is laid flat another, and each wants turning
+   *  by its own amount. Nothing measured moves with it. */
+  turns: number
 }
 
 /** The sheet on the stage, lifted out of the store. */
@@ -310,6 +315,7 @@ export function sheetOf(s: SheetState): SheetState {
     nextCountId: s.nextCountId,
     notes: s.notes,
     nextNoteId: s.nextNoteId,
+    turns: s.turns,
   }
 }
 
@@ -330,6 +336,7 @@ function freshSheet(pxPerMm: PixelsPerMm | null, calSource: CalSource): SheetSta
     nextCountId: 1,
     notes: [],
     nextNoteId: 1,
+    turns: 0,
   }
 }
 
@@ -494,6 +501,10 @@ interface FlatState extends SheetState {
   addDatumPick: (px: Vec2) => void
   clearDatum: () => void
   setShowGrid: (v: boolean) => void
+  /** Turn the sheet on the stage by whole quarter turns — positive is
+   *  counter-clockwise. The view rolls; the picks, the datum and every
+   *  measurement stay where they are on the part. */
+  turnSheet: (quarters: number) => void
 
   /** The tally being clicked out is the `count` tool; the finished ones are
    *  the sheet's. */
@@ -896,6 +907,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   // On while the datum is being placed and after — the grid is the visible
   // proof of where the frame lies; a checkbox puts it away.
   showGrid: true,
+  turns: 0,
 
   profiles: loadProfiles(),
 
@@ -1130,6 +1142,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   clearDatum: () => set((s) => ({ datum: null, ...putAway(s, 'datum') })),
   setShowGrid: (showGrid) => set({ showGrid }),
+  turnSheet: (quarters) =>
+    set((s) => ({ turns: (((s.turns + Math.round(quarters)) % 4) + 4) % 4 })),
 
   startCalibration: (mode) =>
     set((s) => (s.subject.kind === 'image' ? { tool: { kind: 'calibrate', mode, picks: [] } } : {})),

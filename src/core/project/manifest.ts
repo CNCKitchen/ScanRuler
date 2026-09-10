@@ -198,6 +198,10 @@ export interface FlatPart {
   /** Free text notes; absent in projects saved before they existed. */
   notes?: { id: number; text: string; at: Vec2; visible: boolean }[]
   nextNoteId?: number
+  /** Quarter turns the sheet is shown at, counter-clockwise. Absent in
+   *  projects saved before the sheet could be turned — those, and any
+   *  sheet under `sheets` without one, load the way they were scanned. */
+  turns?: number
   /** What was on the sheet, and every subject's sheet — the image's and each
    *  section's — keyed by sheetKeyOf, the one on the stage included. The
    *  flat fields above are that sheet's, kept so an older build reads the

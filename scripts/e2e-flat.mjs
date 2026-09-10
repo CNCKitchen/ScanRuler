@@ -222,6 +222,49 @@ check(
 )
 await click(page, '[data-test=flat-draft-cancel]')
 
+// ---- the sheet turned a quarter turn -----------------------------------------
+// Rotate 90° rolls the view and re-fits the sheet: what was to the right of
+// the disc is above it. A raw (Alt) pick through the turned view must still
+// read the document spot under the cursor, and turning back restores the
+// framing every later pick in this script is aimed by.
+await click(page, '[data-test=flat-turn-ccw]')
+await sleep(300)
+check(
+  /quarter turn counter-clockwise/.test(await page.$eval('[data-test=flat-turn-status]', (el) => el.textContent)),
+  'the datum group says the sheet is shown a quarter turn round',
+)
+// The turned sheet stands on end: document +X runs up the screen, +Y left.
+const frustT = Math.max((SHEET_W / 2) * 1.08, ((SHEET_H / 2) * 1.08) / aspect)
+const toScreenTurned = (mx, my) => [
+  rect.x + (rect.w * (-(my - SHEET_H / 2) / (frustT * aspect) + 1)) / 2,
+  rect.y + (rect.h * (1 - (mx - SHEET_W / 2) / frustT)) / 2,
+]
+const spot = [DISC_C[0] + 9, DISC_C[1] - 7]
+await click(page, '[data-test=flat-fit-point]')
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreenTurned(...spot))
+await page.keyboard.up('Alt')
+await sleep(200)
+const turnedRead = await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)
+const turnedX = Number((turnedRead.match(/X (-?[\d.]+)/) ?? [])[1])
+const turnedY = Number((turnedRead.match(/Y (-?[\d.]+)/) ?? [])[1])
+check(
+  Math.abs(turnedX - spot[0]) < 0.15 && Math.abs(turnedY - spot[1]) < 0.15,
+  `a pick through the turned view reads the spot under the cursor (${turnedX}, ${turnedY} for ${spot.map((v) => v.toFixed(2))})`,
+)
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-turn-cw]')
+await sleep(300)
+check((await page.$('[data-test=flat-turn-status]')) === null, 'turning back clears the notice')
+await click(page, '[data-test=flat-fit-point]')
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreen(...spot))
+await page.keyboard.up('Alt')
+await sleep(200)
+const backX = Number(((await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)).match(/X (-?[\d.]+)/) ?? [])[1])
+check(Math.abs(backX - spot[0]) < 0.15, `and the sheet is framed as before (x ${backX.toFixed(2)})`)
+await click(page, '[data-test=flat-draft-cancel]')
+
 // ---- a line along the rectangle's top edge ---------------------------------
 await click(page, '[data-test=flat-fit-line]')
 await page.select('[data-test=flat-draft-method]', 'flat-line-edge')

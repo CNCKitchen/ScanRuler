@@ -173,6 +173,7 @@ export function collectProject(
     nextCountId: f.nextCountId,
     notes: f.notes,
     nextNoteId: f.nextNoteId,
+    turns: f.turns,
     // Every subject's sheet, the one on the stage included, so switching
     // subjects after a load finds each as it was left.
     subject: f.subject,
@@ -293,7 +294,11 @@ export function applyFlatPart(p: FlatPart): void {
     nextCountId: p.nextCountId,
     notes: p.notes ?? [],
     nextNoteId: p.nextNoteId ?? 1,
+    turns: p.turns ?? 0,
   }
+  // A sheet saved before it could be turned lies the way it was scanned.
+  const sheetFromJson = (sheet: Partial<SheetState>): SheetState =>
+    ({ ...sheet, turns: sheet.turns ?? 0 }) as SheetState
   let subject: FlatSubject = p.subject ?? { kind: 'image' }
   // A section that is not in the project any more (or never was) cannot be
   // on the stage; the image is.
@@ -301,9 +306,10 @@ export function applyFlatPart(p: FlatPart): void {
     const id = subject.id
     if (!useStore.getState().sections.some((sec) => sec.id === id)) subject = { kind: 'image' }
   }
-  const sheets: Record<string, SheetState> = { ...(p.sheets ?? {}) }
+  const sheets: Record<string, SheetState> = {}
+  for (const [k, sheet] of Object.entries(p.sheets ?? {})) sheets[k] = sheetFromJson(sheet)
   const key = sheetKeyOf(subject)
-  const active = sheets[key] ?? (p.sheets ? legacy : legacy)
+  const active = sheets[key] ?? legacy
   delete sheets[key]
   useFlat.setState((s) => ({
     ...active,

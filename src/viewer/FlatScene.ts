@@ -37,6 +37,10 @@ export class FlatScene {
   /** Where the sheet lies, in document units: an image from the origin up
    *  to its size in millimetres, a section around its cut. */
   private bounds = { x0: 0, y0: 0, x1: 0, y1: 0 }
+  /** Quarter turns the sheet is shown at, counter-clockwise on screen. The
+   *  camera rolls; the sheet and everything drawn on it stay in document
+   *  units, so a pick lands where it lands whichever way up it is looked at. */
+  private turns = 0
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
   private calCleanup: (() => void)[] = []
@@ -961,14 +965,39 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
-  /** Frame the whole sheet, face on, y up. */
+  /** Frame the whole sheet, face on, turned as asked — y up at no turns. */
   frame(): void {
     if (!this.sheet.visible) return
     const box = new THREE.Box3().setFromObject(this.sheet)
     this.viewport.frameCamera(box, null, {
       dir: new THREE.Vector3(0, 0, 1),
-      up: new THREE.Vector3(0, 1, 0),
+      up: this.screenUp(),
     })
+  }
+
+  /** Show the sheet turned by whole quarter turns, counter-clockwise on
+   *  screen, and fit it to the viewport again: a sheet that was framed
+   *  landscape does not fit its own frame once it stands on end, and a turn
+   *  is the moment to look at the whole of it anyway. */
+  setTurns(turns: number): void {
+    const t = ((Math.round(turns) % 4) + 4) % 4
+    if (t === this.turns) return
+    this.turns = t
+    this.frame()
+  }
+
+  /** The document direction that points up the screen at the current turn:
+   *  +Y untouched, then +X, −Y, −X as the sheet goes round counter-clockwise
+   *  — what was to the right of the origin is above it after one turn. */
+  private screenUp(): THREE.Vector3 {
+    const ups: [number, number][] = [
+      [0, 1],
+      [1, 0],
+      [0, -1],
+      [-1, 0],
+    ]
+    const [x, y] = ups[this.turns]
+    return new THREE.Vector3(x, y, 0)
   }
 
   private pick(clientX: number, clientY: number): Vec2 | null {

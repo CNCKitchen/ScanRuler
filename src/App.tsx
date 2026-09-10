@@ -1616,6 +1616,7 @@ export default function App() {
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
+                  turns: () => useFlat.getState().turns,
                   active: flatLoupeActive,
                 }}
               />

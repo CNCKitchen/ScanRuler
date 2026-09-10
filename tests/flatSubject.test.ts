@@ -137,6 +137,32 @@ describe('the sheet subject', () => {
     expect(useFlat.getState().pxPerMm).toEqual({ x: 20, y: 20 })
   })
 
+  it('turns each sheet by its own quarter turns, wrapping round', () => {
+    useFlat.getState().finishImageLoad('t.png', 1000, 800, { x: 10, y: 10 })
+    expect(useFlat.getState().turns).toBe(0)
+    useFlat.getState().turnSheet(1)
+    expect(useFlat.getState().turns).toBe(1)
+    // Clockwise from the start is three quarters counter-clockwise.
+    useFlat.getState().turnSheet(-2)
+    expect(useFlat.getState().turns).toBe(3)
+    useFlat.getState().turnSheet(5)
+    expect(useFlat.getState().turns).toBe(0)
+    useFlat.getState().turnSheet(1)
+
+    // A section comes up the way it was cut; the image keeps its turn.
+    useFlat.getState().setSubject({ kind: 'section', id: 3 })
+    expect(useFlat.getState().turns).toBe(0)
+    expect(useFlat.getState().sheets.image.turns).toBe(1)
+    useFlat.getState().turnSheet(-1)
+    useFlat.getState().setSubject({ kind: 'image' })
+    expect(useFlat.getState().turns).toBe(1)
+    expect(useFlat.getState().sheets['section:3'].turns).toBe(3)
+
+    // A fresh image is laid the way it was scanned.
+    useFlat.getState().finishImageLoad('u.png', 500, 500, null)
+    expect(useFlat.getState().turns).toBe(0)
+  })
+
   it('drops the sheets of sections that are gone, and steps off a gone one', () => {
     useFlat.getState().finishImageLoad('t.png', 1000, 800, { x: 10, y: 10 })
     pickPoint([5, 5])

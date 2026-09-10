@@ -35,6 +35,13 @@ import { NumberField } from './NumberField'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc']
 
+/** How far round the sheet is shown, in words: quarter turns
+ *  counter-clockwise, 1 to 3. */
+function describeTurns(turns: number): string {
+  if (turns === 2) return 'upside down'
+  return turns === 1 ? 'a quarter turn counter-clockwise' : 'a quarter turn clockwise'
+}
+
 export function FlatPanel({
   onOpenImage,
   onCopy,
@@ -65,6 +72,7 @@ export function FlatPanel({
   const datum = useFlat((s) => s.datum)
   const datumPicking = toolOf({ tool }, 'datum')
   const showGrid = useFlat((s) => s.showGrid)
+  const turns = useFlat((s) => s.turns)
   const dimensions = useFlat((s) => s.dimensions)
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
@@ -622,6 +630,11 @@ export function FlatPanel({
                 corner or a circle center, run X along a reference edge. The grid shows where
                 the frame lies.
               </p>
+              <p>
+                <b>Rotate 90°</b> turns the sheet on the stage a quarter turn at a time — the
+                image or the section as it is looked at, not the frame. Coordinates, the grid
+                and every measurement stay where they are on the part.
+              </p>
             </InfoDot>
           </div>
           <p className="hint" data-test="flat-datum-status">
@@ -631,7 +644,9 @@ export function FlatPanel({
                 : 'Now click a point along +X — the grid follows the cursor.'
               : datum
                 ? 'Datum set — coordinates read in the part frame.'
-                : 'Image frame — origin at the bottom-left of the sheet.'}
+                : onSection
+                  ? 'Section frame — origin at the centre of the cut.'
+                  : "Image frame — origin at the image's bottom-left corner."}
           </p>
           {!datumPicking ? (
             <div className="toolrow">
@@ -665,6 +680,27 @@ export function FlatPanel({
               />
               <span>Show grid</span>
             </label>
+          )}
+          <div className="toolrow">
+            <button
+              data-test="flat-turn-ccw"
+              title="Turn the sheet a quarter turn counter-clockwise"
+              onClick={() => flat.getState().turnSheet(1)}
+            >
+              ↺ Rotate 90°
+            </button>
+            <button
+              data-test="flat-turn-cw"
+              title="Turn the sheet a quarter turn clockwise"
+              onClick={() => flat.getState().turnSheet(-1)}
+            >
+              Rotate 90° ↻
+            </button>
+          </div>
+          {turns !== 0 && (
+            <p className="hint" data-test="flat-turn-status">
+              {`Shown ${describeTurns(turns)} — measurements are unchanged.`}
+            </p>
           )}
         </div>
       )}
