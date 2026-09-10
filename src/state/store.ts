@@ -588,6 +588,12 @@ interface AppState {
   /** Colour the far side of every triangle differently, so holes and inverted
    *  normals stop reading as solid part. */
   showBackfaces: boolean
+  /** Draw the parts see-through, so the reference inside the scan, the fitted
+   *  elements and the pinned readings show. A way of looking for the session,
+   *  not a property of the part: neither this nor the mesh is saved. */
+  translucent: boolean
+  /** Draw the triangle edges on the parts. */
+  wireframe: boolean
   /** Id of the mouse navigation scheme (see viewer/navSchemes). Remembered per
    *  browser, because which buttons orbit is a habit from whichever CAD the
    *  user came from, not a property of the part on screen. */
@@ -710,6 +716,8 @@ interface AppState {
   setSelectMode: (mode: SelectMode) => void
   setShowOverlays: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
+  setTranslucent: (v: boolean) => void
+  setWireframe: (v: boolean) => void
   setNavScheme: (id: string) => void
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
@@ -781,6 +789,8 @@ export const useStore = create<AppState>()((set, get) => ({
   selectMode: 'auto',
   showOverlays: true,
   showBackfaces: true,
+  translucent: false,
+  wireframe: false,
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
@@ -1513,6 +1523,8 @@ export const useStore = create<AppState>()((set, get) => ({
   setSelectMode: (selectMode) => set({ selectMode }),
   setShowOverlays: (showOverlays) => set({ showOverlays }),
   setShowBackfaces: (showBackfaces) => set({ showBackfaces }),
+  setTranslucent: (translucent) => set({ translucent }),
+  setWireframe: (wireframe) => set({ wireframe }),
   setNavScheme: (navScheme) => {
     try {
       localStorage.setItem(NAV_SCHEME_KEY, navScheme)

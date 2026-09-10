@@ -1849,8 +1849,11 @@ button.x:disabled {
 
   /* The deviation workspace hangs two more keys here than the others do, so
      those two are what makes the room — glyph only, with the title attribute
-     carrying the name, well before the keys beside them give up their words. */
-  .strip .viewsw .btxt {
+     carrying the name, well before the keys beside them give up their words.
+     The two surface switches go the same way: with them the row is one key
+     longer in every workspace. */
+  .strip .viewsw .btxt,
+  .strip .surf .btxt {
     display: none;
   }
 

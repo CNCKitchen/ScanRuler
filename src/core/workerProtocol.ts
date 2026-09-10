@@ -79,6 +79,9 @@ export type WorkerResponse =
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array
+      /** One byte per vertex, for the viewport's mesh mode — see
+       *  geometry/wireSlots.ts. */
+      wireSlots: Uint8Array
       vertexCount: number
       triangleCount: number
     }
@@ -89,6 +92,7 @@ export type WorkerResponse =
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array
+      wireSlots: Uint8Array
       vertexCount: number
       triangleCount: number
       bboxDiagonal: number

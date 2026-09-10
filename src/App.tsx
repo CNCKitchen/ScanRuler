@@ -281,7 +281,7 @@ export default function App() {
       const mesh = await clientRef.current!.load(file.name, buffer)
       useStore.getState().setStatus('Building spatial index…')
       await new Promise((r) => setTimeout(r, 30))
-      sceneRef.current?.setMesh(mesh.positions, mesh.indices, mesh.normals)
+      sceneRef.current?.setMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots)
       useStore
         .getState()
         .finishLoad(

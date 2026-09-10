@@ -14,7 +14,13 @@ import { CameraLink, type LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
-import { backfaceUniforms, patchBackfaceTint } from './backfaceTint'
+import { backfaceUniforms, spliceBackfaceTint } from './backfaceTint'
+import {
+  SEE_THROUGH_OPACITY,
+  setSurfaceOpacity,
+  spliceWireframe,
+  wireUniforms,
+} from './surfaceModes'
 
 export class CompareScene {
   private viewport: OrthoViewport
@@ -25,6 +31,8 @@ export class CompareScene {
    *  about the models, but three.js keeps GPU state per renderer and this is a
    *  renderer of its own. */
   private backface: ReturnType<typeof backfaceUniforms>
+  /** And its own mesh-mode switch, for the same reason. */
+  private wire = wireUniforms()
 
   constructor(container: HTMLDivElement, geometry: THREE.BufferGeometry, theme: ViewTheme) {
     this.viewport = new OrthoViewport(container, {
@@ -56,7 +64,10 @@ export class CompareScene {
     // a STEP tessellation that came apart, an open mesh — must not read as
     // solid part on one side of the screen and as a warning on the other.
     this.backface = backfaceUniforms(theme.backface)
-    patchBackfaceTint(this.material, this.backface)
+    this.material.onBeforeCompile = (shader) => {
+      spliceBackfaceTint(shader, this.backface)
+      spliceWireframe(shader, this.wire)
+    }
     this.mesh = new THREE.Mesh(geometry, this.material)
     this.viewport.scene.add(this.mesh)
 
@@ -95,6 +106,18 @@ export class CompareScene {
    *  state in here, or this half would start off disagreeing with the other. */
   setBackfaceTint(on: boolean): void {
     this.backface.uBackfaceTint.value = on ? 1 : 0
+    this.viewport.invalidate()
+  }
+
+  /** The triangle edges, from the same switch as the scan's half. */
+  setWireframe(on: boolean): void {
+    this.wire.uWire.value = on ? 1 : 0
+    this.viewport.invalidate()
+  }
+
+  /** See-through, from the same switch as the scan's half. */
+  setTranslucent(on: boolean): void {
+    setSurfaceOpacity(this.material, on ? SEE_THROUGH_OPACITY : 1)
     this.viewport.invalidate()
   }
 

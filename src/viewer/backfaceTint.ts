@@ -46,14 +46,22 @@ export const BACKFACE_GLSL_FRAGMENT =
  * and the brush all run on.
  */
 export function patchBackfaceTint(material: THREE.Material, uniforms: BackfaceUniforms): void {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uBackfaceTint = uniforms.uBackfaceTint
-    shader.uniforms.uBackfaceColor = uniforms.uBackfaceColor
-    shader.fragmentShader =
-      BACKFACE_GLSL_PREAMBLE +
-      shader.fragmentShader.replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>\n\t${BACKFACE_GLSL_FRAGMENT}`,
-      )
-  }
+  material.onBeforeCompile = (shader) => spliceBackfaceTint(shader, uniforms)
+}
+
+/** The same amendment, for a material whose onBeforeCompile has other
+ *  splices to make as well. The include line it hangs off stays in place, so
+ *  the order of the splices does not matter. */
+export function spliceBackfaceTint(
+  shader: { uniforms: { [name: string]: THREE.IUniform }; fragmentShader: string },
+  uniforms: BackfaceUniforms,
+): void {
+  shader.uniforms.uBackfaceTint = uniforms.uBackfaceTint
+  shader.uniforms.uBackfaceColor = uniforms.uBackfaceColor
+  shader.fragmentShader =
+    BACKFACE_GLSL_PREAMBLE +
+    shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>\n\t${BACKFACE_GLSL_FRAGMENT}`,
+    )
 }

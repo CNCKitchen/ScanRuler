@@ -9,6 +9,9 @@ export interface LoadedMesh {
   positions: Float32Array
   indices: Uint32Array
   normals: Float32Array
+  /** The corner slots the viewport's mesh mode draws the edges from — see
+   *  geometry/wireSlots.ts. */
+  wireSlots: Uint8Array
   vertexCount: number
   triangleCount: number
 }

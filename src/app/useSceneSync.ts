@@ -162,6 +162,16 @@ export function useSceneSync({
     sceneRef.current?.setBackfaceTint(showBackfaces)
   }, [showBackfaces])
 
+  // The other two ways of seeing the parts, from the same row of switches.
+  const translucent = useStore((s) => s.translucent)
+  useEffect(() => {
+    sceneRef.current?.setTranslucent(translucent)
+  }, [translucent])
+  const wireframe = useStore((s) => s.wireframe)
+  useEffect(() => {
+    sceneRef.current?.setWireframe(wireframe)
+  }, [wireframe])
+
   // Keep viewport overlays in sync with the elements and the dimensions the
   // user created between them.
   const elements = useStore((s) => s.elements)

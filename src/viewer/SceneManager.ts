@@ -29,6 +29,13 @@ import {
   PAINT_GLSL_VERTEX_BODY,
   type PaintUniform,
 } from './paintTint'
+import {
+  patchWireframe,
+  SEE_THROUGH_OPACITY,
+  setSurfaceOpacity,
+  spliceWireframe,
+  wireUniforms,
+} from './surfaceModes'
 
 declare module 'three' {
   interface BufferGeometry {
@@ -116,6 +123,9 @@ const STAGE_VIEW = {
   up: new THREE.Vector3(0, 0, 1),
 }
 
+/** How see-through the reference's ghost is while it is being fitted. */
+const GHOST_OPACITY = 0.5
+
 /** The scan's marking, as another viewport needs it: the compositor that owns
  *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
 export interface MarkingChannel {
@@ -194,6 +204,17 @@ export class SceneManager {
   /** The marking's tint, as a uniform: recolouring what is marked is one write
    *  here rather than a pass over the mask — see paintTint.ts. */
   private uPaintColor: PaintUniform = paintUniform()
+
+  /** The mesh mode's switch, shared by the scan and the reference: the
+   *  triangle edges, drawn in the surface shader — see surfaceModes.ts. */
+  private wire = wireUniforms()
+  /** See-through surfaces, so what is inside the scan — the reference, the
+   *  fitted elements, the pinned readings — shows. Held here as well as on
+   *  the materials because a part loaded later has to be dressed the same. */
+  private translucent = false
+  /** Whether the reference is a ghost or a solid part — see setNominalGhost.
+   *  A ghost until the workspace says otherwise, which is how it starts. */
+  private nominalGhost = true
 
   /** Scratch for picking, which runs every frame the cursor moves: the
    *  barycentric corners and difference vectors, and (in D) the hit point
@@ -423,7 +444,12 @@ export class SceneManager {
 
   /** Replace the displayed mesh. Synchronous and heavy (includes the BVH
    *  build) — callers should show a status message and yield a frame first. */
-  setMesh(positions: Float32Array, indices: Uint32Array, normals: Float32Array): void {
+  setMesh(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+  ): void {
     this.disposeMesh()
     this.setPreview(null)
 
@@ -443,6 +469,10 @@ export class SceneManager {
     const paint = new Uint8Array(vertexCount)
     this.paintAttr = new THREE.BufferAttribute(paint, 1)
     geometry.setAttribute('paint', this.paintAttr)
+    // The corner slots the mesh mode draws the edges from. Without them the
+    // shader sees one slot everywhere and draws no edges, and nothing else
+    // minds.
+    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
@@ -455,6 +485,7 @@ export class SceneManager {
     })
     applyFinish(material, this.theme)
     this.patchScanShader(material)
+    setSurfaceOpacity(material, this.scanOpacity())
     this.mesh = new THREE.Mesh(geometry, material)
     this.partGroup.add(this.mesh)
     // A new scan is not aligned to anything yet, and nothing is being
@@ -473,9 +504,10 @@ export class SceneManager {
   }
 
   /**
-   * The scan material's two shader amendments: the hand-marking's tint (see
-   * paintTint.ts) and back-face flagging (see backfaceTint.ts). Folded into one
-   * patch here because a material has a single onBeforeCompile.
+   * The scan material's shader amendments: the hand-marking's tint (see
+   * paintTint.ts), back-face flagging (see backfaceTint.ts) and the mesh mode's
+   * edges (see surfaceModes.ts). Folded into one patch here because a material
+   * has a single onBeforeCompile.
    *
    * Back faces are flagged in the shader rather than by drawing the mesh a
    * second time with the faces flipped, because the second pass would have to
@@ -504,7 +536,48 @@ export class SceneManager {
           ${PAINT_GLSL_FRAGMENT}
           ${BACKFACE_GLSL_FRAGMENT}`,
         )
+      spliceWireframe(shader, this.wire)
     }
+  }
+
+  /**
+   * See through the parts: the scan and the reference go translucent, so the
+   * reference sitting inside the scan, the fitted elements and the pinned
+   * readings show instead of being hidden by whatever surface is in front of
+   * them. Picking is untouched — a click still lands on the nearest surface,
+   * which is the one the cursor is visibly over.
+   */
+  setTranslucent(on: boolean): void {
+    if (this.translucent === on) return
+    this.translucent = on
+    if (this.mesh) {
+      setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
+    }
+    if (this.nominalMesh) {
+      setSurfaceOpacity(
+        this.nominalMesh.material as THREE.MeshStandardMaterial,
+        this.nominalOpacity(),
+      )
+    }
+    this.invalidate()
+  }
+
+  /** Draw the triangle edges on the scan and the reference — see
+   *  surfaceModes.ts. A uniform write, like the back-face flag. */
+  setWireframe(on: boolean): void {
+    this.wire.uWire.value = on ? 1 : 0
+    this.invalidate()
+  }
+
+  private scanOpacity(): number {
+    return this.translucent ? SEE_THROUGH_OPACITY : 1
+  }
+
+  /** The ghost is see-through in its own right; the see-through mode only
+   *  changes what a solid reference looks like. */
+  private nominalOpacity(): number {
+    if (this.nominalGhost) return GHOST_OPACITY
+    return this.translucent ? SEE_THROUGH_OPACITY : 1
   }
 
   /** Show which way the surface faces: the far side of every triangle gets a
@@ -900,11 +973,17 @@ export class SceneManager {
   /** Load the reference part. It never moves: a nominal is the datum a
    *  measurement is taken against, so the alignment is applied to the scan and
    *  the world ends up in the reference's coordinates. */
-  setNominal(positions: Float32Array, indices: Uint32Array, normals: Float32Array): void {
+  setNominal(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+  ): void {
     this.disposeNominal()
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
@@ -913,13 +992,10 @@ export class SceneManager {
     const material = new THREE.MeshStandardMaterial({
       color: this.theme.nominal,
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.5,
-      // Without this the ghost writes depth and punches holes in the scan
-      // behind it, which reads as missing scan data rather than as a ghost.
-      depthWrite: false,
     })
     applyFinish(material, this.theme)
+    patchWireframe(material, this.wire)
+    setSurfaceOpacity(material, this.nominalOpacity())
     this.nominalMesh = new THREE.Mesh(geometry, material)
     this.nominalMesh.visible = false
     this.nominalMesh.renderOrder = 1
@@ -1045,12 +1121,9 @@ export class SceneManager {
    * at.
    */
   setNominalGhost(ghost: boolean): void {
+    this.nominalGhost = ghost
     if (!this.nominalMesh) return
-    const material = this.nominalMesh.material as THREE.MeshStandardMaterial
-    material.transparent = ghost
-    material.opacity = ghost ? 0.5 : 1
-    material.depthWrite = !ghost
-    material.needsUpdate = true
+    setSurfaceOpacity(this.nominalMesh.material as THREE.MeshStandardMaterial, this.nominalOpacity())
     this.invalidate()
   }
 

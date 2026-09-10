@@ -7,6 +7,7 @@ import { parseOBJ } from './parsers/obj'
 import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
+import { wireSlots } from './geometry/wireSlots'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
 import {
@@ -119,6 +120,9 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const indices = graph.indices.slice()
       const positions = graph.positions.slice()
       const normals = graph.normals.slice()
+      // The mesh mode's corner slots ride along: they come off the adjacency
+      // the graph already holds, and the render thread has no adjacency.
+      const slots = wireSlots(graph.adjOffsets, graph.adjList, graph.vertexCount)
       post(
         {
           type: 'loaded',
@@ -126,10 +130,11 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           positions,
           indices,
           normals,
+          wireSlots: slots,
           vertexCount: graph.vertexCount,
           triangleCount: indices.length / 3,
         },
-        [positions.buffer, indices.buffer, normals.buffer],
+        [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
       )
     } catch (e) {
       graph = null
@@ -189,6 +194,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const positions = g.positions.slice()
       const indices = g.indices.slice()
       const normals = g.normals.slice()
+      const slots = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
       post(
         {
           type: 'nominal-loaded',
@@ -196,12 +202,13 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           positions,
           indices,
           normals,
+          wireSlots: slots,
           vertexCount: g.vertexCount,
           triangleCount: g.triangleCount,
           bboxDiagonal: nominal.bboxDiagonal,
           step,
         },
-        [positions.buffer, indices.buffer, normals.buffer],
+        [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
       )
     } catch (e) {
       nominal = null
