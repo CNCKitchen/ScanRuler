@@ -6,6 +6,7 @@
 
 import { useEffect } from 'react'
 import { useStore } from '../state/store'
+import { APP_VERSION } from '../version'
 
 export function ImprintModal() {
   const open = useStore((s) => s.imprintOpen)
@@ -34,6 +35,9 @@ export function ImprintModal() {
             ×
           </button>
         </div>
+        <p className="dim" data-test="imprint-version">
+          ScanRuler v{APP_VERSION} — quote the number when reporting a problem.
+        </p>
 
         <h3>Imprint (Impressum)</h3>
         <p>

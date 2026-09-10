@@ -191,6 +191,14 @@ body {
   font-family: var(--cond);
 }
 
+/* The version is a number, not another word of the caption: lowercase v,
+   digits kept close. */
+.brand .ver {
+  font-style: normal;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+
 /* The loaded part, named on the chassis the way a machine names its job. */
 .partchip {
   margin-left: 10px;

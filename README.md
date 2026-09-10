@@ -1111,6 +1111,31 @@ to agree on both numbers, before and after a drag in either half and after a
 zoom — which is a check no amount of asserting on camera matrices would give,
 since the claim being made is about what is on the screen.
 
+### Releases
+
+The version is the `version` field in `package.json` and nowhere else. The
+build reads it into the app, which shows it in the caption under the ScanRuler
+name in the top bar and in the imprint, and writes it into every `.scanruler`
+project it saves as `appVersion`. Whether an older build can open a project is
+decided by the file's own `schemaVersion`, not by this number.
+
+Numbers follow `major.minor.patch`: a patch release fixes, a minor one adds,
+and a major one is for a change that stops earlier projects or exports from
+opening. To cut one:
+
+```bash
+npm version minor --no-git-tag-version   # or patch / major: bumps package.json and the lockfile
+# describe it at the top of CHANGELOG.md
+git add package.json package-lock.json CHANGELOG.md
+git commit -m "chore: release v0.3.0"
+git tag -a v0.3.0 -m "ScanRuler 0.3.0"
+git push --follow-tags
+```
+
+The push builds and deploys the site (below), so the number on scanruler.com is
+the one that was pushed. A plain `git push` leaves the tag behind, and so does
+VS Code's **Sync Changes** unless `git.followTagsWhenSync` is on.
+
 ## Deploying to Cloudflare
 
 The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no
