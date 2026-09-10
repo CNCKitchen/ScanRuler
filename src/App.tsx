@@ -10,7 +10,8 @@ import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
 import { datumFrame } from './core/flat/datum'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
-import { buildFlatCsv, buildFlatReport, type FlatReportInput } from './core/flat/report'
+import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
+import { buildFlatSvg } from './core/flat/svg'
 import type { Vec2 } from './core/flat/types'
 import { canCutAlong, describeCut } from './core/section/frame'
 import { chainBounds, projectCut } from './core/section/slice'
@@ -69,7 +70,7 @@ import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
 import { useSections } from './app/useSections'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
-import { sheetLoupeActive } from './app/flatSheet'
+import { sheetElements, sheetLoupeActive, sheetScale } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
@@ -340,14 +341,50 @@ export default function App() {
     useStore.getState().setStatus('2D measurement report copied to the clipboard.')
   }
 
+  /** The stem every 2D export is named on: the section, or the image. */
+  const flatExportStem = () =>
+    (activeSectionInfo()?.name ?? useFlat.getState().imageName ?? 'scan').replace(/\.[^.]+$/, '')
+
   const handleFlatExportCsv = () => {
-    const stem = (activeSectionInfo()?.name ?? useFlat.getState().imageName ?? 'scan').replace(
-      /\.[^.]+$/,
-      '',
-    )
-    const name = `${stem}-measurements.csv`
+    const name = `${flatExportStem()}-measurements.csv`
     saveFile(name, new Blob([buildFlatCsv(flatReportInput())], { type: 'text/csv' }))
     useStore.getState().setStatus(`Measurements exported to ${name}.`)
+  }
+
+  /** The sheet as a drawing: the detected edges and the fitted elements as
+   *  SVG at true scale, turned as shown — for a CAD sketch or a vector
+   *  editor. What is on the sheet is what is exported: hidden elements stay
+   *  out, and an element open for editing is not yet an element. */
+  const handleFlatExportSvg = () => {
+    const s = useFlat.getState()
+    const sheet = activeSheet()
+    if (!sheet) return
+    // Document units per chain unit: millimetres per pixel on the image. A
+    // section's chains are millimetres already, and its sheet scale is 1.
+    const scale = sheetScale(s)
+    const elements = sheetElements(s)
+    const report = flatReportInput()
+    const svg = buildFlatSvg({
+      bounds:
+        sheet.kind === 'image'
+          ? { min: [0, 0], max: [sheet.bitmap.width * scale.x, sheet.bitmap.height * scale.y] }
+          : sheet.bounds,
+      chains: sheet.chains,
+      chainUnit: scale,
+      elements,
+      turns: s.turns,
+      unit: s.pxPerMm ? 'mm' : 'px',
+      title: titleLine(report),
+      scaleNote: scaleLine(report),
+    })
+    const name = `${flatExportStem()}-sheet.svg`
+    saveFile(name, new Blob([svg], { type: 'image/svg+xml' }))
+    const chains = sheet.chains ? chainCount(sheet.chains) : 0
+    useStore
+      .getState()
+      .setStatus(
+        `Sheet exported to ${name} — ${chains.toLocaleString('en-US')} edge chain${chains === 1 ? '' : 's'} and ${elements.length} element${elements.length === 1 ? '' : 's'}.`,
+      )
   }
 
 
@@ -1536,6 +1573,7 @@ export default function App() {
             onOpenImage={(f) => void openImage(f)}
             onCopy={handleFlatCopyReport}
             onExportCsv={handleFlatExportCsv}
+            onExportSvg={handleFlatExportSvg}
           />
         ) : (
           <Panel

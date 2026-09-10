@@ -1030,6 +1030,13 @@ traceability line — what the scale is, where it came from, and which frame
 coordinates read in — because a figure without that line is how wrong numbers
 get trusted.
 
+**Export SVG** writes the sheet as a drawing at true scale — one unit per
+millimetre, turned as the sheet is shown: every detected edge chain as a
+polyline and every visible element as a native line, circle or arc, each
+layer its own group, so a CAD sketch can trace the scan's outline against the
+fitted geometry and a vector editor can pick either apart. Nothing sits under
+a transform, and the file's description carries the traceability line.
+
 ### Measuring a section
 
 The workspace's internals deliberately measure abstract 2D geometry, not
@@ -1042,9 +1049,9 @@ millimetres** — no calibration, no alarm, the origin at the cutting plane's
 centre and the sheet seen from the side the plane's normal points to — and
 everything above applies unchanged: picks snap to the cut, an edge-region
 fit takes it point for point (the chains are as fine as the scan's
-triangles), constructions, the datum, dimensions, the report and the CSV all
-read off it. The report's traceability line says it is a section of which
-scan, cut along what, at what offset.
+triangles), constructions, the datum, dimensions, the report, the CSV and the
+SVG all read off it. The report's traceability line says it is a section of
+which scan, cut along what, at what offset.
 
 One source is on the sheet at a time. **Each keeps its own sheet** — its
 elements, dimensions, datum, tallies and notes — stashed when you switch away

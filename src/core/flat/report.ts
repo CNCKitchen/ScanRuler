@@ -36,7 +36,7 @@ export interface FlatReportInput {
   counts?: readonly { name: string; picks: readonly unknown[] }[]
 }
 
-function scaleLine(r: FlatReportInput): string {
+export function scaleLine(r: FlatReportInput): string {
   if (r.section || r.calSource === 'section') return 'Scale: millimetres of the 3D scan (a section, not an image)'
   if (r.calSource === 'measured' && r.pxPerMm) {
     return r.pxPerMm.x === r.pxPerMm.y
@@ -50,7 +50,7 @@ function scaleLine(r: FlatReportInput): string {
 }
 
 /** The first line: what the sheet is. */
-function titleLine(r: FlatReportInput): string {
+export function titleLine(r: FlatReportInput): string {
   return r.section
     ? `ScanRuler 2D measurement — ${r.section.name}: ${r.section.scanName} cut ${r.section.cut}`
     : `ScanRuler 2D measurement — ${r.imageName} (${r.imageWidth} × ${r.imageHeight} px)`

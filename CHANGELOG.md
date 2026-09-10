@@ -5,6 +5,13 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## Unreleased
+
+- **2D Measure** — **Export SVG** beside Export CSV: the sheet as a drawing at
+  true scale, every detected edge chain as a polyline and every visible
+  element as a native line, circle or arc, in layers, turned as the sheet is
+  shown — for a CAD sketch to trace or a vector editor to pick apart.
+
 ## 0.2.0 — 2026-09-10
 
 The first numbered release. Everything the app does at this point:

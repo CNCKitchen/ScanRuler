@@ -46,10 +46,12 @@ export function FlatPanel({
   onOpenImage,
   onCopy,
   onExportCsv,
+  onExportSvg,
 }: {
   onOpenImage: (file: File) => void
   onCopy: () => void
   onExportCsv: () => void
+  onExportSvg: () => void
 }) {
   const imageName = useFlat((s) => s.imageName)
   const imageWidth = useFlat((s) => s.imageWidth)
@@ -98,6 +100,9 @@ export function FlatPanel({
   const cutOf = (sec: { ref: number | null; offset: number }) =>
     describeCut(scanElements.find((e) => e.id === sec.ref)?.name ?? null, sec.offset)
   const hasSheet = onSection || imageName !== null
+  // Anything the report and the CSV would have to say.
+  const hasMeasurements =
+    elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
@@ -603,13 +608,21 @@ export function FlatPanel({
 
       {hasSheet && <FlatDimensionSection editorOpen={editorOpen} />}
 
-      {hasSheet && (elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0) && (
+      {hasSheet && (hasMeasurements || edgeStatus === 'ready') && (
         <>
           <div className="divider" />
           <div className="toolrow">
-            <CopyButton label="Copy report" onCopy={onCopy} />
-            <button data-test="flat-export-csv" onClick={onExportCsv}>
+            <CopyButton label="Copy report" disabled={!hasMeasurements} onCopy={onCopy} />
+            <button data-test="flat-export-csv" disabled={!hasMeasurements} onClick={onExportCsv}>
               Export CSV
+            </button>
+            <button
+              data-test="flat-export-svg"
+              disabled={edgeStatus !== 'ready' && elements.length === 0}
+              onClick={onExportSvg}
+              title="Save the sheet as an SVG at true scale — the detected edges and the fitted elements, turned as shown — for a CAD sketch or a vector editor"
+            >
+              Export SVG
             </button>
           </div>
         </>
