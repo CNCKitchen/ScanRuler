@@ -272,6 +272,36 @@ check(!g.orbited, `freecad middle-drag pans, not orbits (${g.red} pivot px)`)
 g = await orbitsUnder({ buttons: ['middle'], chord: 'left' })
 check(g.orbited, `freecad middle+left chord orbits (${g.red} pivot px)`)
 
+// ---- the number keys turn to the standard views ----
+// Each key is a fixed orientation about whatever the screen centre is on, so
+// the same key twice has to land on the same frame and a different key on a
+// different one — a check on the pose rather than on the picture, which the
+// orbits above have left arbitrary. Top then front then top is not a round
+// trip in position (each turn pivots on the surface under the centre, which
+// differs per view), so the repeat is checked back to back. Ctrl+1 is the
+// browser's own tab switch and must leave the camera alone.
+await page.keyboard.press('1')
+await sleep(250)
+const top = await sample()
+check(top.area > 0.005, `the part is on screen from the top — area ${top.area.toFixed(4)}`)
+await page.keyboard.press('1')
+await sleep(250)
+const topAgain = await sample()
+const topDiff = await pixelDiff(page, topAgain.png, top.png)
+check(topDiff < 0.5, `the 1 key pressed again holds the top view (${topDiff.toFixed(3)}% off)`)
+await page.keyboard.down('Control')
+await page.keyboard.press('3')
+await page.keyboard.up('Control')
+await sleep(250)
+const ctrl = await sample()
+const ctrlDiff = await pixelDiff(page, ctrl.png, top.png)
+check(ctrlDiff < 0.5, `Ctrl+3 is left to the browser (${ctrlDiff.toFixed(3)}% off the top view)`)
+await page.keyboard.press('3')
+await sleep(250)
+const front = await sample()
+check(top.hash !== front.hash, 'the 3 key turns from top to front')
+check(front.area > 0.005, `the part is on screen from the front — area ${front.area.toFixed(4)}`)
+
 // ---- picking still works after all that ----
 // A drag must not read as a click, and a click must not read as a drag: sweep
 // the frame for a point that starts a sphere draft and previews a fit.

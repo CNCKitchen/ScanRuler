@@ -20,6 +20,26 @@ import type { ViewTheme } from './viewThemes'
  *  was drift, not intent. */
 const FRAME_MARGIN = 1.08
 
+/** The named camera poses: the six axis-aligned views and the three-quarter
+ *  one, keyed the way PrusaSlicer keys them (0 iso, 1 top, 2 bottom, 3 front,
+ *  4 rear, 5 left, 6 right). Z up throughout, the pose a part standing on the
+ *  floor plane looks upright in — the same convention the datum stage is read
+ *  in. Top and bottom cannot hold Z up, so they take Y: the top view has +Y at
+ *  the top of the screen, and the bottom view is that view with the part
+ *  turned over about X, which puts −Y there instead. */
+export type StandardView = 'iso' | 'top' | 'bottom' | 'front' | 'rear' | 'left' | 'right'
+
+export const STANDARD_VIEWS: Record<StandardView, { dir: THREE.Vector3; up: THREE.Vector3 }> = {
+  /** Front-top-right: the pose the datum stage is framed in. */
+  iso: { dir: new THREE.Vector3(0.72, -0.95, 0.55), up: new THREE.Vector3(0, 0, 1) },
+  top: { dir: new THREE.Vector3(0, 0, 1), up: new THREE.Vector3(0, 1, 0) },
+  bottom: { dir: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, -1, 0) },
+  front: { dir: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, 1) },
+  rear: { dir: new THREE.Vector3(0, 1, 0), up: new THREE.Vector3(0, 0, 1) },
+  left: { dir: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 0, 1) },
+  right: { dir: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 0, 1) },
+}
+
 export interface OrthoViewportOptions {
   /** Stage and lights — see viewThemes. One scheme across every viewport: two
    *  halves of a split view lit differently would read as two instruments. */
@@ -336,6 +356,49 @@ export class OrthoViewport {
     // the default three-quarter direction is as good an answer as any.
     if (dir.lengthSq() < 1e-12) dir.set(0.62, 0.42, 1)
     this.frameCamera(box, null, { dir, up: this.camera.up.clone() })
+  }
+
+  /**
+   * Turn the camera to one of the standard views, about whatever sits at the
+   * centre of the screen.
+   *
+   * Only the orientation changes: the zoom stays, and so does what is under
+   * the screen centre, so the part keeps its size and its place and merely
+   * shows another face — the way the number keys work in PrusaSlicer. A part
+   * that has been zoomed into is a part the user is looking at closely, and
+   * re-framing on every turn would keep throwing that away; fit-to-view is
+   * one key away when the whole part is wanted.
+   *
+   * The pivot is the surface under the screen centre when the part is there,
+   * as the free orbit pivots on the surface under the cursor; a turn about a
+   * point floating off the surface would swing the feature being looked at
+   * across the screen. With empty stage at the centre the pivot is that
+   * screen point at the depth of the model's centre — the same thing the
+   * orbit target is, brought level with the part so the turn stays close.
+   */
+  viewFrom(view: StandardView): void {
+    const { dir, up } = STANDARD_VIEWS[view]
+    const rect = this.renderer.domElement.getBoundingClientRect()
+    const pivot = this.nav.surfaceAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    if (!pivot) {
+      const axis = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
+      const depth = new THREE.Vector3()
+        .subVectors(this.clipSphere.center, this.camera.position)
+        .dot(axis)
+      this.controls.target.copy(this.camera.position).addScaledVector(axis, depth)
+    } else {
+      this.controls.target.copy(pivot)
+    }
+    // Where along the new axis the camera sits makes no difference to a
+    // parallel projection; the clip planes are re-derived from the model each
+    // frame. The framing distance is as good a place as any.
+    const dist = this.clipSphere.radius * 4 + 1
+    this.camera.up.copy(up)
+    this.camera.position.copy(this.controls.target).addScaledVector(dir.clone().normalize(), dist)
+    this.camera.lookAt(this.controls.target)
+    this.camera.updateMatrixWorld(true)
+    this.controls.update()
+    this.invalidate()
   }
 
   /** Adopt another viewport's framing extents. What makes two halves of a split

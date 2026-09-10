@@ -401,7 +401,12 @@ The viewport uses a **parallel (orthographic) projection** so nothing is
 foreshortened, and rotates freely around the model's bounding-box center with
 no fixed up-axis — you can turn the part all the way over without hitting a
 pole. Left-drag to rotate, right-drag to pan, scroll to zoom; the **XYZ gizmo**
-in the bottom-right corner shows the current orientation. On a touch screen the
+in the bottom-right corner shows the current orientation. The **number keys**
+turn the part to the standard views the way PrusaSlicer's do — **0** iso,
+**1** top, **2** bottom, **3** front, **4** rear, **5** left, **6** right, Z
+up — about the point you are looking at and at the zoom you are at, so a
+feature you have zoomed into stays on screen and just shows another face;
+the fit button brings the whole part back. On a touch screen the
 tablet gestures do the same three things — **one finger turns, two fingers pan
 and pinch to zoom, a tap picks** — and with the marking brush armed the single
 finger paints while two fingers still move the part.

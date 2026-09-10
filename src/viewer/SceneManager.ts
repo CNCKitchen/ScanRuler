@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
-import { OrthoViewport } from './orthoViewport'
+import { OrthoViewport, STANDARD_VIEWS, type StandardView } from './orthoViewport'
 import { AxisGizmo } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
@@ -117,11 +117,9 @@ export type { PickMarker }
  *  and the axis gizmo each live in their own module, and this class wires
  *  them to each other and keeps the public face the app talks to. */
 /** The view the datum stage is read from: front-top-right with Z up — the
- *  pose a part standing on the floor plane looks upright in. */
-const STAGE_VIEW = {
-  dir: new THREE.Vector3(0.72, -0.95, 0.55),
-  up: new THREE.Vector3(0, 0, 1),
-}
+ *  pose a part standing on the floor plane looks upright in, and the same
+ *  pose the iso key turns to. */
+const STAGE_VIEW = STANDARD_VIEWS.iso
 
 /** How see-through the reference's ghost is while it is being fitted. */
 const GHOST_OPACITY = 0.5
@@ -627,6 +625,12 @@ export class SceneManager {
     this.viewport.fitCamera(box)
     this.framedClip.center.copy(this.clipSphere.center)
     this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** Turn to one of the standard views — top, front, iso and so on — about
+   *  the point the camera is looking at, keeping the zoom. */
+  viewFrom(view: StandardView): void {
+    this.viewport.viewFrom(view)
   }
 
   /** Frame the part broadside, and remember what was framed so the alignment

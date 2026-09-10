@@ -478,7 +478,8 @@ export class OrthoNavigator {
     this.orbiting = false // promoted once the drag passes the threshold
   }
 
-  private surfaceAt(clientX: number, clientY: number): THREE.Vector3 | null {
+  /** The point on the model under a client position, if the model is there. */
+  surfaceAt(clientX: number, clientY: number): THREE.Vector3 | null {
     const targets = this.orbitTargets()
     if (!targets.length) return null
     this.setPickRay(this.orbitRaycaster, clientX, clientY)

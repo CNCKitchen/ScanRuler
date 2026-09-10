@@ -981,6 +981,7 @@ export default function App() {
     stopPicking,
     cancelDraft: handleCancelDraft,
     confirmDraft: handleConfirmDraft,
+    viewFrom: (view) => sceneRef.current?.viewFrom(view),
   })
 
   // Drag & drop anywhere.
