@@ -220,6 +220,11 @@ export class OrthoNavigator {
   /** Bracket the whole model between the clip planes, wherever orbiting and
    *  panning have carried the camera. Call once per frame.
    *
+   *  The bracket is measured along the view axis, not as the straight-line
+   *  distance to the model's centre: a camera that has panned off to the side
+   *  of the part is further from that centre than the part is deep, and a
+   *  near plane set from the distance would then cut into the part.
+   *
    *  The near plane is allowed to go negative: an orthographic frustum is a
    *  box, so a plane behind the camera is legal, and it is what keeps a part
    *  from being sliced away after the pivot has walked the camera in. Rays cast
@@ -227,7 +232,8 @@ export class OrthoNavigator {
   updateClipPlanes(): void {
     // A new frame may mean new layout; the rect is re-read on the next ray.
     this.rect = null
-    const d = this.camera.position.distanceTo(this.clipSphere.center)
+    const axis = this.tmp2.set(0, 0, -1).applyQuaternion(this.camera.quaternion)
+    const d = this.tmp.copy(this.clipSphere.center).sub(this.camera.position).dot(axis)
     const r = this.clipSphere.radius * 1.5 + 1e-3
     this.camera.near = d - r
     this.camera.far = d + r
