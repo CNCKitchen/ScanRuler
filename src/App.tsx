@@ -30,6 +30,14 @@ import { circleFromPoints } from './core/fit/circle'
 import { extensionOf, fitWindow, isExtendable, sideValue } from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
+import {
+  attachSurfaceScene,
+  forgetAllSurfaces,
+  forgetSurface,
+  rememberSurface,
+  surfaceSource,
+  surfacesMoved,
+} from './app/surfaces'
 import type { ElementKind, FitData, PointFit, Vec3 } from './core/types'
 import {
   alignSlotPicks,
@@ -461,8 +469,10 @@ export default function App() {
     deviationRgb.current = null
     elementField.current = null
     elementRgb.current = null
-    // The marked region is vertex indices into the scan being replaced.
+    // The marked region is vertex indices into the scan being replaced — and
+    // so is every surface an element rested on.
     elementScope.current = null
+    forgetAllSurfaces()
     thickness.current = null
     thicknessRgb.current = null
     useDeviation.getState().clearAlign()
@@ -523,6 +533,9 @@ export default function App() {
       const result = selection
         ? await clientRef.current!.fitSelection(kind, selection, settings, window)
         : await clientRef.current!.fit(kind, seeds, settings, window)
+      // The surface goes on record before the fit does, so whatever re-reads
+      // the elements on the fit landing finds the points already there.
+      rememberSurface(elementId, result.region)
       useStore.getState().resolveFit(elementId, result)
       const el = useStore.getState().elements.find((e) => e.id === elementId)
       if (el) sceneRef.current?.applyRegion(elementId, el.color, result.region)
@@ -682,6 +695,8 @@ export default function App() {
     sceneRef.current?.applyTransform(m)
     sceneRef.current?.setAlignPreview(null)
     useStore.getState().applyAlignment(m)
+    // The buffer and the elements have both moved: read the surfaces again.
+    surfacesMoved()
     deviation.current = null
     deviationRgb.current = null
     sceneRef.current?.setFieldColors(null)
@@ -1162,10 +1177,16 @@ export default function App() {
     // clear it first, so the element's own tint is what stays on the part.
     clearPaint()
     const el = useStore.getState().elements.find((e) => e.id === id)
-    if (el && region) sceneRef.current?.applyRegion(id, el.color, region)
+    if (el && region) {
+      rememberSurface(id, region)
+      sceneRef.current?.applyRegion(id, el.color, region)
+    }
     // An element that has stopped being fitted — re-made from coordinates or
     // from other elements — leaves the surface it used to own behind.
-    else if (el && el.source.type !== 'fitted') sceneRef.current?.clearElement(id)
+    else if (el && el.source.type !== 'fitted') {
+      forgetSurface(id)
+      sceneRef.current?.clearElement(id)
+    }
     useStore.getState().setStatus(`${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`)
   }
 
@@ -1386,12 +1407,13 @@ export default function App() {
       store.fileName ?? '',
       store.settings,
       store.elements,
-      evaluateDimensions(store.dimensions, store.elements),
+      evaluateDimensions(store.dimensions, store.elements, surfaceSource),
     )
     void navigator.clipboard?.writeText(text)
   }
 
   const handleDelete = (id: number) => {
+    forgetSurface(id)
     sceneRef.current?.clearElement(id)
     useStore.getState().removeElement(id)
   }
@@ -1697,6 +1719,7 @@ export default function App() {
             <Viewer
               onReady={(s) => {
                 sceneRef.current = s
+                attachSurfaceScene(() => sceneRef.current)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)

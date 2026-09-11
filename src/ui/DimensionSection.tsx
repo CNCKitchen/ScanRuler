@@ -14,6 +14,7 @@ import {
 import type { FitData } from '../core/types'
 import { useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
+import { surfaceSource, useSurfaces } from '../app/surfaces'
 import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
 import { NameField, providersFor, RefSelect } from './RefSelect'
@@ -54,8 +55,14 @@ export function DimensionSection({
     [dimensions],
   )
   // Every dimension re-reads its elements, so this is real work — memoised so
-  // an unrelated render (a checkbox, a hover) does not repeat it.
-  const evaluated = useMemo(() => evaluateDimensions(own, elements), [own, elements])
+  // an unrelated render (a checkbox, a hover) does not repeat it. A surface
+  // arriving or moving is a change of what is read too.
+  const surfaceVersion = useSurfaces((s) => s.version)
+  const evaluated = useMemo(
+    () => evaluateDimensions(own, elements, surfaceSource),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [own, elements, surfaceVersion],
+  )
 
   // Live preview of the dimension being built.
   const dimInfo = dimDraft ? dimensionTypeInfo(dimDraft.type) : null

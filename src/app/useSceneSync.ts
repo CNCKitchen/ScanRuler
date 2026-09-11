@@ -10,6 +10,7 @@ import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
 import { evaluateDimensions } from '../core/dimensions'
 import { liftFlatFit } from '../core/section/lift'
+import { surfaceSource, useSurfaces } from './surfaces'
 import {
   alignCenterOf,
   alignmentPreview,
@@ -180,6 +181,9 @@ export function useSceneSync({
   // user created between them.
   const elements = useStore((s) => s.elements)
   const dimensions = useStore((s) => s.dimensions)
+  // A tolerance on a plane reads the plane's surface: when that arrives or
+  // moves, its pin is out of date though nothing in the store has changed.
+  const surfaceVersion = useSurfaces((s) => s.version)
   // Elements and their dimensions are results of the measure workspace and
   // belong to it: a fitted sphere sitting on a deviation map is a second set
   // of colours over a reading, and its label competes with the map's own
@@ -256,6 +260,7 @@ export function useSceneSync({
     const rows = evaluateDimensions(
       dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
       elements,
+      surfaceSource,
     ).filter((r) => !r.value.invalid)
     const pairs: OverlayPair[] = rows
       .filter((r) => r.value.segment)
@@ -299,6 +304,7 @@ export function useSceneSync({
   }, [
     elements,
     dimensions,
+    surfaceVersion,
     elementsWorkspace,
     candidates,
     targetId,
