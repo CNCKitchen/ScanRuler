@@ -12,6 +12,7 @@
 
 import { create } from 'zustand'
 import {
+  EDGE_LINE_DEFAULT,
   SECTION_LINE_DEFAULT,
   SHEET_LINE_DEFAULT,
   clampLineWidth,
@@ -29,6 +30,7 @@ export const UI_THEMES: { id: UiTheme; label: string }[] = [
 const UI_THEME_KEY = 'scanruler.uitheme'
 const SECTION_LINES_KEY = 'scanruler.sectionlines'
 const SHEET_LINES_KEY = 'scanruler.sheetlines'
+const EDGE_LINES_KEY = 'scanruler.edgelines'
 
 const read = (key: string): string | null => {
   try {
@@ -47,9 +49,12 @@ const write = (key: string, value: string): void => {
   }
 }
 
+/** System unless told otherwise: an instrument that comes up in the chassis
+ *  the rest of the desktop wears. index.html reads the same key the same way
+ *  for the first paint. */
 const storedUiTheme = (): UiTheme => {
   const v = read(UI_THEME_KEY)
-  return v === 'dark' || v === 'system' ? v : 'light'
+  return v === 'dark' || v === 'light' ? v : 'system'
 }
 
 /** The operating system's preference, watched so that "System" follows it
@@ -69,10 +74,14 @@ interface PrefsState {
   sectionLines: number
   /** Fitted curves over a flatbed scan in 2D Measure, in pixels. */
   sheetLines: number
+  /** The edge chains the curves are fitted to — found in the scan, or cut by
+   *  a section — in pixels. */
+  edgeLines: number
   settingsOpen: boolean
   setUiTheme: (theme: UiTheme) => void
   setSectionLines: (px: number) => void
   setSheetLines: (px: number) => void
+  setEdgeLines: (px: number) => void
   openSettings: (open: boolean) => void
 }
 
@@ -83,6 +92,7 @@ export const usePrefs = create<PrefsState>()((set) => {
     dark: resolveDark(uiTheme),
     sectionLines: clampLineWidth(read(SECTION_LINES_KEY), SECTION_LINE_DEFAULT),
     sheetLines: clampLineWidth(read(SHEET_LINES_KEY), SHEET_LINE_DEFAULT),
+    edgeLines: clampLineWidth(read(EDGE_LINES_KEY), EDGE_LINE_DEFAULT),
     settingsOpen: false,
 
     setUiTheme: (theme) => {
@@ -98,6 +108,11 @@ export const usePrefs = create<PrefsState>()((set) => {
       const sheetLines = clampLineWidth(px, SHEET_LINE_DEFAULT)
       write(SHEET_LINES_KEY, String(sheetLines))
       set({ sheetLines })
+    },
+    setEdgeLines: (px) => {
+      const edgeLines = clampLineWidth(px, EDGE_LINE_DEFAULT)
+      write(EDGE_LINES_KEY, String(edgeLines))
+      set({ edgeLines })
     },
     openSettings: (settingsOpen) => set({ settingsOpen }),
   }

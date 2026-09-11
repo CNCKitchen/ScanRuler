@@ -1651,6 +1651,12 @@ button.x:disabled {
   white-space: nowrap;
 }
 
+/* The Labels key on the view bar, off: the tags go, the geometry stays. Set
+   on the viewport by SceneManager.setLabelsVisible. */
+.nolabels .viewport-label {
+  display: none;
+}
+
 .viewport-label .label-title {
   font-family: var(--cond);
   font-size: 9.5px;

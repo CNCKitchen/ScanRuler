@@ -88,7 +88,10 @@ export function collectProject(
       nextOfDimGroup: s.nextOfDimGroup,
       settings: s.settings,
       selectMode: s.selectMode,
-      showOverlays: s.showOverlays,
+      // The file keeps the switch's old name: it used to put away every overlay
+      // and now puts away the labels alone, which is the same choice as far as
+      // a saved project is concerned.
+      showOverlays: s.showLabels,
       showBackfaces: s.showBackfaces,
       sections: s.sections.map(sectionToJson),
       nextSectionNumber: s.nextSectionNumber,
@@ -212,7 +215,7 @@ export function applyScanPart(p: ScanPart): void {
     nextOfDimGroup: p.nextOfDimGroup,
     settings: p.settings,
     selectMode: p.selectMode,
-    showOverlays: p.showOverlays,
+    showLabels: p.showOverlays,
     showBackfaces: p.showBackfaces ?? true,
     // Planes only: the cuts are taken again once the scan is in the worker —
     // see useSections.

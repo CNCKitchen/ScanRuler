@@ -8,12 +8,13 @@ README under "Releases".
 ## Unreleased
 
 - **Settings** — a dialog of its own, opened with **⚙ Settings** in the top
-  bar, for what is set once and left: the **interface** (light, dark, or
-  whatever the operating system says), the **colour mode** the part is shown
-  in (Studio grey / Scanner blue — what the status strip used to call *View*),
-  the **mouse controls**, how heavy the **section cuts** and the **2D Measure
-  curves** are drawn, and the **guided hints**. All of it is remembered per
-  browser, and none of it is saved with a project.
+  bar, for what is set once and left: the **interface** (whatever the
+  operating system says, which is the default, or light or dark regardless),
+  the **colour mode** the part is shown in (Studio grey / Scanner blue — what
+  the status strip used to call *View*), the **mouse controls**, how heavy
+  the **section cuts**, the **2D fitted curves** and the **2D edges** are
+  drawn, and the **guided hints**. All of it is remembered per browser, and
+  none of it is saved with a project.
 - **Dark mode** — the whole chassis, the stage behind the part included, in
   every viewport: the split view's halves, the point picker and the 2D sheet
   go dark together. Nothing that carries a reading changes with it — the
@@ -23,13 +24,21 @@ README under "Releases".
 - **View bar** — the ways of looking at the part have moved off the status
   strip into the bottom-left corner of the stage, where there is room for
   words: **Transparent**, **Mesh** and **Backfaces** on the bottom row, and
-  above them the workspace's own — **Overlays** in 3D Measure, **Split view**
+  above them the workspace's own — **Labels** in 3D Measure, **Split view**
   and **Colour plot** in Surface Deviation. The support card stacks above the
   bar rather than over it.
-- **Line width** — how heavy a section's cut is drawn on the part, and how
-  heavy the curves fitted over a flatbed scan are, each a slider in Settings.
-  Everything drawn beside them — the preview cut, the sheet's curves stood up
-  in 3D, the callouts and pin marks in 2D — follows in proportion.
+- **Labels** is what the strip's *Overlays* has become: it puts away the name
+  tags and readouts on the part and nothing else. The fitted elements, the
+  sections and the dimension lines stay — hiding those is what the list's
+  **Hide all** is for, and a switch that did the same thing twice over was one
+  switch too many.
+- **Line width** — how heavy a section's cut is drawn on the part, how heavy
+  the curves fitted over a flatbed scan are, and how heavy the edge chains
+  under them are, each a slider in Settings. The first two carry everything
+  drawn beside them — the preview cut, the sheet's curves stood up in 3D, the
+  callouts and pin marks in 2D — in proportion. The edges, which were a
+  one-pixel hair whatever the screen, are drawn as proper lines now and can
+  be made as heavy as the curves.
 - The status strip is a status strip again: the lamp, what the tool is doing,
   the tally of what has been measured, and the imprint.
 

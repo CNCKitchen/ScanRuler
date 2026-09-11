@@ -3,13 +3,15 @@ import * as THREE from 'three'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { gridSpacing } from '../core/flat/datum'
 import type { EdgeChains } from '../core/flat/edges'
 import { splineMidpoint, splinePolyline, type HandleEnd, type SplineHandle } from '../core/flat/spline'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
-import { SHEET_LINE_DEFAULT } from './lineWidths'
+import { EDGE_LINE_DEFAULT, SHEET_LINE_DEFAULT } from './lineWidths'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
 import type { ViewTheme } from './viewThemes'
@@ -89,12 +91,18 @@ export class FlatScene {
   /** Detected edge chains. Geometry lives in image pixels; the group's scale
    *  is the px→mm map, so a recalibration is one scale write. */
   private edgeGroup = new THREE.Group()
-  private edgeSegments: THREE.LineSegments | null = null
-  private edgeMaterial = new THREE.LineBasicMaterial({
+  /** Fat lines like the curves, so they can be given a width at all — a
+   *  WebGL LineSegments is one pixel whatever it asks for. Sized on their
+   *  own rather than with the curves: they are what the curves were fitted
+   *  to, and a hair under a heavy curve is how the two read apart. */
+  private edgeSegments: LineSegments2 | null = null
+  private edgeMaterial = new LineMaterial({
     color: 0x11b5a5,
+    linewidth: EDGE_LINE_DEFAULT,
     transparent: true,
     opacity: 0.85,
     depthTest: false,
+    worldUnits: false,
   })
 
   /** A click on the sheet, in document millimetres — with whether Alt was
@@ -165,6 +173,7 @@ export class FlatScene {
         if (this.lineResolution.x !== w || this.lineResolution.y !== h) {
           this.lineResolution.set(w, h)
           for (const m of this.lineMaterials.keys()) m.resolution.copy(this.lineResolution)
+          this.edgeMaterial.resolution.copy(this.lineResolution)
           this.viewport.invalidate()
         }
       },
@@ -798,8 +807,8 @@ export class FlatScene {
   }
 
   /** Show detected edge chains (image-pixel coordinates), or clear them with
-   *  null. One LineSegments holds every chain — tens of thousands of segments
-   *  are one draw call. */
+   *  null. One instanced LineSegments2 holds every chain — tens of thousands
+   *  of segments are one draw call. */
   setEdgeChains(chains: EdgeChains | null): void {
     if (this.edgeSegments) {
       this.edgeGroup.remove(this.edgeSegments)
@@ -823,9 +832,9 @@ export class FlatScene {
           positions[at++] = 0.05
         }
       }
-      const geometry = new THREE.BufferGeometry()
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      this.edgeSegments = new THREE.LineSegments(geometry, this.edgeMaterial)
+      const geometry = new LineSegmentsGeometry()
+      geometry.setPositions(positions)
+      this.edgeSegments = new LineSegments2(geometry, this.edgeMaterial)
       this.edgeSegments.renderOrder = 2
       this.edgeGroup.add(this.edgeSegments)
     }
@@ -1139,6 +1148,14 @@ export class FlatScene {
     if (scale === this.lineScale) return
     this.lineScale = scale
     for (const [m, nominal] of this.lineMaterials) m.linewidth = nominal * scale
+    this.viewport.invalidate()
+  }
+
+  /** How heavy the edge chains are drawn, in pixels (Settings → Lines) —
+   *  independent of the curves fitted to them. */
+  setEdgeWidth(px: number): void {
+    if (this.edgeMaterial.linewidth === px) return
+    this.edgeMaterial.linewidth = px
     this.viewport.invalidate()
   }
 

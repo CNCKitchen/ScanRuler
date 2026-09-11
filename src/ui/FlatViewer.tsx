@@ -98,6 +98,7 @@ export function FlatViewer({
         sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
       )
       scene.setLineWidth(usePrefs.getState().sheetLines)
+      scene.setEdgeWidth(usePrefs.getState().edgeLines)
     } catch (e) {
       console.error(e)
       setWebglError(e instanceof Error ? e.message : String(e))
@@ -191,6 +192,10 @@ export function FlatViewer({
   useEffect(() => {
     sceneRef.current?.setLineWidth(sheetLines)
   }, [sheetLines])
+  const edgeLines = usePrefs((s) => s.edgeLines)
+  useEffect(() => {
+    sceneRef.current?.setEdgeWidth(edgeLines)
+  }, [edgeLines])
   // A tool going away must take the loupe with it, not wait for a mouse move.
   useEffect(() => {
     if (!loupe.active && loupeRef.current) loupeRef.current.style.display = 'none'

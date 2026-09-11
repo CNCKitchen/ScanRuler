@@ -13,16 +13,19 @@ import { useShell } from '../state/shellStore'
 import { useStore } from '../state/store'
 
 export function ViewBar() {
-  const showOverlays = useStore((s) => s.showOverlays)
-  const setShowOverlays = useStore((s) => s.setShowOverlays)
+  const showLabels = useStore((s) => s.showLabels)
+  const setShowLabels = useStore((s) => s.setShowLabels)
   const showBackfaces = useStore((s) => s.showBackfaces)
   const setShowBackfaces = useStore((s) => s.setShowBackfaces)
   const translucent = useStore((s) => s.translucent)
   const setTranslucent = useStore((s) => s.setTranslucent)
   const wireframe = useStore((s) => s.wireframe)
   const setWireframe = useStore((s) => s.setWireframe)
-  // The overlays are the measure workspace's own: elsewhere they are put away
-  // whatever this says, and a switch that does nothing is worse than no switch.
+  // The labels are the measure workspace's own: elsewhere the overlays are put
+  // away whatever this says, and a switch that does nothing is worse than no
+  // switch. Only the name tags and readouts answer to it — the elements
+  // themselves are the list's to hide, and a second way of doing that would
+  // have been the same switch twice.
   const elementsWorkspace = useShell((s) => s.workspace === 'elements')
   // How the deviation workspace is looked at, as against what it measures:
   // the two parts side by side instead of one inside the other, and whether
@@ -47,13 +50,13 @@ export function ViewBar() {
       {elementsWorkspace && (
         <div className="keys">
           <button
-            className={showOverlays ? 'on' : undefined}
-            data-test="toggle-overlays"
-            aria-pressed={showOverlays}
-            onClick={() => setShowOverlays(!showOverlays)}
-            title="Show the fitted elements, the sections and the distance callouts on the part"
+            className={showLabels ? 'on' : undefined}
+            data-test="toggle-labels"
+            aria-pressed={showLabels}
+            onClick={() => setShowLabels(!showLabels)}
+            title="Show the name tags and readouts on the part. The fitted elements, the sections and the dimension lines stay either way — Hide all in the list is for those"
           >
-            Overlays
+            Labels
           </button>
         </div>
       )}

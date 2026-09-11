@@ -24,6 +24,8 @@ export function SettingsModal() {
   const setSectionLines = usePrefs((s) => s.setSectionLines)
   const sheetLines = usePrefs((s) => s.sheetLines)
   const setSheetLines = usePrefs((s) => s.setSheetLines)
+  const edgeLines = usePrefs((s) => s.edgeLines)
+  const setEdgeLines = usePrefs((s) => s.setEdgeLines)
   const navScheme = useStore((s) => s.navScheme)
   const setNavScheme = useStore((s) => s.setNavScheme)
   const viewTheme = useStore((s) => s.viewTheme)
@@ -150,7 +152,7 @@ export function SettingsModal() {
           </small>
         </div>
         <div className="setting">
-          <label htmlFor="sheetlines">2D Measure curves</label>
+          <label htmlFor="sheetlines">2D fitted curves</label>
           <div className="range">
             <input
               id="sheetlines"
@@ -165,8 +167,27 @@ export function SettingsModal() {
             <output htmlFor="sheetlines">{sheetLines.toFixed(1)} px</output>
           </div>
           <small>
-            The lines, circles and splines fitted over a flatbed scan, and the callouts drawn
-            with them.
+            The lines, circles and splines fitted over a flatbed scan in 2D Measure, and the
+            callouts drawn with them.
+          </small>
+        </div>
+        <div className="setting">
+          <label htmlFor="edgelines">2D edges</label>
+          <div className="range">
+            <input
+              id="edgelines"
+              data-test="edge-lines"
+              type="range"
+              min={LINE_MIN}
+              max={LINE_MAX}
+              step={LINE_STEP}
+              value={edgeLines}
+              onChange={(e) => setEdgeLines(Number(e.target.value))}
+            />
+            <output htmlFor="edgelines">{edgeLines.toFixed(1)} px</output>
+          </div>
+          <small>
+            The edge chains the curves are fitted to — found in the scan, or cut by a section.
           </small>
         </div>
 

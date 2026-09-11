@@ -689,7 +689,9 @@ interface AppState {
    *  uses the shared tools in markStore, the same ones the deviation
    *  workspace's local fine fit is marked with. */
   selectMode: SelectMode
-  showOverlays: boolean
+  /** The name tags and readouts on the part in 3D Measure. The elements
+   *  themselves are not this switch's: hiding those is the list's Hide all. */
+  showLabels: boolean
   /** Colour the far side of every triangle differently, so holes and inverted
    *  normals stop reading as solid part. */
   showBackfaces: boolean
@@ -855,7 +857,7 @@ interface AppState {
   setAllDimensionsVisible: (visible: boolean) => void
   setSigma: (k: SigmaPreset) => void
   setSelectMode: (mode: SelectMode) => void
-  setShowOverlays: (v: boolean) => void
+  setShowLabels: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
   setTranslucent: (v: boolean) => void
   setWireframe: (v: boolean) => void
@@ -931,7 +933,7 @@ export const useStore = create<AppState>()((set, get) => ({
   nextOfDimGroup: { distance: 1, angle: 1 },
   settings: { method: 'gaussian', sigma: 3 },
   selectMode: 'auto',
-  showOverlays: true,
+  showLabels: true,
   showBackfaces: true,
   translucent: false,
   wireframe: false,
@@ -1907,7 +1909,7 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setSigma: (sigma) => set((s) => ({ settings: { ...s.settings, sigma } })),
   setSelectMode: (selectMode) => set({ selectMode }),
-  setShowOverlays: (showOverlays) => set({ showOverlays }),
+  setShowLabels: (showLabels) => set({ showLabels }),
   setShowBackfaces: (showBackfaces) => set({ showBackfaces }),
   setTranslucent: (translucent) => set({ translucent }),
   setWireframe: (wireframe) => set({ wireframe }),

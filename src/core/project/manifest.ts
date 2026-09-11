@@ -118,6 +118,8 @@ export interface ScanPart {
   nextOfDimGroup: Record<'distance' | 'angle', number>
   settings: FitSettings
   selectMode: SelectMode
+  /** Whether the labels on the part are shown — the name under which the
+   *  switch was saved when it hid every overlay. */
   showOverlays: boolean
   /** Absent in projects saved before the switch existed; those load with the
    *  tint on, same as a fresh session. */

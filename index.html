@@ -28,7 +28,7 @@
     <script>
       try {
         var t = localStorage.getItem('scanruler.uitheme')
-        if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
           document.documentElement.dataset.theme = 'dark'
       } catch (e) {}
     </script>

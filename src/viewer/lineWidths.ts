@@ -16,6 +16,11 @@ export const SECTION_LINE_DEFAULT = 2.5
 /** A fitted curve over a flatbed scan in 2D Measure. */
 export const SHEET_LINE_DEFAULT = 4
 
+/** The edge chains a 2D curve is fitted to — found in the scan, or cut by a
+ *  section. A hair by default: they are the raw material, drawn under
+ *  everything measured from them. */
+export const EDGE_LINE_DEFAULT = 1
+
 /** The range either slider runs over. Below one pixel a fat line is a
  *  flicker; above six it is a band hiding what it was drawn on. */
 export const LINE_MIN = 1

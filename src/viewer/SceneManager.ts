@@ -962,6 +962,16 @@ export class SceneManager {
     this.sections.setLineWidth(px)
   }
 
+  /** Show or put away the name tags and readouts on the part — every label
+   *  the CSS2D renderer draws into this viewport — leaving the bodies, the
+   *  cuts and the callout lines where they are. A class on the container,
+   *  which the stylesheet reads: the label renderer clears each label's
+   *  inline display on every frame it is visible, so a rule from outside is
+   *  the one thing it cannot undo. */
+  setLabelsVisible(on: boolean): void {
+    this.container.classList.toggle('nolabels', !on)
+  }
+
   /** The section being made: its plane through the part and the cut it
    *  produces, with the gizmo that slides and tilts the plane. Null frame
    *  takes all three away. */

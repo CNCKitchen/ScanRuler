@@ -180,7 +180,6 @@ export function useSceneSync({
   // user created between them.
   const elements = useStore((s) => s.elements)
   const dimensions = useStore((s) => s.dimensions)
-  const showOverlays = useStore((s) => s.showOverlays)
   // Elements and their dimensions are results of the measure workspace and
   // belong to it: a fitted sphere sitting on a deviation map is a second set
   // of colours over a reading, and its label competes with the map's own
@@ -280,7 +279,7 @@ export function useSceneSync({
       items,
       elementsWorkspace ? pairs : [],
       elementsWorkspace ? angles : [],
-      elementsWorkspace ? showOverlays : items.length > 0,
+      elementsWorkspace || items.length > 0,
     )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
@@ -300,7 +299,6 @@ export function useSceneSync({
   }, [
     elements,
     dimensions,
-    showOverlays,
     elementsWorkspace,
     candidates,
     targetId,
@@ -341,9 +339,18 @@ export function useSceneSync({
             .filter((el) => el.visible && el.fit)
             .map((el) => liftFlatFit(sec.frame, el.fit!)),
         })),
-      elementsWorkspace && showOverlays,
+      elementsWorkspace,
     )
-  }, [sections, editingSectionId, elementsWorkspace, showOverlays, flatSubject, flatElements, flatSheets])
+  }, [sections, editingSectionId, elementsWorkspace, flatSubject, flatElements, flatSheets])
+
+  // The name tags and readouts, the measure workspace's own switch: off, the
+  // bodies, the cuts and the callout lines stay and only the text goes.
+  // Elsewhere every label is left alone — the pinned readings of a map are
+  // labels too, and that workspace has no key for them.
+  const showLabels = useStore((s) => s.showLabels)
+  useEffect(() => {
+    sceneRef.current?.setLabelsVisible(!elementsWorkspace || showLabels)
+  }, [elementsWorkspace, showLabels])
 
   // The section being made: its plane through the part, the cut so far, and
   // the grip that slides it. The cut lags the plane by one worker round trip

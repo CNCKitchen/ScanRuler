@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
 import {
+  EDGE_LINE_DEFAULT,
   LINE_MAX,
   LINE_MIN,
   LINE_STEP,
@@ -14,7 +15,7 @@ import {
  *  can draw. */
 describe('line width settings', () => {
   it('ships defaults inside the range the sliders run over', () => {
-    for (const d of [SECTION_LINE_DEFAULT, SHEET_LINE_DEFAULT]) {
+    for (const d of [SECTION_LINE_DEFAULT, SHEET_LINE_DEFAULT, EDGE_LINE_DEFAULT]) {
       expect(d).toBeGreaterThanOrEqual(LINE_MIN)
       expect(d).toBeLessThanOrEqual(LINE_MAX)
       expect(clampLineWidth(d, 99)).toBe(d)

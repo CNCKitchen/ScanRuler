@@ -174,25 +174,29 @@ frames the reference rather than the pair of them.
 **⚙ Settings** in the top bar holds what is set once and left, all of it
 remembered per browser and none of it saved with a project:
 
-- **Interface** — light or dark chassis, or **System** to follow the operating
-  system's setting as it changes. The stage behind the part goes dark with it,
+- **Interface** — **System** follows the operating system's setting as it
+  changes, which is the default; or a light or dark chassis regardless. The
+  stage behind the part goes dark with it,
   in every viewport, and nothing that carries a reading changes: the element
   tints, the deviation and thickness ramps and the axis colours are the same
   on both.
 - **Colour mode** — Studio grey or Scanner blue, as [above](#how-the-part-is-shown).
 - **Mouse controls** — the CAD tool whose buttons the viewport should answer
   to, with a line under the dropdown saying which button does what.
-- **Section cuts** and **2D Measure curves** — how heavy the lines are drawn,
-  in pixels. Everything drawn beside them follows in proportion: the preview of
-  a cut and the sheet's curves stood up on it in 3D, the callouts and pin marks
-  over a flatbed scan in 2D.
+- **Section cuts**, **2D fitted curves** and **2D edges** — how heavy the
+  lines are drawn, in pixels. The first two carry everything drawn beside them
+  in proportion: the preview of a cut and the sheet's curves stood up on it in
+  3D, the callouts and pin marks over a flatbed scan in 2D. The edges are the
+  chains the curves are fitted to, found in the scan or cut by a section.
 - **Guided hints** — the amber ring around the control to press next.
 
 The ways of *looking* at a part are not settings and are not here: they are on
 the **view bar** in the bottom-left corner of the stage, where they change with
 the job in hand — **Transparent**, **Mesh** and **Backfaces** for every part in
-every viewport, and above them the workspace's own row: **Overlays** in 3D
-Measure, **Split view** and **Colour plot** in Surface Deviation.
+every viewport, and above them the workspace's own row: **Labels** in 3D
+Measure — the name tags and readouts on the part, the elements themselves
+staying put (the list's **Hide all** is for those) — and **Split view** and
+**Colour plot** in Surface Deviation.
 
 ### Elements: fitted, picked and constructed
 
