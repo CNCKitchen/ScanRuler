@@ -25,6 +25,21 @@ export function roleOf(kind: ElementKind): RefRole {
   return 'point'
 }
 
+/** What a slot of a dimension or a tolerance takes: any of the roles,
+ *  narrowed to specific kinds where the characteristic is about one shape —
+ *  a cylindricity is of a cylinder, not of whatever has an axis. */
+export interface SlotRoles {
+  roles: readonly RefRole[]
+  kinds?: readonly ElementKind[]
+}
+
+export function slotTakes(slot: SlotRoles, kind: ElementKind): boolean {
+  return (
+    slot.roles.some((role) => providesRole(kind, role)) &&
+    (!slot.kinds || slot.kinds.includes(kind))
+  )
+}
+
 /** The point an element stands for, or null if it has none. */
 export function refPoint(fit: FitData): Vec3 | null {
   return fit.kind === 'point' || fit.kind === 'sphere' || fit.kind === 'circle'

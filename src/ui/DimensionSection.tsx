@@ -47,12 +47,21 @@ export function DimensionSection({
   const pulseNew = usePulse('new-dimension')
   const pulseAdd = usePulse('add-dimension')
 
+  // This group's own: the tolerances share the list in the store but are
+  // read in their own group below.
+  const own = useMemo(
+    () => dimensions.filter((d) => dimensionTypeInfo(d.type).family === 'dimension'),
+    [dimensions],
+  )
   // Every dimension re-reads its elements, so this is real work — memoised so
   // an unrelated render (a checkbox, a hover) does not repeat it.
-  const evaluated = useMemo(() => evaluateDimensions(dimensions, elements), [dimensions, elements])
+  const evaluated = useMemo(() => evaluateDimensions(own, elements), [own, elements])
 
   // Live preview of the dimension being built.
   const dimInfo = dimDraft ? dimensionTypeInfo(dimDraft.type) : null
+  // A tolerance being assembled is this group's draft too as far as the store
+  // knows, but it is read in the GD&T group; here it only holds the key down.
+  const ownDraft = dimDraft !== null && dimInfo?.family === 'dimension'
   let dimPreview: DimensionValue | null = null
   if (dimDraft && dimInfo && dimDraft.refs.every((r) => r !== null)) {
     const fits = dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit)
@@ -86,15 +95,15 @@ export function DimensionSection({
             centre to centre — a ball-bar length is centre to centre.
           </p>
         </InfoDot>
-        {dimensions.length > 0 && <b>{dimensions.length}</b>}
+        {own.length > 0 && <b>{own.length}</b>}
       </div>
 
-      {dimDraft === null ? (
+      {!ownDraft ? (
         <>
           <button
             className={pulseNew ? 'block pulse' : 'block'}
             data-test="new-dimension"
-            disabled={elements.every((e) => !e.fit)}
+            disabled={elements.every((e) => !e.fit) || dimDraft !== null}
             onClick={() => startDimension('dist-point-point')}
           >
             New dimension
@@ -104,6 +113,7 @@ export function DimensionSection({
           )}
         </>
       ) : (
+        dimDraft &&
         dimInfo && (
           <div className="draftbox dimbox">
             <div className="sec-head">
@@ -139,6 +149,13 @@ export function DimensionSection({
                     </option>
                   ))}
                 </optgroup>
+                <optgroup label="Size">
+                  {DIMENSION_TYPES.filter((t) => t.group === 'size').map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </label>
             <p className="hint">{dimInfo.hint}</p>
@@ -146,12 +163,14 @@ export function DimensionSection({
               <RefSelect
                 key={i}
                 label={slot.label}
-                options={providersFor([slot.role], elements)}
+                options={providersFor(slot.roles, elements, undefined, slot.kinds)}
                 value={dimDraft.refs[i]}
                 testId={`dim-ref-${i}`}
                 picking={dimDraft.pickSlot === i}
                 onChange={(id) => setDimensionRef(i, id)}
-                onPickNew={slot.role === 'point' ? () => onPickPoint(i) : undefined}
+                onPickNew={
+                  slot.roles.includes('point') && !slot.kinds ? () => onPickPoint(i) : undefined
+                }
               />
             ))}
             {dimRefsAreSpheres && (
@@ -198,14 +217,14 @@ export function DimensionSection({
         )
       )}
 
-      {dimensions.length > 0 && (
+      {own.length > 0 && (
         <div className="g-label">
           <span>Dimensions</span>
           <ShowAllButton
-            anyVisible={dimensions.some((d) => d.visible !== false)}
+            anyVisible={own.some((d) => d.visible !== false)}
             what="dimensions"
             testId="dimensions-show-all"
-            onSet={setAllDimensionsVisible}
+            onSet={(visible) => setAllDimensionsVisible(visible, 'dimension')}
           />
         </div>
       )}

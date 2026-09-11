@@ -6,11 +6,12 @@ import {
   creationMethod,
   evaluateConstruction,
 } from '../core/elements/construct'
-import type { Dimension, SphereAnchor } from '../core/dimensions'
+import type { Dimension, DimensionFamily, SphereAnchor } from '../core/dimensions'
 import {
   assignDimensionRefs,
   dimensionTypeInfo,
   resolveDimensionType,
+  stemKey,
 } from '../core/dimensions'
 import { roleOf } from '../core/elements/refs'
 import {
@@ -683,7 +684,9 @@ interface AppState {
   /** Per-kind counters, so elements are named "Sphere 1", "Plane 1", … */
   nextOfKind: Record<ElementKind, number>
   nextDimensionId: number
-  nextOfDimGroup: Record<'distance' | 'angle', number>
+  /** The next number of each dimension kind, keyed by its name stem — see
+   *  stemKey. A kind not yet used has no entry and starts at 1. */
+  nextOfDimGroup: Record<string, number>
   settings: FitSettings
   /** Where a fit gets its surface from — see SelectMode. Marking one by hand
    *  uses the shared tools in markStore, the same ones the deviation
@@ -853,8 +856,8 @@ interface AppState {
   commitDimension: () => void
   removeDimension: (id: number) => void
   toggleDimensionVisible: (id: number) => void
-  /** Show or hide every dimension at once. */
-  setAllDimensionsVisible: (visible: boolean) => void
+  /** Show or hide every dimension at once — of one family, or of both. */
+  setAllDimensionsVisible: (visible: boolean, family?: DimensionFamily) => void
   setSigma: (k: SigmaPreset) => void
   setSelectMode: (mode: SelectMode) => void
   setShowLabels: (v: boolean) => void
@@ -1786,9 +1789,11 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       if (!s.dimDraft) return {}
       const slots = dimensionTypeInfo(type).slots
-      const sameRoles =
-        dimensionTypeInfo(s.dimDraft.type).slots.length === slots.length &&
-        slots.every((sl, i) => sl.role === dimensionTypeInfo(s.dimDraft!.type).slots[i].role)
+      const signature = (t: string) =>
+        dimensionTypeInfo(t)
+          .slots.map((sl) => `${sl.roles.join('|')}:${(sl.kinds ?? []).join('|')}`)
+          .join(',')
+      const sameRoles = signature(type) === signature(s.dimDraft.type)
       return {
         dimDraft: {
           ...s.dimDraft,
@@ -1820,12 +1825,15 @@ export const useStore = create<AppState>()((set, get) => ({
       }
       const slots = dimensionTypeInfo(dd.type).slots
       // What is already selected, in slot order — plus the new element. With
-      // both slots taken the pick replaces the second one, so the first
+      // every slot taken the pick replaces the last one, so the first
       // reference stays the anchor of the measurement.
-      let selected = dd.refs.flatMap((r, i) => (r !== null ? [{ id: r, role: slots[i].role }] : []))
+      let selected = dd.refs.flatMap((r) => {
+        const ref = r !== null ? s.elements.find((e) => e.id === r) : undefined
+        return ref ? [{ id: ref.id, kind: ref.kind }] : []
+      })
       if (selected.length >= slots.length) selected = selected.slice(0, slots.length - 1)
-      selected.push({ id, role: roleOf(el.kind) })
-      const type = resolveDimensionType(dd.type, selected.map((sel) => sel.role))
+      selected.push({ id, kind: el.kind })
+      const type = resolveDimensionType(dd.type, selected.map((sel) => sel.kind))
       return {
         dimDraft: { ...dd, type, refs: assignDimensionRefs(type, selected), pickSlot: null },
       }
@@ -1852,25 +1860,25 @@ export const useStore = create<AppState>()((set, get) => ({
       const dd = s.dimDraft
       if (!dd || dd.refs.some((r) => r === null)) return {}
       const info = dimensionTypeInfo(dd.type)
-      const n = s.nextOfDimGroup[info.group]
+      const key = stemKey(info)
+      const n = s.nextOfDimGroup[key] ?? 1
       if (dd.editId !== undefined) {
         const old = s.dimensions.find((d) => d.id === dd.editId)
         const typed = dd.name?.trim()
         // A distance turned into an angle is no longer "Distance 2": unless it
-        // was renamed by hand it takes the next name of the group it has
+        // was renamed by hand it takes the next name of the kind it has
         // become.
         const renamed = Boolean(typed) && typed !== old?.name
-        const regroup = !renamed && old !== undefined && dimensionTypeInfo(old.type).group !== info.group
-        const name = regroup
-          ? `${info.group === 'distance' ? 'Distance' : 'Angle'} ${n}`
-          : typed || (old?.name ?? '')
+        const regroup =
+          !renamed && old !== undefined && stemKey(dimensionTypeInfo(old.type)) !== key
+        const name = regroup ? `${info.stem} ${n}` : typed || (old?.name ?? '')
         return {
           dimensions: s.dimensions.map((d) =>
             d.id === dd.editId
               ? { ...d, type: dd.type, refs: dd.refs as number[], anchor: dd.anchor, name }
               : d,
           ),
-          nextOfDimGroup: regroup ? { ...s.nextOfDimGroup, [info.group]: n + 1 } : s.nextOfDimGroup,
+          nextOfDimGroup: regroup ? { ...s.nextOfDimGroup, [key]: n + 1 } : s.nextOfDimGroup,
           dimDraft: null,
         }
       }
@@ -1880,14 +1888,14 @@ export const useStore = create<AppState>()((set, get) => ({
           {
             id: s.nextDimensionId,
             type: dd.type,
-            name: `${info.group === 'distance' ? 'Distance' : 'Angle'} ${n}`,
+            name: `${info.stem} ${n}`,
             refs: dd.refs as number[],
             anchor: dd.anchor,
             visible: true,
           },
         ],
         nextDimensionId: s.nextDimensionId + 1,
-        nextOfDimGroup: { ...s.nextOfDimGroup, [info.group]: n + 1 },
+        nextOfDimGroup: { ...s.nextOfDimGroup, [key]: n + 1 },
         dimDraft: null,
       }
     }),
@@ -1904,8 +1912,12 @@ export const useStore = create<AppState>()((set, get) => ({
         d.id === id ? { ...d, visible: d.visible === false } : d,
       ),
     })),
-  setAllDimensionsVisible: (visible) =>
-    set((s) => ({ dimensions: s.dimensions.map((d) => ({ ...d, visible })) })),
+  setAllDimensionsVisible: (visible, family) =>
+    set((s) => ({
+      dimensions: s.dimensions.map((d) =>
+        family === undefined || dimensionTypeInfo(d.type).family === family ? { ...d, visible } : d,
+      ),
+    })),
 
   setSigma: (sigma) => set((s) => ({ settings: { ...s.settings, sigma } })),
   setSelectMode: (selectMode) => set({ selectMode }),

@@ -4,6 +4,7 @@ import {
   assignDimensionRefs,
   evaluateDimension,
   evaluateDimensions,
+  judgeLimit,
   resolveDimensionType,
 } from '../src/core/dimensions'
 import type {
@@ -300,23 +301,26 @@ describe('evaluateDimensions', () => {
 
 describe('resolveDimensionType', () => {
   it('keeps the current type while the selection still fits it', () => {
-    expect(resolveDimensionType('dist-point-point', ['point'])).toBe('dist-point-point')
-    expect(resolveDimensionType('dist-point-point', ['point', 'point'])).toBe('dist-point-point')
+    expect(resolveDimensionType('dist-point-point', ['sphere'])).toBe('dist-point-point')
+    expect(resolveDimensionType('dist-point-point', ['point', 'sphere'])).toBe('dist-point-point')
     // A single axis pick fits the second slot of Point - Axis.
-    expect(resolveDimensionType('dist-point-axis', ['axis'])).toBe('dist-point-axis')
+    expect(resolveDimensionType('dist-point-axis', ['cylinder'])).toBe('dist-point-axis')
+    // A circle is a point by default but also an axis: on Axis – Axis it
+    // stays, as the axis it can be.
+    expect(resolveDimensionType('angle-axis-axis', ['circle'])).toBe('angle-axis-axis')
   })
 
   it('switches to the role-role type of the same group on an off-role first pick', () => {
     expect(resolveDimensionType('dist-point-point', ['plane'])).toBe('dist-plane-plane')
-    expect(resolveDimensionType('dist-point-point', ['axis'])).toBe('dist-axis-axis')
-    expect(resolveDimensionType('angle-plane-plane', ['axis'])).toBe('angle-axis-axis')
+    expect(resolveDimensionType('dist-point-point', ['cylinder'])).toBe('dist-axis-axis')
+    expect(resolveDimensionType('angle-plane-plane', ['line'])).toBe('angle-axis-axis')
   })
 
   it('re-resolves against both roles on the second pick', () => {
     // First pick was a plane (draft moved to plane-plane), second is a sphere.
-    expect(resolveDimensionType('dist-plane-plane', ['plane', 'point'])).toBe('dist-point-plane')
-    expect(resolveDimensionType('dist-point-point', ['point', 'axis'])).toBe('dist-point-axis')
-    expect(resolveDimensionType('angle-axis-axis', ['axis', 'plane'])).toBe('angle-axis-plane')
+    expect(resolveDimensionType('dist-plane-plane', ['plane', 'sphere'])).toBe('dist-point-plane')
+    expect(resolveDimensionType('dist-point-point', ['point', 'cone'])).toBe('dist-point-axis')
+    expect(resolveDimensionType('angle-axis-axis', ['cylinder', 'plane'])).toBe('angle-axis-plane')
   })
 
   it('changes group only when the selection has no type in the current one', () => {
@@ -324,22 +328,134 @@ describe('resolveDimensionType', () => {
     expect(resolveDimensionType('angle-axis-axis', ['point'])).toBe('dist-point-point')
     expect(resolveDimensionType('angle-axis-axis', ['point', 'plane'])).toBe('dist-point-plane')
   })
+
+  it('keeps a diameter on anything round and leaves it for a second pick', () => {
+    expect(resolveDimensionType('size-diameter', ['cylinder'])).toBe('size-diameter')
+    expect(resolveDimensionType('size-diameter', ['circle'])).toBe('size-diameter')
+    // A plane has no diameter: the least committed guess of the family.
+    expect(resolveDimensionType('size-diameter', ['plane'])).toBe('dist-plane-plane')
+    // Two spheres are a distance, not two diameters.
+    expect(resolveDimensionType('size-diameter', ['sphere', 'sphere'])).toBe('dist-point-point')
+  })
 })
 
 describe('assignDimensionRefs', () => {
   it('places selections into slots by role, in pick order', () => {
     expect(
       assignDimensionRefs('dist-point-plane', [
-        { id: 7, role: 'plane' },
-        { id: 3, role: 'point' },
+        { id: 7, kind: 'plane' },
+        { id: 3, kind: 'sphere' },
       ]),
     ).toEqual([3, 7])
-    expect(assignDimensionRefs('dist-point-point', [{ id: 5, role: 'point' }])).toEqual([5, null])
+    expect(assignDimensionRefs('dist-point-point', [{ id: 5, kind: 'point' }])).toEqual([5, null])
     expect(
       assignDimensionRefs('dist-plane-plane', [
-        { id: 1, role: 'plane' },
-        { id: 2, role: 'plane' },
+        { id: 1, kind: 'plane' },
+        { id: 2, kind: 'plane' },
       ]),
     ).toEqual([1, 2])
+  })
+
+  it('seats a circle as the point unless only the axis slot is open', () => {
+    expect(assignDimensionRefs('dist-point-axis', [{ id: 4, kind: 'circle' }])).toEqual([4, null])
+    expect(
+      assignDimensionRefs('dist-point-axis', [
+        { id: 9, kind: 'sphere' },
+        { id: 4, kind: 'circle' },
+      ]),
+    ).toEqual([9, 4])
+  })
+
+  it('narrows a slot to its kinds', () => {
+    expect(assignDimensionRefs('size-diameter', [{ id: 2, kind: 'cylinder' }])).toEqual([2])
+    expect(assignDimensionRefs('size-diameter', [{ id: 2, kind: 'cone' }])).toEqual([null])
+  })
+})
+
+describe('diameter', () => {
+  it('reads twice the fitted radius and pins to the feature', () => {
+    const r = evaluateDimension('size-diameter', [cylinder([1, 2, 3], [0, 0, 1])])
+    expect(r.raw).toBeCloseTo(10, 9)
+    expect(r.value).toBe('10.000 mm')
+    expect(r.anchor).toEqual([1, 2, 3])
+    expect(r.segment).toBeUndefined()
+  })
+
+  it('has nothing to say about a plane', () => {
+    expect(evaluateDimension('size-diameter', [plane([0, 0, 0])]).invalid).toMatch(/no diameter/)
+  })
+})
+
+describe('limits', () => {
+  it('judges a ceiling: within reads negative, over reads the excess', () => {
+    const within = judgeLimit(0.031, { kind: 'max', max: 0.05 }, 'mm')
+    expect(within.pass).toBe(true)
+    expect(within.over).toBe(0)
+    expect(within.deviation).toBeCloseTo(-0.019, 9)
+    expect(within.allowance).toBe('limit 0.050 mm')
+    expect(within.delta).toBe('Δ -0.019 mm')
+    expect(within.alarm).toBeUndefined()
+
+    const over = judgeLimit(0.062, { kind: 'max', max: 0.05 }, 'mm')
+    expect(over.pass).toBe(false)
+    expect(over.over).toBeCloseTo(0.012, 9)
+    expect(over.alarm).toBe('0.012 mm over the limit')
+  })
+
+  it('judges a band about a nominal, either side', () => {
+    const band = { kind: 'band' as const, nominal: 12, plus: 0.02, minus: 0.01 }
+    const ok = judgeLimit(12.015, band, 'mm')
+    expect(ok.pass).toBe(true)
+    expect(ok.deviation).toBeCloseTo(0.015, 9)
+    expect(ok.delta).toBe('Δ +0.015 mm')
+    expect(ok.allowance).toBe('nominal 12.000 mm +0.020 mm / −0.010 mm')
+
+    const high = judgeLimit(12.03, band, 'mm')
+    expect(high.pass).toBe(false)
+    expect(high.over).toBeCloseTo(0.01, 9)
+    expect(high.alarm).toBe('0.010 mm over the upper limit')
+
+    const low = judgeLimit(11.985, band, 'mm')
+    expect(low.pass).toBe(false)
+    expect(low.over).toBeCloseTo(-0.005, 9)
+    expect(low.alarm).toBe('0.005 mm under the lower limit')
+  })
+
+  it('reads angles in degrees', () => {
+    const v = judgeLimit(90.3, { kind: 'band', nominal: 90, plus: 0.5, minus: 0.5 }, '°')
+    expect(v.pass).toBe(true)
+    expect(v.delta).toBe('Δ +0.30°')
+    expect(v.allowance).toBe('nominal 90.00° +0.50° / −0.50°')
+  })
+
+  it('rides along with the evaluated dimension, and only where there is a value', () => {
+    const elements = [
+      { id: 1, name: 'Sphere 1', fit: sphere([0, 0, 0], 1) },
+      { id: 2, name: 'Sphere 2', fit: sphere([10, 0, 0], 1) },
+    ]
+    const rows = evaluateDimensions(
+      [
+        {
+          id: 1,
+          type: 'dist-point-point',
+          name: 'Distance 1',
+          refs: [1, 2],
+          limit: { kind: 'band', nominal: 10, plus: 0.1, minus: 0.1 },
+        },
+        { id: 2, type: 'dist-point-point', name: 'Distance 2', refs: [1, 2] },
+        {
+          id: 3,
+          type: 'dist-point-point',
+          name: 'Distance 3',
+          refs: [1, 99],
+          limit: { kind: 'max', max: 1 },
+        },
+      ],
+      elements,
+    )
+    expect(rows[0].verdict?.pass).toBe(true)
+    expect(rows[0].verdict?.deviation).toBeCloseTo(0, 9)
+    expect(rows[1].verdict).toBeUndefined()
+    expect(rows[2].verdict).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { FitData, PlaneFit, Vec3 } from './types'
-import type { RefRole } from './elements/refs'
-import { refAxis, refPlane, refPoint } from './elements/refs'
+import type { ElementKind, FitData, PlaneFit, Vec3 } from './types'
+import { refAxis, refPlane, refPoint, roleOf, slotTakes, type SlotRoles } from './elements/refs'
+import { hasDiameter } from './elements/assumed'
 import {
   acuteAngle,
   add,
@@ -24,167 +24,331 @@ import {
  * everything against everything" list. The type system follows the standard
  * metrology reduction (see refs.ts): every element acts as a point, an axis
  * or a plane, and each dimension type picks two of those roles.
+ *
+ * Two families share the machinery. A *dimension* reads a number off the
+ * part — a distance, an angle, a diameter. A *tolerance* checks a GD&T
+ * characteristic — how flat a face is, how parallel it lies to a datum — and
+ * is evaluated in core/tolerances. Both are drafted, listed, drawn, saved and
+ * reported the same way; the family only decides which editor a type is
+ * offered in, and keeps a viewport click from carrying a draft across.
  */
 
-export type DimensionGroup = 'distance' | 'angle'
+export type DimensionFamily = 'dimension' | 'tolerance'
+
+export type DimensionGroup =
+  | 'distance'
+  | 'angle'
+  | 'size'
+  | 'form'
+  | 'orientation'
+  | 'location'
 
 /** How a point–point distance between two spheres is anchored. */
 export type SphereAnchor = 'center' | 'gap' | 'span'
 
+/** The unit a type's value is in, which is also how a limit on it reads. */
+export type DimensionUnit = 'mm' | '°'
+
 export interface DimensionTypeInfo {
   id: string
+  family: DimensionFamily
   group: DimensionGroup
   label: string
+  /** What a new one is called: "Distance 3", "Flatness 1". */
+  stem: string
+  unit: DimensionUnit
   /** What the value means, for the creation UI. */
   hint: string
-  slots: { role: RefRole; label: string }[]
+  slots: (SlotRoles & { label: string })[]
 }
 
-export const DIMENSION_TYPES: readonly DimensionTypeInfo[] = [
+/** The name-counter key of a type: one counter per stem, so a renamed type
+ *  still numbers on from where its kind left off. Lower-cased because the
+ *  first two counters were saved under the group names. */
+export const stemKey = (info: DimensionTypeInfo): string => info.stem.toLowerCase()
+
+const DIMENSIONS: readonly DimensionTypeInfo[] = [
   {
     id: 'dist-point-point',
+    family: 'dimension',
     group: 'distance',
     label: 'Point – Point',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Straight-line distance between two points or sphere centers.',
     slots: [
-      { role: 'point', label: 'From' },
-      { role: 'point', label: 'To' },
+      { roles: ['point'], label: 'From' },
+      { roles: ['point'], label: 'To' },
     ],
   },
   {
     id: 'dist-point-axis',
+    family: 'dimension',
     group: 'distance',
     label: 'Point – Axis',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Perpendicular distance from a point to a cylinder axis or line.',
     slots: [
-      { role: 'point', label: 'Point' },
-      { role: 'axis', label: 'Axis' },
+      { roles: ['point'], label: 'Point' },
+      { roles: ['axis'], label: 'Axis' },
     ],
   },
   {
     id: 'dist-point-plane',
+    family: 'dimension',
     group: 'distance',
     label: 'Point – Plane',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Perpendicular distance from a point to a plane, signed along the plane normal.',
     slots: [
-      { role: 'point', label: 'Point' },
-      { role: 'plane', label: 'Plane' },
+      { roles: ['point'], label: 'Point' },
+      { roles: ['plane'], label: 'Plane' },
     ],
   },
   {
     id: 'dist-axis-axis',
+    family: 'dimension',
     group: 'distance',
     label: 'Axis – Axis',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Distance between two near-parallel axes, or at the closest approach of skew axes.',
     slots: [
-      { role: 'axis', label: 'Axis A' },
-      { role: 'axis', label: 'Axis B' },
+      { roles: ['axis'], label: 'Axis A' },
+      { roles: ['axis'], label: 'Axis B' },
     ],
   },
   {
     id: 'dist-axis-plane',
+    family: 'dimension',
     group: 'distance',
     label: 'Axis – Plane',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Distance from the middle of an axis to a near-parallel plane, signed along the normal.',
     slots: [
-      { role: 'axis', label: 'Axis' },
-      { role: 'plane', label: 'Plane' },
+      { roles: ['axis'], label: 'Axis' },
+      { roles: ['plane'], label: 'Plane' },
     ],
   },
   {
     id: 'dist-plane-plane',
+    family: 'dimension',
     group: 'distance',
     label: 'Plane – Plane',
+    stem: 'Distance',
+    unit: 'mm',
     hint: 'Distance between two near-parallel planes, measured from the center of the first.',
     slots: [
-      { role: 'plane', label: 'From' },
-      { role: 'plane', label: 'To' },
+      { roles: ['plane'], label: 'From' },
+      { roles: ['plane'], label: 'To' },
     ],
   },
   {
     id: 'angle-axis-axis',
+    family: 'dimension',
     group: 'angle',
     label: 'Axis – Axis',
+    stem: 'Angle',
+    unit: '°',
     hint: 'Angle between two axes (0–90°).',
     slots: [
-      { role: 'axis', label: 'Axis A' },
-      { role: 'axis', label: 'Axis B' },
+      { roles: ['axis'], label: 'Axis A' },
+      { roles: ['axis'], label: 'Axis B' },
     ],
   },
   {
     id: 'angle-axis-plane',
+    family: 'dimension',
     group: 'angle',
     label: 'Axis – Plane',
+    stem: 'Angle',
+    unit: '°',
     hint: 'Angle between an axis and a plane surface (0–90°).',
     slots: [
-      { role: 'axis', label: 'Axis' },
-      { role: 'plane', label: 'Plane' },
+      { roles: ['axis'], label: 'Axis' },
+      { roles: ['plane'], label: 'Plane' },
     ],
   },
   {
     id: 'angle-plane-plane',
+    family: 'dimension',
     group: 'angle',
     label: 'Plane – Plane',
+    stem: 'Angle',
+    unit: '°',
     hint: 'Angle between two plane surfaces via their outward normals (0–180°).',
     slots: [
-      { role: 'plane', label: 'Plane A' },
-      { role: 'plane', label: 'Plane B' },
+      { roles: ['plane'], label: 'Plane A' },
+      { roles: ['plane'], label: 'Plane B' },
     ],
+  },
+  {
+    id: 'size-diameter',
+    family: 'dimension',
+    group: 'size',
+    label: 'Diameter',
+    stem: 'Diameter',
+    unit: 'mm',
+    hint: 'The fitted diameter of a sphere, a cylinder or a circle — so a size can carry a nominal and a tolerance.',
+    slots: [{ roles: ['point', 'axis'], kinds: ['sphere', 'cylinder', 'circle'], label: 'Feature' }],
   },
 ]
 
+/** The tolerance family — filled in by core/tolerances, which evaluates
+ *  them; that module imports only types from here, so there is no cycle. */
+const TOLERANCES: readonly DimensionTypeInfo[] = []
+
+/** Every type of both families, dimensions first. */
+export function dimensionTypes(): readonly DimensionTypeInfo[] {
+  return [...DIMENSIONS, ...TOLERANCES]
+}
+
+/** The dimension family's types alone — what the dimension editor offers. */
+export const DIMENSION_TYPES: readonly DimensionTypeInfo[] = DIMENSIONS
+
 export function dimensionTypeInfo(id: string): DimensionTypeInfo {
-  const info = DIMENSION_TYPES.find((t) => t.id === id)
+  const info = dimensionTypes().find((t) => t.id === id)
   if (!info) throw new Error(`Unknown dimension type "${id}".`)
   return info
 }
 
-/** Whether the given selection (as roles, in pick order) could fill the
- *  type's slots — a sub-multiset test, since a half-built draft holds one. */
-function rolesFit(info: DimensionTypeInfo, roles: readonly RefRole[]): boolean {
-  const open = info.slots.map((s) => s.role)
-  return roles.every((role) => {
-    const i = open.indexOf(role)
-    if (i < 0) return false
-    open.splice(i, 1)
-    return true
-  })
+/**
+ * Fit a selection (element kinds, in pick order) into a type's slots: the
+ * slot index each selection lands in, or null when there is no way to seat
+ * them all. A sub-assignment test, since a half-built draft holds one.
+ *
+ * A kind can play more than one role — a circle is a point and an axis — so
+ * this is a small matching rather than a multiset test. Each selection tries
+ * the slots that take the role it plays by default first, so a circle clicked
+ * into a Point – Axis draft is the point unless only the axis slot is open.
+ */
+function seatSelection(info: DimensionTypeInfo, kinds: readonly ElementKind[]): number[] | null {
+  if (kinds.length > info.slots.length) return null
+  const taken = new Array<boolean>(info.slots.length).fill(false)
+  const seats: number[] = []
+  const place = (i: number): boolean => {
+    if (i === kinds.length) return true
+    const kind = kinds[i]
+    const preferred = roleOf(kind)
+    const order = info.slots
+      .map((slot, s) => ({ slot, s }))
+      .filter(({ slot, s }) => !taken[s] && slotTakes(slot, kind))
+      .sort((a, b) => Number(b.slot.roles.includes(preferred)) - Number(a.slot.roles.includes(preferred)))
+    for (const { s } of order) {
+      taken[s] = true
+      seats[i] = s
+      if (place(i + 1)) return true
+      taken[s] = false
+    }
+    return false
+  }
+  return place(0) ? seats : null
 }
 
 /**
- * The dimension type a draft should be on, given what the user has actually
- * selected. Keeps the current type whenever the selection still fits it;
- * otherwise switches to one that takes the selection, staying in the current
- * group (distance/angle) where possible. A single off-role pick lands on the
- * role–role type of the group ("first select a plane" → Plane – Plane) as the
- * least committed guess — the second pick re-resolves against both roles, so
- * the guess never traps the user.
+ * The type a draft should be on, given what the user has actually selected.
+ * Keeps the current type whenever the selection still fits it; otherwise
+ * switches to one that takes the selection, never leaving the current family
+ * and staying in the current group where possible. A single off-role pick
+ * lands on the type of the group whose every slot takes it ("first select a
+ * plane" → Plane – Plane) as the least committed guess — the second pick
+ * re-resolves against both, so the guess never traps the user.
  */
-export function resolveDimensionType(currentType: string, roles: readonly RefRole[]): string {
+export function resolveDimensionType(currentType: string, kinds: readonly ElementKind[]): string {
   const current = dimensionTypeInfo(currentType)
-  if (rolesFit(current, roles)) return currentType
-  const candidates = DIMENSION_TYPES.filter((t) => rolesFit(t, roles))
+  if (seatSelection(current, kinds)) return currentType
+  const candidates = dimensionTypes().filter(
+    (t) => t.family === current.family && seatSelection(t, kinds) !== null,
+  )
   if (candidates.length === 0) return currentType
   const pool = candidates.some((t) => t.group === current.group)
     ? candidates.filter((t) => t.group === current.group)
     : candidates
-  const homogeneous = roles.length === 1 && pool.find((t) => t.slots.every((s) => s.role === roles[0]))
+  const homogeneous =
+    kinds.length === 1 && pool.find((t) => t.slots.every((s) => slotTakes(s, kinds[0])))
   return (homogeneous || pool[0]).id
 }
 
-/** Place the selected elements (in pick order) into the type's slots: each
- *  slot takes the first still-unplaced selection of its role. */
+/** Place the selected elements (in pick order) into the type's slots — the
+ *  seating resolveDimensionType found room for. A selection the type cannot
+ *  seat is left out. */
 export function assignDimensionRefs(
   type: string,
-  selected: readonly { id: number; role: RefRole }[],
+  selected: readonly { id: number; kind: ElementKind }[],
 ): (number | null)[] {
-  const used = new Set<number>()
-  return dimensionTypeInfo(type).slots.map((slot) => {
-    const i = selected.findIndex((sel, idx) => !used.has(idx) && sel.role === slot.role)
-    if (i < 0) return null
-    used.add(i)
-    return selected[i].id
-  })
+  const info = dimensionTypeInfo(type)
+  const seats = seatSelection(
+    info,
+    selected.map((s) => s.kind),
+  )
+  const refs: (number | null)[] = info.slots.map(() => null)
+  if (seats) seats.forEach((s, i) => (refs[s] = selected[i].id))
+  return refs
+}
+
+/**
+ * What a value is checked against, when the user typed one. A tolerance has
+ * a ceiling: the zone may be this wide and no wider. A dimension has a
+ * nominal with an allowance either side of it.
+ */
+export type Limit =
+  | { kind: 'max'; max: number }
+  | { kind: 'band'; nominal: number; plus: number; minus: number }
+
+/** How a value stands to its limit — the numbers the row, the pin and the
+ *  report all print. */
+export interface Verdict {
+  /** Signed: the value less the nominal, or less the ceiling. */
+  deviation: number
+  /** How far outside the allowed range, signed; zero while within. */
+  over: number
+  pass: boolean
+  /** The allowance restated: "limit 0.050 mm", "nominal 12.000 mm +0.020 / −0.020". */
+  allowance: string
+  /** The deviation, signed: "Δ −0.019 mm". */
+  delta: string
+  /** Why it fails: "0.012 mm over the limit". Absent while it passes. */
+  alarm?: string
+}
+
+const inUnit = (v: number, unit: DimensionUnit): string =>
+  unit === '°' ? `${v.toFixed(2)}°` : `${v.toFixed(3)} mm`
+const signedInUnit = (v: number, unit: DimensionUnit): string =>
+  `${v >= 0 ? '+' : ''}${inUnit(v, unit)}`
+
+export function judgeLimit(raw: number, limit: Limit, unit: DimensionUnit): Verdict {
+  if (limit.kind === 'max') {
+    const deviation = raw - limit.max
+    const over = Math.max(0, deviation)
+    return {
+      deviation,
+      over,
+      pass: over === 0,
+      allowance: `limit ${inUnit(limit.max, unit)}`,
+      delta: `Δ ${signedInUnit(deviation, unit)}`,
+      alarm: over > 0 ? `${inUnit(over, unit)} over the limit` : undefined,
+    }
+  }
+  const hi = limit.nominal + limit.plus
+  const lo = limit.nominal - limit.minus
+  const deviation = raw - limit.nominal
+  const over = raw > hi ? raw - hi : raw < lo ? raw - lo : 0
+  return {
+    deviation,
+    over,
+    pass: over === 0,
+    allowance: `nominal ${inUnit(limit.nominal, unit)} +${inUnit(limit.plus, unit)} / −${inUnit(limit.minus, unit)}`,
+    delta: `Δ ${signedInUnit(deviation, unit)}`,
+    alarm:
+      over > 0
+        ? `${inUnit(over, unit)} over the upper limit`
+        : over < 0
+          ? `${inUnit(-over, unit)} under the lower limit`
+          : undefined,
+  }
 }
 
 /** A stored dimension: references elements by id, values are recomputed. */
@@ -197,6 +361,10 @@ export interface Dimension {
   anchor?: SphereAnchor
   /** Drawn in the viewport unless explicitly hidden (undefined = shown). */
   visible?: boolean
+  /** What the value is checked against, if the user typed one. */
+  limit?: Limit
+  /** The basic angle of an angularity, in degrees. */
+  basic?: number
 }
 
 export interface DimensionValue {
@@ -210,6 +378,9 @@ export interface DimensionValue {
   /** How to draw an angle: two rays from a vertex, with the reported angle
    *  between exactly these directions. */
   arc?: { vertex: Vec3; dirA: Vec3; dirB: Vec3 }
+  /** Where a pin goes when there is no line or arc to hang it on: the feature
+   *  the value is about. */
+  anchor?: Vec3
   /** The value is shown but deserves a caveat. */
   warning?: string
   /** No value can be given, and this is why. */
@@ -528,6 +699,17 @@ export function evaluateDimension(
       }
     }
 
+    case 'size-diameter': {
+      const f = fits[0]
+      if (!hasDiameter(f)) return invalid('Diameter', 'The reference has no diameter.')
+      return {
+        label: 'Diameter',
+        value: mm(2 * f.radius),
+        raw: 2 * f.radius,
+        anchor: f.center,
+      }
+    }
+
     default:
       return invalid('Dimension', `Unknown dimension type "${type}".`)
   }
@@ -545,6 +727,9 @@ export interface EvaluatedDimension {
   /** "Sphere 1 → Plane 2" */
   title: string
   value: DimensionValue
+  /** How the value stands to its limit — when one was typed and there is a
+   *  value to hold against it. */
+  verdict?: Verdict
 }
 
 /** Resolve every dimension against the current elements. A dimension whose
@@ -555,15 +740,20 @@ export function evaluateDimensions(
   elements: readonly NamedGeometry[],
 ): EvaluatedDimension[] {
   return dims.map((dim) => {
+    const info = dimensionTypeInfo(dim.type)
     const els = dim.refs.map((id) => elements.find((e) => e.id === id))
     const title = els.map((e) => e?.name ?? '?').join(' → ')
     const fits = els.map((e) => e?.fit)
     const value = fits.every((f): f is FitData => f !== undefined)
       ? evaluateDimension(dim.type, fits, dim.anchor)
       : {
-          label: dimensionTypeInfo(dim.type).label,
+          label: info.label,
           invalid: 'A referenced element is unavailable.',
         }
-    return { dim, title, value }
+    const verdict =
+      dim.limit && value.raw !== undefined && !value.invalid
+        ? judgeLimit(value.raw, dim.limit, info.unit)
+        : undefined
+    return { dim, title, value, verdict }
   })
 }

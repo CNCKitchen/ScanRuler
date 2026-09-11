@@ -115,7 +115,9 @@ export interface ScanPart {
   nextNumber: number
   nextOfKind: Record<string, number>
   nextDimensionId: number
-  nextOfDimGroup: Record<'distance' | 'angle', number>
+  /** Keyed by name stem ("distance", "angle", "diameter", "flatness", …);
+   *  a kind with no entry starts at 1. */
+  nextOfDimGroup: Record<string, number>
   settings: FitSettings
   selectMode: SelectMode
   /** Whether the labels on the part are shown — the name under which the
