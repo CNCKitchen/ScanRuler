@@ -35,11 +35,15 @@ import { AXIS_COLORS } from './axisGizmo'
 import { SECTION_LINE_DEFAULT } from './lineWidths'
 import { pinLabel } from './overlays'
 
-/** How the coordinate planes on offer are drawn: faint, and brighter under
- *  the cursor — the part has to stay legible through three of them. */
-const WORLD_SHEET_OPACITY = 0.1
-const WORLD_SHEET_LIT_OPACITY = 0.28
-const WORLD_BORDER_OPACITY = 0.55
+/** How the coordinate planes on offer are drawn: a fifth of the part's size
+ *  about its centre — small, so they stand in the way of no element but the
+ *  ones at the very middle — through the part rather than hidden inside it,
+ *  where a plane through the middle of a solid part would never be seen,
+ *  and faint, brighter under the cursor. */
+const WORLD_PLANE_HALF = 0.2
+const WORLD_SHEET_OPACITY = 0.18
+const WORLD_SHEET_LIT_OPACITY = 0.4
+const WORLD_BORDER_OPACITY = 0.7
 
 export interface SectionOverlayItem {
   id: number
@@ -208,10 +212,10 @@ export class SectionOverlay {
   }
 
   /** The coordinate planes on offer while a section has nothing to cut
-   *  across yet: the XY, YZ and XZ planes through `centre`, sized like the
-   *  preview sheet, each in its axis's colour. The part hides what is behind
-   *  it, so a plane reads as running through the part rather than lying on
-   *  it. Null takes them away. */
+   *  across yet: the XY, YZ and XZ planes through `centre`, a fifth of the
+   *  part's size, each in its axis's colour and drawn ahead of the depth
+   *  buffer like the gizmo — a small plane through the middle of the part
+   *  is inside it. Null takes them away. */
   setWorldPlanes(centre: Vec3 | null): void {
     for (const fn of this.worldCleanup) fn()
     this.worldCleanup = []
@@ -220,7 +224,7 @@ export class SectionOverlay {
     this.worldMeshes = []
     this.ctx.invalidate()
     if (!centre) return
-    const half = this.ctx.modelRadius() * 1.15
+    const half = this.ctx.modelRadius() * WORLD_PLANE_HALF
     const c = new THREE.Vector3(...centre)
     for (const axis of WORLD_AXES) {
       const { dir, basisU } = worldCutAxis(axis)
@@ -232,6 +236,7 @@ export class SectionOverlay {
         color,
         transparent: true,
         opacity: WORLD_SHEET_OPACITY,
+        depthTest: false,
         depthWrite: false,
         side: THREE.DoubleSide,
       })
@@ -239,7 +244,7 @@ export class SectionOverlay {
       mesh.position.copy(c)
       mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, n))
       mesh.scale.set(2 * half, 2 * half, 1)
-      mesh.renderOrder = 1
+      mesh.renderOrder = 2
       mesh.userData.worldAxis = axis
       this.worldGroup.add(mesh)
       this.worldMeshes.push(mesh)
@@ -275,13 +280,13 @@ export class SectionOverlay {
     return this.worldMeshes.length > 0
   }
 
-  /** The coordinate plane the ray meets first, and how far along it — for
-   *  the owner to weigh against whatever of the part is in front of it. */
-  worldPlaneHit(raycaster: THREE.Raycaster): { axis: WorldAxis; distance: number } | null {
+  /** The coordinate plane the ray meets first. The planes are drawn ahead
+   *  of everything, so nothing of the part can be in front of one. */
+  worldPlaneHit(raycaster: THREE.Raycaster): WorldAxis | null {
     if (this.worldMeshes.length === 0) return null
     this.worldGroup.updateWorldMatrix(true, true)
     const hit = raycaster.intersectObjects(this.worldMeshes, false)[0]
-    return hit ? { axis: hit.object.userData.worldAxis as WorldAxis, distance: hit.distance } : null
+    return hit ? (hit.object.userData.worldAxis as WorldAxis) : null
   }
 
   /** Light the coordinate plane under the cursor, or none. Returns whether

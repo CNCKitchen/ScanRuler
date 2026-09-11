@@ -7,6 +7,10 @@ README under "Releases".
 
 ## Unreleased
 
+- **3D Measure** — the coordinate planes a new section is offered are a
+  fifth of the part's size now, about its centre, and drawn through the part
+  rather than hidden inside it; an element under the cursor takes the click
+  before a plane does, so they no longer stand in the way of picking one.
 - **Alignment** is what the 2D sheet's *Datum* is called now, and it does
   what the name says: the moment the +X pick lands, the sheet rolls square to
   the part — +X to the right of the screen — in place, keeping the zoom and

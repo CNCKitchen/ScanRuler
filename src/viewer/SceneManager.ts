@@ -441,21 +441,22 @@ export class SceneManager {
   }
 
   /** A click that survived the drag threshold: an element when element picking
-   *  is on and one is under the cursor, a surface pick otherwise. */
+   *  is on and one is under the cursor, then a coordinate plane on offer
+   *  there, a surface pick otherwise. An element comes before a plane: the
+   *  planes are drawn through the part and would otherwise take every click
+   *  on whatever lies behind them. */
   private handleClick(x: number, y: number): void {
-    // A coordinate plane on offer is the nearest thing to the eye wherever
-    // it stands in front of the part, and a click there is for it.
-    const plane = this.worldPlaneAt(x, y)
-    if (plane !== null) {
-      this.onWorldPlanePick?.(plane)
-      return
-    }
     if (this.elementPickEnabled) {
       const id = this.elementAt(x, y)
       if (id !== null) {
         this.onElementPick?.(id)
         return
       }
+    }
+    const plane = this.worldPlaneAt(x, y)
+    if (plane !== null) {
+      this.onWorldPlanePick?.(plane)
+      return
     }
     const hit = this.pick(x, y)
     if (hit) this.onPick?.(hit)
@@ -478,9 +479,10 @@ export class SceneManager {
       this.invalidate()
     }
     // A coordinate plane on offer lights under the cursor the way an element
-    // does — except under the gizmo corner, which is a button first.
+    // does — except under the gizmo corner, which is a button first, and
+    // where an element is: that one would take the click.
     const plane =
-      this.hoverAt && axis === null ? this.worldPlaneAt(this.hoverAt.x, this.hoverAt.y) : null
+      this.hoverAt && axis === null ? this.worldPlaneUnder(this.hoverAt.x, this.hoverAt.y) : null
     if (this.sections.setHoveredWorldPlane(plane)) {
       this.viewport.renderer.domElement.style.cursor = plane !== null ? 'pointer' : ''
     }
@@ -989,20 +991,21 @@ export class SceneManager {
     this.hoverDirty = true
   }
 
-  /** The coordinate plane under a client point, if one is on offer there
-   *  with nothing of the part in front of it: the planes are translucent
-   *  and the part shows through them, so what the eye sees nearest is what
-   *  a click takes. */
+  /** The coordinate plane under a client point, if one is on offer there.
+   *  The planes are drawn through the part, so whatever of the part is
+   *  behind one does not hide it. */
   private worldPlaneAt(clientX: number, clientY: number): WorldAxis | null {
     if (!this.sections.hasWorldPlanes()) return null
     this.setPickRay(clientX, clientY)
-    const hit = this.sections.worldPlaneHit(this.raycaster)
-    if (!hit) return null
-    if (this.mesh?.visible) {
-      const part = this.raycaster.intersectObject(this.mesh, false)[0]
-      if (part && part.distance < hit.distance) return null
-    }
-    return hit.axis
+    return this.sections.worldPlaneHit(this.raycaster)
+  }
+
+  /** The coordinate plane a click at a client point would take: the one
+   *  under it, unless an element is there too — see handleClick. */
+  private worldPlaneUnder(clientX: number, clientY: number): WorldAxis | null {
+    if (!this.sections.hasWorldPlanes()) return null
+    if (this.elementPickEnabled && this.elementAt(clientX, clientY) !== null) return null
+    return this.worldPlaneAt(clientX, clientY)
   }
 
   /** Take the plain left-drag away from the camera, or give it back, for one

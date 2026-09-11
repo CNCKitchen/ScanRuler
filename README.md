@@ -304,8 +304,9 @@ The plane is taken **across an element's direction** and slid along it by an
 offset: a plane's normal, the axis of a cylinder, cone or line, a circle's
 normal. Choose the element in the box or click it in the viewport — or take
 one of the scan's **coordinate planes**: while nothing is chosen, the XY, YZ
-and XZ planes are drawn through the part's centre as translucent sheets in
-the axis colours, and clicking one (or choosing it in the box) cuts along
+and XZ planes are drawn through the part's centre as small translucent
+sheets in the axis colours, a fifth of the part's size, and clicking one (or
+choosing it in the box) cuts along
 it, the offset then simply being the plane's coordinate on that axis. Then
 type the **offset** in millimetres or use the **gizmo** the plane wears in
 the viewport: drag its arrow to slide the plane along its direction, or one

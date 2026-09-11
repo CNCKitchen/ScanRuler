@@ -78,12 +78,13 @@ const cutSettled = () =>
 
 // ---- the coordinate planes on offer -----------------------------------------
 // With nothing chosen the XY, YZ and XZ planes stand through the part's
-// centre. A click on one — where it stands clear of the bar — takes it; the
-// bar lies across the view, so a point well above its middle is on a plane
-// and on nothing else.
+// centre, a fifth of the part's size. Seen from the front the XY plane is
+// face-on there; a click a little off the centre — clear of the line that
+// runs through it, which would take the click first — is on the plane and
+// on nothing else, the bar being empty at its middle.
 await sleep(300)
 await page.screenshot({ path: shotPath('e2e-section-planes.png') })
-await page.mouse.click(rect.x + rect.w * 0.5, rect.y + rect.h * 0.12)
+await page.mouse.click(rect.x + rect.w * 0.5 + 40, rect.y + rect.h * 0.5 + 40)
 await sleep(300)
 const clickedRef = await page.$eval('[data-test="section-ref"]', (el) => el.value)
 console.log(`a click on a coordinate plane chose: ${JSON.stringify(clickedRef)}`)
