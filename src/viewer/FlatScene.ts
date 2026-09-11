@@ -29,6 +29,9 @@ import type { ViewTheme } from './viewThemes'
  * top — points, fitted geometry, dimension labels — shares one frame. When
  * the calibration changes the sheet is rescaled, not rebuilt.
  */
+/** An axis-aligned box in document units. */
+type DocBox = { x0: number; y0: number; x1: number; y1: number }
+
 export class FlatScene {
   private viewport: OrthoViewport
   private material: THREE.MeshBasicMaterial
@@ -65,6 +68,7 @@ export class FlatScene {
   private gridCleanup: (() => void)[] = []
   private gridFrame: { origin: Vec2; xDir: Vec2 } | null = null
   private gridSpacingDrawn = 0
+  private gridExtentDrawn: DocBox | null = null
   /** Measured elements and the draft being built, in document units. */
   private elementGroup = new THREE.Group()
   private elementCleanup: (() => void)[] = []
@@ -165,10 +169,10 @@ export class FlatScene {
         return true
       },
       onTick: () => {
-        // Zoom walked the grid onto a different rung of its spacing ladder.
-        if (this.gridFrame && this.gridSpacingDrawn !== gridSpacing(this.unitsPerScreenPx())) {
-          this.rebuildGrid()
-        }
+        // Zoom walked the grid onto a different rung of its spacing ladder,
+        // or a pan carried the view off the patch a bare sheet's grid was
+        // ruled over.
+        if (this.gridFrame && this.gridStale()) this.rebuildGrid()
         // Fat lines are sized in screen pixels and need to know the canvas.
         const el = this.viewport.renderer.domElement
         const w = el.clientWidth || 1
@@ -281,6 +285,7 @@ export class FlatScene {
     this.gridCleanup = []
     this.gridGroup.clear()
     this.gridSpacingDrawn = 0
+    this.gridExtentDrawn = null
     const frame = this.gridFrame
     if (!frame || !this.sheet.visible) {
       this.viewport.invalidate()
@@ -289,8 +294,11 @@ export class FlatScene {
     const s = gridSpacing(this.unitsPerScreenPx())
     this.gridSpacingDrawn = s
 
-    // The sheet's corners in frame coordinates bound what needs lines.
-    const { x0, y0, x1, y1 } = this.bounds
+    // The corners of the ruled patch, in frame coordinates, bound what needs
+    // lines.
+    const extent = this.gridExtent()
+    this.gridExtentDrawn = extent
+    const { x0, y0, x1, y1 } = extent
     const [c, si] = frame.xDir
     const toFrame = (x: number, y: number): Vec2 => {
       const rx = x - frame.origin[0]
@@ -334,6 +342,52 @@ export class FlatScene {
     // emphasis that shows where zero runs.
     addLines(axes, 0xe8a33d, 0.85)
     this.viewport.invalidate()
+  }
+
+  /** What the grid is ruled over: the image, whose edges are where the sheet
+   *  ends; or, on a bare sheet, which is not seen, the view with a margin of
+   *  one screen each way — a grid that ended at the invisible sheet's edge
+   *  would draw a tilted patch on the stage — so a pan is drawn ahead of and
+   *  a further one redraws. */
+  private gridExtent(): DocBox {
+    if (this.texture) return this.bounds
+    const v = this.visibleBox()
+    const w = v.x1 - v.x0
+    const h = v.y1 - v.y0
+    return { x0: v.x0 - w, y0: v.y0 - h, x1: v.x1 + w, y1: v.y1 + h }
+  }
+
+  /** The part of the document plane on screen, as an axis-aligned box in
+   *  document units — the four viewport corners unprojected; a rolled view's
+   *  box is the rotated rectangle's bounding box. */
+  private visibleBox(): DocBox {
+    const cam = this.viewport.camera
+    const box: DocBox = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
+    const corner = new THREE.Vector3()
+    for (const [nx, ny] of [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ]) {
+      corner.set(nx, ny, 0).unproject(cam)
+      box.x0 = Math.min(box.x0, corner.x)
+      box.x1 = Math.max(box.x1, corner.x)
+      box.y0 = Math.min(box.y0, corner.y)
+      box.y1 = Math.max(box.y1, corner.y)
+    }
+    return box
+  }
+
+  /** Whether the grid on the stage no longer fits the view: the zoom is on
+   *  another rung of the spacing ladder, or a bare sheet's ruled patch has
+   *  been panned or zoomed out of. */
+  private gridStale(): boolean {
+    if (this.gridSpacingDrawn !== gridSpacing(this.unitsPerScreenPx())) return true
+    if (this.texture || !this.gridExtentDrawn) return false
+    const v = this.visibleBox()
+    const d = this.gridExtentDrawn
+    return v.x0 < d.x0 || v.y0 < d.y0 || v.x1 > d.x1 || v.y1 > d.y1
   }
 
   /** Arm or disarm region selection. Armed, a plain left-drag rubber-bands a
@@ -1027,6 +1081,8 @@ export class FlatScene {
     this.material.map = texture
     // The colour multiplies the image; white leaves it alone.
     this.material.color.set(0xffffff)
+    this.material.colorWrite = true
+    this.material.depthWrite = true
     this.material.needsUpdate = true
 
     this.sheet.visible = true
@@ -1039,13 +1095,17 @@ export class FlatScene {
    * A bare sheet with nothing on it but what is drawn over it — a section
    * through the 3D scan, whose edges arrive already in millimetres. The
    * bounds are the cut's, with room around it; the sheet is what a click
-   * lands on, so it has to reach a little past the last edge.
+   * lands on, so it has to reach a little past the last edge. It is not
+   * seen: a white card behind the cut would be a page the cut is not on, so
+   * the plane is there to be clicked and framed and the stage shows through.
    */
   setBlankSheet(min: Vec2, max: Vec2): void {
     this.texture?.dispose()
     this.texture = null
     this.material.map = null
-    this.material.color.set(0xf4f5f7)
+    // Drawn into neither colour nor depth — a raycast still lands on it.
+    this.material.colorWrite = false
+    this.material.depthWrite = false
     this.material.needsUpdate = true
     this.imagePx = { width: 0, height: 0 }
     this.mmPerPx = { x: 1, y: 1 }

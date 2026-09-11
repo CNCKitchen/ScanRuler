@@ -15,6 +15,10 @@ README under "Releases".
   the loupe turns with it, and Export SVG writes the drawing aligned the same
   way, so a part aligned along a reference edge comes into CAD square. The
   report and the CSV call the frame the *aligned part frame*.
+- **A section's sheet is not a white card any more.** The cut lies straight
+  on the stage, in 2D Measure as in 3D; the plane it used to be drawn on is
+  still there to click and to frame, only unseen. The alignment grid on a
+  section rules the whole view rather than stopping at that plane's edge.
 - **Settings** — a dialog of its own, opened with **⚙ Settings** in the top
   bar, for what is set once and left: the **interface** (whatever the
   operating system says, which is the default, or light or dark regardless),

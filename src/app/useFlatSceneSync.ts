@@ -25,7 +25,7 @@ import {
 
 /** What lies on the sheet, as the viewport wants it: the decoded scan image
  *  with the edges detected on it, or a section's laid-flat cut and the bounds
- *  of a bare sheet to draw it on. Owned by App, out of the store like every
+ *  of a bare sheet to lay it on. Owned by App, out of the store like every
  *  big buffer, and asked for rather than passed so that whichever effect
  *  runs first sees what is there now. */
 export type SheetView =
