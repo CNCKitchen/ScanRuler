@@ -80,8 +80,8 @@ interface PrefsState {
    *  a section — in pixels. */
   edgeLines: number
   /** Pinned readings whose spot is on the far side of the part, or behind a
-   *  feature of it, put away until the part turns to show them — rather than
-   *  showing through the part, which is what a pin does by default. */
+   *  feature of it, put away until the part turns to show them — the
+   *  default; off, every pin shows through the part. */
   hidePinsBehind: boolean
   settingsOpen: boolean
   setUiTheme: (theme: UiTheme) => void
@@ -100,7 +100,7 @@ export const usePrefs = create<PrefsState>()((set) => {
     sectionLines: clampLineWidth(read(SECTION_LINES_KEY), SECTION_LINE_DEFAULT),
     sheetLines: clampLineWidth(read(SHEET_LINES_KEY), SHEET_LINE_DEFAULT),
     edgeLines: clampLineWidth(read(EDGE_LINES_KEY), EDGE_LINE_DEFAULT),
-    hidePinsBehind: read(PINS_BEHIND_KEY) === '1',
+    hidePinsBehind: read(PINS_BEHIND_KEY) !== '0',
     settingsOpen: false,
 
     setUiTheme: (theme) => {
