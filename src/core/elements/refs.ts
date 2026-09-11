@@ -55,6 +55,11 @@ export interface AxisRef {
   halfLength: number
 }
 
+/** How far past the measured patch or section a perpendicular foot may land
+ *  before a measurement warns that it left the measured surface — as a
+ *  factor on the half-extent. */
+export const EXTENT_MARGIN = 1.3
+
 export function refAxis(fit: FitData): AxisRef | null {
   if (fit.kind === 'cylinder' || fit.kind === 'cone')
     return { origin: fit.center, dir: fit.axis, halfLength: fit.length / 2 }

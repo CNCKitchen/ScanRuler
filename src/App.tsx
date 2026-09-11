@@ -1442,7 +1442,7 @@ export default function App() {
       const fits = dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit)
       const ok =
         fits.every((f): f is FitData => f !== undefined) &&
-        !evaluateDimension(dimDraft.type, fits, dimDraft.anchor).invalid
+        !evaluateDimension(dimDraft.type, fits, { anchor: dimDraft.anchor }).invalid
       return ok ? 'Enter or middle-click to add the dimension · Esc to cancel' : null
     }
     const label = dimensionTypeInfo(dimDraft.type).slots[empty].label

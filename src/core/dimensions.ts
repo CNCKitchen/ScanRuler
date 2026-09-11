@@ -1,7 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { ElementKind, FitData, PlaneFit, Vec3 } from './types'
-import { refAxis, refPlane, refPoint, roleOf, slotTakes, type SlotRoles } from './elements/refs'
+import {
+  EXTENT_MARGIN,
+  refAxis,
+  refPlane,
+  refPoint,
+  roleOf,
+  slotTakes,
+  type SlotRoles,
+} from './elements/refs'
 import { hasDiameter } from './elements/assumed'
+import { TOLERANCE_TYPES, evaluateTolerance, type ToleranceOptions } from './tolerances'
 import {
   acuteAngle,
   add,
@@ -197,13 +206,10 @@ const DIMENSIONS: readonly DimensionTypeInfo[] = [
   },
 ]
 
-/** The tolerance family — filled in by core/tolerances, which evaluates
- *  them; that module imports only types from here, so there is no cycle. */
-const TOLERANCES: readonly DimensionTypeInfo[] = []
-
-/** Every type of both families, dimensions first. */
+/** Every type of both families, dimensions first. The tolerance family
+ *  lives in core/tolerances, which imports only types from here. */
 export function dimensionTypes(): readonly DimensionTypeInfo[] {
-  return [...DIMENSIONS, ...TOLERANCES]
+  return [...DIMENSIONS, ...TOLERANCE_TYPES]
 }
 
 /** The dimension family's types alone — what the dimension editor offers. */
@@ -394,9 +400,6 @@ export interface DimensionValue {
 export const PARALLEL_MAX_DEG = 3
 /** Beyond this fold angle, a parallel distance carries a warning. */
 export const PARALLEL_WARN_DEG = 0.5
-/** How far past the measured patch/section a perpendicular foot may land
- *  before the dimension warns that it left the measured surface. */
-const EXTENT_MARGIN = 1.3
 
 const mm = (v: number): string => `${v.toFixed(3)} mm`
 const signedMm = (v: number): string => `${v >= 0 ? '+' : ''}${v.toFixed(3)} mm`
@@ -425,16 +428,24 @@ function deltaDetail(a: Vec3, b: Vec3): string {
   return `ΔX ${f(d[0])} · ΔY ${f(d[1])} · ΔZ ${f(d[2])} mm`
 }
 
+export interface EvaluateOptions extends ToleranceOptions {
+  /** How a point–point distance between two spheres is anchored. */
+  anchor?: SphereAnchor
+}
+
 /**
  * Compute a dimension's value from the already-resolved geometries of its
  * references, in slot order. Pure — returns invalid results rather than
- * throwing, so a broken reference never takes the panel down.
+ * throwing, so a broken reference never takes the panel down. A tolerance
+ * type is handed on to its own evaluator.
  */
 export function evaluateDimension(
   type: string,
   fits: FitData[],
-  anchor?: SphereAnchor,
+  opts: EvaluateOptions = {},
 ): DimensionValue {
+  if (TOLERANCE_TYPES.some((t) => t.id === type)) return evaluateTolerance(type, fits, opts)
+  const anchor = opts.anchor
   switch (type) {
     case 'dist-point-point': {
       const a = refPoint(fits[0])
@@ -732,12 +743,18 @@ export interface EvaluatedDimension {
   verdict?: Verdict
 }
 
+/** Where the scan points an element's fit rests on come from, packed x y z
+ *  in the frame the elements are in — null for an element that has none. A
+ *  tolerance on a plane's surface reads them; nothing else asks. */
+export type SurfaceSource = (elementId: number) => Float32Array | null
+
 /** Resolve every dimension against the current elements. A dimension whose
  *  reference lost its geometry (a construction gone degenerate) reads as
  *  invalid rather than disappearing. */
 export function evaluateDimensions(
   dims: readonly Dimension[],
   elements: readonly NamedGeometry[],
+  surfaces?: SurfaceSource,
 ): EvaluatedDimension[] {
   return dims.map((dim) => {
     const info = dimensionTypeInfo(dim.type)
@@ -745,7 +762,12 @@ export function evaluateDimensions(
     const title = els.map((e) => e?.name ?? '?').join(' → ')
     const fits = els.map((e) => e?.fit)
     const value = fits.every((f): f is FitData => f !== undefined)
-      ? evaluateDimension(dim.type, fits, dim.anchor)
+      ? evaluateDimension(dim.type, fits, {
+          anchor: dim.anchor,
+          basic: dim.basic,
+          surfaces:
+            info.family === 'tolerance' && surfaces ? dim.refs.map((id) => surfaces(id)) : undefined,
+        })
       : {
           label: info.label,
           invalid: 'A referenced element is unavailable.',

@@ -66,7 +66,7 @@ export function DimensionSection({
   if (dimDraft && dimInfo && dimDraft.refs.every((r) => r !== null)) {
     const fits = dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit)
     dimPreview = fits.every((f): f is FitData => f !== undefined)
-      ? evaluateDimension(dimDraft.type, fits, dimDraft.anchor)
+      ? evaluateDimension(dimDraft.type, fits, { anchor: dimDraft.anchor })
       : {
           label: dimInfo.label,
           invalid: 'A referenced element is unavailable.',

@@ -83,17 +83,15 @@ describe('point – point', () => {
   it('subtracts and adds radii between two spheres', () => {
     const a = sphere([0, 0, 0], 2)
     const b = sphere([10, 0, 0], 3)
-    expect(evaluateDimension('dist-point-point', [a, b], 'gap').raw).toBeCloseTo(5, 9)
-    expect(evaluateDimension('dist-point-point', [a, b], 'span').raw).toBeCloseTo(15, 9)
-    expect(evaluateDimension('dist-point-point', [a, b], 'center').raw).toBeCloseTo(10, 9)
+    expect(evaluateDimension('dist-point-point', [a, b], { anchor: 'gap' }).raw).toBeCloseTo(5, 9)
+    expect(evaluateDimension('dist-point-point', [a, b], { anchor: 'span' }).raw).toBeCloseTo(15, 9)
+    expect(evaluateDimension('dist-point-point', [a, b], { anchor: 'center' }).raw).toBeCloseTo(10, 9)
   })
 
   it('warns when fitted spheres overlap', () => {
-    const r = evaluateDimension(
-      'dist-point-point',
-      [sphere([0, 0, 0], 3), sphere([4, 0, 0], 3)],
-      'gap',
-    )
+    const r = evaluateDimension('dist-point-point', [sphere([0, 0, 0], 3), sphere([4, 0, 0], 3)], {
+      anchor: 'gap',
+    })
     expect(r.raw).toBeCloseTo(-2, 9)
     expect(r.warning).toMatch(/overlap/)
   })

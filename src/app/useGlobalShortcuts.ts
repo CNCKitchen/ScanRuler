@@ -66,7 +66,7 @@ export function useGlobalShortcuts({
       if (!dd || s.draft || dd.refs.some((r) => r === null)) return false
       const fits = dd.refs.map((id) => s.elements.find((el) => el.id === id)?.fit)
       if (!fits.every((f): f is FitData => f !== undefined)) return false
-      return !evaluateDimension(dd.type, fits, dd.anchor).invalid
+      return !evaluateDimension(dd.type, fits, { anchor: dd.anchor }).invalid
     }
     // The 2D workspace knows its own pending things — see useFlat.confirmable
     // and useFlat.retreat.
