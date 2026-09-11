@@ -17,6 +17,7 @@ import {
 import { sectionDraftColorOf, sectionDraftReady, useStore } from '../state/store'
 import { InfoDot } from './InfoDot'
 import { NameField, providersFor } from './RefSelect'
+import { tintStyle } from './tint'
 
 export function SectionEditor({
   onCancel,
@@ -187,7 +188,7 @@ export function SectionEditor({
           {draft.status === 'failed' && <b>{draft.message ?? 'Failed'}</b>}
           {draft.status === 'ready' &&
             (summary && summary.chains > 0 ? (
-              <b style={{ fontSize: 13, color }}>
+              <b className="tinted" style={tintStyle(color, { fontSize: 13 })}>
                 {summary.chains} edge chain{summary.chains === 1 ? '' : 's'}
               </b>
             ) : (

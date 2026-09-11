@@ -11,22 +11,18 @@
  * datums fill in.
  */
 import * as THREE from 'three'
-import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import type { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import { pinLabel } from './overlays'
 
 /** Axis colours, matching the corner gizmo: X red, Y green, Z blue. Each
  *  coordinate plane wears the colour of the axis it zeroes. */
 const AXIS_COLORS = [0xe5534b, 0x2e7d46, 0x1877c0] as const
 
-/** A small labelled chip in the 3D view. */
+/** A small labelled chip in the 3D view, titled in its axis's colour — the
+ *  same pin the measured results wear, so the tint follows the chassis the
+ *  same way. */
 function stageLabel(text: string, color: number): CSS2DObject {
-  const div = document.createElement('div')
-  div.className = 'viewport-label stage-label'
-  const t = document.createElement('div')
-  t.className = 'label-title'
-  t.textContent = text
-  t.style.color = '#' + color.toString(16).padStart(6, '0')
-  div.append(t)
-  return new CSS2DObject(div)
+  return pinLabel('stage-label', text, '', '#' + color.toString(16).padStart(6, '0'))
 }
 
 export class DatumStage {

@@ -14,6 +14,7 @@ import type { PixelsPerMm } from '../core/flat/image'
 import { EDGE_LINE_DEFAULT, SHEET_LINE_DEFAULT } from './lineWidths'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
+import { pinLabel } from './overlays'
 import type { ViewTheme } from './viewThemes'
 
 /**
@@ -699,23 +700,12 @@ export class FlatScene {
     value: string,
     color: string,
   ): void {
-    const div = document.createElement('div')
-    div.className = 'viewport-label element-label'
-    const t = document.createElement('div')
-    t.className = 'label-title'
-    t.textContent = title
-    t.style.color = color
-    div.append(t)
-    if (value) {
-      const v = document.createElement('div')
-      v.className = 'label-value'
-      v.textContent = value
-      div.append(v)
-    }
-    const label = new CSS2DObject(div)
+    // The same pin the 3D elements wear, tint and all, so the sheet's labels
+    // follow the chassis the way the part's do.
+    const label = pinLabel('element-label', title, value, color)
     label.position.set(at[0], at[1], 0.2)
     group.add(label)
-    cleanup.push(() => div.remove())
+    cleanup.push(() => label.element.remove())
   }
 
   /** Where a fit's label floats: beside the feature, not on top of it. */

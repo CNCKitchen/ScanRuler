@@ -3,6 +3,8 @@
 // legend — shared so the draft preview, the dimension preview and the
 // dimension rows all write their numbers the same way.
 
+import { tintStyle } from './tint'
+
 /** What a DRO window needs of a dimension's evaluation — the slice the 3D
  *  DimensionValue and the 2D FlatDimensionValue share. */
 export interface ReadValue {
@@ -22,12 +24,15 @@ function splitValue(value: string): [string, string] {
 }
 
 /** The digits and legend inside a DRO window — every window writes its
- *  measurement this way, so the split lives in one place. */
+ *  measurement this way, so the split lives in one place. The digits go in
+ *  an element's own colour where one is given, as the draft preview does. */
 export function DroValue({ value, color }: { value: string; color?: string }) {
   const [num, unit] = splitValue(value)
   return (
     <>
-      <b style={color ? { color } : undefined}>{num}</b>
+      <b className={color ? 'tinted' : undefined} style={color ? tintStyle(color) : undefined}>
+        {num}
+      </b>
       <span>{unit}</span>
     </>
   )

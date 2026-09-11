@@ -32,6 +32,7 @@ import { FlatDraftEditor } from './FlatDraftEditor'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
+import { tintStyle } from './tint'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc', 'spline']
 
@@ -523,7 +524,9 @@ export function FlatPanel({
               className={'dro-window ' + (counting.picks.length > 0 ? 'ready' : 'empty')}
               data-test="flat-count-tally"
             >
-              <b style={{ fontSize: 13, color: countColor }}>{counting.picks.length}</b>
+              <b className="tinted" style={tintStyle(countColor, { fontSize: 13 })}>
+                {counting.picks.length}
+              </b>
             </div>
           </div>
           <button

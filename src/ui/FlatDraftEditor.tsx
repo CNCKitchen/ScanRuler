@@ -13,6 +13,7 @@ import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import { flatBlockedRefs, flatDraftColorOf, useFlat } from '../state/flatStore'
 import { DroValue } from './DroValue'
 import { NameField, RefSelect } from './RefSelect'
+import { tintStyle } from './tint'
 
 export function FlatDraftEditor() {
   const elements = useFlat((s) => s.elements)
@@ -174,7 +175,9 @@ export function FlatDraftEditor() {
             (draft.fit!.kind === 'circle' || draft.fit!.kind === 'arc' ? (
               <DroValue value={primary} color={draftColor} />
             ) : (
-              <b style={{ fontSize: 13, color: draftColor }}>{primary}</b>
+              <b className="tinted" style={tintStyle(draftColor, { fontSize: 13 })}>
+                {primary}
+              </b>
             ))}
         </div>
         {status === 'ready' && formatFlatDetail(draft.fit!, unit) && (

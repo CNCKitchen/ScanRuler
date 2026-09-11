@@ -65,6 +65,18 @@ export interface OverlayAngle {
   value: string
 }
 
+/** The two tones pinned readings alternate between, so that neighbouring pins
+ *  tell apart: ink and the brand blue. A tone rather than a colour, because
+ *  the title on the chip has to follow the chassis — the stylesheet reads the
+ *  tone off the pin's class and paints it in the theme's own ink or blue,
+ *  where a fixed ink was all but invisible on the dark instrument's chip. */
+export type ProbeTone = 'ink' | 'accent'
+
+/** The dot of each tone on the part, in the light instrument's figures
+ *  whichever the chassis: it sits on the part, and the part does not change
+ *  with the lights. */
+const PROBE_DOT: Record<ProbeTone, number> = { ink: 0x26282a, accent: 0x12629f }
+
 /** A deviation reading pinned to the part. */
 export interface ProbeMarker {
   id: number
@@ -72,19 +84,28 @@ export interface ProbeMarker {
   /** What the pin reads on top — the map it was taken off: DEV or WALL. */
   title: string
   label: string
-  color: string
+  tone: ProbeTone
 }
 
 /** A pin in the 3D view: what it marks on top, the measured value under it, so
  *  the numbers can be read off the model without going back to the panel. An
- *  empty value leaves just the name — nothing is not a number. */
-export function pinLabel(kind: string, title: string, value: string, titleColor?: string): CSS2DObject {
+ *  empty value leaves just the name — nothing is not a number.
+ *
+ *  A tint is an element's own colour on the title. It goes on as `--tint`
+ *  under the stylesheet's `tinted` rule rather than as the colour itself, so
+ *  that the dark chassis can lift it toward white before it is used as text:
+ *  the palette is tuned to hold on the light instrument, and its deeper tones
+ *  sink into a dark chip. */
+export function pinLabel(kind: string, title: string, value: string, tint?: string): CSS2DObject {
   const div = document.createElement('div')
   div.className = `viewport-label ${kind}`
   const t = document.createElement('div')
   t.className = 'label-title'
   t.textContent = title
-  if (titleColor) t.style.color = titleColor
+  if (tint) {
+    t.classList.add('tinted')
+    t.style.setProperty('--tint', tint)
+  }
   div.append(t)
   if (value) {
     const v = document.createElement('div')
@@ -823,14 +844,14 @@ export class Overlays {
     this.probeCleanup = []
     this.probeGroup.clear()
     for (const probe of probes) {
-      const material = new THREE.MeshBasicMaterial({ color: probe.color, depthTest: false })
+      const material = new THREE.MeshBasicMaterial({ color: PROBE_DOT[probe.tone], depthTest: false })
       const dot = new THREE.Mesh(this.probeGeometry, material)
       dot.position.set(...probe.point)
       dot.scale.setScalar(this.ctx.modelRadius() * 0.009)
       dot.renderOrder = 4
       this.probeGroup.add(dot)
 
-      const label = pinLabel('probe', probe.title, probe.label, probe.color)
+      const label = pinLabel(`probe ${probe.tone}`, probe.title, probe.label)
       label.position.set(...probe.point)
       this.probeGroup.add(label)
 

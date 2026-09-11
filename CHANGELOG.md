@@ -7,6 +7,15 @@ README under "Releases".
 
 ## Unreleased
 
+- **Dark mode** — text in a colour of its own reads on the dark chassis now.
+  A pinned reading's title was the light instrument's ink whatever the
+  chassis, which on the dark chip made it all but invisible; the pins wear
+  the theme's own ink and blue instead. And the titles of element pins,
+  alignment picks and datum planes on the stage, and an element's own colour
+  in the draft box, the section box and the tally, are lifted toward white on
+  the dark chassis before they are used as text — the palette's deeper tones
+  sank into the panel behind them. The swatches and the surfaces keep the
+  true colour.
 - **2D Measure** — **Export DXF** beside Export SVG: the sheet as the drawing
   CAD trades in — millimetres by declaration, y up, the origin on the
   alignment, every fit as its native entity (LINE, CIRCLE, ARC, POINT, and a

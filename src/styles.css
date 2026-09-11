@@ -1666,6 +1666,24 @@ button.x:disabled {
   color: var(--dim);
 }
 
+/* Text in an element's own colour: the title of its pin on the part, its
+   reading in the panel's DRO window. The colour arrives as `--tint`, and for
+   a reason: the palette is tuned to hold on the light chassis, and on the
+   dark one its deeper tones — the purple, the magenta, the green — sink into
+   the panel behind them. So the dark instrument lifts every tint part of the
+   way to white before it is used as text. Only the text: the swatches and
+   the surfaces keep the true colour, which is the one the reading is in.
+   The compound selectors outrank the contexts' own text colours. */
+.tinted,
+.dro-window b.tinted,
+.viewport-label .label-title.tinted {
+  color: var(--tint);
+}
+
+:root[data-theme='dark'] .tinted {
+  color: color-mix(in srgb, var(--tint) 60%, #fff);
+}
+
 .viewport-label .label-value {
   font-family: var(--mono);
   font-size: 11px;
@@ -2886,6 +2904,18 @@ button.x:disabled {
 /* A pinned reading, in the same pin style the element workspace uses. */
 .viewport-label.probe {
   border-color: var(--line-strong);
+}
+
+/* Pinned readings alternate two tones so that neighbouring pins tell apart:
+   ink and the brand blue, each as the chassis has it — a title that is ink on
+   the light instrument must not be that same ink on the dark chip, where it
+   would vanish. */
+.viewport-label.probe.ink .label-title {
+  color: var(--ink);
+}
+
+.viewport-label.probe.accent .label-title {
+  color: var(--accent-d);
 }
 
 

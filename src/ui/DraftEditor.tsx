@@ -19,6 +19,7 @@ import { InfoDot } from './InfoDot'
 import { MarkTools } from './MarkTools'
 import { OrientFields } from './OrientFields'
 import { NameField, providersFor, RefSelect } from './RefSelect'
+import { tintStyle } from './tint'
 
 export function DraftEditor({
   onSelectMode,
@@ -259,7 +260,11 @@ export function DraftEditor({
                 (() => {
                   const primary = formatPrimary(shownFit!)
                   if (shownFit!.kind === 'point' || shownFit!.kind === 'line' || primary === '') {
-                    return <b style={{ color: draftColor }}>✓ {draftKind.label}</b>
+                    return (
+                      <b className="tinted" style={tintStyle(draftColor)}>
+                        ✓ {draftKind.label}
+                      </b>
+                    )
                   }
                   return <DroValue value={primary} color={draftColor} />
                 })()}

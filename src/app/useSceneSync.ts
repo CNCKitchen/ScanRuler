@@ -669,7 +669,7 @@ export function useSceneSync({
         point: p.point,
         title: p.title,
         label: p.label,
-        color: i % 2 === 0 ? '#26282a' : '#12629f',
+        tone: i % 2 === 0 ? 'ink' : 'accent',
       })),
     )
   }, [workspace, probes, thickProbes])
