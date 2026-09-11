@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
-## Unreleased
+## 0.3.0 — 2026-09-11
 
 - **2D Measure** — **Mirror** beside Rotate 90°: two buttons that flip the
   sheet on the stage left-to-right or top-to-bottom, as it is shown. A
