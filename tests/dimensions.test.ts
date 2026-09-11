@@ -5,6 +5,7 @@ import {
   evaluateDimension,
   evaluateDimensions,
   judgeLimit,
+  pinNotes,
   resolveDimensionType,
   selectionFits,
 } from '../src/core/dimensions'
@@ -65,6 +66,7 @@ function plane(center: Vec3, extentU = 10, extentV = 10, tiltDeg = 0, flip = fal
     sigma: 0.001,
     usedPoints: 500,
     regionSize: 600,
+    formError: 0.001,
   }
 }
 
@@ -377,6 +379,40 @@ describe('assignDimensionRefs', () => {
         { id: 2, kind: 'sphere' },
       ]),
     ).toEqual([1, null])
+  })
+})
+
+describe('pinNotes', () => {
+  it('names the elements under a tolerance and the verdict under anything with a limit', () => {
+    const elements = [
+      { id: 1, name: 'Top', fit: plane([0, 0, 5]) },
+      { id: 2, name: 'Base', fit: plane([0, 0, 0]) },
+    ]
+    const [plain, limited, tolerance, failing] = evaluateDimensions(
+      [
+        { id: 1, type: 'dist-plane-plane', name: 'Distance 1', refs: [1, 2] },
+        {
+          id: 2,
+          type: 'dist-plane-plane',
+          name: 'Distance 2',
+          refs: [1, 2],
+          limit: { kind: 'band', nominal: 5, plus: 0.1, minus: 0.1 },
+        },
+        { id: 3, type: 'form-flatness', name: 'Flatness 1', refs: [1] },
+        {
+          id: 4,
+          type: 'form-flatness',
+          name: 'Flatness 2',
+          refs: [1],
+          limit: { kind: 'max', max: 0.0001 },
+        },
+      ],
+      elements,
+    )
+    expect(pinNotes(plain)).toBeUndefined()
+    expect(pinNotes(limited)).toEqual(['nominal 5.000 mm +0.100 mm / −0.100 mm · Δ +0.000 mm'])
+    expect(pinNotes(tolerance)).toEqual(['Top'])
+    expect(pinNotes(failing)).toEqual(['Top', 'limit 0.000 mm · Δ +0.001 mm', '0.001 mm over the limit'])
   })
 })
 

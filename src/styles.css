@@ -1727,6 +1727,21 @@ button.x:disabled {
   color: var(--accent-d);
 }
 
+/* The small lines under a pin's value: the elements a tolerance is about,
+   the limit and how the value stands to it. */
+.viewport-label .label-note {
+  font-size: 9.5px;
+  line-height: 1.3;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* A value past its limit: the digits go red, on the pin as in the panel. */
+.viewport-label.over .label-value,
+.distance-label.over .label-value {
+  color: var(--red);
+}
+
 /* Labels of the datum stage — the coordinate planes and axes an alignment is
    aimed at. Quieter than the measured pins: they are scenery, not results,
    and each wears its own axis colour on a barely-there chip. */

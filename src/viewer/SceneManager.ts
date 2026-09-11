@@ -7,7 +7,14 @@ import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
 import { ExtendGrips, isSectionSide, type GripSide } from './extendGrips'
-import { Overlays, type OverlayElement, type OverlayPair, type OverlayAngle, type ProbeMarker } from './overlays'
+import {
+  Overlays,
+  type OverlayElement,
+  type OverlayPair,
+  type OverlayAngle,
+  type OverlayTag,
+  type ProbeMarker,
+} from './overlays'
 import { SectionOverlay, type SectionOverlayItem } from './sections'
 import type { SectionFrame, WorldAxis } from '../core/section/frame'
 import type { SectionCut } from '../core/section/slice'
@@ -87,7 +94,7 @@ function principalAxis(positions: Float32Array): THREE.Vector3 {
 
 /** The overlay data and the marking brush are defined beside the modules that
  *  draw them; consumers keep importing everything from here. */
-export type { OverlayElement, OverlayPair, OverlayAngle, ProbeMarker } from './overlays'
+export type { OverlayElement, OverlayPair, OverlayAngle, OverlayTag, ProbeMarker } from './overlays'
 export type { MarkGesture, PaintBrush } from './marking'
 export type { GripSide } from './extendGrips'
 export type { SectionOverlayItem } from './sections'
@@ -1037,9 +1044,10 @@ export class SceneManager {
     elements: OverlayElement[],
     pairs: OverlayPair[],
     angles: OverlayAngle[],
+    tags: OverlayTag[],
     visible: boolean,
   ): void {
-    this.overlays.updateOverlays(elements, pairs, angles, visible)
+    this.overlays.updateOverlays(elements, pairs, angles, tags, visible)
   }
 
   setPaused(paused: boolean): void {

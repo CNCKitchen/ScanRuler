@@ -740,6 +740,21 @@ export function evaluateDimension(
   }
 }
 
+/** The small lines a measurement's pin carries under its value. A tolerance
+ *  names the elements it is about — read live, so a renamed plane renames
+ *  the pin — and anything with a limit says how the value stands to it,
+ *  with the excess on a line of its own when it is over. Undefined when
+ *  there is nothing to add. */
+export function pinNotes(row: EvaluatedDimension): string[] | undefined {
+  const notes: string[] = []
+  if (dimensionTypeInfo(row.dim.type).family === 'tolerance') notes.push(row.title)
+  if (row.verdict) {
+    notes.push(`${row.verdict.allowance} · ${row.verdict.delta}`)
+    if (row.verdict.alarm) notes.push(row.verdict.alarm)
+  }
+  return notes.length ? notes : undefined
+}
+
 /** The slice of an element a dimension needs to resolve and label itself. */
 export interface NamedGeometry {
   id: number

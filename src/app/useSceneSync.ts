@@ -8,7 +8,7 @@ import { creationMethod } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
-import { evaluateDimensions } from '../core/dimensions'
+import { evaluateDimensions, pinNotes, type EvaluatedDimension } from '../core/dimensions'
 import { liftFlatFit } from '../core/section/lift'
 import { surfaceSource, useSurfaces } from './surfaces'
 import {
@@ -24,6 +24,7 @@ import type {
   OverlayAngle,
   OverlayElement,
   OverlayPair,
+  OverlayTag,
 } from '../viewer/SceneManager'
 import { schemeById } from '../viewer/navSchemes'
 import { usePrefs } from '../state/prefsStore'
@@ -262,6 +263,10 @@ export function useSceneSync({
       elements,
       surfaceSource,
     ).filter((r) => !r.value.invalid)
+    const verdictOf = (r: EvaluatedDimension) => ({
+      notes: pinNotes(r),
+      over: r.verdict ? !r.verdict.pass : false,
+    })
     const pairs: OverlayPair[] = rows
       .filter((r) => r.value.segment)
       .map((r) => ({
@@ -269,6 +274,7 @@ export function useSceneSync({
         b: r.value.segment![1],
         title: r.dim.name,
         value: r.value.value!,
+        ...verdictOf(r),
       }))
     const angles: OverlayAngle[] = rows
       .filter((r) => r.value.arc)
@@ -276,7 +282,24 @@ export function useSceneSync({
         ...r.value.arc!,
         title: r.dim.name,
         value: r.value.value!,
+        ...verdictOf(r),
       }))
+    // A reading with neither — a diameter, a tolerance — pins beside the
+    // feature it is about, floated off it the way the feature's own tag is.
+    const tags: OverlayTag[] = rows.flatMap((r) => {
+      if (r.value.segment || r.value.arc || !r.value.anchor) return []
+      const feature = elements.find((e) => e.id === r.dim.refs[0])
+      if (!feature?.fit) return []
+      return [
+        {
+          at: r.value.anchor,
+          fit: applyExtension(feature.fit, feature.extend),
+          title: r.dim.name,
+          value: r.value.value!,
+          ...verdictOf(r),
+        },
+      ]
+    })
     // Dimensions are the measure workspace's alone: a distance between two
     // elements has nothing to say about a map, and its leader lines would cross
     // the reading.
@@ -284,6 +307,7 @@ export function useSceneSync({
       items,
       elementsWorkspace ? pairs : [],
       elementsWorkspace ? angles : [],
+      elementsWorkspace ? tags : [],
       elementsWorkspace || items.length > 0,
     )
     // A hidden element's surface tint goes with its overlay — and outside the

@@ -48,7 +48,15 @@ export interface OverlayElement {
   muted?: boolean
 }
 
-export interface OverlayPair {
+/** What a measurement's pin says beyond its value: small lines under it —
+ *  the elements a tolerance is about, the limit and how the value stands to
+ *  it — and whether the value is over its limit, which paints it red. */
+export interface PinVerdict {
+  notes?: string[]
+  over?: boolean
+}
+
+export interface OverlayPair extends PinVerdict {
   a: Vec3
   b: Vec3
   title: string
@@ -57,10 +65,22 @@ export interface OverlayPair {
 
 /** An angle dimension in the viewport: two rays from a vertex and the arc
  *  between them, labelled with the value. */
-export interface OverlayAngle {
+export interface OverlayAngle extends PinVerdict {
   vertex: Vec3
   dirA: Vec3
   dirB: Vec3
+  title: string
+  value: string
+}
+
+/** A reading with no line or arc to hang on — a diameter, a form tolerance,
+ *  a coaxiality: a pin beside the feature it is about, floated off it the
+ *  way the feature's own name tag is and stacked over that by the label
+ *  spreader. */
+export interface OverlayTag extends PinVerdict {
+  at: Vec3
+  /** The feature, for the offset the pin floats off it by. */
+  fit: FitData
   title: string
   value: string
 }
@@ -99,9 +119,16 @@ const _pinCoords = new THREE.Vector2()
  *  that the dark chassis can lift it toward white before it is used as text:
  *  the palette is tuned to hold on the light instrument, and its deeper tones
  *  sink into a dark chip. */
-export function pinLabel(kind: string, title: string, value: string, tint?: string): CSS2DObject {
+export function pinLabel(
+  kind: string,
+  title: string,
+  value: string,
+  tint?: string,
+  verdict?: PinVerdict,
+): CSS2DObject {
   const div = document.createElement('div')
   div.className = `viewport-label ${kind}`
+  if (verdict?.over) div.classList.add('over')
   const t = document.createElement('div')
   t.className = 'label-title'
   t.textContent = title
@@ -115,6 +142,12 @@ export function pinLabel(kind: string, title: string, value: string, tint?: stri
     v.className = 'label-value'
     v.textContent = value
     div.append(v)
+  }
+  for (const note of verdict?.notes ?? []) {
+    const n = document.createElement('div')
+    n.className = 'label-note'
+    n.textContent = note
+    div.append(n)
   }
   return new CSS2DObject(div)
 }
@@ -252,6 +285,7 @@ export class Overlays {
     elements: OverlayElement[],
     pairs: OverlayPair[],
     angles: OverlayAngle[],
+    tags: OverlayTag[],
     visible: boolean,
   ): void {
     this.ctx.invalidate()
@@ -351,14 +385,25 @@ export class Overlays {
         mat.dispose()
       })
 
-      const label = pinLabel('distance-label', p.title, p.value)
+      const label = pinLabel('distance-label', p.title, p.value, undefined, p)
       label.position.set((p.a[0] + p.b[0]) / 2, (p.a[1] + p.b[1]) / 2, (p.a[2] + p.b[2]) / 2)
       this.overlayGroup.add(label)
       this.overlayCleanup.push(() => label.element.remove())
     }
 
     for (const a of angles) this.addAngle(a)
+    for (const t of tags) this.addTag(t)
     this.rebuildSelectionOutlines()
+  }
+
+  /** A pin beside the feature, floated off it the way its name tag is; the
+   *  label spreader stacks the two. */
+  private addTag(t: OverlayTag): void {
+    const label = pinLabel('distance-label', t.title, t.value, undefined, t)
+    const off = this.labelOffset(t.fit)
+    label.position.set(t.at[0] + off[0], t.at[1] + off[1], t.at[2] + off[2])
+    this.overlayGroup.add(label)
+    this.overlayCleanup.push(() => label.element.remove())
   }
 
   /** Two rays out of the vertex and the arc swept between them. */
@@ -412,7 +457,7 @@ export class Overlays {
       this.overlayCleanup.push(() => geo.dispose())
     }
 
-    const label = pinLabel('distance-label', a.title, a.value)
+    const label = pinLabel('distance-label', a.title, a.value, undefined, a)
     label.position.copy(vertex.clone().addScaledVector(mid, R * 0.95))
     this.overlayGroup.add(label)
     this.overlayCleanup.push(() => label.element.remove())
@@ -995,7 +1040,7 @@ export class Overlays {
   }
 
   dispose(): void {
-    this.updateOverlays([], [], [], false)
+    this.updateOverlays([], [], [], [], false)
     this.setPreview(null)
     this.setProbes([])
     this.setPickMarkers([])
