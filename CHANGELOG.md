@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
-## Unreleased
+## 0.4.0 — 2026-09-11
 
 - **Used points per element** — the outlier cut-off in the Fitting group is
   the open element's own and goes into the element with it, instead of one
