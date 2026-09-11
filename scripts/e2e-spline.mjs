@@ -224,5 +224,42 @@ if (svgFile) {
   }
 }
 
+// ---- the DXF: the spline as a SPLINE ------------------------------------------
+// One cubic B-spline through the curve's own Bézier poles: 3s + 1 poles and
+// 3s + 5 knots for s segments, clamped at the ends with each interior knot
+// three times over — and y up, so it starts exactly where the point was picked.
+await click(page, '[data-test=flat-export-dxf]')
+let dxfFile = null
+for (let i = 0; i < 50 && !dxfFile; i++) {
+  await sleep(200)
+  const done = readdirSync(DL_DIR).filter((f) => f.endsWith('.dxf'))
+  if (done.length) dxfFile = join(DL_DIR, done[0])
+}
+check(!!dxfFile, 'Export DXF downloads a .dxf file')
+if (dxfFile) {
+  const dxf = readFileSync(dxfFile, 'utf8')
+  const spline = dxf.match(/\n {2}0\nSPLINE\n([\s\S]*?)\n {2}0\n/)
+  check(!!spline, 'the spline is a SPLINE entity')
+  if (spline) {
+    const g = (code) =>
+      (spline[1].match(new RegExp(`(?:^|\n) *${code}\n([^\n]*)`, 'g')) ?? []).map((m) => m.split('\n').pop())
+    check(
+      g(71)[0] === '3' && g(73)[0] === '13' && g(72)[0] === '17',
+      `cubic, 13 poles and 17 knots for four segments (degree ${g(71)}, ${g(73)} poles, ${g(72)} knots)`,
+    )
+    const knots = g(40).map(Number)
+    check(
+      knots.length === 17 && knots[0] === knots[3] && knots[4] === knots[6] && knots[13] === knots[16],
+      'clamped at the ends, each interior knot three times over',
+    )
+    const [x0, y0] = [Number(g(10)[0]), Number(g(20)[0])]
+    const p = onDisc(100)
+    check(
+      Math.abs(x0 - p[0]) < 0.1 && Math.abs(y0 - p[1]) < 0.1,
+      `starting where the first point was picked, y up (${x0}, ${y0})`,
+    )
+  }
+}
+
 await page.screenshot({ path: shotPath('spline-final.png') })
 await finish(browser, consoleErrors)

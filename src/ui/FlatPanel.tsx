@@ -47,11 +47,13 @@ export function FlatPanel({
   onCopy,
   onExportCsv,
   onExportSvg,
+  onExportDxf,
 }: {
   onOpenImage: (file: File) => void
   onCopy: () => void
   onExportCsv: () => void
   onExportSvg: () => void
+  onExportDxf: () => void
 }) {
   const imageName = useFlat((s) => s.imageName)
   const imageWidth = useFlat((s) => s.imageWidth)
@@ -103,6 +105,9 @@ export function FlatPanel({
   // Anything the report and the CSV would have to say.
   const hasMeasurements =
     elements.length > 0 || dimensions.length > 0 || counts.length > 0 || notes.length > 0
+  // Anything a drawing of the sheet would show: the edges while they are
+  // shown, or an element that is.
+  const drawable = (showEdges && edgeStatus === 'ready') || elements.some((e) => e.visible && e.fit !== null)
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
@@ -625,15 +630,30 @@ export function FlatPanel({
             <button data-test="flat-export-csv" disabled={!hasMeasurements} onClick={onExportCsv}>
               Export CSV
             </button>
+          </div>
+          <div className="toolrow">
             <button
               data-test="flat-export-svg"
-              disabled={edgeStatus !== 'ready' && elements.length === 0}
+              disabled={!drawable}
               onClick={onExportSvg}
-              title="Save the sheet as an SVG at true scale — the detected edges and the fitted elements, turned as shown — for a CAD sketch or a vector editor"
+              title="Save the sheet as an SVG at true scale — the edges while they are shown and the visible elements, aligned and turned as shown — for a vector editor, a laser or a print at 1:1"
             >
               Export SVG
             </button>
+            <button
+              data-test="flat-export-dxf"
+              disabled={!drawable}
+              onClick={onExportDxf}
+              title="Save the sheet as a DXF for CAD — millimetres, y up, the origin on the alignment; every fit as its own entity, the edges while they are shown as polylines thinned to 0.01 mm"
+            >
+              Export DXF
+            </button>
           </div>
+          <p className="hint">
+            The sheet as a drawing at true scale, aligned and turned as shown. SVG for a vector
+            editor or a print at 1:1; DXF for CAD, the origin on the alignment and the edges
+            thinned to a sketch's worth.
+          </p>
         </>
       )}
 

@@ -1067,8 +1067,8 @@ first point again to close the curve on itself, the way a sketch's pen closes
 a path — or tick **Closed curve** (three points at least). It reads as its arc
 length, lists its points and how many tangents were set, and takes no part in
 dimensions — a free curve has no center and no direction to measure to — but
-it leaves the tool as a real spline: a path of cubic Béziers in the SVG, and
-on a section, a B-spline in the STEP file.
+it leaves the tool as a real spline: a path of cubic Béziers in the SVG, a
+SPLINE in the DXF, and on a section, a B-spline in the STEP file.
 
 Fits report σ and the peak-to-peak form error (straightness, circularity) like
 every other fit in the tool. The panel is the 3D Measure workspace's panel with
@@ -1103,13 +1103,27 @@ traceability line — what the scale is, where it came from, and which frame
 coordinates read in — because a figure without that line is how wrong numbers
 get trusted.
 
-**Export SVG** writes the sheet as a drawing at true scale — one unit per
-millimetre, aligned and turned as the sheet is shown, so a part aligned along
-a reference edge comes into CAD square: every detected edge chain as a
-polyline and every visible element as a native line, circle, arc or spline path, each
-layer its own group, so a CAD sketch can trace the scan's outline against the
-fitted geometry and a vector editor can pick either apart. Nothing sits under
-a transform, and the file's description carries the traceability line.
+**Export SVG** and **Export DXF** write the sheet as a drawing at true scale —
+one unit per millimetre, aligned and turned as the sheet is shown, so a part
+aligned along a reference edge comes in square. What is on the sheet is what
+is drawn: the detected edge chains while they are shown, and every visible
+element as a native line, circle, arc or spline, each layer its own group.
+
+The **SVG** is for a vector editor, a laser, a browser or a print at 1:1 —
+edges as polylines point for point, elements as SVG shapes, the origin at the
+page's top-left corner with y down, nothing under a transform, and the
+traceability line in the file's description.
+
+The **DXF** is for CAD — the format sketches are traded in. Millimetres by
+declaration, y up, and the origin on the alignment when one is set, so the
+part lands in the sketch in its own frame. A line is a LINE, a circle a
+CIRCLE, an arc an ARC by centre and angles, a point a POINT and a spline a
+SPLINE the sketch reads back exactly, on an `elements` layer; the edge chains
+are LWPOLYLINEs on an `edges` layer, thinned to within 0.01 mm of the detected
+points first, because a sketch handed a million line segments is a sketch
+nobody can use; the labels are TEXT on a `labels` layer. AutoCAD 2000 ASCII,
+which every importer reads, with the traceability line in comments at the
+top.
 
 ### Measuring a section
 
@@ -1123,9 +1137,9 @@ millimetres** — no calibration, no alarm, the origin at the cutting plane's
 centre and the sheet seen from the side the plane's normal points to — and
 everything above applies unchanged: picks snap to the cut, an edge-region
 fit takes it point for point (the chains are as fine as the scan's
-triangles), constructions, the alignment, dimensions, the report, the CSV and the
-SVG all read off it. The report's traceability line says it is a section of
-which scan, cut along what, at what offset.
+triangles), constructions, the alignment, dimensions, the report, the CSV, the
+SVG and the DXF all read off it. The report's traceability line says it is a
+section of which scan, cut along what, at what offset.
 
 One source is on the sheet at a time. **Each keeps its own sheet** — its
 elements, dimensions, alignment, tallies and notes — stashed when you switch away

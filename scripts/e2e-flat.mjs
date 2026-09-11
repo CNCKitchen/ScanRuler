@@ -488,5 +488,64 @@ if (svgFile) {
 }
 check(/Sheet exported/.test(await page.$eval('.strip', (el) => el.textContent)), 'status says exported')
 
+// ---- the DXF ---------------------------------------------------------------
+// The same drawing for CAD: millimetres by declaration, y up, the origin on
+// the alignment — which sits on the rectangle's top edge with +X along it —
+// so the fitted line lies on the x axis and the disc's centre reads in the
+// aligned part frame, its height over the line being the dimension. The
+// edges come thinned: fewer polyline vertices than the SVG carries.
+await click(page, '[data-test=flat-export-dxf]')
+let dxfFile = null
+for (let i = 0; i < 50 && !dxfFile; i++) {
+  await sleep(200)
+  const done = readdirSync(DL_DIR).filter((f) => f.endsWith('.dxf'))
+  if (done.length) dxfFile = join(DL_DIR, done[0])
+}
+check(!!dxfFile, 'Export DXF downloads a .dxf file')
+if (dxfFile && svgFile) {
+  const dxf = readFileSync(dxfFile, 'utf8')
+  const lines = dxf.split('\n')
+  const pairs = []
+  for (let i = 0; i + 1 < lines.length; i += 2) pairs.push([lines[i].trim(), lines[i + 1]])
+  const start = pairs.findIndex(([c, v]) => c === '2' && v === 'ENTITIES')
+  const ents = []
+  for (let i = start + 1; i < pairs.length && !(pairs[i][0] === '0' && pairs[i][1] === 'ENDSEC'); i++) {
+    if (pairs[i][0] === '0') ents.push({ type: pairs[i][1], g: [] })
+    else ents[ents.length - 1].g.push(pairs[i])
+  }
+  const val = (e, code) => e.g.find(([c]) => c === code)?.[1]
+  const num = (e, code) => Number(val(e, code))
+  check(/\$ACADVER\n\s*1\nAC1015\n/.test(dxf) && /\$INSUNITS\n\s*70\n4\n/.test(dxf), 'an AutoCAD 2000 file declared in millimetres')
+  const polys = ents.filter((e) => e.type === 'LWPOLYLINE')
+  const vertices = polys.reduce((s, e) => s + num(e, '90'), 0)
+  const svgVertices = (readFileSync(svgFile, 'utf8').match(/<polyline points="([^"]+)"/g) ?? [])
+    .join(' ')
+    .split(/\s+/)
+    .filter((t) => /,/.test(t)).length
+  check(
+    polys.length >= 2 && vertices > 0 && vertices < svgVertices / 2,
+    `the edge chains are polylines, thinned (${vertices} of the SVG's ${svgVertices} vertices)`,
+  )
+  const circle = ents.find((e) => e.type === 'CIRCLE')
+  const line = ents.find((e) => e.type === 'LINE')
+  check(!!circle && Math.abs(2 * num(circle, '40') - DISC_DIA) < 0.1, 'the circle is a CIRCLE at its measured diameter')
+  if (circle && line) {
+    check(Math.abs(num(line, '20')) < 0.05 && Math.abs(num(line, '21')) < 0.05, `the fitted line lies on the alignment's x axis (y ${val(line, '20')}, ${val(line, '21')})`)
+    const cx = num(circle, '10')
+    const cy = num(circle, '20')
+    const wantX = DISC_C[0] - (mm(RECT.x0) + 1)
+    const wantY = DISC_C[1] - RECT_TOP_Y
+    check(
+      Math.abs(cx - wantX) < 0.15 && Math.abs(cy - wantY) < 0.1,
+      `the disc's centre reads in the aligned part frame (${cx}, ${cy} for ${wantX.toFixed(3)}, ${wantY.toFixed(3)})`,
+    )
+    const dist = Number((report.match(/Distance to line: ([\d.]+) mm/) ?? [])[1])
+    check(Math.abs(cy - dist) < 0.01, `its height over the line is the dimension (${dist})`)
+  }
+  check(ents.some((e) => e.type === 'TEXT' && val(e, '1') === 'Circle 1'), 'the labels are TEXT')
+  check(ents.every((e) => ['edges', 'elements', 'labels'].includes(val(e, '8'))), 'everything lies on one of the three layers')
+}
+check(/Drawing exported/.test(await page.$eval('.strip', (el) => el.textContent)), 'status says exported')
+
 await page.screenshot({ path: shotPath('flat-final.png') })
 await finish(browser, consoleErrors)

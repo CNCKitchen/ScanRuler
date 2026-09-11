@@ -11,6 +11,8 @@ import { EdgeIndex } from './core/flat/snap'
 import { datumFrame } from './core/flat/datum'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
+import type { FlatDrawingInput } from './core/flat/drawing'
+import { buildFlatDxf, DXF_EDGE_TOLERANCE } from './core/flat/dxf'
 import { buildFlatSvg } from './core/flat/svg'
 import type { Vec2 } from './core/flat/types'
 import {
@@ -366,41 +368,74 @@ export default function App() {
     useStore.getState().setStatus(`Measurements exported to ${name}.`)
   }
 
-  /** The sheet as a drawing: the detected edges and the fitted elements as
-   *  SVG at true scale, aligned and turned as shown — for a CAD sketch or a vector
-   *  editor. What is on the sheet is what is exported: hidden elements stay
-   *  out, and an element open for editing is not yet an element. */
-  const handleFlatExportSvg = () => {
+  /** The sheet gathered for a drawing export — see core/flat/drawing. What
+   *  is on the sheet is what is exported: the edges while they are shown,
+   *  the visible elements (one open for editing is not yet an element), the
+   *  whole of it aligned and turned as shown. Null with nothing on the stage. */
+  const flatDrawingInput = (): FlatDrawingInput | null => {
     const s = useFlat.getState()
     const sheet = activeSheet()
-    if (!sheet) return
+    if (!sheet) return null
     // Document units per chain unit: millimetres per pixel on the image. A
     // section's chains are millimetres already, and its sheet scale is 1.
     const scale = sheetScale(s)
-    const elements = sheetElements(s)
     const report = flatReportInput()
-    const svg = buildFlatSvg({
+    return {
       bounds:
         sheet.kind === 'image'
           ? { min: [0, 0], max: [sheet.bitmap.width * scale.x, sheet.bitmap.height * scale.y] }
           : sheet.bounds,
-      chains: sheet.chains,
+      chains: s.showEdges ? sheet.chains : null,
       chainUnit: scale,
-      elements,
+      elements: sheetElements(s),
       alignDir: sheetAlignment(s),
       turns: s.turns,
       unit: s.pxPerMm ? 'mm' : 'px',
       title: titleLine(report),
       scaleNote: scaleLine(report),
-    })
+    }
+  }
+
+  /** "1,234 edge chains and 3 elements" — with a word on the edges when a
+   *  format did something to them, and a reason when there are none. */
+  const drawnSummary = (input: FlatDrawingInput, edgeNote = ''): string => {
+    const chains = input.chains ? chainCount(input.chains) : 0
+    const edges = chains
+      ? `${chains.toLocaleString('en-US')} edge chain${chains === 1 ? '' : 's'}${edgeNote ? ` ${edgeNote}` : ''}`
+      : useFlat.getState().showEdges
+        ? 'no edges'
+        : 'the edges hidden'
+    const n = input.elements.length
+    return `${edges} and ${n} element${n === 1 ? '' : 's'}`
+  }
+
+  /** The sheet as an SVG at true scale — for a vector editor, a laser or a
+   *  print at 1:1. */
+  const handleFlatExportSvg = () => {
+    const input = flatDrawingInput()
+    if (!input) return
     const name = `${flatExportStem()}-sheet.svg`
-    saveFile(name, new Blob([svg], { type: 'image/svg+xml' }))
-    const chains = sheet.chains ? chainCount(sheet.chains) : 0
+    saveFile(name, new Blob([buildFlatSvg(input)], { type: 'image/svg+xml' }))
+    useStore.getState().setStatus(`Sheet exported to ${name} — ${drawnSummary(input)}.`)
+  }
+
+  /** The sheet as a DXF — for CAD: millimetres by declaration, y up, the
+   *  origin on the alignment, the edges thinned to a sketch's worth. */
+  const handleFlatExportDxf = () => {
+    const input = flatDrawingInput()
+    if (!input) return
+    const s = useFlat.getState()
+    const tolerance = DXF_EDGE_TOLERANCE[input.unit]
+    const dxf = buildFlatDxf({
+      ...input,
+      origin: s.datum ? (datumFrame(s.datum, s.pxPerMm)?.origin ?? null) : null,
+      edgeTolerance: tolerance,
+    })
+    const name = `${flatExportStem()}-sheet.dxf`
+    saveFile(name, new Blob([dxf], { type: 'application/dxf' }))
     useStore
       .getState()
-      .setStatus(
-        `Sheet exported to ${name} — ${chains.toLocaleString('en-US')} edge chain${chains === 1 ? '' : 's'} and ${elements.length} element${elements.length === 1 ? '' : 's'}.`,
-      )
+      .setStatus(`Drawing exported to ${name} — ${drawnSummary(input, `thinned to ${tolerance} ${input.unit}`)}.`)
   }
 
 
@@ -1624,6 +1659,7 @@ export default function App() {
             onCopy={handleFlatCopyReport}
             onExportCsv={handleFlatExportCsv}
             onExportSvg={handleFlatExportSvg}
+            onExportDxf={handleFlatExportDxf}
           />
         ) : (
           <Panel

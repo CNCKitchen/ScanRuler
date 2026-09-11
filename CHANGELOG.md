@@ -7,6 +7,13 @@ README under "Releases".
 
 ## Unreleased
 
+- **2D Measure** — **Export DXF** beside Export SVG: the sheet as the drawing
+  CAD trades in — millimetres by declaration, y up, the origin on the
+  alignment, every fit as its native entity (LINE, CIRCLE, ARC, POINT, and a
+  SPLINE the sketch reads back exactly) on an `elements` layer, the edge
+  chains as LWPOLYLINEs thinned to 0.01 mm on an `edges` layer, the labels
+  as TEXT. Both drawing exports draw the edges only while they are shown on
+  the sheet now, and sit on a row of their own under the report row.
 - **3D Measure** — the coordinate planes a new section is offered are a
   fifth of the part's size now, about its centre, and drawn through the part
   rather than hidden inside it; an element under the cursor takes the click
