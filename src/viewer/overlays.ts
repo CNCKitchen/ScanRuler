@@ -65,17 +65,11 @@ export interface OverlayAngle {
   value: string
 }
 
-/** The two tones pinned readings alternate between, so that neighbouring pins
- *  tell apart: ink and the brand blue. A tone rather than a colour, because
- *  the title on the chip has to follow the chassis — the stylesheet reads the
- *  tone off the pin's class and paints it in the theme's own ink or blue,
- *  where a fixed ink was all but invisible on the dark instrument's chip. */
-export type ProbeTone = 'ink' | 'accent'
-
-/** The dot of each tone on the part, in the light instrument's figures
- *  whichever the chassis: it sits on the part, and the part does not change
- *  with the lights. */
-const PROBE_DOT: Record<ProbeTone, number> = { ink: 0x26282a, accent: 0x12629f }
+/** The dot a pinned reading puts on the part: ink, in the light instrument's
+ *  figure whichever the chassis — it sits on the part, and the part does not
+ *  change with the lights. The chip's title is ink too, but the chassis's
+ *  own, which the stylesheet paints off the pin's `reading` class. */
+const PROBE_INK = 0x26282a
 
 /** A deviation reading pinned to the part. */
 export interface ProbeMarker {
@@ -84,8 +78,17 @@ export interface ProbeMarker {
   /** What the pin reads on top — the map it was taken off: DEV or WALL. */
   title: string
   label: string
-  tone: ProbeTone
 }
+
+/** How far short of a pin the first surface along the ray may be for the pin
+ *  still to count as seen, as a fraction of the part's radius: the pin sits
+ *  on that surface, and the hit on its own triangle lands a rounding error
+ *  in front of it. */
+const OCCLUSION_SLACK = 0.004
+
+const _pinWorld = new THREE.Vector3()
+const _pinNdc = new THREE.Vector3()
+const _pinCoords = new THREE.Vector2()
 
 /** A pin in the 3D view: what it marks on top, the measured value under it, so
  *  the numbers can be read off the model without going back to the panel. An
@@ -139,6 +142,21 @@ export interface OverlaysContext {
    *  (points, lines, markers) are drawn at. */
   modelRadius(): number
   invalidate(): void
+  /** The viewport's camera and its raycaster, for asking whether a pin's spot
+   *  can be seen from where the camera stands. */
+  camera: THREE.Camera
+  raycaster: THREE.Raycaster
+  /** What can stand between the camera and a pin: the scan, while it is
+   *  shown. Null puts every pin in view. */
+  occluder(): THREE.Mesh | null
+}
+
+/** A pinned reading on the part: its dot, its chip, and where it is in the
+ *  part's own coordinates. */
+interface ProbePin {
+  dot: THREE.Mesh
+  label: CSS2DObject
+  point: THREE.Vector3
 }
 
 export class Overlays {
@@ -159,6 +177,15 @@ export class Overlays {
   /** Millimetres per pixel at the current zoom, from the viewport. Zero until
    *  the first frame has reported one. */
   private worldPerPixel = 0
+  /** The pinned readings on the part, kept so a turn of the camera can put
+   *  away the ones it can no longer see. */
+  private probePins: ProbePin[] = []
+  private hideOccludedProbes = false
+  /** The view the pins were last tested from — camera, projection and the
+   *  part's pose — so a frame that moved none of them tests nothing. Null
+   *  when the pins or the setting have changed since. */
+  private occlusionView: Float64Array | null = null
+  private viewNow = new Float64Array(48)
   /** Overlay meshes that can stand in for their element in a click, and the
    *  materials to restyle when that element is selected. */
   private overlayPickables: THREE.Mesh[] = []
@@ -843,17 +870,20 @@ export class Overlays {
     for (const dispose of this.probeCleanup) dispose()
     this.probeCleanup = []
     this.probeGroup.clear()
+    this.probePins = []
+    this.occlusionView = null
     for (const probe of probes) {
-      const material = new THREE.MeshBasicMaterial({ color: PROBE_DOT[probe.tone], depthTest: false })
+      const material = new THREE.MeshBasicMaterial({ color: PROBE_INK, depthTest: false })
       const dot = new THREE.Mesh(this.probeGeometry, material)
       dot.position.set(...probe.point)
       dot.scale.setScalar(this.ctx.modelRadius() * 0.009)
       dot.renderOrder = 4
       this.probeGroup.add(dot)
 
-      const label = pinLabel(`probe ${probe.tone}`, probe.title, probe.label)
+      const label = pinLabel('probe reading', probe.title, probe.label)
       label.position.set(...probe.point)
       this.probeGroup.add(label)
+      this.probePins.push({ dot, label, point: new THREE.Vector3(...probe.point) })
 
       this.probeCleanup.push(() => {
         material.dispose()
@@ -861,6 +891,57 @@ export class Overlays {
       })
     }
     this.ctx.invalidate()
+  }
+
+  /** Put away the pins whose spot cannot be seen from where the camera
+   *  stands — on the far side of the part, or behind a feature of it — until
+   *  the part turns to show them. Off, every pin shows through the part, as
+   *  the dots always have. */
+  setProbeOcclusion(on: boolean): void {
+    if (on === this.hideOccludedProbes) return
+    this.hideOccludedProbes = on
+    this.occlusionView = null
+    if (!on) for (const pin of this.probePins) pin.dot.visible = pin.label.visible = true
+    this.ctx.invalidate()
+  }
+
+  /** Once a frame, from the viewport, before it draws: test the pins against
+   *  the part again if the view has changed since they were last tested. A
+   *  hover frame that moved nothing tests nothing.
+   *
+   *  A pin is seen when the first surface along the ray from the camera to
+   *  its spot is the spot itself, give or take OCCLUSION_SLACK; anything
+   *  nearer is the part in the way. The ray is set up from the spot's place
+   *  on screen, exactly as a click there would be, so the test agrees with
+   *  what a click would hit. */
+  updateProbeOcclusion(): void {
+    if (!this.hideOccludedProbes || this.probePins.length === 0) return
+    const { camera, partGroup, raycaster } = this.ctx
+    // The controls have moved the camera this frame; its matrices follow only
+    // at render time, which is after this.
+    camera.updateMatrixWorld()
+    partGroup.updateMatrixWorld(true)
+    const view = this.viewNow
+    view.set(camera.matrixWorld.elements, 0)
+    view.set(camera.projectionMatrix.elements, 16)
+    view.set(partGroup.matrixWorld.elements, 32)
+    const last = this.occlusionView
+    if (last && view.every((v, i) => v === last[i])) return
+    this.occlusionView = last ? (last.set(view), last) : view.slice()
+
+    const occluder = this.ctx.occluder()
+    const slack = this.ctx.modelRadius() * OCCLUSION_SLACK
+    for (const pin of this.probePins) {
+      let seen = true
+      if (occluder) {
+        _pinWorld.copy(pin.point).applyMatrix4(partGroup.matrixWorld)
+        _pinNdc.copy(_pinWorld).project(camera)
+        raycaster.setFromCamera(_pinCoords.set(_pinNdc.x, _pinNdc.y), camera)
+        const hit = raycaster.intersectObject(occluder, false)[0]
+        seen = !hit || hit.distance >= raycaster.ray.origin.distanceTo(_pinWorld) - slack
+      }
+      pin.dot.visible = pin.label.visible = seen
+    }
   }
 
   /** Millimetres per pixel at the current zoom, reported every frame by the

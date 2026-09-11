@@ -274,6 +274,9 @@ export class SceneManager {
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
+        // Pins on the far side of the part go away as it turns, if asked to;
+        // a no-op unless the view moved.
+        this.overlays.updateProbeOcclusion()
         // The section curves are fat lines sized in pixels and need the canvas.
         const el = this.viewport.renderer.domElement
         this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
@@ -311,6 +314,12 @@ export class SceneManager {
       partGroup: this.partGroup,
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
+      camera: this.camera,
+      raycaster: this.raycaster,
+      // Only the scan stands between the camera and a pin: the pins are
+      // readings on the scan, and the reference is a translucent ghost a pin
+      // shows through. A hidden scan hides nothing.
+      occluder: () => (this.mesh?.visible ? this.mesh : null),
     })
     this.sections = new SectionOverlay({
       partGroup: this.partGroup,
@@ -906,6 +915,12 @@ export class SceneManager {
   /** Pin readings to the part, each titled with the map it came off. */
   setProbes(probes: ProbeMarker[]): void {
     this.overlays.setProbes(probes)
+  }
+
+  /** Put away the pins whose spot the camera cannot see — the far side of the
+   *  part, or behind a feature of it — or show every pin through the part. */
+  setProbeOcclusion(hideOccluded: boolean): void {
+    this.overlays.setProbeOcclusion(hideOccluded)
   }
 
   /** Mark the points picked for an alignment slot on the part, labelled with

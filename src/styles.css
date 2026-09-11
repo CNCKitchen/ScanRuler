@@ -2906,16 +2906,12 @@ button.x:disabled {
   border-color: var(--line-strong);
 }
 
-/* Pinned readings alternate two tones so that neighbouring pins tell apart:
-   ink and the brand blue, each as the chassis has it — a title that is ink on
-   the light instrument must not be that same ink on the dark chip, where it
-   would vanish. */
-.viewport-label.probe.ink .label-title {
+/* A pinned reading's title, in ink like the value under it — one tone for
+   every pin, as the chassis has it: a title that is ink on the light
+   instrument must not be that same ink on the dark chip, where it would
+   vanish. */
+.viewport-label.reading .label-title {
   color: var(--ink);
-}
-
-.viewport-label.probe.accent .label-title {
-  color: var(--accent-d);
 }
 
 

@@ -664,15 +664,16 @@ export function useSceneSync({
           ? thickProbes.map((p) => ({ ...p, title: 'WALL', label: `${p.value.toFixed(3)} mm` }))
           : []
     sceneRef.current?.setProbes(
-      shown.map((p, i) => ({
-        id: p.id,
-        point: p.point,
-        title: p.title,
-        label: p.label,
-        tone: i % 2 === 0 ? 'ink' : 'accent',
-      })),
+      shown.map((p) => ({ id: p.id, point: p.point, title: p.title, label: p.label })),
     )
   }, [workspace, probes, thickProbes])
+
+  // Whether the pins on the far side of the part are put away or show through
+  // it — the operator's, like the line widths, and kept across sessions.
+  const hidePinsBehind = usePrefs((s) => s.hidePinsBehind)
+  useEffect(() => {
+    sceneRef.current?.setProbeOcclusion(hidePinsBehind)
+  }, [hidePinsBehind])
 
   // A half-finished element fit or alignment has no meaning in the other
   // workspaces.

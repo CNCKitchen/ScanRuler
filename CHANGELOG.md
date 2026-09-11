@@ -7,6 +7,16 @@ README under "Releases".
 
 ## Unreleased
 
+- **Hide pins behind the part** — a switch by the pinned readings, in the
+  deviation and the thickness workspace alike. With it on, a pin whose spot
+  is on the far side of the part, or behind a feature of it, is put away
+  until the part turns to show it, so a part carrying many pins shows only
+  the numbers of the face you are looking at. Off — the default, and what
+  pins always did — every pin shows through the part. Remembered like the
+  other instrument settings.
+- **Pinned readings** are all one tone now, ink on the chip and on the
+  part, where they used to alternate ink and blue by turns — a pattern that
+  read as a meaning it did not have.
 - **Dark mode** — text in a colour of its own reads on the dark chassis now.
   A pinned reading's title was the light instrument's ink whatever the
   chassis, which on the dark chip made it all but invisible; the pins wear
