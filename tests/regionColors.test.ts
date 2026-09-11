@@ -2,7 +2,9 @@
 // The vertex-colour compositor, exercised without a scene: the layers are
 // bare scan, element tints, field map, preview — and every mutation has to
 // leave the buffer exactly as repainting from scratch would. The marking is a
-// layer apart: a mask the shader tints, never a colour in the buffer.
+// layer apart: a mask the shader tints, never a colour in the buffer. The tint
+// mask rides beside the colours and has to say, at every vertex, whether the
+// colour there is the bare scan's or a tint of its own.
 import { describe, expect, it } from 'vitest'
 import { RegionColors, type Rgb } from '../src/viewer/regionColors'
 
@@ -14,13 +16,14 @@ const BLUE: Rgb = [0, 0, 200]
 const N = 8
 
 /** A compositor over a small scan, every vertex on the base colour. */
-function setup(): { rc: RegionColors; colors: Uint8Array; paint: Uint8Array } {
+function setup(): { rc: RegionColors; colors: Uint8Array; paint: Uint8Array; tint: Uint8Array } {
   const colors = new Uint8Array(N * 3)
   for (let v = 0; v < N; v++) colors.set(BASE, v * 3)
   const paint = new Uint8Array(N)
+  const tint = new Uint8Array(N).fill(7) // stale bytes from a previous scan
   const rc = new RegionColors(BASE)
-  rc.attach(colors, paint)
-  return { rc, colors, paint }
+  rc.attach(colors, paint, tint)
+  return { rc, colors, paint, tint }
 }
 
 function colorAt(colors: Uint8Array, v: number): Rgb {
@@ -241,5 +244,100 @@ describe('lifecycle', () => {
     expect(rc.paintedVertices().length).toBe(0)
     rc.markVertex(0, false) // nothing to mark on
     expect(rc.paintCount).toBe(0)
+  })
+})
+
+describe('the tint mask', () => {
+  /** The invariant the shader relies on: a vertex is flagged exactly when its
+   *  colour is not the bare scan's. Checked against the colour buffer itself. */
+  function expectMaskMatchesColors(colors: Uint8Array, tint: Uint8Array): void {
+    for (let v = 0; v < N; v++) {
+      const bare = colorAt(colors, v).every((c, i) => c === BASE[i])
+      expect(tint[v], `vertex ${v}`).toBe(bare ? 0 : 1)
+    }
+  }
+
+  it('starts clear on attach, whatever the buffer held', () => {
+    const { tint } = setup()
+    expect(Array.from(tint)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+  })
+
+  it('flags exactly the region an element tints, and clears with it', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1, 2, 3))
+    expect(Array.from(tint)).toEqual([0, 1, 1, 1, 0, 0, 0, 0])
+    expectMaskMatchesColors(colors, tint)
+    rc.applyRegion(1, GREEN, Uint32Array.of(3, 4))
+    expect(Array.from(tint)).toEqual([0, 0, 0, 1, 1, 0, 0, 0])
+    rc.clearElement(1)
+    expect(Array.from(tint)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    expectMaskMatchesColors(colors, tint)
+  })
+
+  it('follows a hidden element off the surface and back on', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1, 2))
+    rc.applyRegion(2, GREEN, Uint32Array.of(5))
+    rc.setHiddenRegions([1])
+    expect(Array.from(tint)).toEqual([0, 0, 0, 0, 0, 1, 0, 0])
+    expectMaskMatchesColors(colors, tint)
+    rc.setHiddenRegions([])
+    expect(Array.from(tint)).toEqual([0, 1, 1, 0, 0, 1, 0, 0])
+  })
+
+  it('flags a preview, and lifting it hands each vertex back to what lies under', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1, 2))
+    rc.setPreviewRegion(Uint32Array.of(2, 3), BLUE)
+    expect(Array.from(tint)).toEqual([0, 1, 1, 1, 0, 0, 0, 0])
+    rc.setPreviewRegion(null)
+    expect(Array.from(tint)).toEqual([0, 1, 1, 0, 0, 0, 0, 0])
+    expectMaskMatchesColors(colors, tint)
+
+    // Over a hidden element the lifted preview leaves bare scan behind.
+    rc.setHiddenRegions([1])
+    rc.setPreviewRegion(Uint32Array.of(1, 2), BLUE)
+    expect(Array.from(tint)).toEqual([0, 1, 1, 0, 0, 0, 0, 0])
+    rc.setPreviewRegion(null)
+    expect(Array.from(tint)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+    expectMaskMatchesColors(colors, tint)
+  })
+
+  it('a measured map flags every vertex, so the map stays smooth; lifting it rebuilds from the elements', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1))
+    rc.setFieldColors(new Uint8Array(N * 3).fill(77))
+    expect(Array.from(tint)).toEqual([1, 1, 1, 1, 1, 1, 1, 1])
+    // Recorded under the map, flagged when it lifts.
+    rc.applyRegion(2, GREEN, Uint32Array.of(6))
+    expect(Array.from(tint)).toEqual([1, 1, 1, 1, 1, 1, 1, 1])
+    rc.setFieldColors(null)
+    expect(Array.from(tint)).toEqual([0, 1, 0, 0, 0, 0, 1, 0])
+    expectMaskMatchesColors(colors, tint)
+  })
+
+  it('clearAllRegions wipes it with the tints', () => {
+    const { rc, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(0, 1))
+    rc.setPreviewRegion(Uint32Array.of(2), BLUE)
+    rc.clearAllRegions()
+    expect(Array.from(tint)).toEqual([0, 0, 0, 0, 0, 0, 0, 0])
+  })
+
+  it('is untouched by the marking and by a new bare colour', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1))
+    rc.markVertex(1, false)
+    rc.markVertex(4, false)
+    expect(Array.from(tint)).toEqual([0, 1, 0, 0, 0, 0, 0, 0])
+    rc.clearPaint()
+    expect(Array.from(tint)).toEqual([0, 1, 0, 0, 0, 0, 0, 0])
+    rc.setBaseColor([23, 112, 176])
+    expect(Array.from(tint)).toEqual([0, 1, 0, 0, 0, 0, 0, 0])
+    // Still one flag per tinted vertex, against the new bare colour.
+    for (let v = 0; v < N; v++) {
+      const bare = colorAt(colors, v).every((c, i) => c === [23, 112, 176][i])
+      expect(tint[v]).toBe(bare ? 0 : 1)
+    }
   })
 })

@@ -17,6 +17,17 @@
  * attribute), and the scan's shader thresholds it so that exactly the fully
  * marked triangles wear the tint — a border as sharp as the mesh itself. This
  * module only keeps the mask and its count; no colour ever moves for it.
+ *
+ * The element tints and the preview get the same border by the same trick,
+ * with a second mask beside the colours (the mesh's tint attribute): one where
+ * a vertex wears a colour of its own — an element's tint, the preview, a
+ * measured map — and zero on bare scan. The shader thresholds it the same way
+ * and shows the bare surface colour wherever a triangle is not tinted at all
+ * three corners, so a region's border falls on triangle edges instead of
+ * fading across the ring around it. A measured map sets it everywhere, which
+ * is what leaves the map interpolated as a map should be. The mask moves with
+ * the colours: whenever a call reports the colour buffer changed, the mask
+ * needs uploading with it.
  */
 
 export type Rgb = readonly [number, number, number]
@@ -42,6 +53,10 @@ export class RegionColors {
    *  place, thresholded per triangle by the scan's shader. */
   private paintMask: Uint8Array | null = null
   private count = 0
+  /** Which vertices wear a colour of their own rather than bare scan: one byte
+   *  per vertex, the mesh's tint attribute — written in place alongside the
+   *  colours, thresholded per triangle by the scan's shader. */
+  private tintMask: Uint8Array | null = null
 
   constructor(private baseColor: Rgb) {}
 
@@ -67,10 +82,10 @@ export class RegionColors {
     return this.count
   }
 
-  /** Adopt a new scan's colour and paint buffers. Ownership, tints and marking
-   *  all start empty — nothing measured on the old scan means anything on this
-   *  one. */
-  attach(colors: Uint8Array, paint: Uint8Array): void {
+  /** Adopt a new scan's colour, tint and paint buffers. Ownership, tints and
+   *  marking all start empty — nothing measured on the old scan means anything
+   *  on this one. */
+  attach(colors: Uint8Array, paint: Uint8Array, tint: Uint8Array): void {
     this.colors = colors
     this.owner = new Int32Array(colors.length / 3)
     this.elementColors.clear()
@@ -80,6 +95,8 @@ export class RegionColors {
     this.paintMask = paint
     this.paintMask.fill(0)
     this.count = 0
+    this.tintMask = tint
+    this.tintMask.fill(0)
   }
 
   /** Drop everything with the mesh it belonged to. */
@@ -92,6 +109,7 @@ export class RegionColors {
     this.previewRegion = null
     this.paintMask = null
     this.count = 0
+    this.tintMask = null
   }
 
   /** What a vertex should be coloured when no overlay sits on it: the measured
@@ -118,11 +136,13 @@ export class RegionColors {
     // goes for an element that is currently hidden.
     if (this.fieldColors || this.hiddenRegions.has(elementId)) return cleared
     const arr = this.colors
+    const tint = this.tintMask!
     for (let i = 0; i < region.length; i++) {
       const v = region[i]
       arr[v * 3] = rgb[0]
       arr[v * 3 + 1] = rgb[1]
       arr[v * 3 + 2] = rgb[2]
+      tint[v] = 1
     }
     this.paintOverlays()
     return true
@@ -134,6 +154,7 @@ export class RegionColors {
     this.elementColors.delete(elementId)
     this.hiddenRegions.delete(elementId)
     const arr = this.colors
+    const tint = this.tintMask!
     const paint = this.fieldColors === null
     for (let v = 0; v < this.owner.length; v++) {
       if (this.owner[v] !== elementId) continue
@@ -142,6 +163,7 @@ export class RegionColors {
       arr[v * 3] = this.baseColor[0]
       arr[v * 3 + 1] = this.baseColor[1]
       arr[v * 3 + 2] = this.baseColor[2]
+      tint[v] = 0
     }
     if (!paint) return false
     this.paintOverlays()
@@ -161,6 +183,7 @@ export class RegionColors {
       arr[v * 3 + 1] = this.baseColor[1]
       arr[v * 3 + 2] = this.baseColor[2]
     }
+    this.tintMask!.fill(0)
     return true
   }
 
@@ -171,6 +194,7 @@ export class RegionColors {
     if (!this.colors || !this.owner || this.fieldColors) return false
     if (rgb) this.previewRgb = rgb
     const arr = this.colors
+    const tint = this.tintMask!
     if (this.previewRegion) {
       for (let i = 0; i < this.previewRegion.length; i++) {
         const v = this.previewRegion[i]
@@ -178,6 +202,7 @@ export class RegionColors {
         arr[v * 3] = c[0]
         arr[v * 3 + 1] = c[1]
         arr[v * 3 + 2] = c[2]
+        tint[v] = this.visibleOwnerAt(v) === null ? 0 : 1
       }
     }
     this.previewRegion = region
@@ -187,12 +212,16 @@ export class RegionColors {
 
   /** Paint the scan from a measured map — deviation, wall thickness — or pass
    *  null to hand the surface back to the element colours. Returns whether the
-   *  colour buffer was there to paint. */
+   *  colour buffer was there to paint. A map is a reading at every vertex, so
+   *  it tints every vertex: no triangle falls under the shader's threshold and
+   *  the map stays the smooth interpolation it is meant to be. */
   setFieldColors(field: Uint8Array | null): boolean {
     this.fieldColors = field
     if (!this.colors) return false
-    if (field && field.length === this.colors.length) this.colors.set(field)
-    else this.repaintFromElements()
+    if (field && field.length === this.colors.length) {
+      this.colors.set(field)
+      this.tintMask!.fill(1)
+    } else this.repaintFromElements()
     return true
   }
 
@@ -210,17 +239,20 @@ export class RegionColors {
     return true
   }
 
-  /** Rebuild every vertex's colour from the ownership records, then put the
-   *  overlays back on top. */
+  /** Rebuild every vertex's colour (and whether it is a tint) from the
+   *  ownership records, then put the overlays back on top. */
   repaintFromElements(): void {
     if (!this.colors || !this.owner) return
     const arr = this.colors
+    const tint = this.tintMask!
     for (let v = 0; v < this.owner.length; v++) {
       const id = this.owner[v]
-      const c = (!this.hiddenRegions.has(id) && this.elementColors.get(id)) || this.baseColor
+      const own = (!this.hiddenRegions.has(id) && this.elementColors.get(id)) || null
+      const c = own ?? this.baseColor
       arr[v * 3] = c[0]
       arr[v * 3 + 1] = c[1]
       arr[v * 3 + 2] = c[2]
+      tint[v] = own ? 1 : 0
     }
     this.paintOverlays()
   }
@@ -238,11 +270,13 @@ export class RegionColors {
   private paintOverlays(): void {
     const arr = this.colors
     if (!arr || !this.previewRegion) return
+    const tint = this.tintMask!
     for (let i = 0; i < this.previewRegion.length; i++) {
       const v = this.previewRegion[i]
       arr[v * 3] = this.previewRgb[0]
       arr[v * 3 + 1] = this.previewRgb[1]
       arr[v * 3 + 2] = this.previewRgb[2]
+      tint[v] = 1
     }
   }
 

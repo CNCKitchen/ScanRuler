@@ -23,12 +23,20 @@ import type { PickMarker } from './PickScene'
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
-import { applyFinish, DEFAULT_THEME, type ViewTheme } from './viewThemes'
+import { applyFinish, DEFAULT_THEME, setSurfaceColor, type ViewTheme } from './viewThemes'
 import {
   backfaceUniforms,
   BACKFACE_GLSL_FRAGMENT,
   BACKFACE_GLSL_PREAMBLE,
 } from './backfaceTint'
+import {
+  surfaceUniform,
+  TINT_GLSL_FRAGMENT,
+  TINT_GLSL_PREAMBLE,
+  TINT_GLSL_VERTEX,
+  TINT_GLSL_VERTEX_BODY,
+  type SurfaceUniform,
+} from './regionTint'
 import {
   paintUniform,
   setPaintUniform,
@@ -181,6 +189,11 @@ export class SceneManager {
   private previewMatrix = new THREE.Matrix4()
   private mesh: THREE.Mesh | null = null
   private colorAttr: THREE.BufferAttribute | null = null
+  /** Which vertices wear a tint of their own, one byte per vertex beside the
+   *  colours: thresholded in the scan's shader so a region's border falls on
+   *  triangle edges instead of fading across the ring around it — see
+   *  regionTint.ts. Moves with the colour attribute, never alone. */
+  private tintAttr: THREE.BufferAttribute | null = null
   /** The hand-marking's own channel: one byte per vertex, thresholded in the
    *  scan's shader so exactly the fully marked triangles wear the tint. Kept
    *  out of the colour attribute on purpose — vertex colours are interpolated,
@@ -214,6 +227,10 @@ export class SceneManager {
   /** The marking's tint, as a uniform: recolouring what is marked is one write
    *  here rather than a pass over the mask — see paintTint.ts. */
   private uPaintColor: PaintUniform = paintUniform()
+
+  /** The bare surface colour the shader paints under a region's border, kept
+   *  in step with the scheme — see regionTint.ts. */
+  private uSurfaceColor: SurfaceUniform = surfaceUniform(DEFAULT_THEME)
 
   /** The mesh mode's switch, shared by the scan and the reference: the
    *  triangle edges, drawn in the surface shader — see surfaceModes.ts. */
@@ -402,8 +419,8 @@ export class SceneManager {
     this.marking.setTheme(theme)
     this.overlays.setTheme(theme)
     this.backface.uBackfaceColor.value.setHex(theme.backface)
-    if (this.regions.setBaseColor(theme.surface) && this.colorAttr)
-      this.colorAttr.needsUpdate = true
+    setSurfaceColor(this.uSurfaceColor.value, theme)
+    if (this.regions.setBaseColor(theme.surface)) this.surfaceRepainted()
     if (this.mesh) applyFinish(this.mesh.material as THREE.MeshStandardMaterial, theme)
     if (this.nominalMesh) {
       const material = this.nominalMesh.material as THREE.MeshStandardMaterial
@@ -551,6 +568,9 @@ export class SceneManager {
     }
     this.colorAttr = new THREE.BufferAttribute(colors, 3, true)
     geometry.setAttribute('color', this.colorAttr)
+    const tint = new Uint8Array(vertexCount)
+    this.tintAttr = new THREE.BufferAttribute(tint, 1)
+    geometry.setAttribute('tint', this.tintAttr)
     const paint = new Uint8Array(vertexCount)
     this.paintAttr = new THREE.BufferAttribute(paint, 1)
     geometry.setAttribute('paint', this.paintAttr)
@@ -577,7 +597,7 @@ export class SceneManager {
     // previewed on it.
     this.previewMatrix.identity()
     this.setAlignment(null)
-    this.regions.attach(colors, paint)
+    this.regions.attach(colors, paint, tint)
 
     this.modelRadius = Math.max(
       geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2,
@@ -589,40 +609,56 @@ export class SceneManager {
   }
 
   /**
-   * The scan material's shader amendments: the hand-marking's tint (see
-   * paintTint.ts), back-face flagging (see backfaceTint.ts) and the mesh mode's
-   * edges (see surfaceModes.ts). Folded into one patch here because a material
-   * has a single onBeforeCompile.
+   * The scan material's shader amendments: the sharp border of the element
+   * tints (see regionTint.ts), the hand-marking's tint (see paintTint.ts),
+   * back-face flagging (see backfaceTint.ts) and the mesh mode's edges (see
+   * surfaceModes.ts). Folded into one patch here because a material has a
+   * single onBeforeCompile.
    *
    * Back faces are flagged in the shader rather than by drawing the mesh a
    * second time with the faces flipped, because the second pass would have to
    * be the same million triangles again — and because a front-face-only main
    * pass would take the inside of the part out of reach of the raycaster,
-   * which is what picking, hovering and the brush all run on. The flag wins
-   * over the marking: a tinted back face is a warning, not a surface.
+   * which is what picking, hovering and the brush all run on. The order the
+   * lines run in is the order the layers stack: the region border is cut
+   * first, the marking paints over it, and the flag has the last word — a
+   * tinted back face is a warning, not a surface.
    */
   private patchScanShader(material: THREE.Material): void {
     material.onBeforeCompile = (shader) => {
       shader.uniforms.uBackfaceTint = this.backface.uBackfaceTint
       shader.uniforms.uBackfaceColor = this.backface.uBackfaceColor
       shader.uniforms.uPaintColor = this.uPaintColor
+      shader.uniforms.uSurfaceColor = this.uSurfaceColor
       shader.vertexShader =
+        TINT_GLSL_VERTEX +
         PAINT_GLSL_VERTEX +
         shader.vertexShader.replace(
           '#include <color_vertex>',
-          `#include <color_vertex>\n\t${PAINT_GLSL_VERTEX_BODY}`,
+          `#include <color_vertex>
+          ${TINT_GLSL_VERTEX_BODY}
+          ${PAINT_GLSL_VERTEX_BODY}`,
         )
       shader.fragmentShader =
         BACKFACE_GLSL_PREAMBLE +
         PAINT_GLSL_PREAMBLE +
+        TINT_GLSL_PREAMBLE +
         shader.fragmentShader.replace(
           '#include <color_fragment>',
           `#include <color_fragment>
+          ${TINT_GLSL_FRAGMENT}
           ${PAINT_GLSL_FRAGMENT}
           ${BACKFACE_GLSL_FRAGMENT}`,
         )
       spliceWireframe(shader, this.wire)
     }
+  }
+
+  /** The compositor moved colours: the colour buffer and the tint mask that
+   *  goes with it both need uploading — see regionColors. */
+  private surfaceRepainted(): void {
+    if (this.colorAttr) this.colorAttr.needsUpdate = true
+    if (this.tintAttr) this.tintAttr.needsUpdate = true
   }
 
   /**
@@ -940,19 +976,19 @@ export class SceneManager {
     if (!this.colorAttr || !this.regions.ready) return
     this.invalidate()
     if (this.regions.applyRegion(elementId, colorToRgb(colorHex), region))
-      this.colorAttr.needsUpdate = true
+      this.surfaceRepainted()
   }
 
   clearElement(elementId: number): void {
     if (!this.colorAttr || !this.regions.ready) return
     this.invalidate()
-    if (this.regions.clearElement(elementId)) this.colorAttr.needsUpdate = true
+    if (this.regions.clearElement(elementId)) this.surfaceRepainted()
   }
 
   clearAllRegions(): void {
     if (!this.colorAttr || !this.regions.ready) return
     this.invalidate()
-    if (this.regions.clearAllRegions()) this.colorAttr.needsUpdate = true
+    if (this.regions.clearAllRegions()) this.surfaceRepainted()
   }
 
   /** Tint the surfaces a pending fit is using, in the colour the element will
@@ -960,7 +996,7 @@ export class SceneManager {
    *  lifting the preview restores whatever was underneath. */
   setPreviewRegion(region: Uint32Array | null, colorHex?: string): void {
     if (!this.regions.setPreviewRegion(region, colorHex ? colorToRgb(colorHex) : undefined)) return
-    this.colorAttr!.needsUpdate = true
+    this.surfaceRepainted()
     this.invalidate()
   }
 
@@ -1303,14 +1339,14 @@ export class SceneManager {
     const painted = this.regions.setFieldColors(colors)
     this.invalidate()
     if (!painted) return
-    this.colorAttr!.needsUpdate = true
+    this.surfaceRepainted()
   }
 
   /** Switch the surface tint of the given elements off (and everyone else's
    *  back on). Cheap enough to run on every visibility toggle. */
   setHiddenRegions(ids: readonly number[]): void {
     if (!this.regions.setHiddenRegions(ids)) return
-    this.colorAttr!.needsUpdate = true
+    this.surfaceRepainted()
     this.invalidate()
   }
 
@@ -1335,6 +1371,7 @@ export class SceneManager {
     this.partGroup.remove(this.mesh)
     this.mesh = null
     this.colorAttr = null
+    this.tintAttr = null
     this.paintAttr = null
   }
 

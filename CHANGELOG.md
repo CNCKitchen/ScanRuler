@@ -7,6 +7,14 @@ README under "Releases".
 
 ## Unreleased
 
+- **A fitted region's border is as sharp as a marking's** — the surface a
+  click-fitted element rests on, and the preview of one, used to be tinted
+  through the vertex colours, which the GPU blends across every triangle, so
+  the tint faded out over the ring of triangles around the region instead of
+  stopping at it. It now wears its colour the way a hand-marked surface does:
+  exactly the triangles whose three corners the fit uses are coloured, edge to
+  edge, and the ring around them is bare scan. The deviation and thickness
+  maps are readings at every vertex and stay as smooth as before.
 - **The rounding at an edge stays out of a fit** — a scan rolls every edge
   off over a few vertex rings, and a click-fitted plane, cylinder, sphere or
   cone used to keep the first one or two of them: close enough to the surface
