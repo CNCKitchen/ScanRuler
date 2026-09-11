@@ -4,7 +4,7 @@
 // row keys, and a note or a warning under it. Shared by the 3D and 2D
 // dimension lists, and by the tolerances.
 
-import type { Verdict } from '../core/dimensions'
+import { verdictLines, type Verdict } from '../core/dimensions'
 import { ValueWindow, type ReadValue } from './DroValue'
 import { RowTools } from './RowTools'
 
@@ -13,16 +13,22 @@ export function WarningNote({ text }: { text: string }) {
 }
 
 /** How a reading stands to the limit typed for it: the allowance restated
- *  and the signed deviation, with the alarm under them when it is over. */
+ *  and the signed deviation, with the alarm under them when it is over —
+ *  or, when the two would say the same number, the alarm alone. */
 export function VerdictNote({ verdict }: { verdict: Verdict }) {
+  const lines = verdictLines(verdict)
+  const alarm = verdict.pass ? undefined : lines[lines.length - 1]
+  const note = lines.length > 1 || verdict.pass ? lines[0] : undefined
   return (
     <>
-      <div className="dro-note verdict" data-test="verdict">
-        {verdict.allowance} · {verdict.delta}
-      </div>
-      {!verdict.pass && (
+      {note && (
+        <div className="dro-note verdict" data-test="verdict">
+          {note}
+        </div>
+      )}
+      {alarm && (
         <p className="warnnote fail" data-test="fail">
-          ✕ {verdict.alarm}
+          ✕ {alarm}
         </p>
       )}
     </>

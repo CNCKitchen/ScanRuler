@@ -47,10 +47,20 @@ describe('the summary with limits', () => {
     expect(text).toContain('Flatness 1 (Base) — Flatness: 0.031 mm\n  limit 0.050 mm · Δ -0.019 mm · PASS')
     expect(text).toContain('Sphericity 1 (Ball) — Sphericity: 0.004 mm\n  Peak to peak')
     expect(text).toContain(
-      'Diameter 1 (Ball) — Diameter: 12.020 mm\n  nominal 12.000 mm +0.010 mm / −0.010 mm · Δ +0.020 mm · FAIL — 0.010 mm over the upper limit',
+      'Diameter 1 (Ball) — Diameter: 12.020 mm\n  nominal 12.000 mm +0.010 mm / −0.010 mm · Δ +0.020 mm · 0.010 mm over the upper limit · FAIL',
     )
     expect(text).toContain('Distance 1 (Ball → Base) — Distance to plane: +20.000 mm')
     expect(text.trimEnd().endsWith('Checked against limits: 2 — 1 pass, 1 fail')).toBe(true)
+  })
+
+  it('says the excess past a ceiling once', () => {
+    const rows = evaluateDimensions(
+      [{ id: 1, type: 'form-flatness', name: 'Flatness 1', refs: [1], limit: { kind: 'max', max: 0.02 } }],
+      elements,
+    )
+    const text = buildSummary('scan.stl', { method: 'gaussian', sigma: 3 }, elements, rows)
+    expect(text).toContain('Flatness: 0.031 mm\n  limit 0.020 mm · 0.011 mm over the limit · FAIL')
+    expect(text).not.toContain('Δ +0.011')
   })
 
   it('has no tally when nothing was held to a limit', () => {

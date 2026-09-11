@@ -260,6 +260,7 @@ check(
   coaxPin.startsWith('Coaxiality 1') && coaxPin.includes(`${named.pin} → ${named.shaft}`) && coaxPin.includes('over the limit'),
   `the red pin names the pin and the shaft and the excess: "${coaxPin}"`,
 )
+check(!coaxPin.includes('Δ'), 'and does not repeat the excess as a deviation')
 
 // ---- a diameter with a nominal and a tolerance -------------------------------
 await click(page, '[data-test="new-dimension"]')
@@ -308,8 +309,8 @@ check(
   'reports the parallelism with its datum',
 )
 check(
-  new RegExp(`Coaxiality 1 \\(${named.pin} → ${named.shaft}\\) — Coaxiality: Ø 0\\.\\d{3} mm\\n  limit 0\\.100 mm · Δ \\+0\\.\\d{3} mm · FAIL — 0\\.\\d{3} mm over the limit`).test(summary),
-  'judges the coaxiality as failing',
+  new RegExp(`Coaxiality 1 \\(${named.pin} → ${named.shaft}\\) — Coaxiality: Ø 0\\.\\d{3} mm\\n  limit 0\\.100 mm · 0\\.\\d{3} mm over the limit · FAIL`).test(summary),
+  'judges the coaxiality as failing, saying the excess once',
 )
 check(
   new RegExp(`Diameter 1 \\(${named.shaft}\\) — Diameter: 40\\.000 mm\\n  nominal 40\\.050 mm \\+0\\.100 mm / −0\\.100 mm · Δ -0\\.050 mm · PASS`).test(summary),

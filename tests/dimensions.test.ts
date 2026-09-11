@@ -8,6 +8,7 @@ import {
   pinNotes,
   resolveDimensionType,
   selectionFits,
+  verdictLines,
 } from '../src/core/dimensions'
 import type {
   CylinderFit,
@@ -412,7 +413,27 @@ describe('pinNotes', () => {
     expect(pinNotes(plain)).toBeUndefined()
     expect(pinNotes(limited)).toEqual(['nominal 5.000 mm +0.100 mm / −0.100 mm · Δ +0.000 mm'])
     expect(pinNotes(tolerance)).toEqual(['Top'])
-    expect(pinNotes(failing)).toEqual(['Top', 'limit 0.000 mm · Δ +0.001 mm', '0.001 mm over the limit'])
+    // Past a ceiling the deviation is the excess: said once, not twice.
+    expect(pinNotes(failing)).toEqual(['Top', 'limit 0.000 mm · 0.001 mm over the limit'])
+  })
+})
+
+describe('verdictLines', () => {
+  it('keeps the deviation and the excess apart only where they differ', () => {
+    const over = judgeLimit(0.118, { kind: 'max', max: 0.1 }, 'mm')
+    expect(verdictLines(over)).toEqual(['limit 0.100 mm · 0.018 mm over the limit'])
+    const within = judgeLimit(0.05, { kind: 'max', max: 0.1 }, 'mm')
+    expect(verdictLines(within)).toEqual(['limit 0.100 mm · Δ -0.050 mm'])
+    const band = { kind: 'band' as const, nominal: 12, plus: 0.01, minus: 0.01 }
+    expect(verdictLines(judgeLimit(12.03, band, 'mm'))).toEqual([
+      'nominal 12.000 mm +0.010 mm / −0.010 mm · Δ +0.030 mm',
+      '0.020 mm over the upper limit',
+    ])
+    // A closed band has no room: deviation and excess coincide again.
+    const exact = { kind: 'band' as const, nominal: 12, plus: 0, minus: 0 }
+    expect(verdictLines(judgeLimit(12.03, exact, 'mm'))).toEqual([
+      'nominal 12.000 mm +0.000 mm / −0.000 mm · 0.030 mm over the upper limit',
+    ])
   })
 })
 

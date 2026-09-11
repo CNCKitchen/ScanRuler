@@ -740,18 +740,25 @@ export function evaluateDimension(
   }
 }
 
+/** The verdict written out, in one line or two: the allowance with the
+ *  deviation, and the alarm under it when it fails. Past a ceiling the
+ *  deviation *is* the excess, so the alarm takes the deviation's place
+ *  rather than repeating it; a band keeps both, since the deviation from
+ *  the nominal and the excess past the band are different numbers. */
+export function verdictLines(v: Verdict): string[] {
+  if (v.alarm && v.deviation === v.over) return [`${v.allowance} · ${v.alarm}`]
+  const first = `${v.allowance} · ${v.delta}`
+  return v.alarm ? [first, v.alarm] : [first]
+}
+
 /** The small lines a measurement's pin carries under its value. A tolerance
  *  names the elements it is about — read live, so a renamed plane renames
- *  the pin — and anything with a limit says how the value stands to it,
- *  with the excess on a line of its own when it is over. Undefined when
- *  there is nothing to add. */
+ *  the pin — and anything with a limit says how the value stands to it.
+ *  Undefined when there is nothing to add. */
 export function pinNotes(row: EvaluatedDimension): string[] | undefined {
   const notes: string[] = []
   if (dimensionTypeInfo(row.dim.type).family === 'tolerance') notes.push(row.title)
-  if (row.verdict) {
-    notes.push(`${row.verdict.allowance} · ${row.verdict.delta}`)
-    if (row.verdict.alarm) notes.push(row.verdict.alarm)
-  }
+  if (row.verdict) notes.push(...verdictLines(row.verdict))
   return notes.length ? notes : undefined
 }
 

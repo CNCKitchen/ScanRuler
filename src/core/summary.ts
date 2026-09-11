@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { ElementKind, ElementSource, FitData, FitSettings, SigmaPreset, Vec3 } from './types'
-import type { EvaluatedDimension } from './dimensions'
+import { verdictLines, type EvaluatedDimension } from './dimensions'
 import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
 import {
@@ -230,9 +230,7 @@ export function buildSummary(
     if (verdict) {
       checked++
       if (verdict.pass) passed++
-      lines.push(
-        `  ${verdict.allowance} · ${verdict.delta} · ${verdict.pass ? 'PASS' : `FAIL — ${verdict.alarm}`}`,
-      )
+      lines.push(`  ${verdictLines(verdict).join(' · ')} · ${verdict.pass ? 'PASS' : 'FAIL'}`)
     }
     if (value.detail) lines.push(`  ${value.detail}`)
     if (value.warning) lines.push(`  ⚠ ${value.warning}`)
