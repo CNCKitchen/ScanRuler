@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
-## Unreleased
+## 0.4.1 — 2026-09-11
 
 - **A fitted region's border is as sharp as a marking's** — the surface a
   click-fitted element rests on, and the preview of one, used to be tinted
