@@ -12,8 +12,9 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { PickScene, type PickMarker } from '../viewer/PickScene'
 import { schemeById } from '../viewer/navSchemes'
-import { themeById } from '../viewer/viewThemes'
+import { sceneTheme } from '../viewer/viewThemes'
 import type { MarkingChannel, SceneManager } from '../viewer/SceneManager'
+import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import { brushRange, useMark, type MarkGesture } from '../state/markStore'
 import { MARK_COLOR, pairColor, useDeviation } from '../state/deviationStore'
@@ -87,7 +88,7 @@ function Half({
     const scene = new PickScene(
       holder.current!,
       geometry,
-      themeById(useStore.getState().viewTheme),
+      sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
       channel,
     )
     scene.onPick = (p) => pickRef.current(p)
@@ -107,9 +108,10 @@ function Half({
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
 
+  const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    sceneRef.current?.setViewTheme(themeById(viewTheme))
-  }, [viewTheme])
+    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
+  }, [viewTheme, dark])
 
   useEffect(() => {
     sceneRef.current?.setMarkers(markers)

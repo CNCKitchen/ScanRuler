@@ -40,14 +40,16 @@ import {
 } from './state/store'
 import type { GripSide, SceneManager, PickHit } from './viewer/SceneManager'
 import { schemeById } from './viewer/navSchemes'
-import { themeById } from './viewer/viewThemes'
+import { sceneTheme } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
 import { TopBar } from './ui/TopBar'
 import { StatusStrip } from './ui/StatusStrip'
 import { BusyOverlay } from './ui/BusyOverlay'
 import { ImprintModal } from './ui/Imprint'
+import { SettingsModal } from './ui/SettingsModal'
 import { SupportCard } from './ui/SupportCard'
+import { ViewBar } from './ui/ViewBar'
 import { DeviationPanel } from './ui/DeviationPanel'
 import { ThicknessPanel } from './ui/ThicknessPanel'
 import { FlatPanel } from './ui/FlatPanel'
@@ -61,6 +63,7 @@ import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
 import { markChipText } from './ui/MarkTools'
 import { MARK_COLOR, useDeviation } from './state/deviationStore'
+import { usePrefs } from './state/prefsStore'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
@@ -1658,7 +1661,8 @@ export default function App() {
               onReady={(s) => {
                 sceneRef.current = s
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
-                s.setViewTheme(themeById(useStore.getState().viewTheme))
+                s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
+                s.setSectionLineWidth(usePrefs.getState().sectionLines)
               }}
               onPick={handlePick}
               onHover={handleHover}
@@ -1793,9 +1797,17 @@ export default function App() {
             />
           )}
           {(onDeviation || onThickness) && !picking && <HoverReadout register={registerHover} />}
-          {/* Before the error toast below it: the CSS keeps the toast clear of
-              the card with a sibling combinator, which only reaches forwards. */}
-          {!picking && <SupportCard />}
+          {/* The bottom-left corner: the view bar at the very bottom, where a
+              hand learns to find it, and the support card stacked above it so
+              neither ever covers the other. Before the error toast below it:
+              the CSS keeps the toast clear of the card with a sibling
+              combinator, which only reaches forwards. The point picker takes
+              the stage and both go with it; the 2D sheet has no surface for
+              the bar's switches to act on. */}
+          <div className="stagecorner">
+            {!picking && <SupportCard />}
+            {!picking && !onFlat && <ViewBar />}
+          </div>
           {/* With no card on the stage any more, the step that is still
               outstanding says so here instead — the reference that has yet to be
               loaded, or the element that has yet to be chosen. */}
@@ -1854,6 +1866,7 @@ export default function App() {
         </div>
       </div>
       <StatusStrip />
+      <SettingsModal />
       <ImprintModal />
     </div>
   )

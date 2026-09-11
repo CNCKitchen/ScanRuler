@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
-import { DEFAULT_THEME, VIEW_THEMES, setSurfaceColor, themeById } from '../src/viewer/viewThemes'
+import {
+  DEFAULT_THEME,
+  STAGE_DARK,
+  STAGE_LIGHT,
+  VIEW_THEMES,
+  sceneTheme,
+  setSurfaceColor,
+  themeById,
+} from '../src/viewer/viewThemes'
 import { UNMEASURED_RGB } from '../src/core/field/colormap'
 import { PALETTE } from '../src/state/palette'
 
@@ -21,6 +29,38 @@ describe('viewport colour schemes', () => {
     expect(themeById('not-a-scheme').id).toBe(DEFAULT_THEME.id)
     expect(themeById(null).id).toBe(DEFAULT_THEME.id)
     expect(themeById(undefined).id).toBe(DEFAULT_THEME.id)
+  })
+
+  it('dresses a scheme for the dark chassis without touching what it measures', () => {
+    for (const t of VIEW_THEMES) {
+      expect(sceneTheme(t.id, false)).toBe(t)
+      expect(t.stage).toBe(STAGE_LIGHT)
+      const dark = sceneTheme(t.id, true)
+      expect(dark.id).toBe(t.id)
+      expect(dark.stage).toBe(STAGE_DARK)
+      // The part is the same material under the same lights on either chassis
+      // — only the stage behind it and the marks drawn over it change.
+      expect(dark.surface).toEqual(t.surface)
+      expect(dark.nominal).toBe(t.nominal)
+      expect(dark.backface).toBe(t.backface)
+      expect(dark.finish).toEqual(t.finish)
+      expect(dark.lights).toEqual(t.lights)
+    }
+    expect(sceneTheme('not-a-scheme', true).id).toBe(DEFAULT_THEME.id)
+  })
+
+  it('lifts the studio scheme’s ink off the dark stage', () => {
+    // The callout lines between elements float over the stage rather than the
+    // part, so the studio's ink would vanish on the dark chassis. The scanner
+    // scheme's marks are white and amber already and are left alone.
+    const lum = (hex: number) =>
+      (0.2126 * ((hex >> 16) & 255) + 0.7152 * ((hex >> 8) & 255) + 0.0722 * (hex & 255)) / 255
+    const studio = sceneTheme('studio', true)
+    expect(lum(studio.accents.callout)).toBeGreaterThan(0.6)
+    expect(lum(themeById('studio').accents.callout)).toBeLessThan(0.3)
+    expect(studio.accents.marqueeStroke).not.toBe(themeById('studio').accents.marqueeStroke)
+    const scanner = sceneTheme('scanner', true)
+    expect(scanner.accents).toBe(themeById('scanner').accents)
   })
 
   it('never dresses the reference in the scan’s own colour', () => {

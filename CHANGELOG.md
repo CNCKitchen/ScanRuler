@@ -5,6 +5,34 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## Unreleased
+
+- **Settings** — a dialog of its own, opened with **⚙ Settings** in the top
+  bar, for what is set once and left: the **interface** (light, dark, or
+  whatever the operating system says), the **colour mode** the part is shown
+  in (Studio grey / Scanner blue — what the status strip used to call *View*),
+  the **mouse controls**, how heavy the **section cuts** and the **2D Measure
+  curves** are drawn, and the **guided hints**. All of it is remembered per
+  browser, and none of it is saved with a project.
+- **Dark mode** — the whole chassis, the stage behind the part included, in
+  every viewport: the split view's halves, the point picker and the 2D sheet
+  go dark together. Nothing that carries a reading changes with it — the
+  element tints, the deviation and thickness ramps and the axis colours are
+  the same on both — and a dark chassis comes up dark, without a light flash
+  first.
+- **View bar** — the ways of looking at the part have moved off the status
+  strip into the bottom-left corner of the stage, where there is room for
+  words: **Transparent**, **Mesh** and **Backfaces** on the bottom row, and
+  above them the workspace's own — **Overlays** in 3D Measure, **Split view**
+  and **Colour plot** in Surface Deviation. The support card stacks above the
+  bar rather than over it.
+- **Line width** — how heavy a section's cut is drawn on the part, and how
+  heavy the curves fitted over a flatbed scan are, each a slider in Settings.
+  Everything drawn beside them — the preview cut, the sheet's curves stood up
+  in 3D, the callouts and pin marks in 2D — follows in proportion.
+- The status strip is a status strip again: the lamp, what the tool is doing,
+  the tally of what has been measured, and the imprint.
+
 ## 0.2.1 — 2026-09-10
 
 - **3D Measure** — a section can be cut along the scan's **coordinate

@@ -2,7 +2,7 @@
 // Back-face flagging, as one piece of shader shared by every view that draws a
 // part.
 //
-// The switch in the status strip is a statement about the *models*, not about
+// The switch on the view bar is a statement about the *models*, not about
 // a viewport: "show me which way the surface faces". So it has to reach every
 // half that shows a model — the scan in the main viewport and the reference
 // standing beside it in the split view — or the same part answers the question

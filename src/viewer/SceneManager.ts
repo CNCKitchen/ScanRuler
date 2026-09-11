@@ -366,13 +366,13 @@ export class SceneManager {
     this.viewport.invalidate()
   }
 
-  /** Swap the pointer-button control scheme (dropdown in the status strip). */
+  /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
   setNavScheme(scheme: ControlScheme): void {
     this.viewport.setNavScheme(scheme)
   }
 
   /**
-   * Swap the colour scheme (dropdown in the status strip): stage, lights, the
+   * Swap the colour scheme (dropdown in the settings dialog): stage, lights, the
    * finish the parts are seen under, and the colours of everything that is not
    * itself a reading.
    *
@@ -955,6 +955,11 @@ export class SceneManager {
   /** The finished sections, drawn on the part in their colours. */
   setSections(items: readonly SectionOverlayItem[], visible: boolean): void {
     this.sections.setSections(items, visible)
+  }
+
+  /** How heavy the section cuts are drawn, in pixels (Settings → Lines). */
+  setSectionLineWidth(px: number): void {
+    this.sections.setLineWidth(px)
   }
 
   /** The section being made: its plane through the part and the cut it

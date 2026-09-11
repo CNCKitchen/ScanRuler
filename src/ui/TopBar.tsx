@@ -8,6 +8,7 @@
 
 import { useRef } from 'react'
 import { useStore } from '../state/store'
+import { usePrefs } from '../state/prefsStore'
 import { useDeviation } from '../state/deviationStore'
 import { useShell, type Workspace } from '../state/shellStore'
 import { IMAGE_ACCEPT, MESH_ACCEPT, isImageFile, isMeshFile, isStepFile } from '../core/formats'
@@ -44,6 +45,7 @@ export function TopBar({
   const workspace = useShell((s) => s.workspace)
   const setWorkspace = useShell((s) => s.setWorkspace)
   const picking = useDeviation((s) => s.picking)
+  const openSettings = usePrefs((s) => s.openSettings)
   const openRef = useRef<HTMLInputElement>(null)
 
   const onLoad = (file: File | undefined) => {
@@ -134,6 +136,20 @@ export function TopBar({
         title={`Open a .${PROJECT_EXTENSION} project — or a plain scan or image to start fresh`}
       >
         Load<span className="btxt"> Project</span>
+      </button>
+      {/* What is set once and left — the chassis, the colour mode, the mouse
+          controls, the line weights, the hints. Beside the project keys
+          because it is about the instrument rather than about any workspace. */}
+      <button
+        className="ghost"
+        data-test="open-settings"
+        onClick={() => openSettings(true)}
+        title="Interface theme, colour mode, mouse controls, line widths and guided hints"
+      >
+        <span className="gear" aria-hidden="true">
+          ⚙
+        </span>
+        <span className="btxt"> Settings</span>
       </button>
       <a
         className="iconbtn"

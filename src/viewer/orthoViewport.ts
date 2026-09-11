@@ -240,7 +240,7 @@ export class OrthoViewport {
     if (this.touchIds.size === 0) this.multiTouch = false
   }
 
-  /** Swap the pointer-button control scheme (dropdown in the status strip). */
+  /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
   setNavScheme(scheme: ControlScheme): void {
     this.nav.setScheme(scheme)
     this.invalidate()

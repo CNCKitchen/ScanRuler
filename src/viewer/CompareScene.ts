@@ -102,7 +102,7 @@ export class CompareScene {
   }
 
   /** Which way the reference's surface faces, driven by the one switch in the
-   *  status strip. Opening the split view has to push the switch's current
+   *  view bar. Opening the split view has to push the switch's current
    *  state in here, or this half would start off disagreeing with the other. */
   setBackfaceTint(on: boolean): void {
     this.backface.uBackfaceTint.value = on ? 1 : 0

@@ -10,11 +10,12 @@
 
 import { useEffect, useRef } from 'react'
 import type * as THREE from 'three'
+import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import { CompareScene } from '../viewer/CompareScene'
 import { schemeById } from '../viewer/navSchemes'
 import type { SceneManager } from '../viewer/SceneManager'
-import { themeById } from '../viewer/viewThemes'
+import { sceneTheme } from '../viewer/viewThemes'
 
 export function CompareView({
   scene,
@@ -41,7 +42,7 @@ export function CompareView({
     const compare = new CompareScene(
       holder.current!,
       geometry,
-      themeById(useStore.getState().viewTheme),
+      sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
     )
     compare.setNavScheme(schemeById(useStore.getState().navScheme))
     // Read from the store rather than from the prop, so a half opened with the
@@ -62,11 +63,12 @@ export function CompareView({
     compareRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
 
+  const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    compareRef.current?.setViewTheme(themeById(viewTheme))
-  }, [viewTheme])
+    compareRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
+  }, [viewTheme, dark])
 
-  // The status strip's switch is one statement about the models, so it holds
+  // The view bar's switch is one statement about the models, so it holds
   // for both halves: the scan's viewport takes it in useSceneSync, this one
   // here.
   useEffect(() => {

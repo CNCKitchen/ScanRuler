@@ -18,7 +18,10 @@
  *
  * Fat lines, sized in screen pixels: a cut is a curve lying exactly on a
  * surface, and a one-pixel line there is lost in the shading. The materials
- * need the canvas size, which the viewport reports every tick.
+ * need the canvas size, which the viewport reports every tick. How heavy they
+ * are is the operator's to set (Settings → Lines): every width here is the
+ * one the line has at the default setting, and the whole set scales together
+ * so the preview and the sheet's curves keep standing off from the cut.
  */
 import * as THREE from 'three'
 import { Line2 } from 'three/addons/lines/Line2.js'
@@ -29,6 +32,7 @@ import { sectionStroke, type SectionGeometry } from '../core/section/lift'
 import type { SectionCut } from '../core/section/slice'
 import type { Vec3 } from '../core/types'
 import { AXIS_COLORS } from './axisGizmo'
+import { SECTION_LINE_DEFAULT } from './lineWidths'
 import { pinLabel } from './overlays'
 
 /** How the coordinate planes on offer are drawn: faint, and brighter under
@@ -74,7 +78,10 @@ export class SectionOverlay {
   private worldCleanup: (() => void)[] = []
   private hoveredWorld: WorldAxis | null = null
   private resolution = new THREE.Vector2(1, 1)
-  private lineMaterials = new Set<LineMaterial>()
+  /** Every live fat-line material, with the width it has at the default
+   *  setting — what the current setting scales. */
+  private lineMaterials = new Map<LineMaterial, number>()
+  private lineScale = 1
   private unitPlane = new THREE.PlaneGeometry(1, 1)
   /** The dot a sheet point is drawn as, scaled per section to the model. */
   private unitSphere = new THREE.SphereGeometry(1, 24, 16)
@@ -90,7 +97,18 @@ export class SectionOverlay {
   setResolution(width: number, height: number): void {
     if (this.resolution.x === width && this.resolution.y === height) return
     this.resolution.set(width, height)
-    for (const m of this.lineMaterials) m.resolution.copy(this.resolution)
+    for (const m of this.lineMaterials.keys()) m.resolution.copy(this.resolution)
+    this.ctx.invalidate()
+  }
+
+  /** How heavy a finished cut is drawn, in pixels. Everything else drawn
+   *  here — the preview's cut, the sheet's curves — follows in proportion,
+   *  and lines already on the part take the new width without a rebuild. */
+  setLineWidth(px: number): void {
+    const scale = px / SECTION_LINE_DEFAULT
+    if (scale === this.lineScale) return
+    this.lineScale = scale
+    for (const [m, nominal] of this.lineMaterials) m.linewidth = nominal * scale
     this.ctx.invalidate()
   }
 
@@ -106,7 +124,8 @@ export class SectionOverlay {
     for (const item of items) {
       // On the surface it was cut from, and hidden with it: a section on the
       // far side of the part is read by turning the part, like its tint.
-      if (item.cut) this.addPolylines(this.group, this.cleanup, item.cut, item.color, 0.95, 2.5, true)
+      if (item.cut)
+        this.addPolylines(this.group, this.cleanup, item.cut, item.color, 0.95, SECTION_LINE_DEFAULT, true)
       if (item.elements.length > 0) this.addElements(this.group, this.cleanup, item.elements, item.color)
       const label = pinLabel('element-label', item.name, '', item.color)
       const lift = this.ctx.modelRadius() * 0.02
@@ -184,7 +203,8 @@ export class SectionOverlay {
       borderMat.dispose()
     })
 
-    if (cut) this.addPolylines(this.previewGroup, this.previewCleanup, cut, color, 1, 3, false)
+    if (cut)
+      this.addPolylines(this.previewGroup, this.previewCleanup, cut, color, 1, SECTION_LINE_DEFAULT + 0.5, false)
   }
 
   /** The coordinate planes on offer while a section has nothing to cut
@@ -296,7 +316,7 @@ export class SectionOverlay {
   ): void {
     const mat = new LineMaterial({
       color: new THREE.Color(color).getHex(),
-      linewidth: width,
+      linewidth: width * this.lineScale,
       transparent: true,
       opacity,
       depthTest: onSurface,
@@ -311,7 +331,7 @@ export class SectionOverlay {
       mat.polygonOffsetUnits = -2
     }
     mat.resolution.copy(this.resolution)
-    this.lineMaterials.add(mat)
+    this.lineMaterials.set(mat, width)
     cleanup.push(() => {
       this.lineMaterials.delete(mat)
       mat.dispose()
@@ -340,9 +360,10 @@ export class SectionOverlay {
     elements: readonly SectionGeometry[],
     color: string,
   ): void {
+    const width = SECTION_LINE_DEFAULT + 1
     const mat = new LineMaterial({
       color: new THREE.Color(color).getHex(),
-      linewidth: 3.5,
+      linewidth: width * this.lineScale,
       transparent: true,
       opacity: 1,
       depthTest: true,
@@ -353,7 +374,7 @@ export class SectionOverlay {
     mat.polygonOffsetFactor = -3
     mat.polygonOffsetUnits = -3
     mat.resolution.copy(this.resolution)
-    this.lineMaterials.add(mat)
+    this.lineMaterials.set(mat, width)
     cleanup.push(() => {
       this.lineMaterials.delete(mat)
       mat.dispose()

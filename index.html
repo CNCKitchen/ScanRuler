@@ -19,9 +19,19 @@
     <link rel="preload" href="/fonts/barlow-600.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/b612-mono-400.woff2" as="font" type="font/woff2" crossorigin />
     <style>
-      /* pre-CSS paint: chassis gray instead of a white flash */
+      /* pre-CSS paint: chassis gray instead of a white flash — and the dark
+         chassis where that is what was chosen (the same key the settings
+         store keeps it under; the figures match --chassis in styles.css). */
       html { background: #e7e6e1; }
+      html[data-theme='dark'] { background: #1b1d20; }
     </style>
+    <script>
+      try {
+        var t = localStorage.getItem('scanruler.uitheme')
+        if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
+          document.documentElement.dataset.theme = 'dark'
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

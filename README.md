@@ -31,7 +31,7 @@ as each step is done. It is read off the state of the work rather than from a
 script, so doing the steps out of order or undoing one keeps it honest, and it
 never rings a control that cannot be pressed yet. A workspace stops hinting
 once you have carried it through on two separate visits, so a reload always
-gives them back to you the first time; **◉ HINTS** in the status strip switches
+gives them back to you the first time; **Guided hints** in ⚙ Settings switches
 the guidance off outright, and switching it back on starts it over.
 
 ## Elements: fitting and measuring features
@@ -117,7 +117,7 @@ because of something you did somewhere else.
 
 ### Which way the surface faces
 
-**Backfaces** in the status strip colours the far side of every triangle. A
+**Backfaces** on the view bar in the bottom-left corner of the stage colours the far side of every triangle. A
 scan is a surface, not a solid: where it has a hole, you are looking at the
 inside of the wall behind it, and in plain grey that reads as part. Switched
 on, it reads as a hole — which is also how an inverted normal gives itself
@@ -131,8 +131,9 @@ holes too — an STL that was never closed, a STEP tessellation that came apart
 
 ### How the part is shown
 
-**View** in the status strip picks what the part is made of and how it is lit,
-and it is remembered per browser. The stage stays the same grey either way.
+**Colour mode** in ⚙ Settings picks what the part is made of and how it is lit,
+and it is remembered per browser. The stage stays the chassis grey either way —
+the light one, or the dark one when the interface is set to dark.
 
 **Studio grey** is the default: a matt grey part, evenly lit — the quietest
 thing to lay a coloured map or an element tint over.
@@ -167,6 +168,31 @@ the centre and the zoom are taken back, so you land looking at what you were
 looking at. Every viewport has one, both halves of the point picker included,
 and it fits whatever is actually being shown — with the scan switched off it
 frames the reference rather than the pair of them.
+
+### Settings
+
+**⚙ Settings** in the top bar holds what is set once and left, all of it
+remembered per browser and none of it saved with a project:
+
+- **Interface** — light or dark chassis, or **System** to follow the operating
+  system's setting as it changes. The stage behind the part goes dark with it,
+  in every viewport, and nothing that carries a reading changes: the element
+  tints, the deviation and thickness ramps and the axis colours are the same
+  on both.
+- **Colour mode** — Studio grey or Scanner blue, as [above](#how-the-part-is-shown).
+- **Mouse controls** — the CAD tool whose buttons the viewport should answer
+  to, with a line under the dropdown saying which button does what.
+- **Section cuts** and **2D Measure curves** — how heavy the lines are drawn,
+  in pixels. Everything drawn beside them follows in proportion: the preview of
+  a cut and the sheet's curves stood up on it in 3D, the callouts and pin marks
+  over a flatbed scan in 2D.
+- **Guided hints** — the amber ring around the control to press next.
+
+The ways of *looking* at a part are not settings and are not here: they are on
+the **view bar** in the bottom-left corner of the stage, where they change with
+the job in hand — **Transparent**, **Mesh** and **Backfaces** for every part in
+every viewport, and above them the workspace's own row: **Overlays** in 3D
+Measure, **Split view** and **Colour plot** in Surface Deviation.
 
 ### Elements: fitted, picked and constructed
 
@@ -424,7 +450,8 @@ algorithm in a later version improves old projects rather than stranding
 them. **Load Project** (or dropping a `.scanruler` anywhere) replaces the
 session, asking first when it holds unsaved measurements; the same button
 takes a plain scan or image to start fresh. Per-browser preferences — the
-navigation scheme, colour scheme, STEP style, scanner profiles — are not part
+interface theme, colour mode, navigation scheme, line widths, STEP style,
+scanner profiles — are not part
 of a project.
 
 ### STEP export
@@ -546,7 +573,7 @@ you want a number to stay.
 
 ### Both parts, side by side
 
-**◫ Split view** in the status strip puts the scan and the reference in two
+**Split view** on the view bar puts the scan and the reference in two
 viewports next to each other with one camera between them: turn, pan or zoom
 either half and the other follows, whichever half the pointer is in. Because the
 fit carries the scan into the reference's coordinates, both halves are showing
@@ -576,7 +603,7 @@ you meant before spending a fit on it.
 
 ### The colour plot, off
 
-**▩ Colour plot** in the status strip stops painting the map onto the scan and
+**Colour plot** on the view bar stops painting the map onto the scan and
 leaves the bare surface. The scale goes with it — histogram, figures and all: it
 is the key to colours that are no longer on the part, and being left with the
 part is the whole point of switching them off. It is there for the times you want
@@ -786,7 +813,7 @@ Reading the map:
 | **Histogram** | — | The distribution, drawn beside the scale and sharing its axis, plus min / max / mean / RMS / sigma. |
 | **Max search distance** | mm | How far a scan point may look for reference surface. Beyond it there is nothing to deviate from, so the surface is left plain grey and kept out of the statistics. Display only — it never affects the alignment, and moving it re-colours instantly. |
 | **Tolerance ±** | mm | The band the *within ± x mm* figure under the scale counts. It does not change the colours. |
-| **▩ Colour plot** | — | Whether the map is painted onto the scan at all (status strip). Off leaves the bare surface and takes the scale with it; the map stays measured, and the reading under the cursor and the pinned readings go on reporting it. |
+| **▩ Colour plot** | — | Whether the map is painted onto the scan at all (view bar). Off leaves the bare surface and takes the scale with it; the map stays measured, and the reading under the cursor and the pinned readings go on reporting it. |
 
 The ramp is jet — blue through cyan, green, yellow to red — pinned so that
 **zero is a saturated green**, with dark caps beyond each end so a reading that

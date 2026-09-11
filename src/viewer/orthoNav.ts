@@ -135,7 +135,7 @@ export class OrthoNavigator {
     document.addEventListener('pointercancel', this.onUp)
   }
 
-  /** Swap the pointer-button control scheme (dropdown in the status strip). */
+  /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
   setScheme(scheme: ControlScheme): void {
     this.scheme = scheme
     this.rebuildBindings()

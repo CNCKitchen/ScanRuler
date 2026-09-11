@@ -30,6 +30,7 @@ import {
   previewReady,
   shotPath,
   sleep,
+  setViewTheme,
 } from './e2e-lib.mjs'
 
 const SIZE = 20
@@ -232,7 +233,7 @@ await sleep(300)
 // the default scanner blue would tint the bare surface itself — the very thing
 // this is asking to see left alone. Studio leaves it neutral, so what is
 // counted is the map and the element bodies and nothing else.
-await page.select('[data-test=view-theme]', 'studio')
+await setViewTheme(page, 'studio')
 await sleep(400)
 const paintedWithMap = await colouredFraction(page)
 await click(page, '[data-test=toggle-colormap]')
@@ -260,7 +261,7 @@ check(
   Math.abs((await colouredFraction(page)) - paintedWithMap) < 0.01,
   'and switching it back on brings the map and the bodies back exactly as they were',
 )
-await page.select('[data-test=view-theme]', 'scanner')
+await setViewTheme(page, 'scanner')
 await sleep(300)
 
 // ---- pinning a reading, and the report -------------------------------------

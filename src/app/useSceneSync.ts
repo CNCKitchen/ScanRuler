@@ -25,7 +25,8 @@ import type {
   OverlayPair,
 } from '../viewer/SceneManager'
 import { schemeById } from '../viewer/navSchemes'
-import { themeById } from '../viewer/viewThemes'
+import { usePrefs } from '../state/prefsStore'
+import { sceneTheme } from '../viewer/viewThemes'
 import { formatSigned } from '../ui/format'
 import { MARK_COLOR, useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
@@ -621,18 +622,26 @@ export function useSceneSync({
   }, [workspace, source, showNominal, showScan, nominalReady, split])
 
   // Which mouse buttons orbit, pan and zoom. Held in the store rather than the
-  // scene so the status strip can show it and remember it.
+  // scene so the settings dialog can show it and remember it.
   const navScheme = useStore((s) => s.navScheme)
   useEffect(() => {
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
 
   // What the part is made of and how it is lit, held in the store for the same
-  // reasons: the status strip shows it and remembers it.
+  // reasons: the settings dialog shows it and remembers it. The stage behind
+  // the part follows the chassis, light or dark.
   const viewTheme = useStore((s) => s.viewTheme)
+  const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    sceneRef.current?.setViewTheme(themeById(viewTheme))
-  }, [viewTheme])
+    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
+  }, [viewTheme, dark])
+
+  // How heavy the section cuts are drawn — the operator's, like the scheme.
+  const sectionLines = usePrefs((s) => s.sectionLines)
+  useEffect(() => {
+    sceneRef.current?.setSectionLineWidth(sectionLines)
+  }, [sectionLines])
 
   // Pins belong to the map they were taken off, and only that map: a thickness
   // in millimetres and a deviation in millimetres look identical on the part,

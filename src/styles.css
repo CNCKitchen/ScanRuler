@@ -80,11 +80,46 @@
   --red: #b3361c;
   --amber: #c97b10;
   --strip: #26282a; /* machine status strip */
+  --stage: #dedcd6; /* the viewport behind the parts — viewThemes.ts carries the same figure */
+  --glass: 252, 252, 250; /* the faceplate as an rgb triple, for the translucent chips over the stage */
   --ui: 'Barlow', 'Segoe UI', system-ui, sans-serif;
   --cond: 'Barlow Semi Condensed', var(--ui);
   --mono: 'B612 Mono', Consolas, 'Cascadia Mono', monospace;
   --r: 3px;
   --inset: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* The dark instrument: the same chassis with the lights off. Keyed on the
+   attribute the preference store writes to the root (see prefsStore.ts), which
+   index.html sets before the first paint so a dark chassis never flashes
+   light. Every colour token the light theme defines is redefined here — a
+   colour with a definition in only one theme is a colour that is wrong in the
+   other. The status strip was dark already and only goes a shade further.
+   Nothing that carries a reading changes with the chassis: the element tints,
+   the deviation and thickness ramps and the axis colours are the same on
+   both. `color-scheme` is what turns the native parts — the dropdown lists,
+   the scrollbars — dark with it. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --chassis: #1b1d20;
+  --panel: #25282c;
+  --well: #1e2124;
+  --well-deep: #17191c;
+  --line: #383c41;
+  --line-strong: #4b5057;
+  --ink: #e4e6e8;
+  --dim: #a0a4a8;
+  --faint: #767a7f;
+  --accent: #3f93d6;
+  --accent-d: #62aae4;
+  --accent-soft: #223c55;
+  --green: #4fb26e;
+  --red: #e26b4f;
+  --amber: #e2a43b;
+  --strip: #121416;
+  --stage: #2e3135;
+  --glass: 37, 40, 44;
+  --inset: inset 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -427,8 +462,22 @@ button.block {
   white-space: nowrap;
 }
 
+/* The settings key's gear, a size up from the text so it reads as a glyph
+   rather than a stray character — and what is left of the key when the
+   narrow layouts drop its word. */
+.top .gear {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* The top bar is one row that never wraps. Below this the keys on the right
+   give up their words, and the part chip its counts — the panel's model row
+   carries the triangle count too — so the settings key and the GitHub link
+   stay on screen down to a window a good deal narrower than the panel and
+   the stage together want. */
 @media (max-width: 1240px) {
-  .top .btxt {
+  .top .btxt,
+  .partchip span {
     display: none;
   }
 }
@@ -465,7 +514,8 @@ button.x:hover:not(:disabled) {
   background: var(--well-deep);
 }
 
-input[type='checkbox'] {
+input[type='checkbox'],
+input[type='range'] {
   accent-color: var(--accent);
 }
 
@@ -830,6 +880,12 @@ select:disabled {
   box-shadow: inset 0 1px 3px rgba(140, 47, 24, 0.14);
 }
 
+:root[data-theme='dark'] .dro-window.alarm {
+  background: #3b241d;
+  border-color: #6e3b2c;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
 .dro-window.alarm b,
 .dro.hero .dro-window.alarm b {
   color: var(--red);
@@ -1098,7 +1154,7 @@ button.x:disabled {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  background: #dedcd6;
+  background: var(--stage);
 }
 
 .viewport {
@@ -1237,7 +1293,7 @@ button.x:disabled {
   padding: 5px 14px;
   font-size: 12px;
   font-weight: 500;
-  background: rgba(252, 252, 250, 0.94);
+  background: rgba(var(--glass), 0.94);
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
@@ -1318,7 +1374,7 @@ button.x:disabled {
   letter-spacing: 0.08em;
   color: var(--ink);
   text-align: center;
-  background: rgba(252, 252, 250, 0.96);
+  background: rgba(var(--glass), 0.96);
   border: 1px solid var(--line);
   border-radius: var(--r);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
@@ -1353,18 +1409,92 @@ button.x:disabled {
   z-index: 6;
 }
 
-/* Support card — bottom-left corner of the stage, the one corner the
-   instrument does not use: the colour scale and its statistics own the right
-   edge, the orientation gizmo the bottom right, the hint chip the top centre.
-   A part is looked at from the middle out, so the bottom left is also the
-   quietest place to be asked for something. */
-.supportcard {
+/* The same alarm on the dark chassis: the tint goes into the ground and the
+   text comes up, so it is still a red card and still legible. */
+:root[data-theme='dark'] .toast {
+  color: #f3b3a0;
+  background: #3b241d;
+  border-color: #6e3b2c;
+  border-left-color: var(--red);
+}
+
+/* The bottom-left corner of the stage — the one corner the instrument does not
+   use: the colour scale and its statistics own the right edge, the orientation
+   gizmo the bottom right, the hint chip the top centre. Two things live here,
+   stacked so that neither can ever cover the other: the view bar at the very
+   bottom, where it stays whatever else comes and goes, and the support card
+   above it. The column itself takes no pointer, so the stage showing between
+   them still orbits. Below the toast in the stacking order: should the two
+   ever meet, an error is the thing that must stay readable. */
+.stagecorner {
   position: absolute;
   bottom: 12px;
   left: 12px;
-  z-index: 7;
-  width: 290px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
   max-width: calc(100% - 24px);
+  pointer-events: none;
+}
+
+.stagecorner > * {
+  pointer-events: auto;
+}
+
+/* The ways of looking at the parts, as rows of keys: the bottom row for every
+   part in every viewport, the row above it the workspace's own. Words rather
+   than glyphs — there is room here that the status strip never had. */
+.viewbar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* A row of keys in one housing, the depressed key being the one that is on.
+   Shared by the view bar and the settings dialog's Light / Dark / System
+   switch: one look for "a switch with positions" wherever it stands. */
+.keys {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+}
+
+.keys button {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+
+.keys button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--well);
+  border-color: transparent;
+}
+
+.keys button.on,
+.keys button.on:hover:not(:disabled) {
+  color: var(--panel);
+  background: var(--ink);
+}
+
+/* Support card — above the view bar in the corner. A part is looked at from
+   the middle out, so the bottom left is also the quietest place to be asked
+   for something. */
+.supportcard {
+  width: 290px;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1466,23 +1596,25 @@ button.x:disabled {
    the bottom of the stage — and an error must never be the thing hidden behind
    an ask for money. So while the card is up the toast takes the centre of what
    is left beside it, 302px of stage being the card and its margin. (This is why
-   the card is rendered ahead of the toast in App.tsx: the sibling combinator
+   the corner is rendered ahead of the toast in App.tsx: the sibling combinator
    only reaches forwards, and the rule has to lapse the moment the card is
-   closed.) The toast wraps rather than truncating, so a narrower berth costs it
-   height, not words. */
-.supportcard ~ .toast {
+   closed — which `:has()` reads off the corner, the card being inside it.)
+   The toast wraps rather than truncating, so a narrower berth costs it height,
+   not words. The view bar on its own needs no such rule: it is short, and the
+   toast paints over it should the two ever meet. */
+.stagecorner:has(.supportcard) ~ .toast {
   left: calc(50% + 151px);
   max-width: calc(100% - 314px);
 }
 
 /* Narrower than this there is no "beside": what is left of the stage is too
    thin to read an error in, so the toast keeps the full width and clears the
-   card upwards instead. The offset clears the tallest the card gets — four
-   lines of blurb and the three keys — and has to be revisited if that copy
-   grows. */
+   card upwards instead. The offset clears the tallest the corner gets — the
+   view bar's two rows, then four lines of blurb and the three keys — and has
+   to be revisited if that copy grows. */
 @media (max-width: 1150px) {
-  .supportcard ~ .toast {
-    bottom: 271px;
+  .stagecorner:has(.supportcard) ~ .toast {
+    bottom: 360px;
     left: 50%;
     max-width: calc(100% - 24px);
   }
@@ -1496,7 +1628,7 @@ button.x:disabled {
   justify-content: center;
   border: 2px dashed var(--accent);
   border-radius: var(--r);
-  background: rgba(252, 252, 250, 0.8);
+  background: rgba(var(--glass), 0.8);
   color: var(--accent-d);
   font-size: 18px;
   font-weight: 600;
@@ -1509,7 +1641,7 @@ button.x:disabled {
 .viewport-label {
   padding: 3px 8px;
   border-radius: 2px;
-  background: rgba(252, 252, 250, 0.94);
+  background: rgba(var(--glass), 0.94);
   border: 1px solid var(--line);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   color: var(--ink);
@@ -1542,7 +1674,7 @@ button.x:disabled {
    aimed at. Quieter than the measured pins: they are scenery, not results,
    and each wears its own axis colour on a barely-there chip. */
 .viewport-label.stage-label {
-  background: rgba(252, 252, 250, 0.78);
+  background: rgba(var(--glass), 0.78);
   border-color: transparent;
   box-shadow: none;
 }
@@ -1596,36 +1728,6 @@ button.x:disabled {
 
 .strip .grow {
   border-right: none;
-}
-
-/* Sits after .grow, which drops its right border, so the separator has to come
-   from this side instead. */
-.strip > div.nav {
-  border-right: none;
-  border-left: 1px solid #3a3c3e;
-  gap: 8px;
-}
-
-.strip .nav select {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: #eceeef;
-  background: #313335;
-  border: 1px solid #4a4c4e;
-  border-radius: 3px;
-  padding: 2px 4px;
-  box-shadow: none;
-  max-width: 150px;
-}
-
-.strip .nav select:hover {
-  border-color: #6a6c6e;
-}
-
-.strip .navhint {
-  color: #8e9294;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .strip button {
@@ -1838,6 +1940,105 @@ button.x:disabled {
   font-weight: 600;
 }
 
+/* ---------------- settings ---------------- */
+
+.modal.settings {
+  width: 540px;
+  gap: 6px;
+}
+
+.modal.settings > p.dim {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* One setting: its name, its control, and a line under the control saying
+   what it does — the same grid for a switch, a dropdown and a slider, so the
+   dialog reads as one instrument panel rather than a form. */
+.setting {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 3px;
+  padding: 5px 0;
+}
+
+.setting > label,
+.setting > span {
+  font-size: 12px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.setting > select {
+  width: 100%;
+  max-width: 240px;
+}
+
+.setting > small {
+  grid-column: 2;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
+.setting > small b {
+  font-weight: 600;
+  color: var(--dim);
+}
+
+/* The switch sits in a well like the dropdowns beside it, not on the stage. */
+.setting .keys {
+  justify-self: start;
+  background: var(--well);
+  border-color: var(--line);
+  box-shadow: var(--inset);
+}
+
+.setting .keys button {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.range {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 240px;
+}
+
+.range input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.range output {
+  flex: none;
+  min-width: 46px;
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.settings-check {
+  align-items: flex-start;
+  padding: 5px 0;
+  line-height: 1.4;
+}
+
+.settings-check input {
+  margin: 2px 0 0;
+}
+
+.settings-check b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 /* ---------------- responsive ---------------- */
 
 @media (max-width: 860px) {
@@ -1857,38 +2058,6 @@ button.x:disabled {
      attribute carrying the name. The imprint has to stay reachable, so it
      shrinks rather than disappearing. */
   .strip .btxt {
-    display: none;
-  }
-}
-
-/* The strip is a fixed 30px row that never wraps, so the navigation cell gives
-   up its words well before the window gets narrow: first the reminder of which
-   button does what, then the label. The dropdown is the control and stays. */
-@media (max-width: 1240px) {
-  .strip .navhint {
-    display: none;
-  }
-
-  /* The deviation workspace hangs two more keys here than the others do, so
-     those two are what makes the room — glyph only, with the title attribute
-     carrying the name, well before the keys beside them give up their words.
-     The two surface switches go the same way: with them the row is one key
-     longer in every workspace. */
-  .strip .viewsw .btxt,
-  .strip .surf .btxt {
-    display: none;
-  }
-
-  /* The colour scheme gives its label up this early too: unlike the navigation
-     dropdown, the option showing in it ("Scanner blue") names the setting on
-     its own. */
-  .strip .nav.view label {
-    display: none;
-  }
-}
-
-@media (max-width: 1040px) {
-  .strip .nav label {
     display: none;
   }
 }
@@ -2000,7 +2169,7 @@ button.x:disabled {
   gap: 7px;
   max-width: calc(100% - 20px);
   padding: 3px 9px;
-  background: rgba(252, 252, 250, 0.92);
+  background: rgba(var(--glass), 0.92);
   border: 1px solid var(--line);
   border-radius: var(--r);
   pointer-events: none;
@@ -2112,7 +2281,7 @@ button.x:disabled {
   text-wrap: balance;
   line-height: 1.2;
   padding: 2px 4px;
-  background: rgba(252, 252, 250, 0.86);
+  background: rgba(var(--glass), 0.86);
   border: 1px solid var(--line);
   border-radius: var(--r);
 }
@@ -2148,7 +2317,7 @@ button.x:disabled {
   display: flex;
   flex-direction: column;
   justify-content: stretch;
-  background: rgba(252, 252, 250, 0.86);
+  background: rgba(var(--glass), 0.86);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 3px;
@@ -2202,7 +2371,7 @@ button.x:disabled {
   left: 0;
   transform: translateY(50%);
   padding: 0 2px;
-  background: rgba(252, 252, 250, 0.82);
+  background: rgba(var(--glass), 0.82);
   border-radius: 2px;
   line-height: 1.25;
 }
@@ -2216,7 +2385,7 @@ button.x:disabled {
   display: grid;
   grid-template-columns: auto auto;
   gap: 1px 12px;
-  background: rgba(252, 252, 250, 0.92);
+  background: rgba(var(--glass), 0.92);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 7px 9px;
@@ -2482,7 +2651,7 @@ button.x:disabled {
   box-sizing: border-box;
   border-radius: 50%;
   border: 2px solid #e8a33d;
-  background: rgba(252, 252, 250, 0.94);
+  background: rgba(var(--glass), 0.94);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }

@@ -4,7 +4,8 @@ import type { Vec2 } from '../core/flat/types'
 import type { HandleEnd } from '../state/flatStore'
 import { FlatScene } from '../viewer/FlatScene'
 import { schemeById } from '../viewer/navSchemes'
-import { themeById } from '../viewer/viewThemes'
+import { sceneTheme } from '../viewer/viewThemes'
+import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 
 /** How much of the image the loupe shows (source pixels across its face) and
@@ -94,8 +95,9 @@ export function FlatViewer({
     try {
       scene = new FlatScene(
         containerRef.current!,
-        themeById(useStore.getState().viewTheme),
+        sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
       )
+      scene.setLineWidth(usePrefs.getState().sheetLines)
     } catch (e) {
       console.error(e)
       setWebglError(e instanceof Error ? e.message : String(e))
@@ -174,16 +176,21 @@ export function FlatViewer({
     }
   }, [])
 
-  // The scheme and theme dropdowns live in the status strip and serve every
+  // The scheme and theme settings live in the settings dialog and serve every
   // viewport; this one follows them the same way the main view does.
   const navScheme = useStore((s) => s.navScheme)
   const viewTheme = useStore((s) => s.viewTheme)
   useEffect(() => {
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
+  const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    sceneRef.current?.setViewTheme(themeById(viewTheme))
-  }, [viewTheme])
+    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
+  }, [viewTheme, dark])
+  const sheetLines = usePrefs((s) => s.sheetLines)
+  useEffect(() => {
+    sceneRef.current?.setLineWidth(sheetLines)
+  }, [sheetLines])
   // A tool going away must take the loupe with it, not wait for a mouse move.
   useEffect(() => {
     if (!loupe.active && loupeRef.current) loupeRef.current.style.display = 'none'

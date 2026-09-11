@@ -9,6 +9,7 @@ import type { EdgeChains } from '../core/flat/edges'
 import { splineMidpoint, splinePolyline, type HandleEnd, type SplineHandle } from '../core/flat/spline'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
+import { SHEET_LINE_DEFAULT } from './lineWidths'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
 import type { ViewTheme } from './viewThemes'
@@ -68,9 +69,12 @@ export class FlatScene {
   private draftCleanup: (() => void)[] = []
   /** Fitted geometry and callouts draw as screen-space fat lines (a WebGL
    *  LineBasicMaterial is one pixel whatever it asks for). Every such
-   *  material needs the canvas size; this is the one copy they all read. */
+   *  material needs the canvas size; this is the one copy they all read.
+   *  Each is kept with the width it has at the default setting, which the
+   *  operator's line-width setting scales — see setLineWidth. */
   private lineResolution = new THREE.Vector2(1, 1)
-  private lineMaterials = new Set<LineMaterial>()
+  private lineMaterials = new Map<LineMaterial, number>()
+  private lineScale = 1
   /** The draft's hand picks in document units, kept for hit-testing: a press
    *  on one of them starts a drag instead of a pan or a pick. */
   private draftPicks: Vec2[] = []
@@ -160,7 +164,7 @@ export class FlatScene {
         const h = el.clientHeight || 1
         if (this.lineResolution.x !== w || this.lineResolution.y !== h) {
           this.lineResolution.set(w, h)
-          for (const m of this.lineMaterials) m.resolution.copy(this.lineResolution)
+          for (const m of this.lineMaterials.keys()) m.resolution.copy(this.lineResolution)
           this.viewport.invalidate()
         }
       },
@@ -583,8 +587,9 @@ export class FlatScene {
     return Math.hypot(this.bounds.x1 - this.bounds.x0, this.bounds.y1 - this.bounds.y0) || 1
   }
 
-  /** Polylines as screen-space fat lines, `width` pixels wide at any zoom —
-   *  a fitted edge has to be findable over the scan it was fitted to. */
+  /** Polylines as screen-space fat lines, `width` pixels wide at any zoom at
+   *  the default setting — a fitted edge has to be findable over the scan it
+   *  was fitted to. */
   private addPolylines(
     group: THREE.Group,
     cleanup: (() => void)[],
@@ -592,18 +597,18 @@ export class FlatScene {
     color: THREE.ColorRepresentation,
     opacity: number,
     z: number,
-    width = 4,
+    width = SHEET_LINE_DEFAULT,
   ): void {
     const mat = new LineMaterial({
       color: new THREE.Color(color).getHex(),
-      linewidth: width,
+      linewidth: width * this.lineScale,
       transparent: true,
       opacity,
       depthTest: false,
       worldUnits: false,
     })
     mat.resolution.copy(this.lineResolution)
-    this.lineMaterials.add(mat)
+    this.lineMaterials.set(mat, width)
     cleanup.push(() => {
       this.lineMaterials.delete(mat)
       mat.dispose()
@@ -1124,6 +1129,17 @@ export class FlatScene {
 
   setViewTheme(theme: ViewTheme): void {
     this.viewport.setTheme(theme)
+  }
+
+  /** How heavy a fitted curve is drawn, in pixels (Settings → Lines). The
+   *  callouts and pin marks drawn with the curves follow in proportion, and
+   *  what is already on the sheet takes the new width without a rebuild. */
+  setLineWidth(px: number): void {
+    const scale = px / SHEET_LINE_DEFAULT
+    if (scale === this.lineScale) return
+    this.lineScale = scale
+    for (const [m, nominal] of this.lineMaterials) m.linewidth = nominal * scale
+    this.viewport.invalidate()
   }
 
   dispose(): void {

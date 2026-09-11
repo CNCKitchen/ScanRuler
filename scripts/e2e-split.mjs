@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { importStep, writeBinarySTL } from 'meshstep'
 import { cubeStep } from '../tests/stepFixtures.ts'
-import { check, fail, finish, launchApp, shotPath, sleep } from './e2e-lib.mjs'
+import { check, fail, finish, launchApp, setViewTheme, shotPath, sleep, viewThemeIds } from './e2e-lib.mjs'
 
 const SIZE = 20
 
@@ -47,6 +47,11 @@ const { browser, page, consoleErrors } = await launchApp({
  *  overlay and the other through clear stage would compare the overlay. */
 const LEGEND_STRIP = 170
 
+/** The view bar sits in the bottom-left corner of the scan's half, and its
+ *  keys would count as part: both halves are read without the band it stands
+ *  in, for the same reason as the strip on the right. */
+const VIEWBAR_BAND = 100
+
 /** How a half looks, without asking the app anything: what share of it the part
  *  covers, where that silhouette sits, how much of it is coloured rather than
  *  grey, and how much of that colour is warm. Everything below is read off
@@ -54,16 +59,16 @@ const LEGEND_STRIP = 170
 async function halfStats(selector) {
   const clip = await page.$eval(
     selector,
-    (el, strip) => {
+    (el, { strip, band }) => {
       const r = el.getBoundingClientRect()
       return {
         x: Math.round(r.x),
         y: Math.round(r.y),
         width: Math.round(r.width) - strip,
-        height: Math.round(r.height),
+        height: Math.round(r.height) - band,
       }
     },
-    LEGEND_STRIP,
+    { strip: LEGEND_STRIP, band: VIEWBAR_BAND },
   )
   const shot = await page.screenshot({ clip, encoding: 'base64' })
   return page.evaluate(async (b64) => {
@@ -138,7 +143,7 @@ async function bothHalves(when) {
 // read off the pixels underneath it.
 await page.click('[data-test=support-card] .sc-x').catch(() => {})
 
-// ---- both switches are in the footer, and dead until they would do something
+// ---- both switches are on the view bar, and dead until they would do something
 await page.click('[data-test=workspace-deviation]')
 await page.waitForSelector('[data-test=toggle-split]')
 check(
@@ -287,11 +292,9 @@ await page.screenshot({ path: shotPath('split-one-material.png') })
 // And they stay one material when the scheme is swapped under them — the live
 // path, which dresses a viewport that is already standing rather than building
 // one.
-const schemes = await page.$$eval('[data-test=view-theme] option', (els) =>
-  els.map((e) => e.value),
-)
+const schemes = await viewThemeIds(page)
 for (const scheme of schemes.slice(1)) {
-  await page.select('[data-test=view-theme]', scheme)
+  await setViewTheme(page, scheme)
   await sleep(600)
   const swapped = await bothHalves(`in ${scheme}`)
   const g = channelGap(swapped.left.mean, swapped.right.mean)
@@ -299,7 +302,7 @@ for (const scheme of schemes.slice(1)) {
   check(g <= 8, `both halves follow the ${scheme} scheme together (gap ${g} counts)`)
   await page.screenshot({ path: shotPath(`split-scheme-${scheme}.png`) })
 }
-await page.select('[data-test=view-theme]', schemes[0])
+await setViewTheme(page, schemes[0])
 await sleep(500)
 
 await page.click('[data-test=toggle-colormap]')

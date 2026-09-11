@@ -34,7 +34,7 @@ export interface ControlScheme {
   /** CATIA: while MMB is held, a quick CLICK of a second button (instead of
    *  holding it, which orbits) flips the rest of the middle-drag to zoom. */
   catiaZoomTick?: boolean
-  /** Short "how to move" line shown in the status strip. */
+  /** Short "how to move" line shown under the dropdown in the settings dialog. */
   hint: string
 }
 

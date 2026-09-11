@@ -133,6 +133,27 @@ export async function selectByLabel(page, sel, label) {
   await page.select(sel, value)
 }
 
+/** The settings dialog: open it, do something in it, close it again — so the
+ *  stage underneath is free for whatever the script does next. */
+export async function withSettings(page, fn) {
+  await click(page, '[data-test=open-settings]')
+  await page.waitForSelector('[data-test=settings-modal]')
+  const out = await fn()
+  await click(page, '[data-test=settings-close]')
+  await page.waitForSelector('[data-test=settings-modal]', { hidden: true })
+  return out
+}
+
+/** Pick the viewport colour scheme (Settings → Colour mode) by id. */
+export const setViewTheme = (page, id) =>
+  withSettings(page, () => page.select('[data-test=view-theme]', id))
+
+/** The ids of every colour scheme on offer, in the dialog's order. */
+export const viewThemeIds = (page) =>
+  withSettings(page, () =>
+    page.$$eval('[data-test=view-theme] option', (els) => els.map((e) => e.value)),
+  )
+
 /** The element list, one whitespace-collapsed string per row. */
 export const rowTexts = (page) =>
   page.$$eval('[data-test="element-row"]', (els) =>

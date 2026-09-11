@@ -18,6 +18,7 @@ import {
   pixelDiff,
   previewReady,
   repoFile,
+  withSettings,
   shotPath,
   sleep,
 } from './e2e-lib.mjs'
@@ -104,10 +105,14 @@ const scrollAt = async (at, deltaY, ticks) => {
   await sleep(350)
 }
 
+// The scheme is picked in the settings dialog, which is closed again before
+// the drags below so the canvas under it is free.
 const setScheme = async (id) => {
-  await page.select('#navscheme', id)
-  await sleep(120)
-  const hint = await page.$eval('.navhint', (el) => el.textContent)
+  const hint = await withSettings(page, async () => {
+    await page.select('#navscheme', id)
+    await sleep(120)
+    return page.$eval('.navhint', (el) => el.textContent)
+  })
   console.log(`scheme ${id}: ${hint}`)
 }
 

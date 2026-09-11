@@ -23,13 +23,14 @@ import { UNMEASURED_RGB } from '../core/field/colormap'
 
 export interface ViewTheme {
   id: string
-  /** Shown in the status strip's picker. */
+  /** Shown in the settings dialog’s picker. */
   label: string
   /** One line beside it: what this scheme is for. */
   hint: string
   /** The stage behind the parts. The same in both schemes — it matches the
-   *  `.stage` chassis grey in the stylesheet, and the canvas has to sit in the
-   *  instrument rather than on top of it. */
+   *  `--stage` chassis grey in the stylesheet, and the canvas has to sit in the
+   *  instrument rather than on top of it. This is the light instrument's;
+   *  `sceneTheme` swaps in the dark one's when the interface is dark. */
   stage: number
   /** Bare scan surface: what a vertex is coloured when nothing has been
    *  measured on it and no element owns it. */
@@ -87,10 +88,18 @@ export interface ViewTheme {
      *  and "measured" never look the same. */
     ghost: number
   }
+  /** The same marks over the dark instrument's stage, for a scheme whose own
+   *  would vanish there — ink callouts floating between two elements are
+   *  drawn over the stage, not the part. Omitted where the scheme's accents
+   *  already read on both. */
+  darkAccents?: ViewTheme['accents']
 }
 
-/** Chassis grey, matching `.stage` in the stylesheet. */
-const STAGE = 0xdedcd6
+/** Chassis grey behind the parts, one for each interface theme — matching
+ *  `--stage` in the stylesheet, light and dark. */
+export const STAGE_LIGHT = 0xdedcd6
+export const STAGE_DARK = 0x2e3135
+const STAGE = STAGE_LIGHT
 
 export const VIEW_THEMES: readonly ViewTheme[] = [
   {
@@ -116,6 +125,20 @@ export const VIEW_THEMES: readonly ViewTheme[] = [
       marqueeEraseFill: 'rgba(18, 22, 26, 0.16)',
       callout: 0x26282a,
       ghost: 0x8e9298,
+    },
+    // On the dark stage the ink goes the other way, the same way the scanner
+    // scheme's does on its blue: the callouts and the marquee are drawn over
+    // the stage and would vanish into it. The erase footprint stays ink — it
+    // sits on the part, which is still grey.
+    darkAccents: {
+      brushRing: null,
+      brushErase: 0x26282a,
+      marqueeStroke: '#ffffff',
+      marqueeFill: 'rgba(255, 255, 255, 0.14)',
+      marqueeEraseStroke: '#f0a63c',
+      marqueeEraseFill: 'rgba(18, 22, 26, 0.2)',
+      callout: 0xe8e4da,
+      ghost: 0xc2c7cc,
     },
   },
   {
@@ -163,6 +186,17 @@ export const DEFAULT_THEME = VIEW_THEMES.find((t) => t.id === 'scanner') ?? VIEW
  *  stage unlit. */
 export function themeById(id: string | null | undefined): ViewTheme {
   return VIEW_THEMES.find((t) => t.id === id) ?? DEFAULT_THEME
+}
+
+/** The scheme dressed for the interface theme: the stage in the chassis
+ *  colour of the light or the dark instrument, and on the dark one the
+ *  working marks that read over it. Everything a viewport is handed comes
+ *  through here, so the stage behind every part — the split view's halves,
+ *  the point picker, the 2D sheet — follows the chassis together. */
+export function sceneTheme(id: string | null | undefined, dark: boolean): ViewTheme {
+  const theme = themeById(id)
+  if (!dark) return theme
+  return { ...theme, stage: STAGE_DARK, accents: theme.darkAccents ?? theme.accents }
 }
 
 /** Dress a part in the scheme's finish. The scan, the reference and the parts
