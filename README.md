@@ -9,8 +9,10 @@ Three workspaces share the loaded scan:
 - **Elements** — pick features and get automatically fitted **spheres,
   cylinders and planes**, construct **points, lines and planes** from them,
   and create the **distance and angle dimensions** you actually need between
-  them, the way metrology software like GOM Inspect does it. Aimed at ball
-  bars and other calibrated artefacts. The measured elements can serve as
+  them, the way metrology software like GOM Inspect does it — and check
+  **GD&T tolerances** on them: flatness, parallelism, coaxiality and the rest,
+  each held to a limit if you type one. Aimed at ball bars and other
+  calibrated artefacts. The measured elements can serve as
   datums for a guided **3-2-1 alignment** into the global coordinate system, and be
   **exported as a STEP file** of analytic geometry. A **section** cuts the
   scan with a plane taken across any of them, to be measured on the 2D sheet.
@@ -248,6 +250,45 @@ extrapolate past that — a projection landing off the measured patch, skew axes
 whose closest approach lies beyond the fitted sections — says so with a
 warning, or refuses the value outright when it would be meaningless (planes
 more than 3° from parallel have no distance; use an angle dimension instead).
+
+Any dimension can carry a **nominal** with a **+ / − tolerance**, typed into
+the editor and optional: leave the nominal empty and the value is read as it
+is. With one, the row and the pin on the part show the deviation from the
+nominal beside the allowance, the digits turn red when the value is outside
+the band, and the copied summary says PASS or FAIL. Leave − empty for a
+symmetric tolerance. A **Diameter** dimension on a sphere, a cylinder or a
+circle is there so a size can be held to a drawing the same way.
+
+### GD&T: form, orientation and location
+
+Below the dimensions, **GD&T** checks what a drawing's feature control frames
+ask for, and works the way a dimension does: **New tolerance**, the
+characteristic, the element it is about and — for orientation and location —
+the datum, then **Add tolerance**. Clicking elements in the viewport fills the
+slots here too, and the type follows what you pick: a second plane after a
+flatness makes a parallelism. The datum is any element you have measured,
+named as it is in the list; rename it and the pin renames with it.
+
+| Characteristic | Of | Value |
+| --- | --- | --- |
+| Flatness · Cylindricity · Sphericity · Circularity | a plane, a cylinder, a sphere, a circle | the peak-to-peak form error the fit already reports |
+| Parallelism · Perpendicularity · Angularity | a plane or an axis, to a plane or an axis; angularity at a typed **basic angle** | the width of the narrowest zone at that angle to the datum that still holds the feature |
+| Coaxiality · Concentricity | an axis, a sphere or a circle, to a datum axis | the diameter of the zone about the datum axis that holds the feature axis or centre — twice the furthest it strays |
+
+What the feature *is* follows ISO 1101. A plane is its **measured surface**:
+the zone is fitted around the scan points the plane's fit rests on — the same
+points its sigma and form error come from — so a face's parallelism includes
+its own flatness, the way a CMM reports it. A cylinder, a cone or a line is
+its **axis** over the fitted length, a sphere or a circle its **centre**. A
+constructed plane has no surface and is read off the corners of its drawn
+patch, with a warning saying so. The form values are peak to peak about the
+Gaussian best fit; ISO's minimum-zone value is never larger, so these are the
+conservative numbers.
+
+An optional **limit** — the tolerance value off the frame — is judged the way
+a dimension's nominal is: the row and the pin read how far inside or over it
+the value stands, red when over, and the summary says PASS or FAIL and counts
+them up at the end.
 
 ### Extending a plane or a cylinder past what was measured
 
@@ -1186,6 +1227,7 @@ node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
+node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
@@ -1264,7 +1306,10 @@ pull request, so a red suite is visible before Cloudflare ships it.
 
 - More fit methods: Chebyshev (min-zone), min-circumscribed, max-inscribed
 - More element types: cones, slots
-- Circles fitted to a marked surface, and datum-based GD&T (position, runout)
+- Circles fitted to a marked surface
+- GD&T position and runout — the form, orientation and coaxiality
+  characteristics are in; runout reads the same surface points parallelism
+  does, position needs the datum frame plus typed nominal coordinates
 - Point-cloud (faceless PLY) support
 - Export the coloured scan, and sections through the deviation map — a
   section already lands its outline on the 2D Measure sheet; carrying the

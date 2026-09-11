@@ -5,6 +5,28 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## Unreleased
+
+- **GD&T** — a group under Create dimensions that checks what a drawing's
+  feature control frames ask for, the way a dimension is made: **New
+  tolerance**, the characteristic, the element and its datum, **Add
+  tolerance**. Flatness, cylindricity, sphericity and circularity read the
+  form error the fit already reports; parallelism, perpendicularity and
+  angularity (at a typed basic angle) are the width of the narrowest zone at
+  that angle to the datum that still holds the feature — a plane by its
+  measured surface, the scan points its fit rests on, so a face's
+  parallelism includes its own flatness; a cylinder, a cone or a line by its
+  axis; coaxiality and concentricity twice the furthest an axis or a centre
+  strays from the datum axis. Datums are elements, named as in the list;
+  rename one and the pin renames with it. Viewport clicks fill the slots and
+  the type follows what is picked.
+- **Limits** — every tolerance takes an optional limit, and every dimension
+  an optional nominal with a + / − tolerance. The row, the pin on the part
+  and the copied summary read the allowance and the signed deviation; the
+  digits go red when the value is over, the summary says PASS or FAIL and
+  tallies the checks at the end. A new **Diameter** dimension on a sphere, a
+  cylinder or a circle lets a size be held the same way. Projects save it all.
+
 ## 0.3.0 — 2026-09-11
 
 - **2D Measure** — **Mirror** beside Rotate 90°: two buttons that flip the

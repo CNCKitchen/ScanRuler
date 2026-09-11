@@ -26,6 +26,7 @@
     "e2e:orient": "node scripts/e2e-orient.mjs",
     "e2e:paint": "node scripts/e2e-paint.mjs",
     "e2e:extend": "node scripts/e2e-extend.mjs",
+    "e2e:gdt": "node scripts/e2e-gdt.mjs",
     "e2e:deviation": "node scripts/e2e-deviation.mjs",
     "e2e:split": "node scripts/e2e-split.mjs",
     "e2e:pick-fit": "node scripts/e2e-pick-fit.mjs",
