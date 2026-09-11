@@ -131,6 +131,57 @@ const expected = before + diameterAfter
 check(Math.abs(span - expected) < 0.02, `outer span ${span} mm (centre distance + Ø = ${expected})`)
 check(rows[0].includes('Distance 1'), 'the name survives a change that stays a distance')
 
+// ---- the outlier cut-off is the element's own -------------------------------
+// Re-open Ball A, take the cut-off off, save: it re-fits on every point of its
+// surface, while Sphere 2 keeps the 3 sigma it was measured with — and Ball A
+// re-opens on the choice that was saved with it.
+const usedPoints = () => page.$eval('[data-test="used-points"]', (e) => e.value)
+/** "used of region" from the preview's detail line. */
+const pointsNote = async () => {
+  const note = await page.$eval('.draftbox .dro-note', (e) => e.textContent)
+  const m = note.match(/([\d,]+) of ([\d,]+) points/)
+  return m ? { used: m[1], region: m[2], text: m[0] } : { used: '', region: '', text: note }
+}
+
+await clickNth('[data-test="edit-element"]', 0)
+check(await saveEnabled(), 'Ball A re-opened for its cut-off')
+const presetBefore = await usedPoints()
+check(presetBefore === '3', `it opens on the cut-off it was measured with (${presetBefore})`)
+const clipped = await pointsNote()
+check(clipped.used !== clipped.region, `at 3 sigma some points are dropped: ${clipped.text}`)
+await selectByLabel(page, '[data-test="used-points"]', 'All points')
+await sleep(300)
+check(await saveEnabled(), 'the draft re-fitted after the change')
+const whole = await pointsNote()
+check(whole.used === whole.region, `on all points every point of the surface is used: ${whole.text}`)
+check(whole.region === clipped.region, `on the same surface (${clipped.region} → ${whole.region})`)
+await click(page, '[data-test="create-element"]')
+await sleep(400)
+check((await rowTexts(page)).length === 2, 'saving the cut-off adds no element')
+
+await clickNth('[data-test="edit-element"]', 1)
+check(await saveEnabled(), 'Sphere 2 re-opened')
+const other = await usedPoints()
+check(other === '3', `the other sphere kept its own cut-off (${other})`)
+const otherNote = await pointsNote()
+check(otherNote.used !== otherNote.region, `and still drops its outliers: ${otherNote.text}`)
+await click(page, '[data-test="cancel-draft"]')
+await sleep(200)
+
+await clickNth('[data-test="edit-element"]', 0)
+check(await saveEnabled(), 'Ball A re-opened again')
+const kept = await usedPoints()
+check(kept === '0', `Ball A re-opens on all points (${kept})`)
+await click(page, '[data-test="cancel-draft"]')
+await sleep(200)
+
+// A new element starts on the choice last made.
+await click(page, '[data-test="fit-sphere"]')
+const fresh = await usedPoints()
+check(fresh === '0', `a new element starts on the last choice (${fresh})`)
+await click(page, '[data-test="cancel-draft"]')
+await sleep(200)
+
 await page.screenshot({ path: shotPath('e2e-edit.png') })
 
 await finish(browser, consoleErrors)
