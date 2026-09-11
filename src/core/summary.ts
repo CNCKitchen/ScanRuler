@@ -217,14 +217,29 @@ export function buildSummary(
     }
   }
   if (dimensions.length) lines.push('')
-  for (const { dim, title, value } of dimensions) {
+  // Every value held to a limit is judged in its own line, and counted: the
+  // tally at the end is what a build log wants first.
+  let checked = 0
+  let passed = 0
+  for (const { dim, title, value, verdict } of dimensions) {
     if (value.invalid) {
       lines.push(`${dim.name} (${title}) — ${value.label}: no value — ${value.invalid}`)
       continue
     }
     lines.push(`${dim.name} (${title}) — ${value.label}: ${value.value}`)
+    if (verdict) {
+      checked++
+      if (verdict.pass) passed++
+      lines.push(
+        `  ${verdict.allowance} · ${verdict.delta} · ${verdict.pass ? 'PASS' : `FAIL — ${verdict.alarm}`}`,
+      )
+    }
     if (value.detail) lines.push(`  ${value.detail}`)
     if (value.warning) lines.push(`  ⚠ ${value.warning}`)
+  }
+  if (checked > 0) {
+    lines.push('')
+    lines.push(`Checked against limits: ${checked} — ${passed} pass, ${checked - passed} fail`)
   }
   return lines.join('\n')
 }

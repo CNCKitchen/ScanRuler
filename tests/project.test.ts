@@ -151,8 +151,26 @@ describe('writing a project back onto the stores', () => {
         fit: { kind: 'sphere', center: [0, 0, 0], radius: 5, rms: 0, count: 3 } as never,
       },
     ]
-    manifest.scan!.dimensions = [{ id: 3, type: 'point-point', name: 'D1', refs: [7, 7] }]
+    manifest.scan!.dimensions = [
+      { id: 3, type: 'point-point', name: 'D1', refs: [7, 7] },
+      {
+        id: 4,
+        type: 'orient-angularity',
+        name: 'Angularity 2',
+        refs: [7, 7],
+        basic: 30,
+        limit: { kind: 'max', max: 0.05 },
+      },
+      {
+        id: 5,
+        type: 'dist-point-point',
+        name: 'Distance 1',
+        refs: [7, 7],
+        limit: { kind: 'band', nominal: 10, plus: 0.1, minus: 0.05 },
+      },
+    ]
     manifest.scan!.nextId = 8
+    manifest.scan!.nextOfDimGroup = { distance: 2, angle: 1, angularity: 3 }
     manifest.scan!.settings = { method: 'gaussian', sigma: 2 }
     manifest.scan!.selectMode = 'paint'
     applyScanPart(JSON.parse(JSON.stringify(manifest.scan)))
@@ -163,6 +181,10 @@ describe('writing a project back onto the stores', () => {
       s.elements[0].source.type === 'fitted' && s.elements[0].source.selection,
     ).toBeInstanceOf(Uint32Array)
     expect(s.dimensions[0].name).toBe('D1')
+    // A tolerance keeps its basic angle and its limit; a dimension its band.
+    expect(s.dimensions[1]).toMatchObject({ basic: 30, limit: { kind: 'max', max: 0.05 } })
+    expect(s.dimensions[2].limit).toEqual({ kind: 'band', nominal: 10, plus: 0.1, minus: 0.05 })
+    expect(s.nextOfDimGroup).toEqual({ distance: 2, angle: 1, angularity: 3 })
     expect(s.nextId).toBe(8)
     expect(s.settings.sigma).toBe(2)
     expect(s.selectMode).toBe('paint')
