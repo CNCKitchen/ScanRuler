@@ -560,13 +560,17 @@ says which cut-off every element rests on. The initial estimate is
 made robust with LMedS/RANSAC, and the point selection is a model-guided region
 grow over the mesh surface with normal-direction checks — so a click anywhere
 on a feature finds exactly that surface, even when it's fused to the rest of
-the part. Spheres and planes are solved in closed form (algebraic fit refined
+the part. The rounding a scan leaves at an edge stays out of it: the region is
+peeled back ring by ring while the rim's normals turn away from the element
+clearly more than the surface's own noise does, so a face is not pulled into
+the part by its edges and a bore's flared mouth is not in its cylindricity.
+Spheres and planes are solved in closed form (algebraic fit refined
 orthogonally, and the total-least-squares plane through the point cloud);
 the cylinder's five degrees of freedom are solved by damped Gauss-Newton, from
 a starting axis taken from the scatter of the surface normals.
 
 Validated against GOM Inspect on a real structured-light scan: center distance
-agrees within a micrometer (148.6398 mm vs 148.64 mm), with matching point
+agrees within GOM's last digit (148.639 mm vs 148.64 mm), with matching point
 selections and fit sigma. The cylinder and plane fits are covered by unit tests
 against synthetic geometry with known dimensions, since the included scan has
 no such feature.

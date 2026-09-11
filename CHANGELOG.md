@@ -5,6 +5,20 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## Unreleased
+
+- **The rounding at an edge stays out of a fit** — a scan rolls every edge
+  off over a few vertex rings, and a click-fitted plane, cylinder, sphere or
+  cone used to keep the first one or two of them: close enough to the surface
+  and tilted little enough to pass the growing tests, but sitting
+  systematically off it, so a face was pulled a micron or two into the part
+  and a bore's flared mouth went into its cylindricity. The grown region is
+  now peeled back ring by ring while the rim's normals turn away from the
+  element clearly more than the surface's own noise does, the way GOM's
+  selection stops short of an edge. On the block scan a face keeps the same
+  points GOM selects to within 1%, and the 6.76 mm bore's cylindricity drops
+  from 0.203 to 0.135 mm. A surface marked by hand is fitted as marked.
+
 ## 0.4.0 — 2026-09-11
 
 - **Used points per element** — the outlier cut-off in the Fitting group is

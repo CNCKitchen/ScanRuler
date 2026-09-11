@@ -5,8 +5,9 @@ import { fitConeFromSeed } from '../src/core/fit/fitConeFromSeed'
 import { fitCylinderFromSeed } from '../src/core/fit/fitCylinderFromSeed'
 import { fitPlaneFromSeed } from '../src/core/fit/fitPlaneFromSeed'
 import { fitSphereFromSeed } from '../src/core/fit/fitSphereFromSeed'
+import { mulberry32 } from '../src/core/fit/ransac'
 import type { MeshGraph } from '../src/core/types'
-import { boxMesh, coneMesh, cylinderMesh, icosphere } from './helpers'
+import { boxMesh, coneMesh, cylinderMesh, gaussian, icosphere } from './helpers'
 
 const SETTINGS = { method: 'gaussian', sigma: 3 } as const
 
@@ -149,5 +150,146 @@ describe('seed-to-plane pipeline on a synthetic box mesh', () => {
       top.normal[1] * bottom.normal[1] +
       top.normal[2] * bottom.normal[2]
     expect(align).toBeLessThan(-0.9999)
+  })
+})
+
+type P3 = [number, number, number]
+
+/** Two triangles per quad into a soup; corners are shared bit-for-bit so the
+ *  weld rebuilds the topology. */
+function quad(tris: number[], a: P3, b: P3, c: P3, d: P3): void {
+  tris.push(...a, ...b, ...c, ...a, ...c, ...d)
+}
+
+/** A height field z(x, y) over a square grid of pitch `h`, with Gaussian
+ *  noise along Z; cells whose corner the field leaves undefined are skipped. */
+function heightField(
+  half: number,
+  h: number,
+  zOf: (x: number, y: number) => number | null,
+  noise: number,
+): Float32Array {
+  const rand = mulberry32(7)
+  const n = Math.round((2 * half) / h)
+  const grid: (P3 | null)[][] = []
+  for (let i = 0; i <= n; i++) {
+    const row: (P3 | null)[] = []
+    for (let j = 0; j <= n; j++) {
+      const x = -half + i * h
+      const y = -half + j * h
+      const z = zOf(x, y)
+      row.push(z === null ? null : [x, y, z + gaussian(rand) * noise])
+    }
+    grid.push(row)
+  }
+  const tris: number[] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) {
+      const a = grid[i][j], b = grid[i + 1][j], c = grid[i + 1][j + 1], d = grid[i][j + 1]
+      if (a && b && c && d) quad(tris, a, b, c, d)
+    }
+  }
+  return Float32Array.from(tris)
+}
+
+/** A surface of revolution about +Z, radius `rOf(z)`, rings `h` apart, with
+ *  Gaussian radial noise. Open at both ends. */
+function revolve(
+  rOf: (z: number) => number,
+  zLo: number,
+  zHi: number,
+  h: number,
+  radial: number,
+  noise: number,
+): Float32Array {
+  const rand = mulberry32(9)
+  const rings = Math.round((zHi - zLo) / h)
+  const grid: P3[][] = []
+  for (let j = 0; j <= rings; j++) {
+    const z = zLo + j * h
+    const row: P3[] = []
+    for (let k = 0; k < radial; k++) {
+      const a = (k / radial) * 2 * Math.PI
+      const r = rOf(z) + gaussian(rand) * noise
+      row.push([Math.cos(a) * r, Math.sin(a) * r, z])
+    }
+    grid.push(row)
+  }
+  const tris: number[] = []
+  for (let j = 0; j < rings; j++) {
+    for (let k = 0; k < radial; k++) {
+      const k2 = (k + 1) % radial
+      quad(tris, grid[j][k], grid[j][k2], grid[j + 1][k2], grid[j + 1][k])
+    }
+  }
+  return Float32Array.from(tris)
+}
+
+/** The rounding a scanner leaves at every edge: the surface rolls off over a
+ *  radius, and the first ring or two of the roll-off sit close enough to the
+ *  surface, at a normal tilted little enough, to pass the growing tests. A
+ *  region that keeps them is pulled into the part (a face) or shrunk (a
+ *  shaft) by a few microns. The peel takes those rings back off the rim. */
+describe('the rounding at an edge stays out of the region', () => {
+  const NOISE = 0.01
+  const H = 0.25
+
+  it('a face with rounded edges is measured on the flat, not pulled into the part', () => {
+    const FLAT = 3 // half-size of the flat top
+    const R = 1.5 // rounding radius
+    // Rolls off along a quarter circle past the flat; the outer rings sit
+    // 0.021 and 0.086 mm below the top, at 10° and 20° — the first is inside
+    // a 3.5σ band and the 25° angle, the second is not.
+    const top = (x: number, y: number): number | null => {
+      const e = Math.hypot(Math.max(0, Math.abs(x) - FLAT), Math.max(0, Math.abs(y) - FLAT))
+      if (e >= 0.9 * R) return null
+      return -(R - Math.sqrt(R * R - e * e))
+    }
+    const graph = buildMeshGraph({
+      kind: 'soup',
+      positions: heightField(FLAT + R, H, top, NOISE),
+    })
+    const out = fitPlaneFromSeed(graph, [seedNear(graph, 0, 0, 0)], SETTINGS)
+
+    expect(Math.abs(out.normal[2])).toBeGreaterThan(0.9999)
+    // Unbiased: the flat is at z = 0 to within the noise on its mean; the
+    // first roll-off ring alone would pull it 3 µm into the part.
+    expect(Math.abs(out.center[2])).toBeLessThan(0.0015)
+    // Nothing of the roll-off is in the region…
+    for (let i = 0; i < out.region.length; i++) {
+      const v = out.region[i]
+      const x = graph.positions[v * 3], y = graph.positions[v * 3 + 1]
+      expect(Math.max(Math.abs(x), Math.abs(y))).toBeLessThanOrEqual(FLAT + 1e-6)
+    }
+    // …and most of the flat still is.
+    const flatCount = (2 * FLAT / H + 1) ** 2
+    expect(out.regionSize).toBeGreaterThan(0.75 * flatCount)
+  })
+
+  it('a shaft with rounded ends is measured on the straight wall', () => {
+    const R = 8
+    const HALF = 3
+    const EDGE = 1.5 // rounding radius at each end
+    const rOf = (z: number): number => {
+      const e = Math.max(0, Math.abs(z) - (HALF - EDGE))
+      return R - (EDGE - Math.sqrt(EDGE * EDGE - e * e))
+    }
+    // Rings land on the wall's end and every 0.25 mm into the roll-off, the
+    // same offsets as the face above.
+    const graph = buildMeshGraph({
+      kind: 'soup',
+      positions: revolve(rOf, -(HALF - EDGE) - 1.25, HALF - EDGE + 1.25, H, 64, NOISE),
+    })
+    const out = fitCylinderFromSeed(graph, [seedNear(graph, R, 0, 0)], SETTINGS)
+
+    expect(Math.abs(out.axis[2])).toBeGreaterThan(0.9999)
+    // The first ring of each roll-off alone would take 2 µm off the radius.
+    expect(Math.abs(out.radius - R)).toBeLessThan(0.001)
+    for (let i = 0; i < out.region.length; i++) {
+      expect(Math.abs(graph.positions[out.region[i] * 3 + 2])).toBeLessThanOrEqual(HALF - EDGE + 1e-6)
+    }
+    const wallRings = (2 * (HALF - EDGE)) / H + 1
+    expect(out.regionSize).toBeGreaterThan(0.75 * wallRings * 64)
+    expect(out.coverage).toBeGreaterThan(352)
   })
 })
