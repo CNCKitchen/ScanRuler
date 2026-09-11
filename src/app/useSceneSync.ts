@@ -471,6 +471,28 @@ export function useSceneSync({
     sceneRef.current?.setAlignPreview(rigid ? rigidToColumnMajor(rigid) : null)
   }, [alignDraft, elements, modelSize, centerOf])
 
+  // The scan-to-reference best fit is a pose on the scan's group: the reference
+  // stays put and the scan is carried onto it, taking the map and any elements
+  // measured in the other workspace along with it.
+  const align = useDeviation((s) => s.align)
+  const source = useDeviation((s) => s.source)
+  // Measuring against an element is measuring in the scan's own frame — the
+  // element was fitted there. So the pose comes off the scene for the
+  // duration, or the element would sit somewhere the part no longer is.
+  //
+  // A datum alignment is set up in that frame too: its preview is a second
+  // matrix on the same group, and the datum stage it is aimed at is the world
+  // axes. Left underneath, the pose would carry the levelled part off the
+  // stage, and the re-framing on apply would look where the pose had it rather
+  // than where it lands once the fit is cleared — the part came out "totally
+  // off" the first time and right the second, when there was no pose left.
+  // This runs ahead of the stage below, so the stage is framed around the
+  // part where it stands for the alignment, not where the pose had it.
+  const shownAlign = source === 'element' || alignDraft !== null ? null : align
+  useEffect(() => {
+    sceneRef.current?.setAlignment(shownAlign ? rigidToColumnMajor(shownAlign.transform) : null)
+  }, [shownAlign])
+
   // The datum stage — the coordinate planes and origin axes the part is being
   // aligned onto — stands exactly as long as the alignment editor is open.
   // Opening frames the stage and the part together; closing re-frames the part
@@ -521,7 +543,6 @@ export function useSceneSync({
   // feel like a different instrument.
   const workspace = useShell((s) => s.workspace)
   const mapVersion = useDeviation((s) => s.mapVersion)
-  const source = useDeviation((s) => s.source)
   const elementVersion = useDeviation((s) => s.elementVersion)
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
@@ -622,22 +643,12 @@ export function useSceneSync({
     thickLimitRead,
   ])
 
-  // The alignment moves the reference, never the scan: the scan carries the
-  // map and any elements measured in the other workspace.
-  const align = useDeviation((s) => s.align)
   const showNominal = useDeviation((s) => s.showNominal)
   const nominalName = useDeviation((s) => s.nominalName)
   // Loaded, not merely named: the store records the name the moment the read
   // starts, and the scene has no reference mesh to show until it finishes.
   const nominalBusy = useDeviation((s) => s.nominalBusy)
   const nominalReady = Boolean(nominalName) && !nominalBusy
-  // Measuring against an element is measuring in the scan's own frame — the
-  // element was fitted there. So the scan-to-reference pose comes off the scene
-  // for the duration, or the element would sit somewhere the part no longer is.
-  const shownAlign = source === 'element' ? null : align
-  useEffect(() => {
-    sceneRef.current?.setAlignment(shownAlign ? rigidToColumnMajor(shownAlign.transform) : null)
-  }, [shownAlign])
   // Both models are on screen as soon as both are loaded. The reference is a
   // ghost while the scan is there to be seen through it, and turns solid when
   // the scan is switched off — which is how you check it is the right part,

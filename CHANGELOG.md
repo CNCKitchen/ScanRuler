@@ -26,6 +26,12 @@ README under "Releases".
   digits go red when the value is over, the summary says PASS or FAIL and
   tallies the checks at the end. A new **Diameter** dimension on a sphere, a
   cylinder or a circle lets a size be held the same way. Projects save it all.
+- **Align part after a best fit** — a datum alignment set up in 3D Measure
+  after the scan was best-fitted to a reference in Surface Deviation now
+  previews and lands on the datum stage. The best-fit pose used to stay under
+  the preview, carrying the levelled part off the stage and leaving the
+  viewport looking at the wrong place once it was applied — it took a second,
+  empty alignment to see the part where the first had put it.
 
 ## 0.3.0 — 2026-09-11
 
