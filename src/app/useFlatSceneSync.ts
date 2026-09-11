@@ -73,9 +73,10 @@ export function useFlatSceneSync({
     const sheet = sheetOf()
     const view = scene()
     if (!sheet || !view) return
-    // The alignment and the turn first, so the sheet is framed the way it is
-    // to be looked at rather than framed and then turned.
+    // The alignment, the mirror and the turn first, so the sheet is framed
+    // the way it is to be looked at rather than framed and then turned.
     view.setAlignment(sheetAlignment(useFlat.getState()))
+    view.setMirror(useFlat.getState().mirror)
     view.setTurns(useFlat.getState().turns)
     if (sheet.kind === 'image') void view.setImage(sheet.bitmap, sheetScale(useFlat.getState()))
     else view.setBlankSheet(sheet.bounds.min, sheet.bounds.max)
@@ -127,13 +128,18 @@ export function useFlatSceneSync({
   const showGrid = useFlat((s) => s.showGrid)
   useEffect(pushGrid, [datum, tool, showGrid, scale])
 
+  // The readings on the pins follow the alignment, and its handedness
+  // follows the mirror.
   const draft = useFlat((s) => s.draft)
-  useEffect(pushElements, [elements, draft, scale, datum])
+  const mirror = useFlat((s) => s.mirror)
+  useEffect(pushElements, [elements, draft, scale, datum, mirror])
 
-  // The sheet aligned to the part, or turned on the stage — the camera rolls,
-  // nothing is redrawn. The alignment's direction is read at the scale in
-  // force: an anisotropic calibration bends it, so a recalibration re-rolls.
+  // The sheet aligned to the part, mirrored, or turned on the stage — the
+  // camera moves, nothing is redrawn. The alignment's direction is read at
+  // the scale in force: an anisotropic calibration bends it, so a
+  // recalibration re-rolls.
   useEffect(() => scene()?.setAlignment(sheetAlignment(useFlat.getState())), [datum, scale])
+  useEffect(() => scene()?.setMirror(mirror), [mirror])
   const turns = useFlat((s) => s.turns)
   useEffect(() => scene()?.setTurns(turns), [turns])
 

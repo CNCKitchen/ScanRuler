@@ -184,16 +184,18 @@ describe('writing a project back onto the stores', () => {
       calSource: 'measured',
       showGrid: false,
       turns: 3,
+      mirror: true,
     })
     const { manifest } = collectProject(sources(), null, '0.1.0')
     expect(manifest.thickness.measured).toBe(true)
     expect(manifest.flat.turns).toBe(3)
+    expect(manifest.flat.mirror).toBe(true)
     const json = JSON.parse(JSON.stringify(manifest))
 
     useDeviation.setState({ tolerance: 0.1, bands: null, split: false, probes: [] })
     useThickness.getState().clear()
     useThickness.setState({ method: 'ray', limit: 1 })
-    useFlat.setState({ pxPerMm: null, calSource: 'none', showGrid: true, turns: 0 })
+    useFlat.setState({ pxPerMm: null, calSource: 'none', showGrid: true, turns: 0, mirror: false })
 
     applyDeviationPart(json.deviation)
     applyThicknessPart(json.thickness)
@@ -208,30 +210,42 @@ describe('writing a project back onto the stores', () => {
     expect(useFlat.getState().calSource).toBe('measured')
     expect(useFlat.getState().showGrid).toBe(false)
     expect(useFlat.getState().turns).toBe(3)
-    useFlat.setState({ turns: 0 })
+    expect(useFlat.getState().mirror).toBe(true)
+    useFlat.setState({ turns: 0, mirror: false })
   })
 
-  it('lays a sheet saved before it could be turned the way it was scanned', () => {
-    useFlat.setState({ imageName: 'sheet.png', subject: { kind: 'image' }, sheets: {}, turns: 0 })
+  it('lays a sheet saved before it could be turned or mirrored the way it was scanned', () => {
+    useFlat.setState({ imageName: 'sheet.png', subject: { kind: 'image' }, sheets: {}, turns: 0, mirror: false })
     useFlat.getState().setSubject({ kind: 'section', id: 4 })
     useFlat.getState().turnSheet(2)
+    // Top-to-bottom on a sheet shown upside down runs the turns the other
+    // way — which is the same two — and mirrors it.
+    useFlat.getState().mirrorSheet('top-bottom')
     const { manifest } = collectProject(sources(), null, '0.1.0')
     const json = JSON.parse(JSON.stringify(manifest))
     expect(json.flat.turns).toBe(2)
+    expect(json.flat.mirror).toBe(true)
     expect(json.flat.sheets['section:4'].turns).toBe(2)
+    expect(json.flat.sheets['section:4'].mirror).toBe(true)
     expect(json.flat.sheets.image.turns).toBe(0)
-    // An older build wrote neither.
+    expect(json.flat.sheets.image.mirror).toBe(false)
+    // An older build wrote none of them.
     delete json.flat.turns
+    delete json.flat.mirror
     delete json.flat.sheets['section:4'].turns
+    delete json.flat.sheets['section:4'].mirror
     delete json.flat.sheets.image.turns
+    delete json.flat.sheets.image.mirror
 
     useStore.setState({ sections: [{ id: 4 } as never], nextSectionNumber: 2 })
     // Whatever the stage held before the load must not leak into the sheet.
-    useFlat.setState({ subject: { kind: 'image' }, sheets: {}, turns: 1 })
+    useFlat.setState({ subject: { kind: 'image' }, sheets: {}, turns: 1, mirror: true })
     applyFlatPart(json.flat)
     expect(useFlat.getState().subject).toEqual({ kind: 'section', id: 4 })
     expect(useFlat.getState().turns).toBe(0)
+    expect(useFlat.getState().mirror).toBe(false)
     expect(useFlat.getState().sheets.image.turns).toBe(0)
+    expect(useFlat.getState().sheets.image.mirror).toBe(false)
     useStore.setState({ sections: [], nextSectionNumber: 1 })
     useFlat.setState({ subject: { kind: 'image' }, sheets: {} })
   })

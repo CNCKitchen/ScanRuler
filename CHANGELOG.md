@@ -7,6 +7,16 @@ README under "Releases".
 
 ## Unreleased
 
+- **2D Measure** — **Mirror** beside Rotate 90°: two buttons that flip the
+  sheet on the stage left-to-right or top-to-bottom, as it is shown. A
+  flatbed scan is the part seen through the glass; mirrored, it is the part
+  seen from above, the way a drawing shows it. The flip is in place, keeping
+  the zoom and what is under the eye, the loupe flips with it, and Rotate
+  90° keeps turning the way it says. Nothing measured moves — but an
+  alignment on a mirrored sheet reads right-handed as shown, +Y up the
+  screen, so coordinates and line angles compare with a drawing; the report
+  says so, and Export SVG and Export DXF draw the sheet mirrored the same
+  way, arcs and all. Each sheet keeps its own mirror, and a project saves it.
 - **Hide pins behind the part** — a switch by the pinned readings, in the
   deviation and the thickness workspace alike. With it on, a pin whose spot
   is on the far side of the part, or behind a feature of it, is put away

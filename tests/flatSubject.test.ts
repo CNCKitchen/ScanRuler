@@ -163,6 +163,26 @@ describe('the sheet subject', () => {
     expect(useFlat.getState().turns).toBe(0)
   })
 
+  it('mirrors each sheet on its own, as it is shown', () => {
+    useFlat.getState().finishImageLoad('t.png', 1000, 800, { x: 10, y: 10 })
+    expect(useFlat.getState().mirror).toBe(false)
+    useFlat.getState().mirrorSheet('left-right')
+    expect(useFlat.getState()).toMatchObject({ mirror: true, turns: 2 })
+
+    // A section comes up the way it was cut; the image keeps its mirror.
+    useFlat.getState().setSubject({ kind: 'section', id: 3 })
+    expect(useFlat.getState()).toMatchObject({ mirror: false, turns: 0 })
+    useFlat.getState().mirrorSheet('top-bottom')
+    expect(useFlat.getState()).toMatchObject({ mirror: true, turns: 0 })
+    useFlat.getState().setSubject({ kind: 'image' })
+    expect(useFlat.getState()).toMatchObject({ mirror: true, turns: 2 })
+    expect(useFlat.getState().sheets['section:3']).toMatchObject({ mirror: true, turns: 0 })
+
+    // A fresh image is laid the way it was scanned.
+    useFlat.getState().finishImageLoad('u.png', 500, 500, null)
+    expect(useFlat.getState().mirror).toBe(false)
+  })
+
   it('drops the sheets of sections that are gone, and steps off a gone one', () => {
     useFlat.getState().finishImageLoad('t.png', 1000, 800, { x: 10, y: 10 })
     pickPoint([5, 5])

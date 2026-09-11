@@ -378,6 +378,16 @@ export class OrthoViewport {
    */
   viewFrom(view: StandardView): void {
     const { dir, up } = STANDARD_VIEWS[view]
+    this.lookFrom(dir, up)
+  }
+
+  /**
+   * Turn the camera to look from `dir` (the direction from the target to the
+   * camera) with `up` up the screen, about whatever sits at the centre of
+   * the screen — what the standard views do, for any pose: the 2D sheet is
+   * mirrored by looking at it from behind this way, in place.
+   */
+  lookFrom(dir: THREE.Vector3, up: THREE.Vector3): void {
     const rect = this.renderer.domElement.getBoundingClientRect()
     const pivot = this.nav.surfaceAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
     if (!pivot) {

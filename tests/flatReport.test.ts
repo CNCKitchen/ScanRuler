@@ -90,6 +90,20 @@ describe('buildFlatReport', () => {
     expect(text).toContain('UNCALIBRATED — nominal 600 dpi')
     expect(text).toContain('aligned part frame')
   })
+
+  it('says when the frame reads +Y up on a sheet shown mirrored', () => {
+    // The same alignment on the sheet shown mirrored: +Y is the other way
+    // round on the sheet — up the screen as shown — and a point above the
+    // axis on the sheet reads below it. The circle's centre is 40 up.
+    const datum = { originPx: [0, 0] as [number, number], xRefPx: [100, 0] as [number, number] }
+    const plain = buildFlatReport(sampleInput({ datum, frame: datumFrame(datum, null) }))
+    expect(plain).toContain('aligned part frame (origin and +X as picked)')
+    expect(plain).not.toContain('mirrored')
+    const mirrored = buildFlatReport(sampleInput({ datum, frame: datumFrame(datum, null, true) }))
+    expect(mirrored).toContain('+Y up on the sheet as shown mirrored')
+    const csv = buildFlatCsv(sampleInput({ datum, frame: datumFrame(datum, null, true) }))
+    expect(csv.split('\n').find((l) => l.startsWith('Circle 1'))).toContain('100.0000,-40.0000')
+  })
 })
 
 describe('buildFlatCsv', () => {

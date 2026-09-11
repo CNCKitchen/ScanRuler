@@ -55,6 +55,7 @@ function input(over: Partial<FlatSvgInput> = {}): FlatSvgInput {
     ],
     alignDir: null,
     turns: 0,
+    mirror: false,
     unit: 'mm',
     title: 'ScanRuler 2D measurement — part.png (1000 × 800 px)',
     scaleNote: 'Scale: CALIBRATED, 10.0000 px/mm',
@@ -159,6 +160,33 @@ describe('buildFlatSvg', () => {
     expect(flipped).toContain('<polyline points="90,10 80,10 80,20"/>')
     // A circle's shape is turn-invariant; only where it sits moves.
     expect(svg).toContain('<circle cx="40" cy="80" r="10"/>')
+  })
+
+  it('mirrors the drawing with the sheet', () => {
+    // Shown mirrored left-to-right — the mirror across X with a half turn on
+    // top: the sheet keeps its format, and its origin lands bottom-right.
+    const el = (fit: FlatArcFit) => [{ fit, color: '#000000', name: 'Arc 1', value: '' }]
+    const leftRight = buildFlatSvg(input({ turns: 2, mirror: true, elements: el(arc(0, Math.PI / 2)) }))
+    expect(leftRight).toContain('width="100mm" height="80mm" viewBox="0 0 100 80"')
+    expect(leftRight).toContain('<polyline points="90,70 80,70 80,60"/>')
+    expect(leftRight).toContain('mirrored left-to-right')
+    // Top-to-bottom: the origin lands top-left, so the page reads the
+    // document's own coordinates, y down.
+    const topBottom = buildFlatSvg(input({ mirror: true, elements: el(arc(0, Math.PI / 2)) }))
+    expect(topBottom).toContain('<polyline points="10,10 20,10 20,20"/>')
+    expect(topBottom).toContain('mirrored top-to-bottom')
+    // An arc's sense turns round in a mirror: the same quarter arc, from the
+    // same start, swept the other way — SVG's sweep flag 1.
+    expect(topBottom).toContain('<path d="M 60 40 A 10 10 0 0 1 50 50"/>')
+    expect(leftRight).toContain('<path d="M 40 40 A 10 10 0 0 1 50 30"/>')
+    // The mirror goes between the alignment and the turns: +X picked straight
+    // up the scan and shown mirrored, the alignment still runs along the
+    // page and the sheet is flipped across it — the corner that a plain
+    // alignment puts top-left lands bottom-left.
+    const aligned = buildFlatSvg(input({ alignDir: [0, 1], mirror: true }))
+    expect(aligned).toContain('width="80mm" height="100mm" viewBox="0 0 80 100"')
+    expect(aligned).toContain('<polyline points="10,90 10,80 20,80"/>')
+    expect(aligned).toContain('aligned to the part with its +X along the page, mirrored top-to-bottom')
   })
 
   it('aligns the drawing to the part as the stage shows it', () => {

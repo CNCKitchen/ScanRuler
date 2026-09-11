@@ -6,7 +6,7 @@
 // how wrong numbers get trusted.
 
 import type { FlatDatum, FlatFrame } from './datum'
-import { fitInFrame } from './datum'
+import { fitInFrame, frameMirrored } from './datum'
 import type { FlatDimensionValue } from './dimensions'
 import type { FlatElement } from './elements'
 import type { PixelsPerMm } from './image'
@@ -57,7 +57,14 @@ export function titleLine(r: FlatReportInput): string {
 }
 
 function frameLine(r: FlatReportInput): string {
-  if (r.frame) return 'Coordinates: aligned part frame (origin and +X as picked)'
+  // A mirrored sheet's frame is right-handed as shown: +Y up the screen,
+  // which is down the scan — worth a word beside numbers that will be
+  // compared with a drawing.
+  if (r.frame) {
+    return frameMirrored(r.frame)
+      ? 'Coordinates: aligned part frame (origin and +X as picked, +Y up on the sheet as shown mirrored)'
+      : 'Coordinates: aligned part frame (origin and +X as picked)'
+  }
   return r.section
     ? 'Coordinates: section frame, origin at the cutting plane’s centre, y up'
     : 'Coordinates: image frame, origin bottom-left, y up'

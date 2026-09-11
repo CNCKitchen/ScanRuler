@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The sheet as a drawing: every detected edge chain and every fitted element
 // as SVG at true scale — one user unit per millimetre (per image pixel while
-// nothing sets a scale), y down as drawings are, the sheet aligned and turned
-// the way it is shown on the stage — so a part aligned along a reference
-// edge comes into CAD square. Meant for a CAD sketch to trace and a vector editor
+// nothing sets a scale), y down as drawings are, the sheet aligned, turned
+// and mirrored the way it is shown on the stage — so a part aligned along a
+// reference edge comes into CAD square, and a scan shown mirrored to be
+// looked at from above is drawn from above. Meant for a CAD sketch to trace and a vector editor
 // to pick apart, so each layer is a group with a plain id, every shape is
 // the native SVG primitive for it, and nothing hides under a transform: what
 // an importer reads is what it draws.
@@ -12,7 +13,7 @@
 // bounds, chains and elements and hands them in; the report module says what
 // the scale rests on.
 
-import { rollMap, sheetRoll } from './datum'
+import { poseMap, sheetPose } from './datum'
 import {
   describeRoll,
   DRAWING_EDGE_COLOR,
@@ -36,9 +37,9 @@ const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 export function buildFlatSvg(r: FlatSvgInput): string {
-  // The sheet as it is shown: aligned to the part and turned, the same roll
-  // FlatScene gives its camera.
-  const rot = rollMap(sheetRoll(r.alignDir, r.turns))
+  // The sheet as it is shown: aligned to the part, mirrored and turned, the
+  // same pose FlatScene gives its camera.
+  const rot = poseMap(sheetPose(r.alignDir, r.turns, r.mirror))
   const { min, max } = r.bounds
   const corners = [rot(min), rot(max), rot([min[0], max[1]]), rot([max[0], min[1]])]
   const x0 = Math.min(...corners.map((c) => c[0]))
@@ -96,18 +97,21 @@ export function buildFlatSvg(r: FlatSvgInput): string {
         const end = fit.start + fit.sweep
         const to = at([cx + fit.radius * Math.cos(end), cy + fit.radius * Math.sin(end)])
         // Counter-clockwise on the sheet stays counter-clockwise on the page
-        // (the flip and the turn between them keep the sense), and SVG's
-        // sweep flag 0 is the counter-clockwise arc; the large-arc flag says
-        // which of the two arcs between the ends is meant.
+        // (the y flip and the turn between them keep the sense), and SVG's
+        // sweep flag 0 is the counter-clockwise arc — unless the sheet is
+        // shown mirrored, which turns the sense round; the large-arc flag
+        // says which of the two arcs between the ends is meant.
         const large = fit.sweep > Math.PI ? 1 : 0
+        const sweep = r.mirror ? 1 : 0
         return [
-          `<path d="M ${n(from[0])} ${n(from[1])} A ${n(fit.radius)} ${n(fit.radius)} 0 ${large} 0 ${n(to[0])} ${n(to[1])}"/>`,
+          `<path d="M ${n(from[0])} ${n(from[1])} A ${n(fit.radius)} ${n(fit.radius)} 0 ${large} ${sweep} ${n(to[0])} ${n(to[1])}"/>`,
         ]
       }
       case 'spline': {
-        // The curve's own cubic Béziers, pole for pole: the turn and the flip
-        // are affine, so the poles map through like any point, and a CAD
-        // sketch reads the spline back exactly. A closed one is closed.
+        // The curve's own cubic Béziers, pole for pole: the turn, the mirror
+        // and the flip are affine, so the poles map through like any point,
+        // and a CAD sketch reads the spline back exactly. A closed one is
+        // closed.
         const { poles } = splineBezierForm(fit)
         const pt = (p: Vec2) => {
           const [x, y] = at(p)
@@ -134,7 +138,7 @@ export function buildFlatSvg(r: FlatSvgInput): string {
   out.push(
     `  <desc>${esc(
       `${r.scaleNote}. One unit is one ${r.unit === 'mm' ? 'millimetre' : 'image pixel'}; ` +
-        `y runs down and the origin is the top-left corner of the sheet as shown${describeRoll(r.alignDir, r.turns)}. ` +
+        `y runs down and the origin is the top-left corner of the sheet as shown${describeRoll(r.alignDir, r.turns, r.mirror)}. ` +
         'Layers: edges (the detected edge chains), elements (the fitted geometry), labels.',
     )}</desc>`,
   )

@@ -221,6 +221,39 @@ const backX = Number(((await page.$eval('[data-test=flat-draft-status]', (el) =>
 check(Math.abs(backX - spot[0]) < 0.15, `and the sheet is framed as before (x ${backX.toFixed(2)})`)
 await click(page, '[data-test=flat-draft-cancel]')
 
+// ---- the sheet mirrored ------------------------------------------------------
+// Mirror ↔ flips the view left-to-right in place — the framing is kept, what
+// was left of the disc is right of it. A raw (Alt) pick through the mirrored
+// view must still read the document spot under the cursor, and mirroring
+// again restores the view every later pick is aimed by.
+await click(page, '[data-test=flat-mirror-lr]')
+await sleep(300)
+check(
+  /mirrored left-to-right/.test(await page.$eval('[data-test=flat-turn-status]', (el) => el.textContent)),
+  'the alignment group says the sheet is shown mirrored left-to-right',
+)
+const toScreenMirrored = (mx, my) => [
+  rect.x + (rect.w * (1 - (mx - SHEET_W / 2) / (frustH * aspect))) / 2,
+  rect.y + (rect.h * (1 - (my - SHEET_H / 2) / frustH)) / 2,
+]
+await click(page, '[data-test=flat-fit-point]')
+await page.keyboard.down('Alt')
+await page.mouse.click(...toScreenMirrored(...spot))
+await page.keyboard.up('Alt')
+await sleep(200)
+const mirroredRead = await page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)
+const mirroredX = Number((mirroredRead.match(/X (-?[\d.]+)/) ?? [])[1])
+const mirroredY = Number((mirroredRead.match(/Y (-?[\d.]+)/) ?? [])[1])
+check(
+  Math.abs(mirroredX - spot[0]) < 0.15 && Math.abs(mirroredY - spot[1]) < 0.15,
+  `a pick through the mirrored view reads the spot under the cursor (${mirroredX}, ${mirroredY} for ${spot.map((v) => v.toFixed(2))})`,
+)
+await click(page, '[data-test=flat-draft-cancel]')
+await page.screenshot({ path: shotPath('flat-mirrored.png') })
+await click(page, '[data-test=flat-mirror-lr]')
+await sleep(300)
+check((await page.$('[data-test=flat-turn-status]')) === null, 'mirroring back clears the notice')
+
 // ---- a line along the rectangle's top edge ---------------------------------
 await click(page, '[data-test=flat-fit-line]')
 await page.select('[data-test=flat-draft-method]', 'flat-line-edge')

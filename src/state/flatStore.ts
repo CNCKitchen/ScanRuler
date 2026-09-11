@@ -316,6 +316,12 @@ export interface SheetState {
    *  glass one way, a section is laid flat another, and each wants turning
    *  by its own amount. Nothing measured moves with it. */
   turns: number
+  /** Whether the sheet is shown mirrored — flipped across the alignment's X
+   *  axis (the document's own, unaligned) before the quarter turns; see
+   *  core/flat/datum's SheetPose. A scan is the part seen through the
+   *  glass, and this is how it is looked at from above. Nothing measured
+   *  moves with it either; the alignment reads right-handed as shown. */
+  mirror: boolean
 }
 
 /** The sheet on the stage, lifted out of the store. */
@@ -335,6 +341,7 @@ export function sheetOf(s: SheetState): SheetState {
     notes: s.notes,
     nextNoteId: s.nextNoteId,
     turns: s.turns,
+    mirror: s.mirror,
   }
 }
 
@@ -356,6 +363,7 @@ function freshSheet(pxPerMm: PixelsPerMm | null, calSource: CalSource): SheetSta
     notes: [],
     nextNoteId: 1,
     turns: 0,
+    mirror: false,
   }
 }
 
@@ -560,6 +568,11 @@ interface FlatState extends SheetState {
    *  counter-clockwise, on top of the alignment. The view rolls; the picks,
    *  the alignment and every measurement stay where they are on the part. */
   turnSheet: (quarters: number) => void
+  /** Mirror the sheet on the stage as it is shown — left-to-right or
+   *  top-to-bottom of the screen, whichever way round it is turned. As with
+   *  a turn, nothing measured moves; the alignment reads right-handed as
+   *  shown from then on. */
+  mirrorSheet: (way: 'left-right' | 'top-bottom') => void
 
   /** The tally being clicked out is the `count` tool; the finished ones are
    *  the sheet's. */
@@ -985,6 +998,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
   // checkbox puts it away.
   showGrid: true,
   turns: 0,
+  mirror: false,
 
   profiles: loadProfiles(),
 
@@ -1273,6 +1287,16 @@ export const useFlat = create<FlatState>()((set, get) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   turnSheet: (quarters) =>
     set((s) => ({ turns: (((s.turns + Math.round(quarters)) % 4) + 4) % 4 })),
+  // The sheet is shown mirrored across its X axis and then turned; a mirror
+  // across the screen's vertical is that with the turns run the other way,
+  // and one across its horizontal is the same plus a half turn — so the
+  // button flips what is on the screen whichever way round it is shown, and
+  // Rotate 90° keeps turning the way it says afterwards.
+  mirrorSheet: (way) =>
+    set((s) => ({
+      mirror: !s.mirror,
+      turns: (((way === 'left-right' ? 2 - s.turns : -s.turns) % 4) + 4) % 4,
+    })),
 
   startCalibration: (mode) =>
     set((s) => (s.subject.kind === 'image' ? { tool: { kind: 'calibrate', mode, picks: [] } } : {})),

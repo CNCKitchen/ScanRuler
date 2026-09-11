@@ -21,6 +21,7 @@ export function FlatDraftEditor() {
   const draftColor = useFlat(flatDraftColorOf)
   const pxPerMm = useFlat((s) => s.pxPerMm)
   const datum = useFlat((s) => s.datum)
+  const mirror = useFlat((s) => s.mirror)
   const setDraftMethod = useFlat((s) => s.setDraftMethod)
   const snapToEdge = useFlat((s) => s.snapToEdge)
   const setSnapToEdge = useFlat((s) => s.setSnapToEdge)
@@ -40,7 +41,7 @@ export function FlatDraftEditor() {
   const edited = draft.editId !== undefined ? elements.find((e) => e.id === draft.editId) : undefined
   const blocked = flatBlockedRefs(draft.editId, elements)
   const unit = pxPerMm ? 'mm' : 'px'
-  const frame = datum ? datumFrame(datum, pxPerMm) : null
+  const frame = datum ? datumFrame(datum, pxPerMm, mirror) : null
   const minPicks = flatPicksNeeded(draft.method, draft.closed)
   const picks = draft.picks.length
   const saveWord = edited ? 'save it' : 'create it'

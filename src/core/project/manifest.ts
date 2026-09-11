@@ -204,6 +204,9 @@ export interface FlatPart {
    *  projects saved before the sheet could be turned — those, and any
    *  sheet under `sheets` without one, load the way they were scanned. */
   turns?: number
+  /** Whether the sheet is shown mirrored. Absent in projects saved before
+   *  it could be — those lie the way they were scanned. */
+  mirror?: boolean
   /** What was on the sheet, and every subject's sheet — the image's and each
    *  section's — keyed by sheetKeyOf, the one on the stage included. The
    *  flat fields above are that sheet's, kept so an older build reads the

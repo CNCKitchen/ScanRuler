@@ -9,7 +9,7 @@
 // way out.
 
 import { flatMethod } from '../core/flat/construct'
-import { datumFrame, fitInFrame, sheetRoll } from '../core/flat/datum'
+import { datumFrame, fitInFrame, sheetPose, type FlatFrame, type SheetPose } from '../core/flat/datum'
 import { evaluateFlatDimensions, type FlatDimension } from '../core/flat/dimensions'
 import type { FlatElement } from '../core/flat/elements'
 import type { FlatDatum } from '../core/flat/datum'
@@ -38,6 +38,7 @@ export interface SheetSource {
   datum: FlatDatum | null
   showGrid: boolean
   turns: number
+  mirror: boolean
   counts: FlatCount[]
   nextCountId: number
   notes: FlatNote[]
@@ -136,28 +137,36 @@ export function sheetDimensions(s: Pick<SheetSource, 'dimensions' | 'elements'>)
     .map((d) => ({ title: d.dim.name, value: d.value.value!, segment: d.value.segment, arc: d.value.arc }))
 }
 
+/** The frame the sheet reads in: the alignment at the scale in force, right-
+ *  handed as the sheet is shown — or null while it is unaligned (or the
+ *  picks coincide and span no frame). The one place the frame is built, so
+ *  every reading, the report and the drawings agree on its handedness. */
+export function sheetFrame(s: Pick<SheetSource, 'pxPerMm' | 'datum' | 'mirror'>): FlatFrame | null {
+  return s.datum ? datumFrame(s.datum, s.pxPerMm, s.mirror) : null
+}
+
 /** The committed grid: datum-aligned when one is set and wanted. `undefined`
  *  while the datum tool is collecting — its live preview owns the stage
  *  then, and the committed grid must not overwrite it. */
 export function sheetGrid(
-  s: Pick<SheetSource, 'pxPerMm' | 'tool' | 'datum' | 'showGrid'>,
+  s: Pick<SheetSource, 'pxPerMm' | 'tool' | 'datum' | 'showGrid' | 'mirror'>,
 ): SheetGrid | undefined {
   if (s.tool.kind === 'datum') return undefined
-  const frame = s.datum && s.showGrid ? datumFrame(s.datum, s.pxPerMm) : null
+  const frame = s.showGrid ? sheetFrame(s) : null
   return frame && { origin: frame.origin, xDir: frame.xDir }
 }
 
 /** The alignment's +X in document units — the direction the sheet is shown
  *  with to the right of the screen — or null while the sheet lies as it was
  *  scanned. Null too for coincident picks, which span no frame. */
-export function sheetAlignment(s: Pick<SheetSource, 'pxPerMm' | 'datum'>): Vec2 | null {
-  return s.datum ? (datumFrame(s.datum, s.pxPerMm)?.xDir ?? null) : null
+export function sheetAlignment(s: Pick<SheetSource, 'pxPerMm' | 'datum' | 'mirror'>): Vec2 | null {
+  return sheetFrame(s)?.xDir ?? null
 }
 
-/** How far round the sheet is shown, radians counter-clockwise on screen:
- *  the alignment brought square, then the quarter turns — see sheetRoll. */
-export function sheetRollOf(s: Pick<SheetSource, 'pxPerMm' | 'datum' | 'turns'>): number {
-  return sheetRoll(sheetAlignment(s), s.turns)
+/** How the sheet is shown: the alignment brought square, the mirror, then
+ *  the quarter turns — see sheetPose. */
+export function sheetPoseOf(s: Pick<SheetSource, 'pxPerMm' | 'datum' | 'turns' | 'mirror'>): SheetPose {
+  return sheetPose(sheetAlignment(s), s.turns, s.mirror)
 }
 
 /** The grid the datum tool previews while it holds its first pick: pivoting
@@ -181,10 +190,10 @@ export function sheetDatumPreview(
  *  frame when one is set, drawn where they were measured. An element open
  *  for editing is drawn by its draft instead. */
 export function sheetElements(
-  s: Pick<SheetSource, 'pxPerMm' | 'elements' | 'draft' | 'datum'>,
+  s: Pick<SheetSource, 'pxPerMm' | 'elements' | 'draft' | 'datum' | 'mirror'>,
 ): SheetElement[] {
   const unit = s.pxPerMm ? 'mm' : 'px'
-  const frame = s.datum ? datumFrame(s.datum, s.pxPerMm) : null
+  const frame = sheetFrame(s)
   return s.elements
     .filter((e) => e.visible && e.fit && e.id !== s.draft?.editId)
     .map((e) => ({

@@ -7,7 +7,7 @@ import {
   sheetCalibrationPicks,
   sheetCounts,
   sheetDatumPreview,
-  sheetRollOf,
+  sheetPoseOf,
   sheetDraft,
   sheetElements,
   sheetGrid,
@@ -15,6 +15,7 @@ import {
   sheetNotes,
   sheetScale,
 } from '../src/app/flatSheet'
+import { poseMap } from '../src/core/flat/datum'
 import { useFlat } from '../src/state/flatStore'
 
 const alt = { alt: true, unitsPerScreenPx: 0.1 }
@@ -37,6 +38,7 @@ function reset(pxPerMm: { x: number; y: number } | null = { x: 10, y: 10 }) {
     datum: null,
     showGrid: true,
     turns: 0,
+    mirror: false,
   })
   useFlat.getState().finishImageLoad('t.png', 1000, 800, pxPerMm)
 }
@@ -101,7 +103,7 @@ describe('the layers', () => {
 
   it('roll the sheet square to the alignment once it lands, the turns on top', () => {
     expect(sheetAlignment(useFlat.getState())).toBeNull()
-    expect(sheetRollOf(useFlat.getState())).toBe(0)
+    expect(sheetPoseOf(useFlat.getState())).toEqual({ roll: 0, mirror: false })
     useFlat.getState().startDatum()
     useFlat.getState().stageClick([10, 10], alt, null)
     // Still collecting: the stage does not roll under a half-placed pick.
@@ -112,12 +114,51 @@ describe('the layers', () => {
     const xDir = sheetAlignment(useFlat.getState())!
     expect(xDir[0]).toBeCloseTo(0, 12)
     expect(xDir[1]).toBeCloseTo(1, 12)
-    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(-Math.PI / 2, 12)
+    expect(sheetPoseOf(useFlat.getState()).roll).toBeCloseTo(-Math.PI / 2, 12)
     useFlat.getState().turnSheet(1)
-    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(0, 12)
+    expect(sheetPoseOf(useFlat.getState()).roll).toBeCloseTo(0, 12)
     useFlat.getState().clearDatum()
     expect(sheetAlignment(useFlat.getState())).toBeNull()
-    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(Math.PI / 2, 12)
+    expect(sheetPoseOf(useFlat.getState()).roll).toBeCloseTo(Math.PI / 2, 12)
+  })
+
+  it('mirror the sheet as it is shown, and read an alignment right-handed as shown', () => {
+    // As scanned, left-to-right is the mirror across X with a half turn on
+    // top; the same button again puts it back.
+    useFlat.getState().mirrorSheet('left-right')
+    expect(useFlat.getState()).toMatchObject({ mirror: true, turns: 2 })
+    expect(poseMap(sheetPoseOf(useFlat.getState()))([3, 4])).toEqual([-3, 4])
+    useFlat.getState().mirrorSheet('left-right')
+    expect(useFlat.getState()).toMatchObject({ mirror: false, turns: 0 })
+    // Top-to-bottom on a sheet shown a quarter turn round: the turn runs the
+    // other way, and what is on the screen flips about its horizontal —
+    // (3, 4) was shown at (−4, 3) and is shown at (−4, −3).
+    useFlat.getState().turnSheet(1)
+    expect(poseMap(sheetPoseOf(useFlat.getState()))([3, 4])).toEqual([-4, 3])
+    useFlat.getState().mirrorSheet('top-bottom')
+    expect(useFlat.getState()).toMatchObject({ mirror: true, turns: 3 })
+    expect(poseMap(sheetPoseOf(useFlat.getState()))([3, 4])).toEqual([-4, -3])
+    // Rotate 90° still turns the picture the way it says: another quarter
+    // counter-clockwise takes (−4, −3) to (3, −4).
+    useFlat.getState().turnSheet(1)
+    expect(poseMap(sheetPoseOf(useFlat.getState()))([3, 4])).toEqual([3, -4])
+
+    // An alignment on the mirrored sheet: +X as picked, +Y a quarter turn
+    // counter-clockwise from it as shown — which is clockwise on the sheet,
+    // so a point above the axis on the sheet reads below it.
+    useFlat.getState().startDatum()
+    useFlat.getState().stageClick([10, 10], alt, null)
+    useFlat.getState().stageClick([20, 10], alt, null)
+    useFlat.getState().startDraft('point', 'flat-point-pick')
+    useFlat.getState().stageClick([15, 12], alt, null)
+    useFlat.getState().commitDraft()
+    expect(sheetElements(useFlat.getState())[0].value).toBe('X 5.000 · Y -2.000 mm')
+    // The grid is the frame's, whichever hand it reads with.
+    expect(sheetGrid(useFlat.getState())).toEqual({ origin: [10, 10], xDir: [1, 0] })
+    // Mirrored back, the same point reads above the axis again.
+    useFlat.getState().mirrorSheet('top-bottom')
+    expect(useFlat.getState().mirror).toBe(false)
+    expect(sheetElements(useFlat.getState())[0].value).toBe('X 5.000 · Y 2.000 mm')
   })
 
   it('draw an element being edited by its draft, not its row', () => {

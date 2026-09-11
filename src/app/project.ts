@@ -177,6 +177,7 @@ export function collectProject(
     notes: f.notes,
     nextNoteId: f.nextNoteId,
     turns: f.turns,
+    mirror: f.mirror,
     // Every subject's sheet, the one on the stage included, so switching
     // subjects after a load finds each as it was left.
     subject: f.subject,
@@ -298,10 +299,12 @@ export function applyFlatPart(p: FlatPart): void {
     notes: p.notes ?? [],
     nextNoteId: p.nextNoteId ?? 1,
     turns: p.turns ?? 0,
+    mirror: p.mirror ?? false,
   }
-  // A sheet saved before it could be turned lies the way it was scanned.
+  // A sheet saved before it could be turned or mirrored lies the way it was
+  // scanned.
   const sheetFromJson = (sheet: Partial<SheetState>): SheetState =>
-    ({ ...sheet, turns: sheet.turns ?? 0 }) as SheetState
+    ({ ...sheet, turns: sheet.turns ?? 0, mirror: sheet.mirror ?? false }) as SheetState
   let subject: FlatSubject = p.subject ?? { kind: 'image' }
   // A section that is not in the project any more (or never was) cannot be
   // on the stage; the image is.

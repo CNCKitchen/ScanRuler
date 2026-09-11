@@ -8,7 +8,6 @@ import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
 import { EDGE_MIN_FEATURE_MM } from './core/flat/edges'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
-import { datumFrame } from './core/flat/datum'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
 import type { FlatDrawingInput } from './core/flat/drawing'
@@ -83,7 +82,7 @@ import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
 import { useSections } from './app/useSections'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
-import { sheetAlignment, sheetElements, sheetLoupeActive, sheetRollOf, sheetScale } from './app/flatSheet'
+import { sheetAlignment, sheetElements, sheetFrame, sheetLoupeActive, sheetPoseOf, sheetScale } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
@@ -345,7 +344,7 @@ export default function App() {
       section: activeSectionInfo(),
       pxPerMm: s.pxPerMm,
       datum: s.datum,
-      frame: s.datum ? datumFrame(s.datum, s.pxPerMm) : null,
+      frame: sheetFrame(s),
       unit: s.pxPerMm ? 'mm' : 'px',
       elements: s.elements,
       dimensions: evaluateFlatDimensions(s.dimensions, s.elements),
@@ -390,6 +389,7 @@ export default function App() {
       elements: sheetElements(s),
       alignDir: sheetAlignment(s),
       turns: s.turns,
+      mirror: s.mirror,
       unit: s.pxPerMm ? 'mm' : 'px',
       title: titleLine(report),
       scaleNote: scaleLine(report),
@@ -428,7 +428,7 @@ export default function App() {
     const tolerance = DXF_EDGE_TOLERANCE[input.unit]
     const dxf = buildFlatDxf({
       ...input,
-      origin: s.datum ? (datumFrame(s.datum, s.pxPerMm)?.origin ?? null) : null,
+      origin: sheetFrame(s)?.origin ?? null,
       edgeTolerance: tolerance,
     })
     const name = `${flatExportStem()}-sheet.dxf`
@@ -1744,7 +1744,7 @@ export default function App() {
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
-                  roll: () => sheetRollOf(useFlat.getState()),
+                  pose: () => sheetPoseOf(useFlat.getState()),
                   active: flatLoupeActive,
                 }}
               />

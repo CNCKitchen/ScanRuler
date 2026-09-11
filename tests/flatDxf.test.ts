@@ -55,6 +55,7 @@ function input(over: Partial<FlatDxfInput> = {}): FlatDxfInput {
     ],
     alignDir: null,
     turns: 0,
+    mirror: false,
     unit: 'mm',
     title: 'ScanRuler 2D measurement — part.png (1000 × 800 px)',
     scaleNote: 'Scale: CALIBRATED, 10.0000 px/mm',
@@ -272,6 +273,35 @@ describe('buildFlatDxf', () => {
     const both = buildFlatDxf(input({ alignDir: [0, 1], turns: 1 }))
     expect(vals(ofType(both, 'LWPOLYLINE')[0], 10)).toEqual(['10', '20', '20'])
     expect(vals(ofType(both, 'LWPOLYLINE')[0], 20)).toEqual(['10', '10', '20'])
+  })
+
+  it('mirrors the drawing with the sheet, arcs turning round', () => {
+    const el = (fit: FlatArcFit) => [{ fit, color: '#000000', name: 'Arc 1', value: '' }]
+    // Left-to-right — the mirror across X with a half turn on top — negates
+    // x; y stays up.
+    const leftRight = buildFlatDxf(input({ turns: 2, mirror: true, elements: el(arc(0, Math.PI / 2)) }))
+    const [lrPoly] = ofType(leftRight, 'LWPOLYLINE')
+    expect(vals(lrPoly, 10)).toEqual(['-10', '-20', '-20'])
+    expect(vals(lrPoly, 20)).toEqual(['10', '10', '20'])
+    expect(headerVar(leftRight, '$EXTMIN')).toBe('-100')
+    expect(leftRight).toContain('mirrored left-to-right')
+    // The quarter arc from 0° to 90° lies from 180° back to 90° in the
+    // mirror; a DXF arc runs counter-clockwise, so from 90° to 180°.
+    const [lrArc] = ofType(leftRight, 'ARC')
+    expect([val(lrArc, 10), val(lrArc, 20)]).toEqual(['-50', '40'])
+    expect([val(lrArc, 50), val(lrArc, 51)]).toEqual(['90', '180'])
+    // Top-to-bottom negates y instead; the arc runs from 270° round to 0°.
+    const topBottom = buildFlatDxf(input({ mirror: true, elements: el(arc(0, Math.PI / 2)) }))
+    expect(vals(ofType(topBottom, 'LWPOLYLINE')[0], 20)).toEqual(['-10', '-10', '-20'])
+    const [tbArc] = ofType(topBottom, 'ARC')
+    expect([val(tbArc, 50), val(tbArc, 51)]).toEqual(['270', '0'])
+    expect(topBottom).toContain('mirrored top-to-bottom')
+    // With the origin on the alignment, the drawing is the frame as the
+    // sheet reads it: right-handed as shown, so a point above the alignment
+    // on the sheet lands below it on the page.
+    const aligned = buildFlatDxf(input({ origin: [20, 40], mirror: true, elements: [] }))
+    expect(vals(ofType(aligned, 'LWPOLYLINE')[0], 10)).toEqual(['-10', '0', '0'])
+    expect(vals(ofType(aligned, 'LWPOLYLINE')[0], 20)).toEqual(['30', '30', '20'])
   })
 
   it('is unitless pixels while nothing sets a scale', () => {

@@ -1090,7 +1090,13 @@ the eye — and the grid stays as a toggleable overlay, spacing following the
 zoom on a 1-2-5 ladder. Coordinates and line angles then read in the part's
 frame — distances and angles between elements never change under an
 alignment, which is the point of them. **Rotate 90°** turns the sheet a
-quarter turn at a time on top of that.
+quarter turn at a time on top of that, and **Mirror** flips it left-to-right
+or top-to-bottom as it is shown — a flatbed scan is the part seen through the
+glass, and mirrored it is the part seen from above, the way a drawing shows
+it. Nothing measured moves under a turn or a mirror; on a mirrored sheet the
+alignment reads right-handed as shown, +Y up the screen, so coordinates and
+line angles compare with a drawing, and the SVG and DXF come out mirrored the
+same way.
 
 **Dimensions** measure between elements: point–point and point–line distances,
 the width between near-parallel lines (with the same fold-angle guards the 3D

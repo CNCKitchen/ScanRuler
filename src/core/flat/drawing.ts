@@ -6,6 +6,7 @@
 // trimmed, how the roll is described. Kept here so the two files of one
 // sheet are the same drawing in two dialects.
 
+import { describeShown } from './datum'
 import type { EdgeChains } from './edges'
 import { splineMidpoint } from './spline'
 import type { FlatFit, Vec2 } from './types'
@@ -36,6 +37,8 @@ export interface FlatDrawingInput {
   alignDir: Vec2 | null
   /** Quarter turns the sheet is shown at, counter-clockwise. */
   turns: number
+  /** Whether the sheet is shown mirrored — see core/flat/datum's SheetPose. */
+  mirror: boolean
   unit: 'mm' | 'px'
   /** What the sheet is, for the file's title. */
   title: string
@@ -56,19 +59,11 @@ export function num(v: number, decimals: number): string {
 }
 
 /** How the sheet is shown, for a file's description: aligned to the part,
- *  turned by quarter turns, either, or neither. */
-export function describeRoll(alignDir: Vec2 | null, turns: number): string {
-  const t = ((Math.round(turns) % 4) + 4) % 4
+ *  turned by quarter turns, mirrored, any of them, or none. */
+export function describeRoll(alignDir: Vec2 | null, turns: number, mirror: boolean): string {
   const aligned = alignDir ? ', aligned to the part with its +X along the page' : ''
-  if (t === 0) return aligned
-  return (
-    aligned +
-    (t === 2
-      ? ', turned upside down'
-      : t === 1
-        ? ', turned a quarter turn counter-clockwise'
-        : ', turned a quarter turn clockwise')
-  )
+  const shown = describeShown(turns, mirror)
+  return shown ? `${aligned}, ${shown}` : aligned
 }
 
 /** Where a fit's label sits, in document units: beside the feature, as on

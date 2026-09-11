@@ -15,7 +15,7 @@
 // string building, no DOM; the input is the same gathered sheet the SVG is
 // drawn from, plus the origin and the thinning tolerance.
 
-import { rollMap, sheetRoll } from './datum'
+import { poseMap, sheetPose } from './datum'
 import {
   describeRoll,
   DRAWING_EDGE_COLOR,
@@ -175,18 +175,19 @@ const OBJECTS: string[] = [
 ]
 
 export function buildFlatDxf(r: FlatDxfInput): string {
-  // The sheet as it is shown — aligned to the part and turned, the same roll
-  // FlatScene gives its camera — about the drawing's origin. y stays up.
-  const roll = sheetRoll(r.alignDir, r.turns)
-  const rot = rollMap(roll)
+  // The sheet as it is shown — aligned to the part, mirrored and turned, the
+  // same pose FlatScene gives its camera — about the drawing's origin. y
+  // stays up.
+  const pose = sheetPose(r.alignDir, r.turns, r.mirror)
+  const rot = poseMap(pose)
   const o = r.origin ?? [0, 0]
   const at = (p: Vec2): Vec2 => rot([p[0] - o[0], p[1] - o[1]])
   const dec = r.unit === 'mm' ? 4 : 3
   const n = (v: number) => num(v, dec)
-  /** An angle on the sheet as the drawing has it: rolled with it, in
-   *  degrees, wrapped to a turn. */
+  /** An angle on the sheet as the drawing has it: turned round by the mirror
+   *  and rolled with the sheet, in degrees, wrapped to a turn. */
   const deg = (rad: number): string => {
-    const d = ((rad + roll) * 180) / Math.PI
+    const d = ((pose.mirror ? pose.roll - rad : pose.roll + rad) * 180) / Math.PI
     return num(((d % 360) + 360) % 360, 6)
   }
 
@@ -258,9 +259,12 @@ export function buildFlatDxf(r: FlatDxfInput): string {
         return [{ type: 'CIRCLE', body: [group(100, 'AcDbCircle'), ...xyz(10, at(fit.center)), group(40, n(fit.radius))] }]
       case 'arc': {
         // An arc that has come all the way round is a circle; an ARC with
-        // equal angles is nothing.
+        // equal angles is nothing. A DXF arc runs counter-clockwise from its
+        // start angle to its end, and a mirror turns the sheet's sense
+        // round, so a mirrored arc starts where the sheet's ended.
         if (fit.sweep >= 2 * Math.PI - 1e-6)
           return [{ type: 'CIRCLE', body: [group(100, 'AcDbCircle'), ...xyz(10, at(fit.center)), group(40, n(fit.radius))] }]
+        const end = fit.start + fit.sweep
         return [
           {
             type: 'ARC',
@@ -269,15 +273,15 @@ export function buildFlatDxf(r: FlatDxfInput): string {
               ...xyz(10, at(fit.center)),
               group(40, n(fit.radius)),
               group(100, 'AcDbArc'),
-              group(50, deg(fit.start)),
-              group(51, deg(fit.start + fit.sweep)),
+              group(50, deg(pose.mirror ? end : fit.start)),
+              group(51, deg(pose.mirror ? fit.start : end)),
             ],
           },
         ]
       }
       case 'spline': {
         // The curve's own cubic Béziers as one B-spline: the poles pole for
-        // pole (the roll is rigid, so they map like any point), and a knot
+        // pole (the pose is rigid, so they map like any point), and a knot
         // vector clamped at the ends with each interior knot three times
         // over — the form that reproduces a run of Béziers exactly. A closed
         // curve's last pole is its first.
@@ -349,7 +353,7 @@ export function buildFlatDxf(r: FlatDxfInput): string {
     comment(
       `One unit is one ${unitWord}; y up; the origin is ${
         r.origin ? "the alignment's origin" : "the sheet's own origin"
-      }${describeRoll(r.alignDir, r.turns).replace(/^, /, '; ')}`,
+      }${describeRoll(r.alignDir, r.turns, r.mirror).replace(/^, /, '; ')}`,
     ),
     comment(
       `Layers: edges (the detected edge chains${

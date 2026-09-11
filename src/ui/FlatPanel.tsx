@@ -9,7 +9,7 @@
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
 import { flatMethodsForKind } from '../core/flat/construct'
-import { datumFrame, fitInFrame } from '../core/flat/datum'
+import { datumFrame, describeShown, fitInFrame } from '../core/flat/datum'
 import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
 import type { FlatElementKind } from '../core/flat/types'
@@ -35,13 +35,6 @@ import { NumberField } from './NumberField'
 import { tintStyle } from './tint'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc', 'spline']
-
-/** How far round the sheet is shown, in words: quarter turns
- *  counter-clockwise, 1 to 3. */
-function describeTurns(turns: number): string {
-  if (turns === 2) return 'upside down'
-  return turns === 1 ? 'a quarter turn counter-clockwise' : 'a quarter turn clockwise'
-}
 
 export function FlatPanel({
   onOpenImage,
@@ -78,6 +71,7 @@ export function FlatPanel({
   const datumPicking = toolOf({ tool }, 'datum')
   const showGrid = useFlat((s) => s.showGrid)
   const turns = useFlat((s) => s.turns)
+  const mirror = useFlat((s) => s.mirror)
   const dimensions = useFlat((s) => s.dimensions)
   const dimDraft = useFlat((s) => s.dimDraft)
   const counts = useFlat((s) => s.counts)
@@ -90,7 +84,7 @@ export function FlatPanel({
   const editingNoteId = noteTool?.editId ?? null
   const editedNote = editingNoteId === null ? undefined : notes.find((n) => n.id === editingNoteId)
   const flat = useFlat
-  const frame = datum ? datumFrame(datum, pxPerMm) : null
+  const frame = datum ? datumFrame(datum, pxPerMm, mirror) : null
   // What is on the sheet: the image, or one of the sections cut in the 3D
   // workspace — which live in that workspace's store, named after the
   // elements they were cut along.
@@ -682,6 +676,15 @@ export function FlatPanel({
                 that — the image or the section as it is looked at, not the frame. Coordinates,
                 the grid and every measurement stay where they are on the part.
               </p>
+              <p>
+                <b>Mirror</b> flips the sheet on the stage left-to-right or top-to-bottom, as it
+                is shown. A flatbed scan is the part seen through the glass; mirrored, it is the
+                part seen from above, the way a drawing shows it. Nothing measured moves —
+                distances, diameters and angles between elements are what they were — and an
+                alignment reads right-handed as shown, +X to the right and +Y up the screen, so
+                coordinates and line angles compare with a drawing. The drawing exports come out
+                mirrored the same way.
+              </p>
             </InfoDot>
           </div>
           <p className="hint" data-test="flat-datum-status">
@@ -744,9 +747,29 @@ export function FlatPanel({
               Rotate 90° ↻
             </button>
           </div>
-          {turns !== 0 && (
+          <div className="toolrow">
+            <button
+              data-test="flat-mirror-lr"
+              title="Mirror the sheet left-to-right (horizontally), as it is shown — a scan seen through the glass, shown as from above"
+              onClick={() => flat.getState().mirrorSheet('left-right')}
+            >
+              ↔ Mirror
+            </button>
+            <button
+              data-test="flat-mirror-tb"
+              title="Mirror the sheet top-to-bottom (vertically), as it is shown"
+              onClick={() => flat.getState().mirrorSheet('top-bottom')}
+            >
+              ↕ Mirror
+            </button>
+          </div>
+          {(turns !== 0 || mirror) && (
             <p className="hint" data-test="flat-turn-status">
-              {`Shown ${describeTurns(turns)} — measurements are unchanged.`}
+              {`Shown ${describeShown(turns, mirror)} — ${
+                mirror
+                  ? 'nothing measured moves; an alignment reads +Y up as shown.'
+                  : 'measurements are unchanged.'
+              }`}
             </p>
           )}
         </div>
