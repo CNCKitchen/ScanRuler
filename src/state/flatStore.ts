@@ -123,7 +123,7 @@ export interface FlatDimDraft {
  *  flags keeping each other false.
  *
  *  - `calibrate`: collecting picks (image pixels) against a reference size.
- *  - `datum`: holding the origin until the +X pick lands.
+ *  - `datum`: the alignment tool, holding the origin until the +X pick lands.
  *  - `count`: a tally being clicked out; `editId` when a finished one was
  *    re-opened to count on.
  *  - `note`: the Text tool — armed to place (`editId` null), or a note's
@@ -544,19 +544,21 @@ interface FlatState extends SheetState {
   /** Show or hide every dimension at once. */
   setAllDimensionsVisible: (visible: boolean) => void
 
-  /** The datum-aligned grid over the sheet — a way of looking, kept across
-   *  subjects. (The datum itself is the sheet's.) */
+  /** The grid along the alignment's axes over the sheet — a way of looking,
+   *  kept across subjects. (The alignment itself is the sheet's.) */
   showGrid: boolean
 
+  /** The alignment — "datum" in the code, the part's own frame on the sheet.
+   *  Once it lands the stage rolls the sheet so its +X runs to the right. */
   startDatum: () => void
   cancelDatum: () => void
-  /** Origin first, then +X — the second pick commits the datum. */
+  /** Origin first, then +X — the second pick commits the alignment. */
   addDatumPick: (px: Vec2) => void
   clearDatum: () => void
   setShowGrid: (v: boolean) => void
   /** Turn the sheet on the stage by whole quarter turns — positive is
-   *  counter-clockwise. The view rolls; the picks, the datum and every
-   *  measurement stay where they are on the part. */
+   *  counter-clockwise, on top of the alignment. The view rolls; the picks,
+   *  the alignment and every measurement stay where they are on the part. */
   turnSheet: (quarters: number) => void
 
   /** The tally being clicked out is the `count` tool; the finished ones are
@@ -978,8 +980,9 @@ export const useFlat = create<FlatState>()((set, get) => ({
     set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, visible: !n.visible } : n)) })),
 
   datum: null,
-  // On while the datum is being placed and after — the grid is the visible
-  // proof of where the frame lies; a checkbox puts it away.
+  // On while the alignment is being placed and after — the sheet rolls square
+  // to the frame, and the grid is the ruling that shows where zero runs; a
+  // checkbox puts it away.
   showGrid: true,
   turns: 0,
 

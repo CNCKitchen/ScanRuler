@@ -81,7 +81,7 @@ import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
 import { useSections } from './app/useSections'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
-import { sheetElements, sheetLoupeActive, sheetScale } from './app/flatSheet'
+import { sheetAlignment, sheetElements, sheetLoupeActive, sheetRollOf, sheetScale } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
@@ -367,7 +367,7 @@ export default function App() {
   }
 
   /** The sheet as a drawing: the detected edges and the fitted elements as
-   *  SVG at true scale, turned as shown — for a CAD sketch or a vector
+   *  SVG at true scale, aligned and turned as shown — for a CAD sketch or a vector
    *  editor. What is on the sheet is what is exported: hidden elements stay
    *  out, and an element open for editing is not yet an element. */
   const handleFlatExportSvg = () => {
@@ -387,6 +387,7 @@ export default function App() {
       chains: sheet.chains,
       chainUnit: scale,
       elements,
+      alignDir: sheetAlignment(s),
       turns: s.turns,
       unit: s.pxPerMm ? 'mm' : 'px',
       title: titleLine(report),
@@ -1707,7 +1708,7 @@ export default function App() {
                 loupe={{
                   bitmap: () => flatBitmapRef.current,
                   docPxPerUnit: () => useFlat.getState().pxPerMm ?? { x: 1, y: 1 },
-                  turns: () => useFlat.getState().turns,
+                  roll: () => sheetRollOf(useFlat.getState()),
                   active: flatLoupeActive,
                 }}
               />

@@ -63,7 +63,7 @@ export function FlatDimensionSection({
             two near-parallel lines, the angle between two lines. Values follow the elements — re-fit
             or recalibrate and every dimension updates.
           </p>
-          <p>Distances and angles between elements never change under a datum.</p>
+          <p>Distances and angles between elements never change under an alignment.</p>
         </InfoDot>
         {dimensions.length > 0 && <b>{dimensions.length}</b>}
       </div>

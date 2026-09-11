@@ -57,7 +57,7 @@ export function titleLine(r: FlatReportInput): string {
 }
 
 function frameLine(r: FlatReportInput): string {
-  if (r.frame) return 'Coordinates: part datum frame (origin and +X as picked)'
+  if (r.frame) return 'Coordinates: aligned part frame (origin and +X as picked)'
   return r.section
     ? 'Coordinates: section frame, origin at the cutting plane’s centre, y up'
     : 'Coordinates: image frame, origin bottom-left, y up'
@@ -132,7 +132,7 @@ export function buildFlatCsv(r: FlatReportInput): string {
   const rows: string[] = []
   rows.push(
     `# ${r.section ? `${r.section.name} of ${r.section.scanName}, ${r.section.cut}` : r.imageName} — ${scaleLine(r)} — ${
-      r.frame ? 'datum frame' : r.section ? 'section frame' : 'image frame'
+      r.frame ? 'aligned part frame' : r.section ? 'section frame' : 'image frame'
     }`,
   )
   rows.push(

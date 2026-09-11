@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The sheet as a drawing: every detected edge chain and every fitted element
 // as SVG at true scale — one user unit per millimetre (per image pixel while
-// nothing sets a scale), y down as drawings are, the sheet turned the way it
-// is shown on the stage. Meant for a CAD sketch to trace and a vector editor
+// nothing sets a scale), y down as drawings are, the sheet aligned and turned
+// the way it is shown on the stage — so a part aligned along a reference
+// edge comes into CAD square. Meant for a CAD sketch to trace and a vector editor
 // to pick apart, so each layer is a group with a plain id, every shape is
 // the native SVG primitive for it, and nothing hides under a transform: what
 // an importer reads is what it draws.
@@ -11,6 +12,7 @@
 // bounds, chains and elements and hands them in; the report module says what
 // the scale rests on.
 
+import { rollMap, sheetRoll } from './datum'
 import type { EdgeChains } from './edges'
 import { splineBezierForm, splineMidpoint } from './spline'
 import type { FlatFit, Vec2 } from './types'
@@ -36,6 +38,9 @@ export interface FlatSvgInput {
    *  section. */
   chainUnit: { x: number; y: number }
   elements: readonly FlatSvgElement[]
+  /** The alignment's +X in document units — shown to the right of the
+   *  screen, so drawn along the page's x — or null for a sheet as scanned. */
+  alignDir: Vec2 | null
   /** Quarter turns the sheet is shown at, counter-clockwise. */
   turns: number
   unit: 'mm' | 'px'
@@ -60,29 +65,20 @@ function num(v: number, decimals: number): string {
   return trimmed === '-0' ? '0' : trimmed
 }
 
-/** The sheet turned as it is shown: whole quarter turns counter-clockwise,
- *  the same sense FlatScene rolls its camera in. */
-function turned(turns: number): (p: Vec2) => Vec2 {
-  switch (((Math.round(turns) % 4) + 4) % 4) {
-    case 1:
-      return ([x, y]) => [-y, x]
-    case 2:
-      return ([x, y]) => [-x, -y]
-    case 3:
-      return ([x, y]) => [y, -x]
-    default:
-      return ([x, y]) => [x, y]
-  }
-}
-
-function describeTurn(turns: number): string {
+/** How the sheet is shown, for the file's description: aligned to the part,
+ *  turned by quarter turns, either, or neither. */
+function describeRoll(alignDir: Vec2 | null, turns: number): string {
   const t = ((Math.round(turns) % 4) + 4) % 4
-  if (t === 0) return ''
-  return t === 2
-    ? ', turned upside down'
-    : t === 1
-      ? ', turned a quarter turn counter-clockwise'
-      : ', turned a quarter turn clockwise'
+  const aligned = alignDir ? ', aligned to the part with its +X along the page' : ''
+  if (t === 0) return aligned
+  return (
+    aligned +
+    (t === 2
+      ? ', turned upside down'
+      : t === 1
+        ? ', turned a quarter turn counter-clockwise'
+        : ', turned a quarter turn clockwise')
+  )
 }
 
 /** Where a fit's label sits: beside the feature, as on the stage. */
@@ -103,7 +99,9 @@ function labelSpot(fit: FlatFit, diag: number): Vec2 {
 }
 
 export function buildFlatSvg(r: FlatSvgInput): string {
-  const rot = turned(r.turns)
+  // The sheet as it is shown: aligned to the part and turned, the same roll
+  // FlatScene gives its camera.
+  const rot = rollMap(sheetRoll(r.alignDir, r.turns))
   const { min, max } = r.bounds
   const corners = [rot(min), rot(max), rot([min[0], max[1]]), rot([max[0], min[1]])]
   const x0 = Math.min(...corners.map((c) => c[0]))
@@ -114,8 +112,8 @@ export function buildFlatSvg(r: FlatSvgInput): string {
   const h = y1 - y0
   const dec = r.unit === 'mm' ? 3 : 2
   const n = (v: number) => num(v, dec)
-  /** Document → drawing: turned, then flipped so the sheet's top edge is the
-   *  drawing's top and its left edge the drawing's left. */
+  /** Document → drawing: rolled as shown, then flipped so the top of what is
+   *  shown is the drawing's top and its left edge the drawing's left. */
   const at = (p: Vec2): Vec2 => {
     const q = rot(p)
     return [q[0] - x0, y1 - q[1]]
@@ -199,7 +197,7 @@ export function buildFlatSvg(r: FlatSvgInput): string {
   out.push(
     `  <desc>${esc(
       `${r.scaleNote}. One unit is one ${r.unit === 'mm' ? 'millimetre' : 'image pixel'}; ` +
-        `y runs down and the origin is the top-left corner of the sheet as shown${describeTurn(r.turns)}. ` +
+        `y runs down and the origin is the top-left corner of the sheet as shown${describeRoll(r.alignDir, r.turns)}. ` +
         'Layers: edges (the detected edge chains), elements (the fitted geometry), labels.',
     )}</desc>`,
   )

@@ -6,7 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
-import { gridSpacing } from '../core/flat/datum'
+import { gridSpacing, rollAxes, sheetRoll } from '../core/flat/datum'
 import type { EdgeChains } from '../core/flat/edges'
 import { splineMidpoint, splinePolyline, type HandleEnd, type SplineHandle } from '../core/flat/spline'
 import type { FlatFit, Vec2 } from '../core/flat/types'
@@ -41,9 +41,12 @@ export class FlatScene {
   /** Where the sheet lies, in document units: an image from the origin up
    *  to its size in millimetres, a section around its cut. */
   private bounds = { x0: 0, y0: 0, x1: 0, y1: 0 }
-  /** Quarter turns the sheet is shown at, counter-clockwise on screen. The
-   *  camera rolls; the sheet and everything drawn on it stay in document
+  /** How the sheet is shown: the alignment's +X (document units) that runs
+   *  to the right of the screen — null while the sheet lies as scanned — and
+   *  the quarter turns it is shown round on top of that, counter-clockwise.
+   *  The camera rolls; the sheet and everything drawn on it stay in document
    *  units, so a pick lands where it lands whichever way up it is looked at. */
+  private alignDir: Vec2 | null = null
   private turns = 0
   /** The calibration tool's picks, drawn over the sheet. */
   private calGroup = new THREE.Group()
@@ -1109,17 +1112,28 @@ export class FlatScene {
     this.frame()
   }
 
-  /** The document direction that points up the screen at the current turn:
-   *  +Y untouched, then +X, −Y, −X as the sheet goes round counter-clockwise
-   *  — what was to the right of the origin is above it after one turn. */
+  /** Show the sheet aligned to the part: its frame's +X to the right of the
+   *  screen, +Y up — or, with null, as it was scanned. Unlike a quarter turn
+   *  this rolls the view in place, keeping the zoom and what is under the
+   *  screen centre: the alignment lands while the operator is looking at
+   *  the very edge it was picked along, and the sheet turning square there
+   *  is the feedback; a jump to a full-sheet framing would throw that away. */
+  setAlignment(xDir: Vec2 | null): void {
+    const same =
+      xDir === null || this.alignDir === null
+        ? xDir === this.alignDir
+        : xDir[0] === this.alignDir[0] && xDir[1] === this.alignDir[1]
+    if (same) return
+    this.alignDir = xDir ? [xDir[0], xDir[1]] : null
+    if (this.sheet.visible) this.viewport.rollTo(this.screenUp())
+  }
+
+  /** The document direction that points up the screen: the alignment's +Y
+   *  (+Y itself unaligned), then +X, −Y, −X of that as the sheet goes round
+   *  counter-clockwise — what was to the right of the origin is above it
+   *  after one turn. */
   private screenUp(): THREE.Vector3 {
-    const ups: [number, number][] = [
-      [0, 1],
-      [1, 0],
-      [0, -1],
-      [-1, 0],
-    ]
-    const [x, y] = ups[this.turns]
+    const [x, y] = rollAxes(sheetRoll(this.alignDir, this.turns)).up
     return new THREE.Vector3(x, y, 0)
   }
 

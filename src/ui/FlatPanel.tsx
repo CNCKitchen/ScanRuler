@@ -150,7 +150,7 @@ export function FlatPanel({
               Or a <b>section</b>: the 3D scan cut with a plane in the Measure workspace. Its
               edges lie on the sheet in millimetres already, so there is nothing to calibrate,
               and they are snapped to, fitted and measured exactly like an image&apos;s. One source
-              is on the sheet at a time; each keeps its own elements, dimensions and datum, and
+              is on the sheet at a time; each keeps its own elements, dimensions and alignment, and
               finds them again when it comes back.
             </p>
           </InfoDot>
@@ -188,8 +188,8 @@ export function FlatPanel({
         {activeSection && (
           <p className="hint" data-test="flat-section-status">
             <b>{activeSection.name}</b>: {scanName ?? 'the scan'} cut {cutOf(activeSection)}. The sheet
-            is in millimetres of the scan, origin at the cutting plane&apos;s centre — set a datum to
-            read coordinates off a feature.
+            is in millimetres of the scan, origin at the cutting plane&apos;s centre — set an
+            alignment to read coordinates off a feature.
           </p>
         )}
       </div>
@@ -640,32 +640,34 @@ export function FlatPanel({
       {hasSheet && (
         <div className="group">
           <div className="sec-head">
-            Datum
-            <InfoDot title="Datum">
+            Alignment
+            <InfoDot title="Alignment">
               <p>
-                The part's own coordinate frame: the first pick is the <b>origin</b>, the second
-                sets <b>+X</b>, and reported coordinates and line angles read in that frame from
-                then on. Distances and angles between elements never change under a datum.
+                Aligns the sheet to the part instead of to the scanner glass: the first pick is
+                the <b>origin</b>, the second sets <b>+X</b>. The sheet turns so that +X runs to
+                the right of the screen, and coordinates and line angles read from the origin
+                along it from then on. Distances and angles between elements never change under
+                an alignment.
               </p>
               <p>
                 Both picks snap to detected edges like any other pick — put the origin on a
                 corner or a circle center, run X along a reference edge. The grid shows where
-                the frame lies.
+                the axes lie.
               </p>
               <p>
-                <b>Rotate 90°</b> turns the sheet on the stage a quarter turn at a time — the
-                image or the section as it is looked at, not the frame. Coordinates, the grid
-                and every measurement stay where they are on the part.
+                <b>Rotate 90°</b> turns the sheet on the stage a quarter turn at a time on top of
+                that — the image or the section as it is looked at, not the frame. Coordinates,
+                the grid and every measurement stay where they are on the part.
               </p>
             </InfoDot>
           </div>
           <p className="hint" data-test="flat-datum-status">
             {datumPicking
               ? datumPicking.picks.length === 0
-                ? 'Click the origin on the image.'
+                ? 'Click the origin on the sheet.'
                 : 'Now click a point along +X — the grid follows the cursor.'
               : datum
-                ? 'Datum set — coordinates read in the part frame.'
+                ? 'Aligned to the part — +X runs right, coordinates read from the origin.'
                 : onSection
                   ? 'Section frame — origin at the centre of the cut.'
                   : "Image frame — origin at the image's bottom-left corner."}
@@ -677,7 +679,7 @@ export function FlatPanel({
                 disabled={calibrating !== null}
                 onClick={() => flat.getState().startDatum()}
               >
-                {datum ? 'Re-set datum' : 'Set datum'}
+                {datum ? 'Re-set alignment' : 'Set alignment'}
               </button>
               <button
                 data-test="flat-datum-clear"

@@ -401,6 +401,21 @@ export class OrthoViewport {
     this.invalidate()
   }
 
+  /**
+   * Roll the view about its own axis to a new screen-up: the same direction
+   * looked from, the same zoom, the same spot under the screen centre — only
+   * which way is up changes. The 2D sheet rolls this way when an alignment
+   * lands, so the part turns square under the eye instead of jumping back
+   * to a full-sheet framing the way a quarter turn does.
+   */
+  rollTo(up: THREE.Vector3): void {
+    this.camera.up.copy(up)
+    this.camera.lookAt(this.controls.target)
+    this.camera.updateMatrixWorld(true)
+    this.controls.update()
+    this.invalidate()
+  }
+
   /** Adopt another viewport's framing extents. What makes two halves of a split
    *  view read at one scale: same extents and same pixel size means the same
    *  millimetres per pixel, so a feature is the same size in both. */

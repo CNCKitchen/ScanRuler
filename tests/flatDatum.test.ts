@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { datumFrame, fitInFrame, gridSpacing, toFrame } from '../src/core/flat/datum'
+import { datumFrame, fitInFrame, gridSpacing, rollAxes, rollMap, sheetRoll, toFrame } from '../src/core/flat/datum'
 import { fitLinePoints, flatPoint } from '../src/core/flat/fit'
 import { fitSplinePoints } from '../src/core/flat/spline'
 
@@ -69,6 +69,46 @@ describe('toFrame and fitInFrame', () => {
   it('is the identity without a frame', () => {
     const p = flatPoint([3, 4])
     expect(fitInFrame(p, null)).toBe(p)
+  })
+})
+
+describe('sheetRoll', () => {
+  it('is nothing for a sheet as scanned, and a quarter turn per turn', () => {
+    expect(sheetRoll(null, 0)).toBe(0)
+    expect(sheetRoll(null, 1)).toBeCloseTo(Math.PI / 2, 12)
+    expect(sheetRoll(null, -1)).toBeCloseTo((3 * Math.PI) / 2, 12)
+    expect(sheetRoll(null, 6)).toBeCloseTo(Math.PI, 12)
+  })
+
+  it('brings the alignment square: +X at 30° rolls the sheet back by 30°', () => {
+    const xDir: [number, number] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)]
+    expect(sheetRoll(xDir, 0)).toBeCloseTo(-Math.PI / 6, 12)
+    // The quarter turns go on top.
+    expect(sheetRoll(xDir, 1)).toBeCloseTo(Math.PI / 2 - Math.PI / 6, 12)
+  })
+
+  it('maps points and names the screen axes exactly at the quarter turns', () => {
+    // A quarter turn counter-clockwise: what was to the right goes up, so
+    // document +X is the screen's up and document −Y its right.
+    const quarter = sheetRoll(null, 1)
+    expect(rollMap(quarter)([3, 4])).toEqual([-4, 3])
+    expect(rollAxes(quarter)).toEqual({ right: [0, -1], up: [1, 0] })
+    expect(rollAxes(0)).toEqual({ right: [1, 0], up: [0, 1] })
+    expect(rollAxes(sheetRoll(null, 2))).toEqual({ right: [-1, 0], up: [0, -1] })
+  })
+
+  it('shows an aligned sheet with the alignment as its screen axes', () => {
+    // +X picked pointing straight up the scan: the screen's right is +Y of the
+    // document, its up is −X — the part turned a quarter turn clockwise.
+    const axes = rollAxes(sheetRoll([0, 1], 0))
+    expect(axes.right[0]).toBeCloseTo(0, 12)
+    expect(axes.right[1]).toBeCloseTo(1, 12)
+    expect(axes.up[0]).toBeCloseTo(-1, 12)
+    expect(axes.up[1]).toBeCloseTo(0, 12)
+    // A point one unit along the alignment lands one unit to the right.
+    const p = rollMap(sheetRoll([0, 1], 0))([0, 1])
+    expect(p[0]).toBeCloseTo(1, 12)
+    expect(p[1]).toBeCloseTo(0, 12)
   })
 })
 

@@ -49,16 +49,17 @@ export function FlatViewer({
   onNoteDrag: (id: number, p: Vec2) => void
   onNoteSelect: (id: number) => void
   onRegion: (min: Vec2, max: Vec2) => void
-  /** The cursor over the sheet (or off it) — the datum tool aims by it. */
+  /** The cursor over the sheet (or off it) — the alignment tool aims by it. */
   onHover?: (p: Vec2 | null) => void
   /** The magnifier over the cursor while a tool is placing points: what to
-   *  magnify, how document units map back to image pixels, how many quarter
-   *  turns the sheet is shown at (the loupe turns with it), and whether a
+   *  magnify, how document units map back to image pixels, how far round the
+   *  sheet is shown (radians counter-clockwise on screen — the alignment and
+   *  the quarter turns together; the loupe turns with it), and whether a
    *  tool wants it at all. */
   loupe: {
     bitmap: () => ImageBitmap | null
     docPxPerUnit: () => { x: number; y: number }
-    turns: () => number
+    roll: () => number
     active: boolean
   }
 }) {
@@ -138,13 +139,13 @@ export function FlatViewer({
       ctx.fillRect(0, 0, LOUPE_SIZE, LOUPE_SIZE)
       // The bitmap was decoded flipped (document y up); drawing it back to a
       // y-down canvas flips once more, which is what puts the loupe in the
-      // same orientation as the sheet — turned about its centre by the same
-      // quarter turns the sheet is shown at, so what is under the cursor
-      // looks the same in the glass as on the stage. (A positive canvas
-      // rotation is clockwise on screen; the turns count counter-clockwise.)
+      // same orientation as the sheet — rolled about its centre by as much
+      // as the sheet is shown rolled, so what is under the cursor looks the
+      // same in the glass as on the stage. (A positive canvas rotation is
+      // clockwise on screen; the roll counts counter-clockwise.)
       ctx.save()
       ctx.translate(LOUPE_SIZE / 2, LOUPE_SIZE / 2)
-      ctx.rotate((-opts.turns() * Math.PI) / 2)
+      ctx.rotate(-opts.roll())
       ctx.translate(-LOUPE_SIZE / 2, LOUPE_SIZE / 2)
       ctx.scale(1, -1)
       ctx.drawImage(

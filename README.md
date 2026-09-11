@@ -1078,14 +1078,18 @@ result back under the same name and colour, so everything constructed or
 dimensioned on it simply re-reads the new geometry. Dimensions get the same
 row keys, and the same editor.
 
-### Datum, dimensions, and what leaves the tool
+### Alignment, dimensions, and what leaves the tool
 
-**Set datum** gives the part its own frame: the first pick is the origin, the
-second sets +X, both snapping to edges. While aiming, a millimetre grid pivots
-live around the origin (the crop-tool feedback); it stays afterwards as a
-toggleable overlay, spacing following the zoom on a 1-2-5 ladder. Coordinates
-and line angles then read in the part's frame — distances and angles between
-elements never change under a datum, which is the point of them.
+**Set alignment** aligns the sheet to the part instead of to the scanner
+glass: the first pick is the origin, the second sets +X, both snapping to
+edges. While aiming, a millimetre grid pivots live around the origin (the
+crop-tool feedback). The moment the second pick lands the sheet rolls square
+— +X to the right of the screen, in place, keeping the zoom and what is under
+the eye — and the grid stays as a toggleable overlay, spacing following the
+zoom on a 1-2-5 ladder. Coordinates and line angles then read in the part's
+frame — distances and angles between elements never change under an
+alignment, which is the point of them. **Rotate 90°** turns the sheet a
+quarter turn at a time on top of that.
 
 **Dimensions** measure between elements: point–point and point–line distances,
 the width between near-parallel lines (with the same fold-angle guards the 3D
@@ -1099,7 +1103,8 @@ coordinates read in — because a figure without that line is how wrong numbers
 get trusted.
 
 **Export SVG** writes the sheet as a drawing at true scale — one unit per
-millimetre, turned as the sheet is shown: every detected edge chain as a
+millimetre, aligned and turned as the sheet is shown, so a part aligned along
+a reference edge comes into CAD square: every detected edge chain as a
 polyline and every visible element as a native line, circle, arc or spline path, each
 layer its own group, so a CAD sketch can trace the scan's outline against the
 fitted geometry and a vector editor can pick either apart. Nothing sits under
@@ -1117,12 +1122,12 @@ millimetres** — no calibration, no alarm, the origin at the cutting plane's
 centre and the sheet seen from the side the plane's normal points to — and
 everything above applies unchanged: picks snap to the cut, an edge-region
 fit takes it point for point (the chains are as fine as the scan's
-triangles), constructions, the datum, dimensions, the report, the CSV and the
+triangles), constructions, the alignment, dimensions, the report, the CSV and the
 SVG all read off it. The report's traceability line says it is a section of
 which scan, cut along what, at what offset.
 
 One source is on the sheet at a time. **Each keeps its own sheet** — its
-elements, dimensions, datum, tallies and notes — stashed when you switch away
+elements, dimensions, alignment, tallies and notes — stashed when you switch away
 and back exactly as it was when you return, and saved with the project. A
 section made in the 3D workspace goes straight onto the sheet, so switching
 over finds it there; deleting a section there takes its sheet with it. And
@@ -1160,7 +1165,7 @@ node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
 node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
-node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, datum, report
+node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```

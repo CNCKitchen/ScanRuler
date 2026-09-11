@@ -4,7 +4,7 @@
 // this repo), loads it through the panel, waits for edge detection, fits a
 // circle and a line by region drag, picks a point and drags its pin, edits,
 // hides and deletes through the element list, calibrates on a known
-// distance, sets a datum, measures a dimension, and reads the report off the
+// distance, sets an alignment, measures a dimension, and reads the report off the
 // clipboard.
 //
 // The fixture is exact by construction: a grayscale PNG at a declared 600 dpi
@@ -346,19 +346,22 @@ check(
   `the snapped two-point calibration lands on nominal (Ø now ${diaAfter})`,
 )
 
-// ---- datum on the rectangle edge -------------------------------------------
+// ---- alignment along the rectangle edge ------------------------------------
+// The edge is exactly horizontal by construction, so the sheet rolls square
+// by (as good as) nothing and the screen mapping above stays valid for the
+// picks that follow.
 await click(page, '[data-test=flat-datum-set]')
 await page.mouse.click(...toScreen(mm(RECT.x0) + 1, RECT_TOP_Y))
 await sleep(200)
 await page.mouse.click(...toScreen(mm(RECT.x1) - 1, RECT_TOP_Y))
 await sleep(400)
 check(
-  /part frame/.test(await page.$eval('[data-test=flat-datum-status]', (el) => el.textContent)),
-  'the datum commits',
+  /Aligned to the part/.test(await page.$eval('[data-test=flat-datum-status]', (el) => el.textContent)),
+  'the alignment commits',
 )
-// The dimension is frame-invariant; the datum leaves it untouched.
+// The dimension is frame-invariant; the alignment leaves it untouched.
 const dimAfter = await readDim()
-check(dimAfter === dimRow, 'the datum never moves a distance')
+check(dimAfter === dimRow, 'the alignment never moves a distance')
 
 // ---- counting ---------------------------------------------------------------
 await click(page, '[data-test=flat-fit-count]')
@@ -444,7 +447,7 @@ for (const b of buttons) {
 await sleep(400)
 const report = await page.evaluate(() => navigator.clipboard.readText()).catch(() => '')
 check(/Scale: CALIBRATED/.test(report), 'the report says the scale is calibrated')
-check(/part datum frame/.test(report), 'and that coordinates are in the datum frame')
+check(/aligned part frame/.test(report), 'and that coordinates are in the aligned part frame')
 check(/Ø/.test(report) && /Distance to line/.test(report), 'and carries elements and dimensions')
 check(/Count 1: 4/.test(report), 'and the tally')
 

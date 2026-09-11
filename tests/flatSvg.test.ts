@@ -53,6 +53,7 @@ function input(over: Partial<FlatSvgInput> = {}): FlatSvgInput {
       },
       { fit: flatPoint([5, 5]), color: '#778899', name: 'Point <A> & "B"', value: 'X 5.000 · Y 5.000 mm' },
     ],
+    alignDir: null,
     turns: 0,
     unit: 'mm',
     title: 'ScanRuler 2D measurement — part.png (1000 × 800 px)',
@@ -158,6 +159,46 @@ describe('buildFlatSvg', () => {
     expect(flipped).toContain('<polyline points="90,10 80,10 80,20"/>')
     // A circle's shape is turn-invariant; only where it sits moves.
     expect(svg).toContain('<circle cx="40" cy="80" r="10"/>')
+  })
+
+  it('aligns the drawing to the part as the stage shows it', () => {
+    // +X picked pointing straight up the scan: the sheet is shown a quarter
+    // turn clockwise, and the drawing comes out exactly as a clockwise turn
+    // would — the alignment snaps square, not nearly square.
+    const aligned = buildFlatSvg(input({ alignDir: [0, 1] }))
+    expect(aligned).toContain('width="80mm" height="100mm" viewBox="0 0 80 100"')
+    expect(aligned).toContain('<polyline points="10,10 10,20 20,20"/>')
+    expect(aligned).toContain('aligned to the part with its +X along the page')
+    // Aligned along the diagonal, the drawing is the sheet's bounding box as
+    // rolled, and the line that ran along the sheet's +X now runs along the
+    // page's x — square to the part, not to the scanner.
+    const d = Math.SQRT1_2
+    const diagonal = buildFlatSvg(
+      input({
+        alignDir: [d, d],
+        elements: [
+          {
+            fit: fitLinePoints([
+              [10, 10],
+              [20, 20],
+            ]),
+            color: '#445566',
+            name: 'Line 1',
+            value: 'L 14.142 mm · 0.00°',
+          },
+        ],
+      }),
+    )
+    const w = Number(diagonal.match(/width="([\d.]+)mm"/)![1])
+    expect(w).toBeCloseTo((100 + 80) * d, 2)
+    const line = diagonal.match(/<line x1="([\d.-]+)" y1="([\d.-]+)" x2="([\d.-]+)" y2="([\d.-]+)"/)!
+    expect(Number(line[2])).toBeCloseTo(Number(line[4]), 2)
+    expect(Math.abs(Number(line[3]) - Number(line[1]))).toBeCloseTo(Math.hypot(10, 10), 2)
+    // The turns still go on top of the alignment.
+    const both = buildFlatSvg(input({ alignDir: [0, 1], turns: 1 }))
+    expect(both).toContain('width="100mm" height="80mm" viewBox="0 0 100 80"')
+    expect(both).toContain('<polyline points="10,70 20,70 20,60"/>')
+    expect(both).toContain('aligned to the part with its +X along the page, turned a quarter turn counter-clockwise')
   })
 
   it('is in pixels, with no unit on the size, while nothing sets a scale', () => {

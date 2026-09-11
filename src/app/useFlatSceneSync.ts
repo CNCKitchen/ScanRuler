@@ -11,6 +11,7 @@ import { useFlat } from '../state/flatStore'
 import { useStore } from '../state/store'
 import type { FlatScene } from '../viewer/FlatScene'
 import {
+  sheetAlignment,
   sheetCalibrationPicks,
   sheetCounts,
   sheetDatumPreview,
@@ -72,8 +73,9 @@ export function useFlatSceneSync({
     const sheet = sheetOf()
     const view = scene()
     if (!sheet || !view) return
-    // The turn first, so the sheet is framed the way it is to be looked at
-    // rather than framed and then turned.
+    // The alignment and the turn first, so the sheet is framed the way it is
+    // to be looked at rather than framed and then turned.
+    view.setAlignment(sheetAlignment(useFlat.getState()))
     view.setTurns(useFlat.getState().turns)
     if (sheet.kind === 'image') void view.setImage(sheet.bitmap, sheetScale(useFlat.getState()))
     else view.setBlankSheet(sheet.bounds.min, sheet.bounds.max)
@@ -128,7 +130,10 @@ export function useFlatSceneSync({
   const draft = useFlat((s) => s.draft)
   useEffect(pushElements, [elements, draft, scale, datum])
 
-  // The sheet turned on the stage — the camera rolls, nothing is redrawn.
+  // The sheet aligned to the part, or turned on the stage — the camera rolls,
+  // nothing is redrawn. The alignment's direction is read at the scale in
+  // force: an anisotropic calibration bends it, so a recalibration re-rolls.
+  useEffect(() => scene()?.setAlignment(sheetAlignment(useFlat.getState())), [datum, scale])
   const turns = useFlat((s) => s.turns)
   useEffect(() => scene()?.setTurns(turns), [turns])
 
@@ -139,7 +144,7 @@ export function useFlatSceneSync({
       sceneRef.current = view
       if (view) pushAll()
     },
-    /** The cursor over the sheet — the datum tool's live grid preview. */
+    /** The cursor over the sheet — the alignment tool's live grid preview. */
     onHover: (cursor: Vec2 | null) => {
       const grid = sheetDatumPreview(useFlat.getState(), cursor)
       if (grid) scene()?.setGrid(grid)

@@ -9,7 +9,7 @@
 // way out.
 
 import { flatMethod } from '../core/flat/construct'
-import { datumFrame, fitInFrame } from '../core/flat/datum'
+import { datumFrame, fitInFrame, sheetRoll } from '../core/flat/datum'
 import { evaluateFlatDimensions, type FlatDimension } from '../core/flat/dimensions'
 import type { FlatElement } from '../core/flat/elements'
 import type { FlatDatum } from '../core/flat/datum'
@@ -37,6 +37,7 @@ export interface SheetSource {
   dimensions: FlatDimension[]
   datum: FlatDatum | null
   showGrid: boolean
+  turns: number
   counts: FlatCount[]
   nextCountId: number
   notes: FlatNote[]
@@ -144,6 +145,19 @@ export function sheetGrid(
   if (s.tool.kind === 'datum') return undefined
   const frame = s.datum && s.showGrid ? datumFrame(s.datum, s.pxPerMm) : null
   return frame && { origin: frame.origin, xDir: frame.xDir }
+}
+
+/** The alignment's +X in document units — the direction the sheet is shown
+ *  with to the right of the screen — or null while the sheet lies as it was
+ *  scanned. Null too for coincident picks, which span no frame. */
+export function sheetAlignment(s: Pick<SheetSource, 'pxPerMm' | 'datum'>): Vec2 | null {
+  return s.datum ? (datumFrame(s.datum, s.pxPerMm)?.xDir ?? null) : null
+}
+
+/** How far round the sheet is shown, radians counter-clockwise on screen:
+ *  the alignment brought square, then the quarter turns — see sheetRoll. */
+export function sheetRollOf(s: Pick<SheetSource, 'pxPerMm' | 'datum' | 'turns'>): number {
+  return sheetRoll(sheetAlignment(s), s.turns)
 }
 
 /** The grid the datum tool previews while it holds its first pick: pivoting

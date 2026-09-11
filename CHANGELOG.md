@@ -7,6 +7,14 @@ README under "Releases".
 
 ## Unreleased
 
+- **Alignment** is what the 2D sheet's *Datum* is called now, and it does
+  what the name says: the moment the +X pick lands, the sheet rolls square to
+  the part — +X to the right of the screen — in place, keeping the zoom and
+  what is under the eye, instead of leaving the scan lying as it was scanned
+  with a tilted grid drawn over it. Rotate 90° turns the sheet on top of that,
+  the loupe turns with it, and Export SVG writes the drawing aligned the same
+  way, so a part aligned along a reference edge comes into CAD square. The
+  report and the CSV call the frame the *aligned part frame*.
 - **Settings** — a dialog of its own, opened with **⚙ Settings** in the top
   bar, for what is set once and left: the **interface** (whatever the
   operating system says, which is the default, or light or dark regardless),

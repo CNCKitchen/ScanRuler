@@ -78,7 +78,7 @@ describe('buildFlatReport', () => {
     expect(text).toContain('Distance to line: 40.000 mm')
   })
 
-  it('shouts about a nominal scale and names the datum frame', () => {
+  it('shouts about a nominal scale and names the aligned part frame', () => {
     const datum = { originPx: [0, 0] as [number, number], xRefPx: [100, 0] as [number, number] }
     const text = buildFlatReport(
       sampleInput({
@@ -88,7 +88,7 @@ describe('buildFlatReport', () => {
       }),
     )
     expect(text).toContain('UNCALIBRATED — nominal 600 dpi')
-    expect(text).toContain('part datum frame')
+    expect(text).toContain('aligned part frame')
   })
 })
 

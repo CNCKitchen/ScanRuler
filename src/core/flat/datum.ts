@@ -7,7 +7,10 @@
 // anisotropic calibration would bend angles measured in pixels.
 //
 // Distances and angles between elements never change under a datum — only
-// reported coordinates (and the angle a line reads as) do.
+// reported coordinates (and the angle a line reads as) do. On the stage the
+// sheet is shown rolled so the frame's +X runs to the right of the screen —
+// the part square under the eye, not the scanner glass — and the roll math
+// that does it lives here beside the frame it follows.
 
 import type { PixelsPerMm } from './image'
 import type { FlatFit, Vec2 } from './types'
@@ -75,6 +78,42 @@ export function fitInFrame(fit: FlatFit, frame: FlatFrame | null): FlatFit {
   // An arc's start angle is measured from +X, which the frame rotates.
   const angle = Math.atan2(frame.xDir[1], frame.xDir[0])
   return { ...fit, center: toFrame(frame, fit.center), start: fit.start - angle }
+}
+
+/**
+ * How far round the sheet is shown on the stage, in radians counter-clockwise
+ * on screen: the alignment's +X brought to the screen's right, then the
+ * quarter turns on top of that. Zero shows the sheet as it lies — +X right,
+ * +Y up. `xDir` is the frame's unit X in document units, or null while the
+ * sheet is unaligned.
+ */
+export function sheetRoll(xDir: Vec2 | null, turns: number): number {
+  const t = ((Math.round(turns) % 4) + 4) % 4
+  const align = xDir ? Math.atan2(xDir[1], xDir[0]) : 0
+  return (t * Math.PI) / 2 - align
+}
+
+/** Cosine and sine of a roll, snapped exact at the quarter turns so a sheet
+ *  shown square stays square to the last digit — in the SVG and on screen. */
+function rollTrig(roll: number): [number, number] {
+  const snap = (v: number): number =>
+    Math.abs(v) < 1e-12 ? 0 : Math.abs(v - 1) < 1e-12 ? 1 : Math.abs(v + 1) < 1e-12 ? -1 : v
+  return [snap(Math.cos(roll)), snap(Math.sin(roll))]
+}
+
+/** A document point as it appears on the rolled sheet: turned about the
+ *  document origin by `roll`, counter-clockwise. */
+export function rollMap(roll: number): (p: Vec2) => Vec2 {
+  const [c, s] = rollTrig(roll)
+  return ([x, y]) => [x * c - y * s, x * s + y * c]
+}
+
+/** The document directions that run to the screen's right and up on a sheet
+ *  shown rolled by `roll` — what the camera is told is up. */
+export function rollAxes(roll: number): { right: Vec2; up: Vec2 } {
+  const [c, s] = rollTrig(roll)
+  // 0 - s rather than -s: a negated zero is a zero that fails an equality.
+  return { right: [c, 0 - s], up: [s, c] }
 }
 
 /** Grid spacings on a 1-2-5 ladder; the finest that still leaves the lines a

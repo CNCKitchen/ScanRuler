@@ -3,9 +3,11 @@
 // the px→document conversion and the per-layer rules, with no scene.
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  sheetAlignment,
   sheetCalibrationPicks,
   sheetCounts,
   sheetDatumPreview,
+  sheetRollOf,
   sheetDraft,
   sheetElements,
   sheetGrid,
@@ -34,6 +36,7 @@ function reset(pxPerMm: { x: number; y: number } | null = { x: 10, y: 10 }) {
     nextNoteId: 1,
     datum: null,
     showGrid: true,
+    turns: 0,
   })
   useFlat.getState().finishImageLoad('t.png', 1000, 800, pxPerMm)
 }
@@ -94,6 +97,27 @@ describe('the layers', () => {
     expect(sheetGrid(useFlat.getState())).toEqual({ origin: [10, 10], xDir: [1, 0] })
     useFlat.getState().setShowGrid(false)
     expect(sheetGrid(useFlat.getState())).toBeNull()
+  })
+
+  it('roll the sheet square to the alignment once it lands, the turns on top', () => {
+    expect(sheetAlignment(useFlat.getState())).toBeNull()
+    expect(sheetRollOf(useFlat.getState())).toBe(0)
+    useFlat.getState().startDatum()
+    useFlat.getState().stageClick([10, 10], alt, null)
+    // Still collecting: the stage does not roll under a half-placed pick.
+    expect(sheetAlignment(useFlat.getState())).toBeNull()
+    // +X picked straight up the sheet: the frame's X is document +Y, and the
+    // sheet is shown a quarter turn clockwise so that it runs to the right.
+    useFlat.getState().stageClick([10, 20], alt, null)
+    const xDir = sheetAlignment(useFlat.getState())!
+    expect(xDir[0]).toBeCloseTo(0, 12)
+    expect(xDir[1]).toBeCloseTo(1, 12)
+    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(-Math.PI / 2, 12)
+    useFlat.getState().turnSheet(1)
+    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(0, 12)
+    useFlat.getState().clearDatum()
+    expect(sheetAlignment(useFlat.getState())).toBeNull()
+    expect(sheetRollOf(useFlat.getState())).toBeCloseTo(Math.PI / 2, 12)
   })
 
   it('draw an element being edited by its draft, not its row', () => {
