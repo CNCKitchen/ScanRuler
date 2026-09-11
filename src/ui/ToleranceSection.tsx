@@ -202,6 +202,7 @@ export function ToleranceSection({
                 </div>
                 <ValueWindow value={preview} testId="tol-preview" over={verdict ? !verdict.pass : false} />
                 {verdict && <VerdictNote verdict={verdict} />}
+                {preview.detail && !preview.invalid && <div className="dro-note">{preview.detail}</div>}
                 {(preview.warning ?? preview.invalid) && (
                   <WarningNote text={(preview.warning ?? preview.invalid)!} />
                 )}

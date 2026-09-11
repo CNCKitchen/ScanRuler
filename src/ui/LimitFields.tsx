@@ -109,8 +109,15 @@ export function LimitFields({
       return
     }
     const plus = patch.plus ?? band?.plus ?? 0
-    // A minus left blank follows the plus: the usual symmetric tolerance.
-    const minus = 'minus' in patch ? (patch.minus ?? plus) : band ? band.minus : plus
+    // A minus left blank follows the plus: the usual symmetric tolerance. A
+    // band that was symmetric stays so when the plus changes; one typed
+    // asymmetric keeps its own minus.
+    const minus =
+      'minus' in patch
+        ? (patch.minus ?? plus)
+        : band && band.minus !== band.plus
+          ? band.minus
+          : plus
     onChange({ kind: 'band', nominal, plus, minus })
   }
   return (

@@ -219,6 +219,9 @@ export function DimensionSection({
                   over={previewVerdict ? !previewVerdict.pass : false}
                 />
                 {previewVerdict && <VerdictNote verdict={previewVerdict} />}
+                {dimPreview.detail && !dimPreview.invalid && (
+                  <div className="dro-note">{dimPreview.detail}</div>
+                )}
                 {(dimPreview.warning ?? dimPreview.invalid) && (
                   <WarningNote text={(dimPreview.warning ?? dimPreview.invalid)!} />
                 )}
