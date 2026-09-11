@@ -8,6 +8,7 @@ import {
   dimensionTypeInfo,
   evaluateDimension,
   evaluateDimensions,
+  judgeLimit,
   type DimensionValue,
   type SphereAnchor,
 } from '../core/dimensions'
@@ -18,7 +19,8 @@ import { surfaceSource, useSurfaces } from '../app/surfaces'
 import { ValueWindow } from './DroValue'
 import { InfoDot } from './InfoDot'
 import { NameField, providersFor, RefSelect } from './RefSelect'
-import { DimensionRow, WarningNote } from './DimensionRow'
+import { DimensionRow, VerdictNote, WarningNote } from './DimensionRow'
+import { LimitFields } from './LimitFields'
 import { ShowAllButton } from './ShowAllButton'
 
 export function DimensionSection({
@@ -40,6 +42,7 @@ export function DimensionSection({
   const setDimensionType = useStore((s) => s.setDimensionType)
   const setDimensionRef = useStore((s) => s.setDimensionRef)
   const setDimensionAnchor = useStore((s) => s.setDimensionAnchor)
+  const setDimensionLimit = useStore((s) => s.setDimensionLimit)
   const cancelDimension = useStore((s) => s.cancelDimension)
   const commitDimension = useStore((s) => s.commitDimension)
   const removeDimension = useStore((s) => s.removeDimension)
@@ -82,6 +85,10 @@ export function DimensionSection({
   const dimRefsAreSpheres =
     dimDraft?.type === 'dist-point-point' &&
     dimDraft.refs.every((id) => elements.find((e) => e.id === id)?.kind === 'sphere')
+  const previewVerdict =
+    dimPreview?.raw !== undefined && !dimPreview.invalid && dimDraft?.limit && dimInfo
+      ? judgeLimit(dimPreview.raw, dimDraft.limit, dimInfo.unit)
+      : undefined
 
   return (
     <div className="group">
@@ -194,13 +201,24 @@ export function DimensionSection({
                 </select>
               </label>
             )}
+            <LimitFields
+              family="dimension"
+              unit={dimInfo.unit}
+              limit={dimDraft.limit}
+              onChange={setDimensionLimit}
+            />
 
             {dimPreview && (
               <div className="dro">
                 <div className="dro-label">
                   <span>{dimPreview.label}</span>
                 </div>
-                <ValueWindow value={dimPreview} testId="dim-preview" />
+                <ValueWindow
+                  value={dimPreview}
+                  testId="dim-preview"
+                  over={previewVerdict ? !previewVerdict.pass : false}
+                />
+                {previewVerdict && <VerdictNote verdict={previewVerdict} />}
                 {(dimPreview.warning ?? dimPreview.invalid) && (
                   <WarningNote text={(dimPreview.warning ?? dimPreview.invalid)!} />
                 )}
@@ -235,13 +253,14 @@ export function DimensionSection({
           />
         </div>
       )}
-      {evaluated.map(({ dim, title, value }) => (
+      {evaluated.map(({ dim, title, value, verdict }) => (
         <DimensionRow
           key={dim.id}
           name={dim.name}
           visible={dim.visible !== false}
           title={title}
           value={value}
+          verdict={verdict}
           editorOpen={editorOpen}
           onEdit={() => editDimension(dim.id)}
           onToggleVisible={() => toggleDimensionVisible(dim.id)}

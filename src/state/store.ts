@@ -6,11 +6,12 @@ import {
   creationMethod,
   evaluateConstruction,
 } from '../core/elements/construct'
-import type { Dimension, DimensionFamily, SphereAnchor } from '../core/dimensions'
+import type { Dimension, DimensionFamily, Limit, SphereAnchor } from '../core/dimensions'
 import {
   assignDimensionRefs,
   dimensionTypeInfo,
   resolveDimensionType,
+  selectionFits,
   stemKey,
 } from '../core/dimensions'
 import { roleOf } from '../core/elements/refs'
@@ -290,6 +291,10 @@ export interface DimensionDraft {
   editId?: number
   /** Its name while it is open, so it can be changed with the rest of it. */
   name?: string
+  /** What the value is to be checked against, if anything was typed. */
+  limit?: Limit
+  /** The basic angle of an angularity, in degrees. */
+  basic?: number
 }
 
 /** The region is a large typed array only the scene needs, so it is stripped
@@ -851,6 +856,10 @@ interface AppState {
    *  does not fit the current one. Clicking a selected element deselects it. */
   selectDimensionElement: (id: number) => void
   setDimensionAnchor: (anchor: SphereAnchor) => void
+  /** The limit the value is held to; undefined takes it off. */
+  setDimensionLimit: (limit: Limit | undefined) => void
+  /** The basic angle of an angularity. */
+  setDimensionBasic: (basic: number | undefined) => void
   beginDimensionPick: (slot: number) => void
   cancelDimension: () => void
   commitDimension: () => void
@@ -1777,6 +1786,8 @@ export const useStore = create<AppState>()((set, get) => ({
           pickSlot: null,
           editId: d.id,
           name: d.name,
+          limit: d.limit,
+          basic: d.basic,
         },
         alignDraft: null,
         sectionDraft: null,
@@ -1794,6 +1805,7 @@ export const useStore = create<AppState>()((set, get) => ({
           .slots.map((sl) => `${sl.roles.join('|')}:${(sl.kinds ?? []).join('|')}`)
           .join(',')
       const sameRoles = signature(type) === signature(s.dimDraft.type)
+      const sameUnit = dimensionTypeInfo(type).unit === dimensionTypeInfo(s.dimDraft.type).unit
       return {
         dimDraft: {
           ...s.dimDraft,
@@ -1801,6 +1813,9 @@ export const useStore = create<AppState>()((set, get) => ({
           // Keep the picked references when the new type takes the same roles
           // (switching Axis–Axis distance → Axis–Axis angle, say).
           refs: sameRoles ? s.dimDraft.refs : slots.map(() => null),
+          // A limit in millimetres means nothing to an angle, and the other
+          // way round.
+          limit: sameUnit ? s.dimDraft.limit : undefined,
           pickSlot: null,
         },
       }
@@ -1823,16 +1838,24 @@ export const useStore = create<AppState>()((set, get) => ({
       if (dd.refs.includes(id)) {
         return { dimDraft: { ...dd, refs: dd.refs.map((r) => (r === id ? null : r)) } }
       }
-      const slots = dimensionTypeInfo(dd.type).slots
-      // What is already selected, in slot order — plus the new element. With
-      // every slot taken the pick replaces the last one, so the first
-      // reference stays the anchor of the measurement.
-      let selected = dd.refs.flatMap((r) => {
+      const family = dimensionTypeInfo(dd.type).family
+      // What is already selected, in slot order — plus the new element. The
+      // pick joins the selection while some type of the family can seat them
+      // all (a second plane after a flatness makes a parallelism); otherwise
+      // it replaces the last pick, so the first reference stays the anchor
+      // of the measurement.
+      const held = dd.refs.flatMap((r) => {
         const ref = r !== null ? s.elements.find((e) => e.id === r) : undefined
         return ref ? [{ id: ref.id, kind: ref.kind }] : []
       })
-      if (selected.length >= slots.length) selected = selected.slice(0, slots.length - 1)
-      selected.push({ id, kind: el.kind })
+      const pick = { id, kind: el.kind }
+      const grown = [...held, pick]
+      const selected = selectionFits(
+        family,
+        grown.map((sel) => sel.kind),
+      )
+        ? grown
+        : [...held.slice(0, -1), pick]
       const type = resolveDimensionType(dd.type, selected.map((sel) => sel.kind))
       return {
         dimDraft: { ...dd, type, refs: assignDimensionRefs(type, selected), pickSlot: null },
@@ -1841,6 +1864,12 @@ export const useStore = create<AppState>()((set, get) => ({
 
   setDimensionAnchor: (anchor) =>
     set((s) => (s.dimDraft ? { dimDraft: { ...s.dimDraft, anchor } } : {})),
+
+  setDimensionLimit: (limit) =>
+    set((s) => (s.dimDraft ? { dimDraft: { ...s.dimDraft, limit } } : {})),
+
+  setDimensionBasic: (basic) =>
+    set((s) => (s.dimDraft ? { dimDraft: { ...s.dimDraft, basic } } : {})),
 
   beginDimensionPick: (slot) =>
     set((s) =>
@@ -1875,7 +1904,15 @@ export const useStore = create<AppState>()((set, get) => ({
         return {
           dimensions: s.dimensions.map((d) =>
             d.id === dd.editId
-              ? { ...d, type: dd.type, refs: dd.refs as number[], anchor: dd.anchor, name }
+              ? {
+                  ...d,
+                  type: dd.type,
+                  refs: dd.refs as number[],
+                  anchor: dd.anchor,
+                  name,
+                  limit: dd.limit,
+                  basic: dd.basic,
+                }
               : d,
           ),
           nextOfDimGroup: regroup ? { ...s.nextOfDimGroup, [key]: n + 1 } : s.nextOfDimGroup,
@@ -1892,6 +1929,8 @@ export const useStore = create<AppState>()((set, get) => ({
             refs: dd.refs as number[],
             anchor: dd.anchor,
             visible: true,
+            limit: dd.limit,
+            basic: dd.basic,
           },
         ],
         nextDimensionId: s.nextDimensionId + 1,

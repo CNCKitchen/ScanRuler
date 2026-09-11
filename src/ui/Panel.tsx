@@ -15,6 +15,7 @@ import type { ElementKind } from '../core/types'
 import { AlignmentSection } from './AlignmentSection'
 import { CopyButton } from './CopyButton'
 import { DimensionSection } from './DimensionSection'
+import { ToleranceSection } from './ToleranceSection'
 import { DraftEditor } from './DraftEditor'
 import { ShowAllButton } from './ShowAllButton'
 import { ElementRow } from './ElementRow'
@@ -318,6 +319,7 @@ export function Panel({
       )}
 
       <DimensionSection editorOpen={editorOpen} onPickPoint={onPickPoint} />
+      <ToleranceSection editorOpen={editorOpen} />
 
       {fileName && (
         <>

@@ -278,20 +278,34 @@ export function resolveDimensionType(currentType: string, kinds: readonly Elemen
   return (homogeneous || pool[0]).id
 }
 
+/** Whether some type of the family could seat the whole selection — what
+ *  decides if one more pick joins the selection or replaces the last. */
+export function selectionFits(family: DimensionFamily, kinds: readonly ElementKind[]): boolean {
+  return dimensionTypes().some((t) => t.family === family && seatSelection(t, kinds) !== null)
+}
+
 /** Place the selected elements (in pick order) into the type's slots — the
- *  seating resolveDimensionType found room for. A selection the type cannot
- *  seat is left out. */
+ *  seating resolveDimensionType found room for. When the type cannot seat
+ *  them all, each in turn takes the first open slot that takes it, and the
+ *  rest are left out: a pick that fits nothing never unseats the others. */
 export function assignDimensionRefs(
   type: string,
   selected: readonly { id: number; kind: ElementKind }[],
 ): (number | null)[] {
   const info = dimensionTypeInfo(type)
+  const refs: (number | null)[] = info.slots.map(() => null)
   const seats = seatSelection(
     info,
     selected.map((s) => s.kind),
   )
-  const refs: (number | null)[] = info.slots.map(() => null)
-  if (seats) seats.forEach((s, i) => (refs[s] = selected[i].id))
+  if (seats) {
+    seats.forEach((s, i) => (refs[s] = selected[i].id))
+    return refs
+  }
+  for (const sel of selected) {
+    const s = info.slots.findIndex((slot, i) => refs[i] === null && slotTakes(slot, sel.kind))
+    if (s >= 0) refs[s] = sel.id
+  }
   return refs
 }
 

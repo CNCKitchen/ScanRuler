@@ -6,6 +6,7 @@ import {
   evaluateDimensions,
   judgeLimit,
   resolveDimensionType,
+  selectionFits,
 } from '../src/core/dimensions'
 import type {
   CylinderFit,
@@ -367,6 +368,25 @@ describe('assignDimensionRefs', () => {
   it('narrows a slot to its kinds', () => {
     expect(assignDimensionRefs('size-diameter', [{ id: 2, kind: 'cylinder' }])).toEqual([2])
     expect(assignDimensionRefs('size-diameter', [{ id: 2, kind: 'cone' }])).toEqual([null])
+  })
+
+  it('keeps what fits when the whole selection cannot be seated', () => {
+    expect(
+      assignDimensionRefs('dist-plane-plane', [
+        { id: 1, kind: 'plane' },
+        { id: 2, kind: 'sphere' },
+      ]),
+    ).toEqual([1, null])
+  })
+})
+
+describe('selectionFits', () => {
+  it('says whether one more pick could still join the selection', () => {
+    expect(selectionFits('dimension', ['plane'])).toBe(true)
+    expect(selectionFits('dimension', ['plane', 'sphere'])).toBe(true)
+    expect(selectionFits('dimension', ['plane', 'sphere', 'plane'])).toBe(false)
+    // Only a tolerance seats a lone cylinder and a lone sphere together (coaxiality).
+    expect(selectionFits('tolerance', ['sphere', 'cylinder'])).toBe(true)
   })
 })
 

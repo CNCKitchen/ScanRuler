@@ -999,6 +999,39 @@ button.x:disabled {
   color: var(--dim);
 }
 
+/* A limit under a reading: the allowance restated and how far the value
+   stands from it. The digits above turn red when it is over — the one
+   colour the instrument keeps for a reading that fails — and the alarm
+   line under it says by how much. Within is not celebrated. */
+.dro-window.over b,
+.dro.hero .dro-window.over b {
+  color: var(--red);
+}
+
+.warnnote.fail {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* The plus and minus of a dimension's tolerance, side by side. */
+.tolpair {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.tolpair b {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.tolpair .unitfield {
+  flex: 0 1 82px;
+  width: 82px;
+  min-width: 64px;
+}
+
 /* Key/value line — a measured element in the list, or a secondary figure. */
 .kv {
   display: flex;

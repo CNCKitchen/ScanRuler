@@ -40,14 +40,23 @@ export function DroValue({ value, color }: { value: string; color?: string }) {
 
 /** A DRO window carrying a dimension's value, or its alarm face when the
  *  measurement has none. The dimension preview and the dimension rows read
- *  identically by design, so they share it. */
-export function ValueWindow({ value, testId }: { value: ReadValue; testId: string }) {
+ *  identically by design, so they share it. `over` paints the digits red:
+ *  the value is past the limit typed for it. */
+export function ValueWindow({
+  value,
+  testId,
+  over = false,
+}: {
+  value: ReadValue
+  testId: string
+  over?: boolean
+}) {
   return value.invalid ? (
     <div className="dro-window alarm" data-test={testId}>
       <b>no value</b>
     </div>
   ) : (
-    <div className="dro-window" data-test={testId}>
+    <div className={over ? 'dro-window over' : 'dro-window'} data-test={testId}>
       <DroValue value={value.value!} />
     </div>
   )
