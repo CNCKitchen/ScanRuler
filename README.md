@@ -110,8 +110,8 @@ around an edge either, unless you ask it to with *Mark faces pointing away too*.
 
 Everything else is unchanged — the same Gaussian best fit, the same outlier
 cut-off, the same reported sigma — so a hand-marked element and an automatic
-one are the same measurement, differently aimed. Changing *Used points* re-fits
-a hand-marked element on exactly the surface it was marked with.
+one are the same measurement, differently aimed. Changing *Used points* on a
+hand-marked element re-fits it on exactly the surface it was marked with.
 
 Whichever tool you pick stays picked from one element to the next; switching
 workspaces puts it back to **Navigate**, so a gesture is never holding the mouse
@@ -551,7 +551,12 @@ and pinch to zoom, a tap picks** — and with the marking brush armed the single
 finger paints while two fingers still move the part.
 
 Fitting uses a **Gaussian best-fit** (orthogonal least squares) with GOM-style
-*used points* presets (all / 3σ / 2σ / 1σ, default 3σ). The initial estimate is
+*used points* presets (all / 3σ / 2σ / 1σ, default 3σ). The preset is each
+element's own, chosen in the *Fitting* group under the element box while it is
+being made or edited: a clean bore can keep 3σ while a noisy cast face next to
+it is fitted on all points, and changing one element never re-fits another. The
+last choice is what the next new element starts with, and the copied summary
+says which cut-off every element rests on. The initial estimate is
 made robust with LMedS/RANSAC, and the point selection is a model-guided region
 grow over the mesh surface with normal-direction checks — so a click anywhere
 on a feature finds exactly that surface, even when it's fused to the rest of

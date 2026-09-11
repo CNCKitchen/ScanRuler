@@ -21,9 +21,10 @@ const base: PlaneFit = {
 }
 const ball: SphereFit = { kind: 'sphere', center: [0, 0, 20], radius: 6.01, ...measured, formError: 0.004 }
 
+const fitted = { type: 'fitted' as const, seeds: [], settings: { method: 'gaussian' as const, sigma: 3 as const } }
 const elements = [
-  { id: 1, name: 'Base', kind: 'plane' as const, source: { type: 'fitted' as const, seeds: [] }, fit: base },
-  { id: 2, name: 'Ball', kind: 'sphere' as const, source: { type: 'fitted' as const, seeds: [] }, fit: ball },
+  { id: 1, name: 'Base', kind: 'plane' as const, source: fitted, fit: base },
+  { id: 2, name: 'Ball', kind: 'sphere' as const, source: fitted, fit: ball },
 ]
 
 describe('the summary with limits', () => {
@@ -43,7 +44,7 @@ describe('the summary with limits', () => {
       ],
       elements,
     )
-    const text = buildSummary('scan.stl', { method: 'gaussian', sigma: 3 }, elements, rows)
+    const text = buildSummary('scan.stl', elements, rows)
     expect(text).toContain('Flatness 1 (Base) — Flatness: 0.031 mm\n  limit 0.050 mm · Δ -0.019 mm · PASS')
     expect(text).toContain('Sphericity 1 (Ball) — Sphericity: 0.004 mm\n  Peak to peak')
     expect(text).toContain(
@@ -58,7 +59,7 @@ describe('the summary with limits', () => {
       [{ id: 1, type: 'form-flatness', name: 'Flatness 1', refs: [1], limit: { kind: 'max', max: 0.02 } }],
       elements,
     )
-    const text = buildSummary('scan.stl', { method: 'gaussian', sigma: 3 }, elements, rows)
+    const text = buildSummary('scan.stl', elements, rows)
     expect(text).toContain('Flatness: 0.031 mm\n  limit 0.020 mm · 0.011 mm over the limit · FAIL')
     expect(text).not.toContain('Δ +0.011')
   })
@@ -68,7 +69,7 @@ describe('the summary with limits', () => {
       [{ id: 1, type: 'form-flatness', name: 'Flatness 1', refs: [1] }],
       elements,
     )
-    const text = buildSummary('scan.stl', { method: 'gaussian', sigma: 3 }, elements, rows)
+    const text = buildSummary('scan.stl', elements, rows)
     expect(text).not.toContain('Checked against limits')
     expect(text).not.toContain('PASS')
   })

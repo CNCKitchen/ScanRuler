@@ -23,6 +23,7 @@ import { tintStyle } from './tint'
 
 export function DraftEditor({
   onSelectMode,
+  onDraftSigma,
   onClearPaint,
   onUndoPick,
   onCancelDraft,
@@ -30,6 +31,8 @@ export function DraftEditor({
 }: {
   /** Switch between clicking a point and marking the surface by hand. */
   onSelectMode: (mode: SelectMode) => void
+  /** The draft's outlier cut-off changed: it re-fits on what it has. */
+  onDraftSigma: (k: SigmaPreset) => void
   /** Rub out the whole hand-marked surface. */
   onClearPaint: () => void
   onUndoPick: () => void
@@ -40,8 +43,6 @@ export function DraftEditor({
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
   const draftColor = useStore(draftColorOf)
-  const settings = useStore((s) => s.settings)
-  const setSigma = useStore((s) => s.setSigma)
   const setDraftMethod = useStore((s) => s.setDraftMethod)
   const setDraftName = useStore((s) => s.setDraftName)
   const setDraftRef = useStore((s) => s.setDraftRef)
@@ -310,14 +311,18 @@ export function DraftEditor({
         </div>
       )}
 
-      {method?.mode === 'fit' && (
+      {/* How this one element is fitted. The settings are the draft's own and
+          go into the element with it: a clean bore and a noisy cast face on
+          the same part want different cut-offs, so no choice here reaches
+          any other element. */}
+      {draft && method?.mode === 'fit' && (
         <div className="group">
           <div className="g-label">
-            <span>Fitting</span>
+            <span>Fitting {edited ? edited.name : `this ${draftKind?.noun ?? 'element'}`}</span>
           </div>
           <label className="field">
             <span>Method</span>
-            <select value={settings.method} disabled>
+            <select value={draft.settings.method} disabled>
               <option value="gaussian">Gaussian best-fit</option>
             </select>
           </label>
@@ -337,15 +342,18 @@ export function DraftEditor({
                   everything.
                 </p>
                 <p>
-                  The setting is global: changing it re-fits every element from the points it was
-                  built on.
+                  The setting belongs to this element: changing it re-fits this one from the
+                  points it was built on, and every other element keeps the cut-off it was
+                  measured with. Re-open an element to change its own. The last choice is
+                  what the next new element starts with.
                 </p>
               </InfoDot>
             </span>
             <select
-              value={settings.sigma}
+              data-test="used-points"
+              value={draft.settings.sigma}
               disabled={busy}
-              onChange={(e) => setSigma(Number(e.target.value) as SigmaPreset)}
+              onChange={(e) => onDraftSigma(Number(e.target.value) as SigmaPreset)}
             >
               {([3, 2, 1, 0] as SigmaPreset[]).map((k) => (
                 <option key={k} value={k}>

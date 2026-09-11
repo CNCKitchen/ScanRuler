@@ -76,13 +76,13 @@ export const surfaceSource: SurfaceSource = (elementId) => {
     | Float32Array
     | undefined
   if (!region || !positions) return null
-  const { elements, settings } = useStore.getState()
-  const el = elements.find((e) => e.id === elementId)
+  const el = useStore.getState().elements.find((e) => e.id === elementId)
   // The cut-off was applied to the fit as measured; an element turned to a
-  // reference direction afterwards still rests on the same points.
+  // reference direction afterwards still rests on the same points. It is the
+  // element's own — the one its fit was made with.
   const fit = el?.measured ?? el?.fit
-  const cutoff =
-    fit?.kind === 'plane' && settings.sigma > 0 && fit.sigma > 0 ? settings.sigma * fit.sigma : null
+  const sigma = el?.source.type === 'fitted' ? el.source.settings.sigma : 0
+  const cutoff = fit?.kind === 'plane' && sigma > 0 && fit.sigma > 0 ? sigma * fit.sigma : null
   const out = new Float32Array(region.length * 3)
   let n = 0
   for (const v of region) {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { ElementKind, ElementSource, FitData, FitSettings, SigmaPreset, Vec3 } from './types'
+import type { ElementKind, ElementSource, FitData, SigmaPreset, Vec3 } from './types'
 import { verdictLines, type EvaluatedDimension } from './dimensions'
 import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
@@ -18,6 +18,12 @@ export const SIGMA_LABELS: Record<SigmaPreset, string> = {
   3: '3 sigma',
   2: '2 sigma',
   1: '1 sigma',
+}
+
+/** How an element's outlier cut-off reads beside its point count in the
+ *  summary — each fitted element carries its own. */
+export function cutoffLabel(k: SigmaPreset): string {
+  return k === 0 ? 'all points' : `${k} sigma cut-off`
 }
 
 /** A finished element: name plus the geometry that was measured for it. */
@@ -130,16 +136,13 @@ export interface SummaryElement {
 
 export function buildSummary(
   fileName: string,
-  settings: FitSettings,
   elements: readonly SummaryElement[],
   dimensions: readonly EvaluatedDimension[],
 ): string {
   const nameOf = (id: number): string => elements.find((e) => e.id === id)?.name ?? '?'
-  const lines = [
-    `ScanRuler — ${fileName}`,
-    `Method: Gaussian best-fit, used points: ${SIGMA_LABELS[settings.sigma]}`,
-    '',
-  ]
+  // The outlier cut-off is each fitted element's own, so it is said beside
+  // the element's point count rather than once at the top.
+  const lines = [`ScanRuler — ${fileName}`, 'Method: Gaussian best-fit', '']
   for (const el of elements) {
     lines.push(`${el.name}`)
     if (el.source.type === 'constructed') {
@@ -181,8 +184,9 @@ export function buildSummary(
       lines.push(`  direction: ${formatVec(f.dir)}`)
     }
     if (isFitted(f)) {
+      const cutoff = el.source.type === 'fitted' ? ` (${cutoffLabel(el.source.settings.sigma)})` : ''
       lines.push(
-        `  sigma: ${f.sigma.toFixed(4)} mm, used points: ${f.usedPoints} of ${f.regionSize}`,
+        `  sigma: ${f.sigma.toFixed(4)} mm, used points: ${f.usedPoints} of ${f.regionSize}${cutoff}`,
       )
       if (f.formError !== undefined) {
         lines.push(`  ${formErrorLabel(f.kind) ?? 'form'} (peak-to-peak): ${f.formError.toFixed(4)} mm`)

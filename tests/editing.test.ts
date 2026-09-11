@@ -132,7 +132,11 @@ describe('editing an element', () => {
           kind: 'plane' as const,
           name: 'Plane 1',
           color: '#123456',
-          source: { type: 'fitted' as const, seeds: [1, 2, 3, 4, 5, 6] },
+          source: {
+            type: 'fitted' as const,
+            seeds: [1, 2, 3, 4, 5, 6],
+            settings: { method: 'gaussian' as const, sigma: 3 as const },
+          },
           status: 'done' as const,
           visible: true,
           fit: {
@@ -174,7 +178,12 @@ describe('editing an element', () => {
           kind: 'sphere' as const,
           name: 'Sphere 1',
           color: '#654321',
-          source: { type: 'fitted' as const, seeds: [], selection: new Uint32Array([4, 5, 6]) },
+          source: {
+            type: 'fitted' as const,
+            seeds: [],
+            selection: new Uint32Array([4, 5, 6]),
+            settings: { method: 'gaussian' as const, sigma: 3 as const },
+          },
           status: 'done' as const,
           visible: true,
           fit: {

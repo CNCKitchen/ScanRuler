@@ -193,14 +193,17 @@ export interface CircleFit extends FitBase {
 export type FitData = SphereFit | CylinderFit | ConeFit | PlaneFit | PointFit | LineFit | CircleFit
 
 /** How an element came to be, and what is needed to rebuild it: fitted
- *  elements re-fit from their seeds when the sigma preset changes, picked
+ *  elements re-fit from their seeds with their own fit settings, picked
  *  points are fixed coordinates, constructions re-evaluate from their source
  *  elements. */
 export type ElementSource =
   /** Fitted to the scan. `seeds` are the clicked vertices of an auto-fit;
    *  `selection` is the surface a user painted by hand, which replaces the
-   *  search entirely — an element has one or the other, never both. */
-  | { type: 'fitted'; seeds: number[]; selection?: Uint32Array }
+   *  search entirely — an element has one or the other, never both.
+   *  `settings` is the method and outlier cut-off the fit was made with: a
+   *  property of this element, not of the session, because a clean bore and
+   *  a noisy cast face want different cut-offs on the same part. */
+  | { type: 'fitted'; seeds: number[]; selection?: Uint32Array; settings: FitSettings }
   | { type: 'picked' }
   | { type: 'constructed'; method: string; refs: number[]; params: number[] }
 

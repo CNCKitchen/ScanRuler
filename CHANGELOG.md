@@ -7,6 +7,14 @@ README under "Releases".
 
 ## Unreleased
 
+- **Used points per element** — the outlier cut-off in the Fitting group is
+  the open element's own and goes into the element with it, instead of one
+  setting for the whole session that re-fitted every element at once. A clean
+  bore keeps its 3σ while a noisy cast face beside it is fitted on all points;
+  re-opening an element changes its own and no other. The last choice is what
+  the next new element starts with, and the copied summary says which cut-off
+  each element was measured with. Projects save the setting with the element;
+  projects from before load with the cut-off they were saved under.
 - **GD&T** — a group under Create dimensions that checks what a drawing's
   feature control frames ask for, the way a dimension is made: **New
   tolerance**, the characteristic, the element and its datum, **Add

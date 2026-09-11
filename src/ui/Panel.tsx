@@ -11,7 +11,7 @@ import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
-import type { ElementKind } from '../core/types'
+import type { ElementKind, SigmaPreset } from '../core/types'
 import { AlignmentSection } from './AlignmentSection'
 import { CopyButton } from './CopyButton'
 import { DimensionSection } from './DimensionSection'
@@ -27,6 +27,7 @@ export function Panel({
   onOpenScan,
   onStartDraft,
   onSelectMode,
+  onDraftSigma,
   onClearPaint,
   onUndoPick,
   onCancelDraft,
@@ -51,6 +52,8 @@ export function Panel({
   onStartDraft: (kind: ElementKind) => void
   /** Switch between clicking a point and marking the surface by hand. */
   onSelectMode: (mode: SelectMode) => void
+  /** The open draft's outlier cut-off changed: it re-fits on what it has. */
+  onDraftSigma: (k: SigmaPreset) => void
   /** Rub out the whole hand-marked surface. */
   onClearPaint: () => void
   onUndoPick: () => void
@@ -208,6 +211,7 @@ export function Panel({
 
       <DraftEditor
         onSelectMode={onSelectMode}
+        onDraftSigma={onDraftSigma}
         onClearPaint={onClearPaint}
         onUndoPick={onUndoPick}
         onCancelDraft={onCancelDraft}

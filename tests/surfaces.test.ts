@@ -54,13 +54,22 @@ beforeEach(() => {
         color: '#000',
         status: 'done',
         visible: true,
-        source: { type: 'fitted', seeds: [0] },
+        source: { type: 'fitted', seeds: [0], settings: { method: 'gaussian', sigma: 3 } },
         fit: plane,
       },
     ],
-    settings: { method: 'gaussian', sigma: 3 },
   })
 })
+
+/** The plane's own cut-off, changed the way an edit changes it. */
+const setPlaneSigma = (sigma: 0 | 1 | 2 | 3) =>
+  useStore.setState((s) => ({
+    elements: s.elements.map((e) =>
+      e.id === 1 && e.source.type === 'fitted'
+        ? { ...e, source: { ...e.source, settings: { method: 'gaussian', sigma } } }
+        : e,
+    ),
+  }))
 
 describe('surfaces', () => {
   it('reads nothing before the viewport is up or the fit has landed', () => {
@@ -77,8 +86,11 @@ describe('surfaces', () => {
     rememberSurface(1, Uint32Array.from([0, 1, 3]))
     // 3 sigma = 0.03 mm: the point 1 mm off the plane is an outlier.
     expect(Array.from(surfaceSource(1)!)).toEqual([0, 0, 0.005, 1, 0, -0.005].map((v) => Math.fround(v)))
-    // With every point in use, it stays.
+    // With every point in use, it stays. The cut-off is the element's own —
+    // the session default has no say.
     useStore.setState({ settings: { method: 'gaussian', sigma: 0 } })
+    expect(surfaceSource(1)!.length).toBe(6)
+    setPlaneSigma(0)
     expect(surfaceSource(1)!.length).toBe(9)
   })
 

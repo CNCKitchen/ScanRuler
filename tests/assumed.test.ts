@@ -201,13 +201,12 @@ describe('the assumed dimension on the way out', () => {
   it('is reported beside the measurement in the summary, never instead of it', () => {
     const text = buildSummary(
       'scan.stl',
-      { method: 'gaussian', sigma: 3 },
       [
         {
           id: 1,
           name: 'Sphere 1',
           kind: 'sphere',
-          source: { type: 'fitted', seeds: [] },
+          source: { type: 'fitted', seeds: [], settings: { method: 'gaussian', sigma: 3 } },
           fit: sphere,
           assumed: 6,
         },
@@ -221,13 +220,12 @@ describe('the assumed dimension on the way out', () => {
   it('stays out of the summary when it merely restates the measurement', () => {
     const text = buildSummary(
       'scan.stl',
-      { method: 'gaussian', sigma: 3 },
       [
         {
           id: 1,
           name: 'Sphere 1',
           kind: 'sphere',
-          source: { type: 'fitted', seeds: [] },
+          source: { type: 'fitted', seeds: [], settings: { method: 'gaussian', sigma: 3 } },
           fit: { ...sphere, radius: 3 },
           assumed: 6,
         },

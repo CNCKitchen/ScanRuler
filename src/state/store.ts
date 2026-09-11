@@ -132,6 +132,13 @@ export interface Draft {
    *  from a click. Carried into the element so a change of outlier cut-off
    *  re-fits on exactly the same points. */
   selection?: Uint32Array
+  /** The method and outlier cut-off this draft's fit runs with. A new draft
+   *  starts on the settings last chosen; a re-opened element brings its own.
+   *  Changing them re-fits this draft alone — every other element keeps the
+   *  settings it was measured with, which travel with it into the element.
+   *  Carried by every draft, fit or not, so the choice survives a change of
+   *  creation method. */
+  settings: FitSettings
   refs: (number | null)[]
   params: number[]
   status: 'empty' | 'fitting' | 'ready' | 'failed'
@@ -304,13 +311,19 @@ function withoutRegion(r: FitOutput): FitData {
   return fit
 }
 
-function freshDraft(kind: ElementKind, method: string, edit?: Pick<Draft, 'editId' | 'name'>): Draft {
+function freshDraft(
+  kind: ElementKind,
+  method: string,
+  settings: FitSettings,
+  edit?: Pick<Draft, 'editId' | 'name'>,
+): Draft {
   const m = creationMethod(kind, method)
   return {
     kind,
     method,
     picks: [],
     pickPoints: [],
+    settings,
     refs: m.slots.map(() => null),
     params: m.params.map(() => NaN),
     status: 'empty',
@@ -332,15 +345,24 @@ function methodOf(el: Element): string {
 
 /** Re-open an element as a draft: everything it was built from, ready to be
  *  changed. A fitted element comes back with the seeds or the hand-marked
- *  surface it was measured on, so the caller can put both back on the scan;
- *  a construction comes back with its references and numbers, re-evaluated so
- *  the preview stands before anything is touched. */
-function draftFromElement(el: Element, elements: Element[], modelSize: number): Draft {
+ *  surface it was measured on, so the caller can put both back on the scan,
+ *  and with the fit settings it was measured with; a construction comes back
+ *  with its references and numbers, re-evaluated so the preview stands before
+ *  anything is touched. `settings` is what a draft that has none of its own
+ *  (a picked or constructed element) carries, in case it is turned into a
+ *  fit. */
+function draftFromElement(
+  el: Element,
+  elements: Element[],
+  modelSize: number,
+  settings: FitSettings,
+): Draft {
   const base: Draft = {
     kind: el.kind,
     method: methodOf(el),
     picks: [],
     pickPoints: [],
+    settings: el.source.type === 'fitted' ? el.source.settings : settings,
     refs: [],
     params: [],
     status: el.fit ? 'ready' : 'empty',
@@ -692,6 +714,12 @@ interface AppState {
   /** The next number of each dimension kind, keyed by its name stem — see
    *  stemKey. A kind not yet used has no entry and starts at 1. */
   nextOfDimGroup: Record<string, number>
+  /** The fit settings the next new element starts with — the ones last chosen
+   *  in any draft. Not what any element is measured with: each fitted element
+   *  carries its own in its source, and changing the setting on one leaves
+   *  the others as they were. A tool setting like selectMode, kept because
+   *  whoever needed a tighter cut-off on one face is likely to want it on the
+   *  next. */
   settings: FitSettings
   /** Where a fit gets its surface from — see SelectMode. Marking one by hand
    *  uses the shared tools in markStore, the same ones the deviation
@@ -735,7 +763,6 @@ interface AppState {
     modelCenter: Vec3,
   ) => void
   loadFailed: (message: string) => void
-  markFitting: (id: number, seeds: number[], selection?: Uint32Array) => void
   resolveFit: (id: number, r: FitOutput) => void
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
@@ -867,7 +894,10 @@ interface AppState {
   toggleDimensionVisible: (id: number) => void
   /** Show or hide every dimension at once — of one family, or of both. */
   setAllDimensionsVisible: (visible: boolean, family?: DimensionFamily) => void
-  setSigma: (k: SigmaPreset) => void
+  /** The outlier cut-off of the open draft — and, remembered, of the next new
+   *  element. The re-fit that follows is the caller's, like a change of the
+   *  fit window: the store only records the choice. */
+  setDraftSigma: (k: SigmaPreset) => void
   setSelectMode: (mode: SelectMode) => void
   setShowLabels: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
@@ -988,19 +1018,6 @@ export const useStore = create<AppState>()((set, get) => ({
   loadFailed: (message) =>
     set({ busy: false, fileName: null, statusText: '', errorText: message }),
 
-  markFitting: (id, seeds, selection) =>
-    set((s) => ({
-      elements: s.elements.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              source: { type: 'fitted' as const, seeds, selection },
-              status: 'fitting' as const,
-            }
-          : e,
-      ),
-    })),
-
   resolveFit: (id, r) =>
     set((s) => ({
       elements: reevaluateConstructions(
@@ -1100,12 +1117,12 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => ({ elements: s.elements.map((e) => (e.visible === visible ? e : { ...e, visible })) })),
 
   startDraft: (kind) =>
-    set({
-      draft: freshDraft(kind, defaultMethod(kind)),
+    set((s) => ({
+      draft: freshDraft(kind, defaultMethod(kind), s.settings),
       alignDraft: null,
       sectionDraft: null,
       errorText: null,
-    }),
+    })),
 
   // How the surface of a re-opened fit was chosen comes back with it: an
   // element marked by hand opens with the marking tools out, one grown from a
@@ -1114,7 +1131,7 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => {
       const el = s.elements.find((e) => e.id === id)
       if (!el) return {}
-      const draft = draftFromElement(el, s.elements, s.modelSize)
+      const draft = draftFromElement(el, s.elements, s.modelSize, s.settings)
       return {
         draft,
         selectMode: el.source.type === 'fitted' ? (el.source.selection ? 'paint' : 'auto') : s.selectMode,
@@ -1129,10 +1146,10 @@ export const useStore = create<AppState>()((set, get) => ({
   setDraftMethod: (method) =>
     set((s) => {
       if (!s.draft) return {}
-      const { editId, name } = s.draft
+      const { editId, name, settings } = s.draft
       return {
         draft: evalConstructDraft(
-          freshDraft(s.draft.kind, method, { editId, name }),
+          freshDraft(s.draft.kind, method, settings, { editId, name }),
           s.elements,
           s.modelSize,
         ),
@@ -1344,11 +1361,13 @@ export const useStore = create<AppState>()((set, get) => ({
         ? d.orient
         : undefined
     const measured = orient ? d.fit : undefined
+    // A fitted element takes the settings its preview was measured with along,
+    // so it re-fits the same way on load and re-opens on the same choice.
     const source: ElementSource =
       m.mode === 'fit'
         ? d.selection
-          ? { type: 'fitted', seeds: [], selection: d.selection }
-          : { type: 'fitted', seeds: d.picks.flat() }
+          ? { type: 'fitted', seeds: [], selection: d.selection, settings: d.settings }
+          : { type: 'fitted', seeds: d.picks.flat(), settings: d.settings }
         : m.mode === 'pick'
           ? { type: 'picked' }
           : { type: 'constructed', method: d.method, refs: d.refs as number[], params: d.params }
@@ -1876,7 +1895,7 @@ export const useStore = create<AppState>()((set, get) => ({
       s.dimDraft
         ? {
             dimDraft: { ...s.dimDraft, pickSlot: slot },
-            draft: freshDraft('point', 'pick'),
+            draft: freshDraft('point', 'pick', s.settings),
             errorText: null,
           }
         : {},
@@ -1958,7 +1977,11 @@ export const useStore = create<AppState>()((set, get) => ({
       ),
     })),
 
-  setSigma: (sigma) => set((s) => ({ settings: { ...s.settings, sigma } })),
+  setDraftSigma: (sigma) =>
+    set((s) => {
+      const settings = { ...(s.draft?.settings ?? s.settings), sigma }
+      return { settings, draft: s.draft ? { ...s.draft, settings } : null }
+    }),
   setSelectMode: (selectMode) => set({ selectMode }),
   setShowLabels: (showLabels) => set({ showLabels }),
   setShowBackfaces: (showBackfaces) => set({ showBackfaces }),

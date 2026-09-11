@@ -101,17 +101,32 @@ describe('the JSON encodings', () => {
       kind: 'plane',
       name: 'Plane 1',
       color: '#f00',
-      source: { type: 'fitted', seeds: [4], selection: Uint32Array.from([1, 2, 3]) },
+      source: {
+        type: 'fitted',
+        seeds: [4],
+        selection: Uint32Array.from([1, 2, 3]),
+        settings: { method: 'gaussian', sigma: 1 },
+      },
       status: 'fitting',
       visible: true,
     }
     const json = JSON.parse(JSON.stringify(elementToJson(el)))
     expect(json.source.selection).toEqual([1, 2, 3])
+    expect(json.source.settings).toEqual({ method: 'gaussian', sigma: 1 })
     expect(json.status).toBe('done')
-    const restored = elementFromJson(json)
+    const restored = elementFromJson(json, { method: 'gaussian', sigma: 3 })
     expect(restored.source.type === 'fitted' && restored.source.selection).toBeInstanceOf(
       Uint32Array,
     )
+    // The element's own cut-off comes back; the fallback is for elements
+    // saved without one.
+    expect(restored.source.type === 'fitted' && restored.source.settings.sigma).toBe(1)
+    delete json.source.settings
+    const legacy = elementFromJson(json, { method: 'gaussian', sigma: 2 })
+    expect(legacy.source.type === 'fitted' && legacy.source.settings).toEqual({
+      method: 'gaussian',
+      sigma: 2,
+    })
 
     const a = alignFromJson(
       JSON.parse(
@@ -145,10 +160,21 @@ describe('writing a project back onto the stores', () => {
         kind: 'sphere',
         name: 'Sphere 1',
         color: '#abc',
+        // Saved before the cut-off was the element's own: it takes the
+        // project's, which is what it was measured with.
         source: { type: 'fitted', seeds: [10], selection: [1, 2] },
         status: 'done',
         visible: false,
         fit: { kind: 'sphere', center: [0, 0, 0], radius: 5, rms: 0, count: 3 } as never,
+      },
+      {
+        id: 9,
+        kind: 'plane',
+        name: 'Plane 1',
+        color: '#cba',
+        source: { type: 'fitted', seeds: [11], settings: { method: 'gaussian', sigma: 0 } },
+        status: 'done',
+        visible: true,
       },
     ]
     manifest.scan!.dimensions = [
@@ -175,11 +201,13 @@ describe('writing a project back onto the stores', () => {
     manifest.scan!.selectMode = 'paint'
     applyScanPart(JSON.parse(JSON.stringify(manifest.scan)))
     const s = useStore.getState()
-    expect(s.elements).toHaveLength(1)
+    expect(s.elements).toHaveLength(2)
     expect(s.elements[0].visible).toBe(false)
     expect(
       s.elements[0].source.type === 'fitted' && s.elements[0].source.selection,
     ).toBeInstanceOf(Uint32Array)
+    expect(s.elements[0].source.type === 'fitted' && s.elements[0].source.settings.sigma).toBe(2)
+    expect(s.elements[1].source.type === 'fitted' && s.elements[1].source.settings.sigma).toBe(0)
     expect(s.dimensions[0].name).toBe('D1')
     // A tolerance keeps its basic angle and its limit; a dimension its band.
     expect(s.dimensions[1]).toMatchObject({ basic: 30, limit: { kind: 'max', max: 0.05 } })

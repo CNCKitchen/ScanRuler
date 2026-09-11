@@ -40,7 +40,7 @@ function element(id: number, name: string, fit: PlaneFit | CylinderFit): Element
     kind: fit.kind,
     name,
     color: '#123',
-    source: { type: 'fitted', seeds: [1] },
+    source: { type: 'fitted', seeds: [1], settings: { method: 'gaussian', sigma: 3 } },
     status: 'done',
     visible: true,
     fit,

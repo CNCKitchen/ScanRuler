@@ -204,7 +204,9 @@ export function collectProject(
  *  re-fits them to get their surface regions tinted. */
 export function applyScanPart(p: ScanPart): void {
   useStore.setState({
-    elements: p.elements.map(elementFromJson),
+    // An element saved before the cut-off was its own was measured with the
+    // project's — so it comes back measured the same way.
+    elements: p.elements.map((e) => elementFromJson(e, p.settings)),
     dimensions: p.dimensions,
     draft: null,
     dimDraft: null,

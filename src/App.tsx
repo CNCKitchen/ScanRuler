@@ -38,7 +38,7 @@ import {
   surfaceSource,
   surfacesMoved,
 } from './app/surfaces'
-import type { ElementKind, FitData, PointFit, Vec3 } from './core/types'
+import type { ElementKind, FitData, PointFit, SigmaPreset, Vec3 } from './core/types'
 import {
   alignSlotPicks,
   blockedRefs,
@@ -515,20 +515,21 @@ export default function App() {
     }
   }
 
-  /** Re-fit an already measured element (used when the sigma preset changes).
-   *  A hand-marked element re-fits on its marked surface, an auto-fitted one
-   *  from its seeds — both are the recipe the element was made with. */
+  /** Re-fit an already measured element (on project load, where the fits are
+   *  saved without their surfaces). A hand-marked element re-fits on its
+   *  marked surface, an auto-fitted one from its seeds, each with the fit
+   *  settings it was measured with — all of it the recipe the element was
+   *  made with. */
   const runFit = async (
     elementId: number,
     kind: ElementKind,
     seeds: number[],
     selection?: Uint32Array,
   ) => {
-    const settings = useStore.getState().settings
+    const el = useStore.getState().elements.find((e) => e.id === elementId)
+    const settings = el?.source.type === 'fitted' ? el.source.settings : useStore.getState().settings
     // A fit confined to the drawn span is confined to it every time it runs.
-    const window = fitWindow(
-      useStore.getState().elements.find((e) => e.id === elementId)?.extend,
-    )
+    const window = fitWindow(el?.extend)
     try {
       const result = selection
         ? await clientRef.current!.fitSelection(kind, selection, settings, window)
@@ -544,12 +545,19 @@ export default function App() {
     }
   }
 
+  /** The fit settings the open draft runs with — its own. The session default
+   *  only stands in when no draft is open, which no fit below runs without. */
+  const draftSettings = () => {
+    const s = useStore.getState()
+    return s.draft?.settings ?? s.settings
+  }
+
   /** Fit the draft from every picked point at once and show it as a preview.
    *  Picks may sit on unconnected patches — a partial scan of one feature —
    *  and the region growing seeds from all of them. */
   const runDraftFit = async (kind: ElementKind, picks: [number, number, number][]) => {
     const seq = ++draftSeq.current
-    const settings = useStore.getState().settings
+    const settings = draftSettings()
     const seeds = picks.flat()
     const window = fitWindow(useStore.getState().draft?.extend)
     try {
@@ -592,7 +600,7 @@ export default function App() {
    *  already tinted on the part, in the colour the element will get. */
   const runDraftPaintFit = async (kind: ElementKind, selection: Uint32Array) => {
     const seq = ++draftSeq.current
-    const settings = useStore.getState().settings
+    const settings = draftSettings()
     const window = fitWindow(useStore.getState().draft?.extend)
     useStore.getState().setDraftSelection(selection)
     try {
@@ -618,7 +626,7 @@ export default function App() {
     if (!d || d.kind !== 'cylinder' || creationMethod(d.kind, d.method).mode !== 'fit') return
     if (!d.selection && d.picks.length === 0) return
     const seq = ++draftSeq.current
-    const settings = useStore.getState().settings
+    const settings = d.settings
     const window = fitWindow(d.extend)
     try {
       const result = d.selection
@@ -1190,36 +1198,22 @@ export default function App() {
     useStore.getState().setStatus(`${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`)
   }
 
-  // Changing "Used points" re-fits every element with its stored seeds, and
-  // refreshes the pending preview if one is open.
-  const sigma = useStore((s) => s.settings.sigma)
-  const firstSigma = useRef(true)
-  useEffect(() => {
-    if (firstSigma.current) {
-      firstSigma.current = false
-      return
-    }
+  // Changing "Used points" is a change to the open draft alone: it re-fits on
+  // the surface it already has, and every other element keeps the cut-off it
+  // was measured with. The choice is also remembered for the next new element.
+  const handleDraftSigma = (k: SigmaPreset) => {
+    useStore.getState().setDraftSigma(k)
     const store = useStore.getState()
-    for (const el of store.elements) {
-      if (el.status !== 'done' || el.source.type !== 'fitted') continue
-      // The one being edited re-fits as the draft below, not twice over.
-      if (store.draft?.editId === el.id) continue
-      const selection = el.source.selection
-      store.markFitting(el.id, el.source.seeds, selection)
-      void runFit(el.id, el.kind, el.source.seeds, selection)
-    }
     const draft = store.draft
-    if (draft && creationMethod(draft.kind, draft.method).mode === 'fit') {
-      if (draft.selection) void runDraftPaintFit(draft.kind, draft.selection)
-      else if (draft.picks.length > 0) {
-        // The picks are unchanged and so are the marks on them — only the
-        // outlier cut-off moved.
-        store.setDraftPicks(draft.picks, draft.pickPoints)
-        void runDraftFit(draft.kind, draft.picks)
-      }
+    if (!draft || creationMethod(draft.kind, draft.method).mode !== 'fit') return
+    if (draft.selection) void runDraftPaintFit(draft.kind, draft.selection)
+    else if (draft.picks.length > 0) {
+      // The picks are unchanged and so are the marks on them — only the
+      // outlier cut-off moved.
+      store.setDraftPicks(draft.picks, draft.pickPoints)
+      void runDraftFit(draft.kind, draft.picks)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sigma])
+  }
 
   // Where the side being dragged stood when the drag began. The viewport
   // reports how far the grip has come rather than where it is, so every move
@@ -1405,7 +1399,6 @@ export default function App() {
     const store = useStore.getState()
     const text = buildSummary(
       store.fileName ?? '',
-      store.settings,
       store.elements,
       evaluateDimensions(store.dimensions, store.elements, surfaceSource),
     )
@@ -1689,6 +1682,7 @@ export default function App() {
             onOpenScan={(f) => void openFile(f)}
             onStartDraft={handleStartDraft}
             onSelectMode={handleSelectMode}
+            onDraftSigma={handleDraftSigma}
             onClearPaint={clearPaint}
             onUndoPick={handleUndoPick}
             onCancelDraft={handleCancelDraft}

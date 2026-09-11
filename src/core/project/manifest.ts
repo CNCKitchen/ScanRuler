@@ -49,10 +49,13 @@ export function rigidFromJson(j: RigidJson): Rigid {
   return { r: Float64Array.from(j.r), t: Float64Array.from(j.t) }
 }
 
-/** An element with its hand-marked selection as a plain array. */
+/** An element with its hand-marked selection as a plain array. The fit
+ *  settings are absent in projects saved while they were one setting for the
+ *  whole session — the ScanPart's `settings` — which is what such an element
+ *  was measured with. */
 export type ElementJson = Omit<Element, 'source'> & {
   source:
-    | { type: 'fitted'; seeds: number[]; selection?: number[] }
+    | { type: 'fitted'; seeds: number[]; selection?: number[]; settings?: FitSettings }
     | { type: 'picked' }
     | { type: 'constructed'; method: string; refs: number[]; params: number[] }
 }
@@ -69,12 +72,15 @@ export function elementToJson(e: Element): ElementJson {
   }
 }
 
-export function elementFromJson(e: ElementJson): Element {
+/** `settings` stands in for a fitted element saved without its own — the
+ *  session-wide setting of the project it came from. */
+export function elementFromJson(e: ElementJson, settings: FitSettings): Element {
   if (e.source.type !== 'fitted') return e as Element
-  const { selection, ...rest } = e.source
+  const { selection, settings: own, ...rest } = e.source
+  const source = { ...rest, settings: own ?? settings }
   return {
     ...e,
-    source: selection ? { ...rest, selection: Uint32Array.from(selection) } : rest,
+    source: selection ? { ...source, selection: Uint32Array.from(selection) } : source,
   } as Element
 }
 
