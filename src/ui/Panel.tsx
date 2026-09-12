@@ -49,6 +49,7 @@ export function Panel({
   onExportStep,
   onExportStl,
   onExportCloud,
+  onFindSymmetry,
 }: {
   onOpenScan: (file: File) => void
   onStartDraft: (kind: ElementKind) => void
@@ -85,6 +86,8 @@ export function Panel({
   onExportStl: () => void
   /** Save the scan as a point cloud, in the chosen format, in the same pose. */
   onExportCloud: () => void
+  /** Search the scan for its mirror plane, for the open symmetry-plane draft. */
+  onFindSymmetry: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
   const busy = useStore((s) => s.busy)
@@ -222,6 +225,7 @@ export function Panel({
         onUndoPick={onUndoPick}
         onCancelDraft={onCancelDraft}
         onConfirmDraft={onConfirmDraft}
+        onFindSymmetry={onFindSymmetry}
       />
 
       <SectionEditor onCancel={onCancelSection} onConfirm={onConfirmSection} />

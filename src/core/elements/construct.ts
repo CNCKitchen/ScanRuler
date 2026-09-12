@@ -32,7 +32,13 @@ export interface ParamSpec {
   key: string
   label: string
   unit?: 'mm'
+  /** Not offered for typing: the number is found from the scan and carried
+   *  in the params so the element rebuilds, moves and saves like any typed
+   *  one — a centroid, a symmetry plane. */
+  hidden?: boolean
 }
+
+const found = (p: ParamSpec): ParamSpec => ({ ...p, hidden: true })
 
 /** One way of creating an element. `fit` and `pick` run the existing
  *  click-on-the-scan flow; `construct` builds geometry from other elements
@@ -75,6 +81,15 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     hint: 'A fixed reference point, e.g. a datum from the drawing.',
     slots: [],
     params: XYZ,
+  },
+  {
+    id: 'point-centroid',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Centroid of the scan',
+    hint: 'The centre of the volume the scan encloses, read off the mesh the moment this is chosen. An open scan gets the centre of its surface instead, and says so.',
+    slots: [],
+    params: XYZ.map(found),
   },
   {
     id: 'point-midpoint',
@@ -190,6 +205,23 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
       { key: 'ny', label: 'Normal Y' },
       { key: 'nz', label: 'Normal Z' },
       ...XYZ.map((p) => ({ ...p, key: 'p' + p.key, label: 'Point ' + p.label })),
+    ],
+  },
+  {
+    id: 'plane-symmetry',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Symmetry plane of the scan',
+    hint: 'The mirror plane the part matches itself across, found by reflecting the scan and fitting the reflection back onto it — from the best of the three principal planes, or from a plane you choose as the seed.',
+    slots: [],
+    params: [
+      found({ key: 'nx', label: 'Normal X' }),
+      found({ key: 'ny', label: 'Normal Y' }),
+      found({ key: 'nz', label: 'Normal Z' }),
+      ...XYZ.map((p) => found({ ...p, key: 'p' + p.key, label: 'Point ' + p.label })),
+      found({ key: 'rms', label: 'Mirror RMS', unit: 'mm' }),
+      found({ key: 'matched', label: 'Matched samples' }),
+      found({ key: 'sampled', label: 'Samples' }),
     ],
   },
   // ---- Sphere / Cylinder / Cone --------------------------------------------
@@ -320,10 +352,13 @@ export function evaluateConstruction(
   fallbackSize: number,
 ): FitData {
   switch (method) {
-    case 'point-coords': {
+    case 'point-coords':
+    case 'point-centroid': {
       const [x, y, z] = params
       if (![x, y, z].every(Number.isFinite))
-        throw new ConstructionError('Enter all three coordinates.')
+        throw new ConstructionError(
+          method === 'point-centroid' ? 'The centroid has not been measured yet.' : 'Enter all three coordinates.',
+        )
       return { kind: 'point', center: [x, y, z], ...NO_FIT_STATS } satisfies PointFit
     }
 
@@ -491,6 +526,31 @@ export function evaluateConstruction(
       } satisfies PlaneFit
     }
 
+    case 'plane-symmetry': {
+      const [nx, ny, nz, px, py, pz, rms, matched, sampled] = params
+      if (![nx, ny, nz, px, py, pz].every(Number.isFinite))
+        throw new ConstructionError('Find the symmetry plane first.')
+      const normal = normalize([nx, ny, nz])
+      if (!normal) throw new ConstructionError('The symmetry plane has no direction.')
+      const [basisU, basisV] = orthoBasis(normal)
+      const extent = Math.max(fallbackSize * 0.3, 1)
+      return {
+        kind: 'plane',
+        center: [px, py, pz],
+        normal,
+        basisU,
+        basisV,
+        extentU: extent,
+        extentV: extent,
+        // The mirror registration's residual stands where a fit's sigma
+        // does: how far the part is from symmetric about this plane, over
+        // the samples that found their mirror image on the scan.
+        sigma: Number.isFinite(rms) ? rms : 0,
+        usedPoints: Number.isFinite(matched) ? matched : 0,
+        regionSize: Number.isFinite(sampled) ? sampled : 0,
+      } satisfies PlaneFit
+    }
+
     case 'circle-plane-cylinder': {
       const pl = need(refPlane(refs[0]), 'the plane')
       const cyl = refs[1]
@@ -566,6 +626,8 @@ export function describeConstruction(
   switch (method) {
     case 'point-coords':
       return `at (${params.map((v) => v.toFixed(3)).join(', ')})`
+    case 'point-centroid':
+      return `centroid of the scan, at (${params.map((v) => v.toFixed(3)).join(', ')})`
     case 'point-midpoint':
       return `midpoint of ${a} and ${b}`
     case 'point-line-plane':
@@ -587,6 +649,14 @@ export function describeConstruction(
         .slice(3)
         .map((v) => v.toFixed(3))
         .join(', ')})`
+    case 'plane-symmetry': {
+      const [, , , , , , rms, matched, sampled] = params
+      const fit =
+        Number.isFinite(rms) && Number.isFinite(matched)
+          ? `, mirror image within ${rms.toFixed(4)} mm RMS over ${matched} of ${sampled} samples`
+          : ''
+      return `symmetry plane of the scan${fit}`
+    }
     case 'circle-plane-cylinder':
     case 'circle-plane-sphere':
       return `where ${b} crosses ${a}`

@@ -755,6 +755,75 @@ export default function App() {
   const handleExportStl = () => exportScanStl(sceneRef)
   const handleExportCloud = () => exportScanPointCloud(sceneRef, useStore.getState().cloudFormat)
 
+  /** The open symmetry-plane draft asks the worker for the mirror plane —
+   *  refined from the seed plane it names, or from the scan's principal
+   *  planes — and takes the numbers into its params the way typed ones go. */
+  const handleFindSymmetry = async () => {
+    const s = useStore.getState()
+    const d = s.draft
+    if (!d || d.method !== 'plane-symmetry' || d.status === 'fitting') return
+    const seedEl = d.seed != null ? s.elements.find((e) => e.id === d.seed) : undefined
+    const seedFit = seedEl?.fit?.kind === 'plane' ? seedEl.fit : null
+    s.setDraftWorking('Searching the scan for its mirror plane…')
+    try {
+      const r = await clientRef.current!.symmetry(
+        seedFit ? { normal: seedFit.normal, point: seedFit.center } : null,
+      )
+      const now = useStore.getState().draft
+      if (!now || now.method !== 'plane-symmetry') return
+      const loose = r.rms > 0.1
+      useStore.getState().setDraftParams(
+        [...r.normal, ...r.point, r.rms, r.matched, r.sampled],
+        `The mirror image fits the scan to σ ${r.rms.toFixed(4)} mm over ${r.matched.toLocaleString(
+          'en-US',
+        )} of ${r.sampled.toLocaleString('en-US')} samples, ${
+          seedFit ? `refined from ${seedEl!.name}` : `from principal plane ${r.candidate + 1}`
+        }.${
+          loose
+            ? ' A loose match: the part may not be symmetric about any plane, or the seed was far off — try another seed.'
+            : ''
+        }`,
+      )
+    } catch (e) {
+      const now = useStore.getState().draft
+      if (now && now.method === 'plane-symmetry')
+        useStore.getState().failDraft(e instanceof Error ? e.message : 'The symmetry search failed.')
+    }
+  }
+
+  // A centroid draft measures itself the moment it is opened: its numbers
+  // come off the scan, not the keyboard. Keyed on the draft being an
+  // unmeasured centroid, so choosing the method again measures again and a
+  // failed measurement stays failed rather than looping.
+  const centroidPending = useStore(
+    (s) =>
+      s.draft?.method === 'point-centroid' &&
+      s.draft.status === 'empty' &&
+      s.draft.params.some((p) => !Number.isFinite(p)),
+  )
+  useEffect(() => {
+    if (!centroidPending) return
+    useStore.getState().setDraftWorking('Measuring the centroid…')
+    void clientRef.current!.centroid().then(
+      (c) => {
+        const now = useStore.getState().draft
+        if (!now || now.method !== 'point-centroid' || now.status !== 'fitting') return
+        const at = c.volume ?? c.area
+        useStore.getState().setDraftParams(
+          [at[0], at[1], at[2]],
+          c.closed
+            ? `The centroid of the enclosed volume, ${(c.volumeMm3 / 1000).toFixed(2)} cm³.`
+            : 'The scan is open — this is the centroid of its surface, not of a volume.',
+        )
+      },
+      (e: unknown) => {
+        const now = useStore.getState().draft
+        if (now && now.method === 'point-centroid')
+          useStore.getState().failDraft(e instanceof Error ? e.message : 'The centroid could not be measured.')
+      },
+    )
+  }, [centroidPending])
+
   // ---- Deviation workspace -------------------------------------------------
 
   const {
@@ -1704,6 +1773,7 @@ export default function App() {
             onExportStep={handleExportStep}
             onExportStl={handleExportStl}
             onExportCloud={handleExportCloud}
+            onFindSymmetry={() => void handleFindSymmetry()}
           />
         )}
         <div className={splitOpen ? 'stage split' : 'stage'}>

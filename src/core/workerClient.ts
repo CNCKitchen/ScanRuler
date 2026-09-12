@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { MeshCentroid } from './geometry/centroid'
+import type { SeedPlane, SymmetryPlane } from './symmetry'
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
@@ -212,5 +214,28 @@ export class MeshWorkerClient {
       minLength,
     })
     return { points: res.points, offsets: res.offsets }
+  }
+
+  /** The centroid of the volume the scan encloses, on the scan as it now
+   *  stands — with whether it is closed enough to have one. */
+  async centroid(): Promise<MeshCentroid> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'centroid-ok' }>>({
+      type: 'centroid',
+      requestId,
+    })
+    return res.result
+  }
+
+  /** The mirror plane the scan matches itself across, refined from `seed`
+   *  or, without one, from the best of the scan's principal planes. */
+  async symmetry(seed: SeedPlane | null): Promise<SymmetryPlane> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'symmetry-ok' }>>({
+      type: 'symmetry',
+      requestId,
+      seed,
+    })
+    return res.result
   }
 }

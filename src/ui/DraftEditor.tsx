@@ -28,6 +28,7 @@ export function DraftEditor({
   onUndoPick,
   onCancelDraft,
   onConfirmDraft,
+  onFindSymmetry,
 }: {
   /** Switch between clicking a point and marking the surface by hand. */
   onSelectMode: (mode: SelectMode) => void
@@ -38,6 +39,9 @@ export function DraftEditor({
   onUndoPick: () => void
   onCancelDraft: () => void
   onConfirmDraft: () => void
+  /** Search the scan for its mirror plane, for the open symmetry-plane
+   *  draft — from its seed plane, or from the scan's principal planes. */
+  onFindSymmetry: () => void
 }) {
   const busy = useStore((s) => s.busy)
   const elements = useStore((s) => s.elements)
@@ -48,6 +52,7 @@ export function DraftEditor({
   const setDraftRef = useStore((s) => s.setDraftRef)
   const beginDraftPick = useStore((s) => s.beginDraftPick)
   const setDraftParam = useStore((s) => s.setDraftParam)
+  const setDraftSeed = useStore((s) => s.setDraftSeed)
   const selectMode = useStore((s) => s.selectMode)
   // The marking itself is the shared tool set (markStore / MarkTools); the
   // panel only needs to know how much surface it has taken.
@@ -174,6 +179,31 @@ export function DraftEditor({
           {method.mode === 'construct' ? (
             <>
               <p className="hint">{method.hint}</p>
+              {method.id === 'plane-symmetry' && (
+                <>
+                  <RefSelect
+                    label="Seed plane (optional)"
+                    options={providersFor(['plane'], elements, blocked)}
+                    value={draft.seed ?? null}
+                    testId="draft-seed"
+                    picking={false}
+                    onChange={(id) => setDraftSeed(id)}
+                  />
+                  <button
+                    data-test="find-symmetry"
+                    disabled={busy || draft.status === 'fitting'}
+                    onClick={onFindSymmetry}
+                    title="Reflect the scan through the seed — or, with none, through each of its principal planes — fit the reflection back onto the scan, and read the mirror plane off the fit"
+                  >
+                    {draft.status === 'ready' ? 'Find again' : 'Find symmetry plane'}
+                  </button>
+                </>
+              )}
+              {draft.note && (
+                <p className="hint" data-test="draft-note">
+                  {draft.note}
+                </p>
+              )}
               {method.slots.map((slot, i) => (
                 <RefSelect
                   key={i}
@@ -188,23 +218,25 @@ export function DraftEditor({
                   }
                 />
               ))}
-              {method.params.map((p, i) => (
-                <label className="field" key={p.key}>
-                  <span>
-                    {p.label}
-                    {p.unit ? ` (${p.unit})` : ''}
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    data-test={`draft-param-${p.key}`}
-                    value={Number.isFinite(draft.params[i]) ? draft.params[i] : ''}
-                    onChange={(e) =>
-                      setDraftParam(i, e.target.value === '' ? NaN : Number(e.target.value))
-                    }
-                  />
-                </label>
-              ))}
+              {method.params.map((p, i) =>
+                p.hidden ? null : (
+                  <label className="field" key={p.key}>
+                    <span>
+                      {p.label}
+                      {p.unit ? ` (${p.unit})` : ''}
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      data-test={`draft-param-${p.key}`}
+                      value={Number.isFinite(draft.params[i]) ? draft.params[i] : ''}
+                      onChange={(e) =>
+                        setDraftParam(i, e.target.value === '' ? NaN : Number(e.target.value))
+                      }
+                    />
+                  </label>
+                ),
+              )}
             </>
           ) : (
             <p className="hint">{pickHint}</p>

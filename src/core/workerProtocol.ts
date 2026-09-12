@@ -4,6 +4,8 @@ import type { Rigid } from './deviation/rigid'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
+import type { MeshCentroid } from './geometry/centroid'
+import type { SeedPlane, SymmetryPlane } from './symmetry'
 
 export type WorkerRequest =
   | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer }
@@ -77,6 +79,13 @@ export type WorkerRequest =
   /** Cut the scan with a plane — see core/section/slice. Chains shorter than
    *  `minLength` millimetres are dropped as specks. */
   | { type: 'section'; requestId: number; origin: Vec3; normal: Vec3; minLength: number }
+  /** The centroid of the volume the scan encloses, on the scan as it now
+   *  stands — see geometry/centroid. */
+  | { type: 'centroid'; requestId: number }
+  /** The mirror plane the scan matches itself across, refined from a seed
+   *  plane or, without one, from the scan's principal planes — see
+   *  core/symmetry. */
+  | { type: 'symmetry'; requestId: number; seed: SeedPlane | null }
 
 export type WorkerResponse =
   | { type: 'progress'; text: string }
@@ -141,4 +150,6 @@ export type WorkerResponse =
   | { type: 'transform-ok'; requestId: number }
   /** The polylines a plane cuts off the scan, in scan coordinates. */
   | { type: 'section-ok'; requestId: number; points: Float32Array; offsets: Uint32Array }
+  | { type: 'centroid-ok'; requestId: number; result: MeshCentroid }
+  | { type: 'symmetry-ok'; requestId: number; result: SymmetryPlane }
   | { type: 'error'; requestId: number; message: string }

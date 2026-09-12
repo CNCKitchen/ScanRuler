@@ -219,9 +219,9 @@ choice of creation methods:
 
 | Element | Created by |
 | --- | --- |
-| **Point** | pick on the scan surface · typed-in coordinates · midpoint of two points · intersection of a line/axis with a plane |
+| **Point** | pick on the scan surface · typed-in coordinates · **centroid of the scan** · midpoint of two points · intersection of a line/axis with a plane |
 | **Line** | through two points · a cylinder's axis · intersection of two planes |
-| **Plane** | fit to the scan · through three points · offset from a plane · midplane of two planes · typed-in normal + point |
+| **Plane** | fit to the scan · through three points · offset from a plane · midplane of two planes · typed-in normal + point · **symmetry plane of the scan** |
 | **Sphere, Cylinder** | fit to the scan |
 | **Circle** | through **3 or more picked points** (three give the exact circle, more refine a best fit — a hole rim, a boss edge) · intersection of a plane with a cylinder or a sphere · typed-in diameter + normal + center |
 
@@ -236,6 +236,29 @@ removes everything built on it.
 The plane–cylinder intersection refuses a cylinder leaning more than 5°
 against the plane: the section is then honestly an ellipse, and this tool does
 not report an ellipse as a circle.
+
+Two constructions read their numbers off the scan rather than off other
+elements. **Centroid of the scan** is the centre of the volume the mesh
+encloses, measured the moment the method is chosen; a scan that does not
+close gets the centre of its surface instead, and the box says so.
+**Symmetry plane of the scan** is the mirror plane the part matches itself
+across — the plane reverse engineering mirrors one modelled half about, which
+has to be more exact than any hand-picked plane. It is found by reflecting a
+sample of the scan through a candidate plane, fitting the reflection back
+onto the scan with the same point-to-plane ICP the Deviation workspace uses,
+and reading the plane off the pairs (every sample and its registered mirror
+image are bisected by the true plane), for a few passes until it stops
+moving. **Find symmetry plane** starts from the best of the scan's three
+principal planes — for a symmetric part the mirror normal is always one of
+them — or from a **seed plane** you name first, a midplane of two faces or a
+fitted face, when the part's detail makes the principal choice ambiguous.
+The plane's σ is how far the mirror image lies from the scan, so an
+asymmetric part reports a loose fit rather than a confident plane. Both are
+ordinary elements: they move with the part, save with the project, export to
+STEP like a typed-in element, cut sections, and serve as datums — aligning
+the symmetry plane onto a coordinate plane in [Align part](#aligning-the-part)
+is what decides where the mirror goes, and the centroid can be the zero
+point.
 
 ### Dimensions
 

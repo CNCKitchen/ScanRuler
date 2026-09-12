@@ -192,6 +192,32 @@ describe('plane constructions', () => {
   })
 })
 
+describe('found-from-the-scan constructions', () => {
+  it('rebuilds a centroid point from its carried coordinates', () => {
+    const r = evaluateConstruction('point-centroid', [], [12.5, -3, 7.25], SIZE)
+    expect(r.kind).toBe('point')
+    expect(r.center).toEqual([12.5, -3, 7.25])
+    expect(() => evaluateConstruction('point-centroid', [], [NaN, NaN, NaN], SIZE)).toThrow(
+      /not been measured/,
+    )
+  })
+
+  it('rebuilds a symmetry plane with the mirror residual as its sigma', () => {
+    const r = evaluateConstruction('plane-symmetry', [], [0, 0, 2, 1, 2, 3, 0.0123, 3900, 4000], SIZE)
+    expect(r.kind).toBe('plane')
+    if (r.kind !== 'plane') return
+    expect(r.normal).toEqual([0, 0, 1])
+    expect(r.center).toEqual([1, 2, 3])
+    expect(r.sigma).toBeCloseTo(0.0123, 9)
+    expect(r.usedPoints).toBe(3900)
+    expect(r.regionSize).toBe(4000)
+    expect(r.extentU).toBeCloseTo(SIZE * 0.3, 9)
+    expect(() => evaluateConstruction('plane-symmetry', [], [NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN], SIZE)).toThrow(
+      /Find the symmetry plane/,
+    )
+  })
+})
+
 describe('circle constructions', () => {
   const floor = () => planeZ([0, 0, 0], [0, 0, 1], [1, 0, 0], [0, 1, 0])
 

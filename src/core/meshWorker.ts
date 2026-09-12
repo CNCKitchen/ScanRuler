@@ -21,6 +21,8 @@ import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
 import { sliceMesh } from './section/slice'
+import { meshCentroid } from './geometry/centroid'
+import { findSymmetryPlane } from './symmetry'
 import type { MeshBVH } from 'three-mesh-bvh'
 
 let graph: MeshGraph | null = null
@@ -32,6 +34,10 @@ let nominal: NominalSurface | null = null
  *  use — most sessions never ask for it — and dropped whenever the scan's
  *  vertices change under it. */
 let scanSolid: MeshBVH | null = null
+/** The scan prepared for closest-point queries, for the symmetry search —
+ *  the same structure a reference gets. Built on first use, and remembered
+ *  with the graph it describes so a new scan or moved vertices drop it. */
+let scanSurface: { graph: MeshGraph; surface: NominalSurface } | null = null
 
 function post(msg: WorkerResponse, transfer: Transferable[] = []): void {
   ;(self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(msg, transfer)
@@ -289,7 +295,37 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     // them. Thickness itself is unaffected — it is a property of the part, not
     // of where the part sits.
     scanSolid = null
+    scanSurface = null
     post({ type: 'transform-ok', requestId: msg.requestId })
+    return
+  }
+
+  if (msg.type === 'centroid') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    post({ type: 'centroid-ok', requestId: msg.requestId, result: meshCentroid(graph.positions, graph.indices) })
+    return
+  }
+
+  if (msg.type === 'symmetry') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      if (!scanSurface || scanSurface.graph !== graph) {
+        progress('Preparing the scan for the symmetry search…')
+        scanSurface = { graph, surface: new NominalSurface(graph.positions, graph.indices) }
+      }
+      const result = findSymmetryPlane(scanSurface.surface, graph.positions, graph.normals, msg.seed, {
+        onProgress: progress,
+      })
+      post({ type: 'symmetry-ok', requestId: msg.requestId, result })
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 

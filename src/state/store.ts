@@ -156,6 +156,14 @@ export interface Draft {
    *  derived from the two — see orientedDraft. */
   orient?: Orient
   message?: string
+  /** How the numbers a search on the scan handed back were got — whether a
+   *  centroid is of the volume or of an open surface, how well a mirror
+   *  image fitted. Draft-lifetime, for the editor to show. */
+  note?: string
+  /** The plane a symmetry search starts from, by element id; null or absent
+   *  seeds it from the scan's principal planes. Draft-lifetime — the seed is
+   *  where the search began, not something the result is built on. */
+  seed?: number | null
   /** Set when the draft re-opens an element that already exists: the id it
    *  writes back to on confirm, instead of adding a new element. Everything
    *  measured against it — dimensions, constructions — keeps pointing at the
@@ -631,21 +639,23 @@ function sameFit(a: FitData, b: FitData): boolean {
  *  to other elements. */
 function transformSource(source: ElementSource, m: Rigid): ElementSource {
   if (source.type !== 'constructed') return source
-  if (source.method === 'point-coords') {
+  if (source.method === 'point-coords' || source.method === 'point-centroid') {
     const p = transformFit(
       { kind: 'point', center: source.params.slice(0, 3) as Vec3, sigma: 0, usedPoints: 0, regionSize: 0 },
       m,
     )
     return { ...source, params: [...p.center] }
   }
-  if (source.method === 'plane-coords') {
-    const [nx, ny, nz, px, py, pz] = source.params
+  if (source.method === 'plane-coords' || source.method === 'plane-symmetry') {
+    // A symmetry plane carries its search's residual and counts after the
+    // six numbers of the plane; a rigid motion leaves those as they are.
+    const [nx, ny, nz, px, py, pz, ...rest] = source.params
     const moved = transformFit(
       { kind: 'line', center: [px, py, pz], dir: [nx, ny, nz], length: 0, sigma: 0, usedPoints: 0, regionSize: 0 },
       m,
     )
     if (moved.kind !== 'line') return source
-    return { ...source, params: [...moved.dir, ...moved.center] }
+    return { ...source, params: [...moved.dir, ...moved.center, ...rest] }
   }
   if (source.method === 'circle-coords') {
     const [d, nx, ny, nz, cx, cy, cz] = source.params
@@ -800,6 +810,13 @@ interface AppState {
    *  from it and referenced by the slot. Returns the new element's id. */
   pickDraftPoint: (point: Vec3) => number | null
   setDraftParam: (index: number, value: number) => void
+  /** Every number of a construction at once — what a search on the scan
+   *  hands back — with a note on how it was got. */
+  setDraftParams: (params: number[], note?: string) => void
+  /** The draft is waiting on the scan: a centroid being measured, a symmetry
+   *  plane being searched for. */
+  setDraftWorking: (note?: string) => void
+  setDraftSeed: (id: number | null) => void
   /** Extend the open draft's cylinder or plane by one side, in millimetres
    *  past the measured surface. Driven by both the panel's fields and the
    *  handles dragged in the viewport. */
@@ -1274,6 +1291,21 @@ export const useStore = create<AppState>()((set, get) => ({
       const params = s.draft.params.map((p, i) => (i === index ? value : p))
       return { draft: evalConstructDraft({ ...s.draft, params }, s.elements, s.modelSize) }
     }),
+
+  setDraftParams: (params, note) =>
+    set((s) => {
+      if (!s.draft) return {}
+      return {
+        draft: { ...evalConstructDraft({ ...s.draft, params }, s.elements, s.modelSize), note },
+      }
+    }),
+
+  setDraftWorking: (note) =>
+    set((s) =>
+      s.draft ? { draft: { ...s.draft, status: 'fitting' as const, message: undefined, note } } : {},
+    ),
+
+  setDraftSeed: (id) => set((s) => (s.draft ? { draft: { ...s.draft, seed: id } } : {})),
 
   setDraftExtend: (side, value) =>
     set((s) => {
