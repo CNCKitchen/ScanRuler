@@ -191,9 +191,10 @@ export function AlignmentSection({
           </p>
           <p>
             <b>Align part</b> places it in up to three steps — set a face on a coordinate plane,
-            run an edge along an axis, put the zero point on a corner. Each step takes a measured
-            element or points clicked straight on the scan, and the viewport previews every choice
-            against the coordinate planes before anything is applied.
+            run an edge or a bore along an axis, put the zero point on a corner. Each step takes a
+            measured element — the accurate choice, it averages thousands of scan points — or
+            points clicked straight on the scan, and the viewport previews every choice against
+            the coordinate planes before anything is applied.
           </p>
           <p>
             <b>Move / rotate by numbers</b> applies a transform you already know instead. Both are
@@ -298,14 +299,17 @@ export function AlignmentSection({
                 applied until <b>Align part</b> is pressed.
               </p>
               <p>
-                <b>1 · Set on a plane</b> — pick 3 points on one face of the part (or use a
-                measured plane or cylinder). Then say which side of the part that face is: the
+                <b>1 · Set on a plane</b> — use a measured plane or cylinder, or pick 3 points
+                on one face of the part. Then say which side of the part that face is: the
                 bottom lands on the floor plane, a front lands on the front plane, and so on.
               </p>
               <p>
-                <b>2 · Align with an axis</b> — pick 2 points along an edge (or use an element)
-                and say which way that edge should run, so the part cannot spin on the plane. The
-                edge runs from your 1st point to your 2nd.
+                <b>2 · Align with an axis</b> — use a measured plane or cylinder (its normal or
+                its axis is the direction), or pick 2 points along an edge, and say which way
+                that direction should run, so the part cannot spin on the plane. An element
+                averages thousands of scan points where a pick is one spot of noise, so fit the
+                face or the bore first when the direction has to hold. Picked, the edge runs
+                from your 1st point to your 2nd.
               </p>
               <p>
                 <b>3 · Move to zero point</b> — pick the corner or feature that becomes X0 Y0 Z0.
@@ -346,7 +350,7 @@ export function AlignmentSection({
           </label>
           <StepHead n={2} text="Align with an axis" optional />
           <AlignSelect
-            label="Edge"
+            label="Direction"
             roles={['plane', 'axis']}
             value={alignDraft.secondary}
             picks={alignDraft.secondaryPicks.length}

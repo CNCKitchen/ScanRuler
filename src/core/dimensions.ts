@@ -110,7 +110,7 @@ const DIMENSIONS: readonly DimensionTypeInfo[] = [
     label: 'Point – Plane',
     stem: 'Distance',
     unit: 'mm',
-    hint: 'Perpendicular distance from a point to a plane, signed along the plane normal.',
+    hint: 'Perpendicular distance from a point to a fitted plane, signed along the plane normal — the CMM way to measure a width, free of the in-plane offset two picked points carry.',
     slots: [
       { roles: ['point'], label: 'Point' },
       { roles: ['plane'], label: 'Plane' },

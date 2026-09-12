@@ -281,6 +281,37 @@ the band, and the copied summary says PASS or FAIL. Leave − empty for a
 symmetric tolerance. A **Diameter** dimension on a sphere, a cylinder or a
 circle is there so a size can be held to a drawing the same way.
 
+### Comparing with a 2D slice
+
+Reverse-engineering work often measures a scan the CAD way: slice the point
+cloud thin, fit a line or a circle to the slice by hand, read the number.
+Three things then differ from what the dimensions here report, and none of
+them is an error on either side.
+
+- **An angle between planes** is the angle between their normals — the
+  dihedral angle, which is what ISO 1101 and every CMM report. A slice
+  reports the angle between the two traces the faces leave in the cutting
+  plane, and that equals the dihedral angle only when the cut is square to
+  the line the two faces meet along. Leaning off that line moves the
+  projected angle at second order: for a true 44.64°, a cut 6° off square
+  reads 44.48°, one 10° off reads 44.20°. A cast web with a few degrees of
+  draft puts that hinge line that far off the part's axis without anyone
+  noticing. To settle it in the app, construct the *Line: intersection of
+  two planes* from the two faces, cut a
+  [Section](#sections-cutting-the-scan-to-measure-the-cut) across that line,
+  and measure the two lines on the 2D sheet with an edge-region fit — that
+  cut is square to the hinge by construction. If it reads the dihedral value,
+  the hand-placed cut leaned; if it does not, the faces are not flat, the
+  slice location matters, and the flatness value says so.
+- **A diameter** here is the Gaussian mean; a slice minimum sits about half
+  the out-of-roundness below it, a slice maximum as far above. The Ø min /
+  max readout gives both ends.
+- **A width between two faces** measured as Point – Point between two
+  hand-picked points carries the in-plane offset of the picks and the noise
+  of two single vertices. Point – Plane measures the way a CMM does,
+  perpendicular to the fitted face, and Plane – Plane averages both faces;
+  the surface-to-surface range says how far the faces themselves spread it.
+
 ### GD&T: form, orientation and location
 
 Below the dimensions, **GD&T** checks what a drawing's feature control frames
@@ -462,15 +493,19 @@ the editor puts the **datum stage** on screen: the three coordinate planes,
 sized to the part and labelled with the axes, with the part centred between
 them so you can see exactly where it is going.
 
-1. **Set on a plane** — pick **3 points on one face** of the part (or use a
-   measured plane or cylinder), then say which side of the part that face is:
-   the *bottom* lands on the floor plane, a *front* on the front plane, and
-   so on. The picked points remember which way the scanned surface faces, so
-   the choice reads the same no matter the order you clicked in.
-2. **Align with an axis** *(optional)* — **2 points along an edge** (or an
-   element), and which way that edge should run (+X to the right, …), so the
-   part cannot spin on its plane. The edge runs from your 1st point to your
-   2nd.
+1. **Set on a plane** — use a **measured plane or cylinder** (a plane lands
+   by its normal, a cylinder by its axis), or pick **3 points on one face**
+   of the part, then say which side of the part that face is: the *bottom*
+   lands on the floor plane, a *front* on the front plane, and so on. The
+   picked points remember which way the scanned surface faces, so the choice
+   reads the same no matter the order you clicked in.
+2. **Align with an axis** *(optional)* — a **measured plane or cylinder**
+   (its normal or its axis is the direction), or **2 points along an edge**,
+   and which way that direction should run (+X to the right, …), so the part
+   cannot spin on its plane. An element averages thousands of scan points
+   where a pick is one spot of noise, so for a direction that has to hold,
+   fit the face or the bore first. Picked, the edge runs from your 1st point
+   to your 2nd.
 3. **Move to zero point** *(optional)* — a point, a sphere center, or **1
    picked point** that becomes X0 Y0 Z0. A zero point on its own works too,
    when all you want is to move the origin.
