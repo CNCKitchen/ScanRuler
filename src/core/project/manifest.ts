@@ -57,10 +57,15 @@ export type ElementJson = Omit<Element, 'source'> & {
   source:
     | { type: 'fitted'; seeds: number[]; selection?: number[]; settings?: FitSettings }
     | { type: 'picked' }
-    | { type: 'constructed'; method: string; refs: number[]; params: number[] }
+    | { type: 'constructed'; method: string; refs: number[]; params: number[]; selection?: number[] }
 }
 
 export function elementToJson(e: Element): ElementJson {
+  if (e.source.type === 'constructed') {
+    // A scan search's marked surface saves the way a fit's does.
+    const { selection, ...rest } = e.source
+    return (selection ? { ...e, source: { ...rest, selection: Array.from(selection) } } : e) as ElementJson
+  }
   if (e.source.type !== 'fitted') return e as ElementJson
   const { selection, ...rest } = e.source
   return {
@@ -75,6 +80,10 @@ export function elementToJson(e: Element): ElementJson {
 /** `settings` stands in for a fitted element saved without its own — the
  *  session-wide setting of the project it came from. */
 export function elementFromJson(e: ElementJson, settings: FitSettings): Element {
+  if (e.source.type === 'constructed') {
+    const { selection, ...rest } = e.source
+    return (selection ? { ...e, source: { ...rest, selection: Uint32Array.from(selection) } } : e) as Element
+  }
   if (e.source.type !== 'fitted') return e as Element
   const { selection, settings: own, ...rest } = e.source
   const source = { ...rest, settings: own ?? settings }

@@ -80,12 +80,14 @@ export type WorkerRequest =
    *  `minLength` millimetres are dropped as specks. */
   | { type: 'section'; requestId: number; origin: Vec3; normal: Vec3; minLength: number }
   /** The centroid of the volume the scan encloses, on the scan as it now
-   *  stands — see geometry/centroid. */
-  | { type: 'centroid'; requestId: number }
+   *  stands — see geometry/centroid. With `vertices`, a surface marked by
+   *  hand, the centroid of that surface instead. */
+  | { type: 'centroid'; requestId: number; vertices?: Uint32Array }
   /** The mirror plane the scan matches itself across, refined from a seed
    *  plane or, without one, from the scan's principal planes — see
-   *  core/symmetry. */
-  | { type: 'symmetry'; requestId: number; seed: SeedPlane | null }
+   *  core/symmetry. With `vertices`, only the marked surface is sampled and
+   *  only it is surface the mirror images may land on. */
+  | { type: 'symmetry'; requestId: number; seed: SeedPlane | null; vertices?: Uint32Array }
 
 export type WorkerResponse =
   | { type: 'progress'; text: string }

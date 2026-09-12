@@ -22,6 +22,7 @@ import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from './deviation/
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
 import { sliceMesh } from './section/slice'
 import { meshCentroid } from './geometry/centroid'
+import { trianglesWithin } from './geometry/region'
 import { findSymmetryPlane } from './symmetry'
 import type { MeshBVH } from 'three-mesh-bvh'
 
@@ -305,7 +306,18 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
       return
     }
-    post({ type: 'centroid-ok', requestId: msg.requestId, result: meshCentroid(graph.positions, graph.indices) })
+    try {
+      // A marked surface is its whole triangles — the ones the tint colours.
+      let indices = graph.indices
+      if (msg.vertices) {
+        checkVertices(msg.vertices, graph.vertexCount)
+        indices = trianglesWithin(graph.indices, msg.vertices, graph.vertexCount)
+        if (indices.length === 0) throw new Error('The marked surface holds no whole triangle — mark a wider patch.')
+      }
+      post({ type: 'centroid-ok', requestId: msg.requestId, result: meshCentroid(graph.positions, indices) })
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 
@@ -315,12 +327,28 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       return
     }
     try {
-      if (!scanSurface || scanSurface.graph !== graph) {
-        progress('Preparing the scan for the symmetry search…')
-        scanSurface = { graph, surface: new NominalSurface(graph.positions, graph.indices) }
+      let surface: NominalSurface
+      if (msg.vertices) {
+        // Only the marked triangles are surface the mirror images may land
+        // on — a fixture left out of the marking is invisible to the search
+        // on both sides. Built per request: a marking is smaller than the
+        // scan, and the next one is a different surface.
+        checkVertices(msg.vertices, graph.vertexCount)
+        const marked = trianglesWithin(graph.indices, msg.vertices, graph.vertexCount)
+        if (marked.length < 3 * 10)
+          throw new Error('The marked surface holds too few whole triangles to search — mark a wider patch.')
+        progress('Preparing the marked surface for the symmetry search…')
+        surface = new NominalSurface(graph.positions, marked)
+      } else {
+        if (!scanSurface || scanSurface.graph !== graph) {
+          progress('Preparing the scan for the symmetry search…')
+          scanSurface = { graph, surface: new NominalSurface(graph.positions, graph.indices) }
+        }
+        surface = scanSurface.surface
       }
-      const result = findSymmetryPlane(scanSurface.surface, graph.positions, graph.normals, msg.seed, {
+      const result = findSymmetryPlane(surface, graph.positions, graph.normals, msg.seed, {
         onProgress: progress,
+        vertices: msg.vertices,
       })
       post({ type: 'symmetry-ok', requestId: msg.requestId, result })
     } catch (e) {

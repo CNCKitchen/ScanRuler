@@ -25,7 +25,7 @@ import {
 } from './core/section/frame'
 import { chainBounds, projectCut } from './core/section/slice'
 import { elementKindInfo } from './core/elements/kinds'
-import { creationMethod } from './core/elements/construct'
+import { creationMethod, takesSurface } from './core/elements/construct'
 import { circleFromPoints } from './core/fit/circle'
 import { extensionOf, fitWindow, isExtendable, sideValue } from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
@@ -664,12 +664,21 @@ export default function App() {
     }
     const store = useStore.getState()
     const draft = store.draft
-    if (!draft || creationMethod(draft.kind, draft.method).mode !== 'fit') return
+    if (!draft) return
+    const method = creationMethod(draft.kind, draft.method)
+    if (!takesSurface(method)) return
     const selection = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
     if (selection.length === 0) {
       draftSeq.current++
       draftRegion.current = null
       store.setDraftSelection(null)
+      return
+    }
+    // A construction that searches the scan keeps the marking as the surface
+    // to search: the centroid measures itself again on it, the symmetry
+    // plane waits to be asked.
+    if (method.mode !== 'fit') {
+      store.setDraftSelection(selection)
       return
     }
     void runDraftPaintFit(draft.kind, selection)
@@ -766,17 +775,21 @@ export default function App() {
     const seedFit = seedEl?.fit?.kind === 'plane' ? seedEl.fit : null
     s.setDraftWorking('Searching the scan for its mirror plane…')
     try {
+      const marked = d.selection ?? null
       const r = await clientRef.current!.symmetry(
         seedFit ? { normal: seedFit.normal, point: seedFit.center } : null,
+        marked,
       )
       const now = useStore.getState().draft
       if (!now || now.method !== 'plane-symmetry') return
       const loose = r.rms > 0.1
       useStore.getState().setDraftParams(
         [...r.normal, ...r.point, r.rms, r.matched, r.sampled],
-        `The mirror image fits the scan to σ ${r.rms.toFixed(4)} mm over ${r.matched.toLocaleString(
+        `The mirror image fits the ${marked ? 'marked surface' : 'scan'} to σ ${r.rms.toFixed(
+          4,
+        )} mm over ${r.matched.toLocaleString('en-US')} of ${r.sampled.toLocaleString(
           'en-US',
-        )} of ${r.sampled.toLocaleString('en-US')} samples, ${
+        )} samples, ${
           seedFit ? `refined from ${seedEl!.name}` : `from principal plane ${r.candidate + 1}`
         }.${
           loose
@@ -803,17 +816,20 @@ export default function App() {
   )
   useEffect(() => {
     if (!centroidPending) return
+    const marked = useStore.getState().draft?.selection ?? null
     useStore.getState().setDraftWorking('Measuring the centroid…')
-    void clientRef.current!.centroid().then(
+    void clientRef.current!.centroid(marked).then(
       (c) => {
         const now = useStore.getState().draft
         if (!now || now.method !== 'point-centroid' || now.status !== 'fitting') return
         const at = c.volume ?? c.area
         useStore.getState().setDraftParams(
           [at[0], at[1], at[2]],
-          c.closed
-            ? `The centroid of the enclosed volume, ${(c.volumeMm3 / 1000).toFixed(2)} cm³.`
-            : 'The scan is open — this is the centroid of its surface, not of a volume.',
+          marked
+            ? `The centroid of the ${marked.length.toLocaleString('en-US')} marked points' surface — of its area, not of a volume.`
+            : c.closed
+              ? `The centroid of the enclosed volume, ${(c.volumeMm3 / 1000).toFixed(2)} cm³.`
+              : 'The scan is open — this is the centroid of its surface, not of a volume.',
         )
       },
       (e: unknown) => {
@@ -1113,13 +1129,13 @@ export default function App() {
     const draft = useStore.getState().draft
     if (!draft) return
     const method = creationMethod(draft.kind, draft.method)
-    if (method.mode === 'fit') {
+    if (takesSurface(method)) {
       if (draft.selection) {
         // Straight back onto the part, in the element's own colour: the brush
         // arms itself around it on the next render.
         sceneRef.current?.setPaintedVertices(draft.selection, el.color)
         useMark.getState().setCount(draft.selection.length)
-      } else if (draft.picks.length > 0) {
+      } else if (method.mode === 'fit' && draft.picks.length > 0) {
         // Back on the part go the spots the element was measured from. Only the
         // seed triangles are kept — an element outlives the session it was made
         // in — so each marker sits in the middle of its triangle rather than on
@@ -1388,7 +1404,7 @@ export default function App() {
     (s) =>
       s.selectMode === 'paint' &&
       s.draft !== null &&
-      creationMethod(s.draft.kind, s.draft.method).mode === 'fit',
+      takesSurface(creationMethod(s.draft.kind, s.draft.method)),
   )
   const marking = useDeviation((s) => s.marking)
   const markGesture = useMark((s) => s.gesture)

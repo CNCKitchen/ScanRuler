@@ -4,7 +4,7 @@
 // colouring of whichever map the workspace is showing. The stores hold the
 // truth; these effects repeat it to the viewport.
 import { useEffect, useMemo } from 'react'
-import { creationMethod } from '../core/elements/construct'
+import { creationMethod, takesSurface } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { applyExtension, isExtendable } from '../core/elements/extend'
@@ -119,7 +119,7 @@ export function useSceneSync({
     (s) =>
       s.selectMode === 'paint' &&
       s.draft !== null &&
-      creationMethod(s.draft.kind, s.draft.method).mode === 'fit',
+      takesSurface(creationMethod(s.draft.kind, s.draft.method)),
   )
   const paintWorkspace = useShell((s) => s.workspace === 'elements')
   const marking = useDeviation((s) => s.marking)

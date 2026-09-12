@@ -54,6 +54,15 @@ export interface CreationMethod {
   /** Picks needed before a pick-mode method has a result — one for a point,
    *  three for a circle. Further picks refine rather than replace. */
   minPicks?: number
+  /** A construction that searches the scan and can be confined to a surface
+   *  marked by hand — the same brush a fit is confined with. */
+  surface?: boolean
+}
+
+/** Whether a method's draft can take a hand-marked surface: every fit, and
+ *  the constructions that search the scan. */
+export function takesSurface(m: CreationMethod): boolean {
+  return m.mode === 'fit' || m.surface === true
 }
 
 const XYZ: ParamSpec[] = [
@@ -87,9 +96,10 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     kind: 'point',
     mode: 'construct',
     label: 'Centroid of the scan',
-    hint: 'The centre of the volume the scan encloses, read off the mesh the moment this is chosen. An open scan gets the centre of its surface instead, and says so.',
+    hint: 'The centre of the volume the scan encloses, read off the mesh the moment this is chosen. An open scan gets the centre of its surface instead, and says so; a marked surface gets the centre of the marking.',
     slots: [],
     params: XYZ.map(found),
+    surface: true,
   },
   {
     id: 'point-midpoint',
@@ -212,7 +222,7 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     kind: 'plane',
     mode: 'construct',
     label: 'Symmetry plane of the scan',
-    hint: 'The mirror plane the part matches itself across, found by reflecting the scan and fitting the reflection back onto it — from the best of the three principal planes, or from a plane you choose as the seed.',
+    hint: 'The mirror plane the part matches itself across, found by reflecting the scan and fitting the reflection back onto it — from the best of the three principal planes, or from a plane you choose as the seed. Mark the surface by hand to keep a fixture or a broken patch out of the search.',
     slots: [],
     params: [
       found({ key: 'nx', label: 'Normal X' }),
@@ -223,6 +233,7 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
       found({ key: 'matched', label: 'Matched samples' }),
       found({ key: 'sampled', label: 'Samples' }),
     ],
+    surface: true,
   },
   // ---- Sphere / Cylinder / Cone --------------------------------------------
   {

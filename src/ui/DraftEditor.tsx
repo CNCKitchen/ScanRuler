@@ -3,7 +3,7 @@
 // rides along while a surface fit is open. Renders nothing without a draft.
 
 import { hasDiameter } from '../core/elements/assumed'
-import { creationMethod, methodsForKind } from '../core/elements/construct'
+import { creationMethod, methodsForKind, takesSurface } from '../core/elements/construct'
 import { isExtendable } from '../core/elements/extend'
 import { isOrientable } from '../core/elements/orient'
 import { elementKindInfo } from '../core/elements/kinds'
@@ -75,15 +75,19 @@ export function DraftEditor({
 
   // Marking the surface by hand replaces the click-and-grow flow, so it only
   // exists for the kinds that are fitted to the scan at all.
-  const paintingSurface = draft !== null && method?.mode === 'fit' && selectMode === 'paint'
+  const paintingSurface =
+    draft !== null && method !== null && takesSurface(method) && selectMode === 'paint'
+  // What the brush is being dragged over: the feature itself for a fit, the
+  // part of the scan a search may use for a construction.
+  const marked = method?.mode === 'fit' ? draftKind?.noun ?? 'surface' : 'surface the search may use'
   const pickHint =
     !draft || !draftKind || !method
       ? ''
       : paintingSurface
         ? markGesture === null
-          ? `Pick a marking tool above, then drag over the ${draftKind.noun}.`
+          ? `Pick a marking tool above, then drag over the ${marked}.`
           : paintCount === 0
-            ? `Drag over the ${draftKind.noun} to mark it.`
+            ? `Drag over the ${marked} to mark it.`
             : 'Keep marking to add more; right-drag rubs out.'
         : draft.picks.length === 0 && draft.status !== 'ready'
           ? method.hint
@@ -164,6 +168,35 @@ export function DraftEditor({
               >
                 <option value="auto">Found from a click</option>
                 <option value="paint">Marked by hand</option>
+              </select>
+            </label>
+          )}
+
+          {method.mode === 'construct' && method.surface && (
+            <label className="field">
+              <span>
+                Search on
+                <InfoDot title="Which surface the search may use">
+                  <p>
+                    <b>Whole scan:</b> every triangle of the part takes part — the right choice for
+                    a clean scan of the part alone.
+                  </p>
+                  <p>
+                    <b>Marked surface:</b> mark the part of the scan the search may use, with the
+                    same window, brush and lasso a hand-marked fit uses, and leave out what should
+                    not count — a fixture, a stamped number, a patch the scanner missed or
+                    smeared. Only the marked points are searched, and only the marked triangles
+                    are surface a mirror image may land on. The marking is saved with the element.
+                  </p>
+                </InfoDot>
+              </span>
+              <select
+                data-test="draft-select-mode"
+                value={selectMode}
+                onChange={(e) => onSelectMode(e.target.value as SelectMode)}
+              >
+                <option value="auto">Whole scan</option>
+                <option value="paint">Marked surface</option>
               </select>
             </label>
           )}

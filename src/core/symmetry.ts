@@ -60,6 +60,10 @@ export interface SymmetryPlane {
 export interface SymmetryOptions {
   /** Samples of the scan the search runs on. */
   samples?: number
+  /** Confine the samples to these vertices — a surface marked by hand, so a
+   *  fixture or a broken patch takes no part. The surface the mirror images
+   *  are matched against is the caller's to confine the same way. */
+  vertices?: Uint32Array
   /** Reflect-register-bisect passes per candidate. */
   rounds?: number
   onProgress?: (text: string) => void
@@ -200,7 +204,25 @@ export function findSymmetryPlane(
   opts: SymmetryOptions = {},
 ): SymmetryPlane {
   const rounds = opts.rounds ?? 5
-  const samples = sampleScan(positions, normals, opts.samples ?? 4000)
+  let pos = positions
+  let nrm = normals
+  if (opts.vertices && opts.vertices.length > 0) {
+    const v = opts.vertices
+    pos = new Float32Array(v.length * 3)
+    nrm = normals ? new Float32Array(v.length * 3) : null
+    for (let i = 0; i < v.length; i++) {
+      const j = v[i] * 3
+      pos[i * 3] = positions[j]
+      pos[i * 3 + 1] = positions[j + 1]
+      pos[i * 3 + 2] = positions[j + 2]
+      if (nrm && normals) {
+        nrm[i * 3] = normals[j]
+        nrm[i * 3 + 1] = normals[j + 1]
+        nrm[i * 3 + 2] = normals[j + 2]
+      }
+    }
+  }
+  const samples = sampleScan(pos, nrm, opts.samples ?? 4000)
   if (samples.count < 100) throw new Error('Too few points to look for a symmetry.')
   const diag = surface.bboxDiagonal
   const reach = diag * 0.1

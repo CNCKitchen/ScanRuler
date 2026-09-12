@@ -260,6 +260,14 @@ the symmetry plane onto a coordinate plane in [Align part](#aligning-the-part)
 is what decides where the mirror goes, and the centroid can be the zero
 point.
 
+Either search can be confined to a **marked surface**: switch *Search on* to
+*Marked surface* and the same window, brush and lasso a hand-marked fit uses
+appear. Only the marked points are searched and only the marked triangles
+are surface a mirror image may land on, so a fixture, a stamped number or a
+patch the scanner smeared is kept out of the search on both sides; the
+centroid of a marking is the centroid of that surface. The marking is saved
+with the element and is back on the part when it is re-opened.
+
 ### Dimensions
 
 Measurements are created deliberately, not generated for every pair — with a

@@ -161,6 +161,9 @@ export function buildSummary(
       lines.push(
         `  constructed: ${describeConstruction(el.source.method, el.source.refs.map(nameOf), el.source.params)}`,
       )
+      if (el.source.selection) {
+        lines.push(`  searched on a marked surface of ${el.source.selection.length} points`)
+      }
     }
     const f = el.fit
     if (!f) {

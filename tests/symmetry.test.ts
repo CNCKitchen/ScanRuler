@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { NominalSurface } from '../src/core/deviation/surface'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
+import { trianglesWithin } from '../src/core/geometry/region'
 import { findSymmetryPlane } from '../src/core/symmetry'
 import type { MeshGraph, Vec3 } from '../src/core/types'
 import { boxMesh } from './helpers'
@@ -68,5 +69,25 @@ describe('symmetry plane', () => {
     const surface = new NominalSurface(g.positions, g.indices)
     const r = findSymmetryPlane(surface, g.positions, g.normals, null, OPTS)
     expect(r.rms).toBeGreaterThan(0.2)
+  })
+
+  it('finds the symmetry of the marked surface alone when the rest is left out', () => {
+    // The same asymmetric part, with only the big cube marked: the lifted
+    // cube is neither sampled nor surface a mirror image may land on, and
+    // the cube's own symmetry comes out clean.
+    const g = lShape(0, 3)
+    const marked: number[] = []
+    for (let v = 0; v < g.vertexCount; v++) {
+      const x = g.positions[v * 3], y = g.positions[v * 3 + 1], z = g.positions[v * 3 + 2]
+      if (Math.abs(x) <= 10.001 && Math.abs(y) <= 10.001 && Math.abs(z) <= 10.001) marked.push(v)
+    }
+    const vertices = Uint32Array.from(marked)
+    const cube = trianglesWithin(g.indices, vertices, g.vertexCount)
+    const surface = new NominalSurface(g.positions, cube)
+    const r = findSymmetryPlane(surface, g.positions, g.normals, null, { ...OPTS, vertices })
+    expect(r.rms).toBeLessThan(0.03)
+    expect(Math.max(...r.normal.map(Math.abs))).toBeGreaterThan(0.9999)
+    expect(Math.abs(r.point[0] * r.normal[0] + r.point[1] * r.normal[1] + r.point[2] * r.normal[2])).toBeLessThan(0.02)
+    expect(r.sampled).toBeLessThanOrEqual(vertices.length)
   })
 })

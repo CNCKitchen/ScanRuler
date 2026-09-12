@@ -213,7 +213,17 @@ export type ElementSource =
    *  a noisy cast face want different cut-offs on the same part. */
   | { type: 'fitted'; seeds: number[]; selection?: Uint32Array; settings: FitSettings }
   | { type: 'picked' }
-  | { type: 'constructed'; method: string; refs: number[]; params: number[] }
+  /** `selection` is the surface a construction that searches the scan — a
+   *  centroid, a symmetry plane — was confined to by hand, kept so the
+   *  element re-opens with its marking and searches the same surface
+   *  again. Absent when the whole scan was searched. */
+  | {
+      type: 'constructed'
+      method: string
+      refs: number[]
+      params: number[]
+      selection?: Uint32Array
+    }
 
 interface WithRegion {
   region: Uint32Array

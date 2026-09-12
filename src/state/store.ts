@@ -5,6 +5,7 @@ import {
   ConstructionError,
   creationMethod,
   evaluateConstruction,
+  takesSurface,
 } from '../core/elements/construct'
 import type { Dimension, DimensionFamily, Limit, SphereAnchor } from '../core/dimensions'
 import {
@@ -386,7 +387,12 @@ function draftFromElement(
   }
   if (el.source.type === 'constructed') {
     return evalConstructDraft(
-      { ...base, refs: [...el.source.refs], params: [...el.source.params] },
+      {
+        ...base,
+        refs: [...el.source.refs],
+        params: [...el.source.params],
+        selection: el.source.selection,
+      },
       elements,
       modelSize,
     )
@@ -1167,7 +1173,14 @@ export const useStore = create<AppState>()((set, get) => ({
       const draft = draftFromElement(el, s.elements, s.modelSize, s.settings)
       return {
         draft,
-        selectMode: el.source.type === 'fitted' ? (el.source.selection ? 'paint' : 'auto') : s.selectMode,
+        selectMode:
+          el.source.type === 'picked'
+            ? s.selectMode
+            : el.source.selection
+              ? 'paint'
+              : el.source.type === 'fitted' || takesSurface(creationMethod(el.kind, el.source.method))
+                ? 'auto'
+                : s.selectMode,
         alignDraft: null,
         sectionDraft: null,
         errorText: null,
@@ -1211,19 +1224,38 @@ export const useStore = create<AppState>()((set, get) => ({
     set((s) => (s.draft ? { draft: { ...s.draft, pickPoints: points } } : {})),
 
   setDraftSelection: (selection) =>
-    set((s) =>
-      s.draft
-        ? {
-            draft: {
-              ...s.draft,
-              selection: selection ?? undefined,
-              fit: undefined,
-              message: undefined,
-              status: selection ? ('fitting' as const) : ('empty' as const),
-            },
-          }
-        : {},
-    ),
+    set((s) => {
+      if (!s.draft) return {}
+      const m = creationMethod(s.draft.kind, s.draft.method)
+      // A construction that searches the scan starts over on a new marking:
+      // the numbers it found were for a surface that is no longer the one
+      // asked about. The centroid measures itself again, the symmetry plane
+      // waits to be asked.
+      if (m.mode === 'construct') {
+        return {
+          draft: {
+            ...s.draft,
+            selection: selection ?? undefined,
+            params: m.params.map(() => NaN),
+            fit: undefined,
+            message: undefined,
+            note: selection
+              ? `The search is confined to the ${selection.length.toLocaleString('en-US')} marked points.`
+              : undefined,
+            status: 'empty' as const,
+          },
+        }
+      }
+      return {
+        draft: {
+          ...s.draft,
+          selection: selection ?? undefined,
+          fit: undefined,
+          message: undefined,
+          status: selection ? ('fitting' as const) : ('empty' as const),
+        },
+      }
+    }),
 
   setDraftRef: (slot, id) =>
     set((s) => {
@@ -1418,7 +1450,15 @@ export const useStore = create<AppState>()((set, get) => ({
           : { type: 'fitted', seeds: d.picks.flat(), settings: d.settings }
         : m.mode === 'pick'
           ? { type: 'picked' }
-          : { type: 'constructed', method: d.method, refs: d.refs as number[], params: d.params }
+          : {
+              type: 'constructed',
+              method: d.method,
+              refs: d.refs as number[],
+              params: d.params,
+              // The surface a scan search was confined to goes with the
+              // element, so it re-opens marked and searches the same again.
+              ...(d.selection && takesSurface(m) ? { selection: d.selection } : {}),
+            }
     // An edited element is written back where it stands: same id, same colour,
     // same place in the list, so every dimension and construction on it simply
     // re-reads the new geometry.

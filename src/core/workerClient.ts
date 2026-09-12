@@ -217,24 +217,29 @@ export class MeshWorkerClient {
   }
 
   /** The centroid of the volume the scan encloses, on the scan as it now
-   *  stands — with whether it is closed enough to have one. */
-  async centroid(): Promise<MeshCentroid> {
+   *  stands — with whether it is closed enough to have one. Given a marked
+   *  surface, the centroid of that surface. The vertex list is copied, not
+   *  transferred: the marking stays on the part. */
+  async centroid(vertices?: Uint32Array | null): Promise<MeshCentroid> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'centroid-ok' }>>({
       type: 'centroid',
       requestId,
+      vertices: vertices ?? undefined,
     })
     return res.result
   }
 
   /** The mirror plane the scan matches itself across, refined from `seed`
-   *  or, without one, from the best of the scan's principal planes. */
-  async symmetry(seed: SeedPlane | null): Promise<SymmetryPlane> {
+   *  or, without one, from the best of the scan's principal planes — on the
+   *  whole scan, or on a marked surface alone. */
+  async symmetry(seed: SeedPlane | null, vertices?: Uint32Array | null): Promise<SymmetryPlane> {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'symmetry-ok' }>>({
       type: 'symmetry',
       requestId,
       seed,
+      vertices: vertices ?? undefined,
     })
     return res.result
   }
