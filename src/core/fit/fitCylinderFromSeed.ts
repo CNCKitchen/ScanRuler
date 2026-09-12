@@ -43,6 +43,8 @@ function cylinderResult(
     usedPoints: fin.used.length,
     regionSize: used.length,
     formError: fin.span,
+    residualMin: fin.min,
+    residualMax: fin.max,
     region: used,
   }
 }

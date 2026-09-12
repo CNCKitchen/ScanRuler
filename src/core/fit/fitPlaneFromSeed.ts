@@ -125,6 +125,19 @@ function orientToSurface(p: Plane, normals: Float32Array, region: Uint32Array): 
   return { nx: -p.nx, ny: -p.ny, nz: -p.nz, d: -p.d }
 }
 
+/** The residual extremes as they read against the reported normal. Turning
+ *  the plane to face the surface turns every residual with it, so the point
+ *  furthest below the fit becomes the one furthest above. */
+function orientedExtremes(
+  fin: { plane: Plane; min: number; max: number },
+  plane: Plane,
+): { residualMin: number; residualMax: number } {
+  const same = fin.plane.nx * plane.nx + fin.plane.ny * plane.ny + fin.plane.nz * plane.nz > 0
+  return same
+    ? { residualMin: fin.min, residualMax: fin.max }
+    : { residualMin: -fin.max, residualMax: -fin.min }
+}
+
 /** Full auto-fit pipeline from a single user click:
  *  1. BFS a local patch around the seed,
  *  2. robust RANSAC/LMedS plane estimate on the patch,
@@ -169,6 +182,7 @@ export function fitPlaneFromSeed(
       usedPoints: fin.used.length,
       regionSize: grown.region.length,
       formError: fin.span,
+      ...orientedExtremes(fin, plane),
       region: grown.region,
     }
   }
@@ -210,6 +224,7 @@ export function fitPlaneOnSelection(
     usedPoints: fin.used.length,
     regionSize: selection.length,
     formError: fin.span,
+    ...orientedExtremes(fin, plane),
     region: selection,
   }
 }

@@ -7,6 +7,12 @@ export interface ClippedRefit<M> {
   /** Peak-to-peak residual over the used points — the GD&T form deviation
    *  (flatness, cylindricity, sphericity) of the surface the fit kept. */
   span: number
+  /** The signed residual extremes `span` is the difference of, in the
+   *  model's own residual convention — along the normal for a plane,
+   *  radially out for a cylinder, sphere or cone: how far the kept surface
+   *  reaches below and above the fit. */
+  min: number
+  max: number
   used: Uint32Array
 }
 
@@ -48,7 +54,7 @@ export function clippedRefit<M>(
     }
     if (m === 0) return result
     const sigma = Math.sqrt(sumSq / m)
-    result = { model, sigma, span: hi - lo, used }
+    result = { model, sigma, span: hi - lo, min: lo, max: hi, used }
 
     if (k <= 0 || sigma < 1e-9) return result
     const thr = k * sigma

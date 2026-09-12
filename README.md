@@ -81,6 +81,18 @@ deviation over the used points, which is the number GD&T calls flatness,
 cylindricity, sphericity or circularity. Cylinders also report the length and
 the arc of wall the fit rests on, planes the size of the measured patch.
 
+The fitted diameter is a **Gaussian mean**: the circle the scan points
+scatter evenly about. A bore that is 0.2 mm out of round reaches 0.1 mm
+inside that circle at its tightest and 0.1 mm outside at its widest, and a
+slice through it measured by hand in CAD will read either of those before it
+reads the mean. So a sphere, a cylinder and a circle also report **Ø min and
+Ø max** — the Gaussian radius moved in to the lowest and out to the highest
+radial residual of the used points, doubled: the smallest and the largest
+diameter the surface actually reaches, which brackets what a caliper or a
+gauge pin finds. The copied summary prints the residual extremes themselves
+for every fitted element. The headline stays the mean; the max-inscribed and
+min-circumscribed fits proper are on the roadmap.
+
 ### Marking the surface by hand
 
 Automatic surface selection is right almost all of the time, and wrong exactly
@@ -243,6 +255,16 @@ GOM Inspect / PC-DMIS conventions:
 | Angle: Axis – Axis | 0–90° |
 | Angle: Axis – Plane | angle to the surface, 0–90° |
 | Angle: Plane – Plane | via outward normals, 0–180° (opposing faces read 180°) |
+
+A distance to a fitted plane is a distance to the *fit*, and the face itself
+lies a little below and above that. The Point – Plane, Axis – Plane and
+Plane – Plane dimensions therefore also read the **surface-to-surface range**:
+the lowest and the highest the distance comes out once each face's own form
+deviation is counted in — between two opposite faces of a 50 mm part, the
+min and the max a caliper would find over them. It sits under the value and
+in the copied summary. An axis has no surface of its own to stray (it
+averages the whole wall, which is why out-of-roundness does not move it), so
+Axis – Axis stays a single number.
 
 Fitted geometry is treated as **finite**: a plane is only the patch that was
 measured, an axis only the section the fit rests on. A dimension that has to

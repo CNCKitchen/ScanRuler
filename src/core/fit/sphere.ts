@@ -120,6 +120,10 @@ export interface ClippedFit {
   sigma: number
   /** Peak-to-peak radial residual — the surface's sphericity. */
   span: number
+  /** The signed radial extremes `span` is the difference of: how far inside
+   *  and outside the fitted sphere the kept points reach. */
+  min: number
+  max: number
   used: Uint32Array
 }
 
@@ -145,5 +149,5 @@ export function fitSphereClipped(
       return Math.sqrt(dx * dx + dy * dy + dz * dz) - s.r
     },
   )
-  return r && { sphere: r.model, sigma: r.sigma, span: r.span, used: r.used }
+  return r && { sphere: r.model, sigma: r.sigma, span: r.span, min: r.min, max: r.max, used: r.used }
 }

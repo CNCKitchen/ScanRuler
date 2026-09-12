@@ -111,5 +111,7 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     usedPoints: n,
     regionSize: n,
     formError: maxR - minR,
+    residualMin: minR,
+    residualMax: maxR,
   }
 }

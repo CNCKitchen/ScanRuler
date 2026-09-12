@@ -214,6 +214,11 @@ export interface ClippedCylinderFit {
   sigma: number
   /** Peak-to-peak radial residual — the surface's cylindricity. */
   span: number
+  /** The signed radial extremes `span` is the difference of: how far inside
+   *  and outside the fitted wall the kept points reach — a bore's tightest
+   *  and widest spot, doubled, are the min and max diameter. */
+  min: number
+  max: number
   used: Uint32Array
 }
 
@@ -241,7 +246,7 @@ export function fitCylinderClipped(
     },
     cylinderResidual,
   )
-  return r && { cylinder: r.model, sigma: r.sigma, span: r.span, used: r.used }
+  return r && { cylinder: r.model, sigma: r.sigma, span: r.span, min: r.min, max: r.max, used: r.used }
 }
 
 export interface RansacCylinderResult {

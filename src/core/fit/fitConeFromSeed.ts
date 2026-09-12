@@ -87,6 +87,8 @@ export function fitConeFromSeed(
       usedPoints: fin.used.length,
       regionSize: grown.region.length,
       formError: fin.span,
+      residualMin: fin.min,
+      residualMax: fin.max,
       region: grown.region,
     }
   }
@@ -129,6 +131,8 @@ export function fitConeOnSelection(
     usedPoints: fin.used.length,
     regionSize: selection.length,
     formError: fin.span,
+    residualMin: fin.min,
+    residualMax: fin.max,
     region: selection,
   }
 }

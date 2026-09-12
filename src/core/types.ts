@@ -106,6 +106,14 @@ export interface FitBase {
    *  sphericity. Absent on picked and constructed geometry, which has no
    *  residuals to span. */
   formError?: number
+  /** The signed residual extremes `formError` is the difference of — how far
+   *  the measured surface reaches below and above the fit, in the fit's own
+   *  convention: along the outward normal for a plane, radially outward for
+   *  a cylinder, sphere, cone or circle. On their own they say where the
+   *  surface actually lies, which is what a min / max diameter and a
+   *  caliper-style distance range are read from. Absent with `formError`. */
+  residualMin?: number
+  residualMax?: number
 }
 
 /** A reference point: picked on the scan surface or constructed. */

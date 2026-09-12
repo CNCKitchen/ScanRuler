@@ -57,6 +57,10 @@ export interface ClippedPlaneFit {
   sigma: number
   /** Peak-to-peak distance over the used points — the patch's flatness. */
   span: number
+  /** The signed extremes `span` is the difference of: how far below and
+   *  above the fit the kept points reach, along the fitted normal. */
+  min: number
+  max: number
   used: Uint32Array
 }
 
@@ -68,7 +72,7 @@ export function fitPlaneClipped(
   k: number,
 ): ClippedPlaneFit | null {
   const r = clippedRefit<Plane>(positions, idx, k, (used) => fitPlaneTLS(positions, used), planeResidual)
-  return r && { plane: r.model, sigma: r.sigma, span: r.span, used: r.used }
+  return r && { plane: r.model, sigma: r.sigma, span: r.span, min: r.min, max: r.max, used: r.used }
 }
 
 export interface RansacPlaneResult {

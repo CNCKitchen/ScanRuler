@@ -534,3 +534,75 @@ describe('limits', () => {
     expect(rows[2].verdict).toBeUndefined()
   })
 })
+
+/** The same fit, carrying how far its measured surface reaches below and
+ *  above it — what a fitted element brings and a constructed one lacks. */
+const withSpread = <T extends { residualMin?: number; residualMax?: number }>(
+  fit: T,
+  min: number,
+  max: number,
+): T => ({ ...fit, residualMin: min, residualMax: max })
+
+describe('surface-to-surface ranges', () => {
+  it('brackets a plane – plane width by both faces, whichever way they face', () => {
+    // Opposite faces of a 50 mm part: the caliper's max is where both faces
+    // bulge out, the min where both sink in.
+    const top = withSpread(plane([0, 0, 50]), -0.02, 0.03)
+    const bottom = withSpread(plane([0, 0, 0], 10, 10, 0, true), -0.01, 0.04)
+    const r = evaluateDimension('dist-plane-plane', [top, bottom])
+    expect(r.raw).toBeCloseTo(50, 9)
+    expect(r.range![0]).toBeCloseTo(49.97, 9)
+    expect(r.range![1]).toBeCloseTo(50.07, 9)
+    expect(r.detail).toMatch(/surface to surface 49\.970 – 50\.070 mm/)
+    // Measured the other way round it is the same range.
+    const back = evaluateDimension('dist-plane-plane', [bottom, top])
+    expect(back.range![0]).toBeCloseTo(49.97, 9)
+    expect(back.range![1]).toBeCloseTo(50.07, 9)
+  })
+
+  it('brackets a step between faces that look the same way', () => {
+    // A 5 mm step: the upper face bulging out raises it, the lower face
+    // bulging out lowers it.
+    const upper = withSpread(plane([0, 0, 5]), -0.02, 0.03)
+    const lower = withSpread(plane([0, 0, 0]), -0.01, 0.04)
+    const r = evaluateDimension('dist-plane-plane', [upper, lower])
+    expect(r.raw).toBeCloseTo(5, 9)
+    expect(r.range![0]).toBeCloseTo(4.94, 9)
+    expect(r.range![1]).toBeCloseTo(5.04, 9)
+  })
+
+  it('has no range when a face carries no residuals', () => {
+    const r = evaluateDimension('dist-plane-plane', [plane([0, 0, 2]), plane([0, 0, 0])])
+    expect(r.range).toBeUndefined()
+    expect(r.detail).not.toMatch(/surface to surface/)
+  })
+
+  it('moves a point – plane distance to the measured surface, keeping the sign', () => {
+    const face = withSpread(plane([0, 0, 0]), -0.01, 0.04)
+    const above = evaluateDimension('dist-point-plane', [point([0, 0, 12]), face])
+    expect(above.raw).toBeCloseTo(12, 9)
+    expect(above.range![0]).toBeCloseTo(11.96, 9)
+    expect(above.range![1]).toBeCloseTo(12.01, 9)
+    expect(above.detail).toMatch(/\+11\.960 to \+12\.010 mm/)
+    const below = evaluateDimension('dist-point-plane', [point([0, 0, -12]), face])
+    expect(below.range![0]).toBeCloseTo(-12.04, 9)
+    expect(below.range![1]).toBeCloseTo(-11.99, 9)
+  })
+
+  it('widens an axis – plane distance by the plane alone', () => {
+    const face = withSpread(plane([0, 0, 0]), -0.01, 0.04)
+    const r = evaluateDimension('dist-axis-plane', [cylinder([0, 0, 20], [1, 0, 0]), face])
+    expect(r.raw).toBeCloseTo(20, 9)
+    expect(r.range![0]).toBeCloseTo(19.96, 9)
+    expect(r.range![1]).toBeCloseTo(20.01, 9)
+  })
+
+  it('reads a diameter dimension with the smallest and the largest diameter', () => {
+    const r = evaluateDimension('size-diameter', [withSpread(sphere([0, 0, 0], 5), -0.05, 0.1)])
+    expect(r.raw).toBeCloseTo(10, 9)
+    expect(r.range![0]).toBeCloseTo(9.9, 9)
+    expect(r.range![1]).toBeCloseTo(10.2, 9)
+    expect(r.detail).toMatch(/min 9\.900 · max 10\.200 mm/)
+    expect(evaluateDimension('size-diameter', [sphere([0, 0, 0], 5)]).range).toBeUndefined()
+  })
+})

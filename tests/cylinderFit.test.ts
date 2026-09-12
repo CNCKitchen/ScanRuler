@@ -145,3 +145,48 @@ describe('RANSAC cylinder estimate', () => {
     if (res) expect(cylinderResidual(res.cylinder, sliver[0], sliver[1], sliver[2])).toBeLessThan(1)
   })
 })
+
+/** Points on a lobed wall about the test axis: r(θ) = R + amp·cos(lobes·θ),
+ *  no noise — a surface that reaches exactly `amp` inside and outside the
+ *  round cylinder it averages to. The angles are laid out evenly (only the
+ *  axial position is random), so the lobes cancel exactly and the sample
+ *  hits both the peaks and the flats. */
+function lobedWall(n: number, lobes: number, amp: number): Float32Array {
+  const rand = mulberry32(7)
+  const d = unit(AXIS)
+  const h: Vec3 = Math.abs(d[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]
+  const u = unit([d[1] * h[2] - d[2] * h[1], d[2] * h[0] - d[0] * h[2], d[0] * h[1] - d[1] * h[0]])
+  const v: Vec3 = [d[1] * u[2] - d[2] * u[1], d[2] * u[0] - d[0] * u[2], d[0] * u[1] - d[1] * u[0]]
+  const out = new Float32Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    const ang = (i / n) * 2 * Math.PI
+    const t = (rand() - 0.5) * LENGTH
+    const r = R + amp * Math.cos(lobes * ang)
+    const cu = Math.cos(ang) * r
+    const cv = Math.sin(ang) * r
+    out[i * 3] = POINT[0] + cu * u[0] + cv * v[0] + t * d[0]
+    out[i * 3 + 1] = POINT[1] + cu * u[1] + cv * v[1] + t * d[1]
+    out[i * 3 + 2] = POINT[2] + cu * u[2] + cv * v[2] + t * d[2]
+  }
+  return out
+}
+
+describe('radial extremes', () => {
+  it('reports how far a lobed wall reaches inside and outside the fit', () => {
+    // Three lobes average out, so the Gaussian radius is R, and the wall
+    // reaches 50 µm inside it at the flats and 50 µm outside at the lobes —
+    // the two numbers the min and max diameter are read from.
+    const n = 6000
+    const amp = 0.05
+    const pts = lobedWall(n, 3, amp)
+    const d = unit(AXIS)
+    const init: Cylinder = { px: POINT[0], py: POINT[1], pz: POINT[2], ax: d[0], ay: d[1], az: d[2], r: R }
+    const fit = fitCylinderClipped(pts, allIndices(n), init, 0)!
+    expect(fit).toBeTruthy()
+    expect(Math.abs(fit.cylinder.r - R)).toBeLessThan(5e-4)
+    expect(Math.abs(fit.min + amp)).toBeLessThan(5e-4)
+    expect(Math.abs(fit.max - amp)).toBeLessThan(5e-4)
+    expect(fit.span).toBeCloseTo(fit.max - fit.min, 12)
+    expect(fit.used.length).toBe(n)
+  })
+})

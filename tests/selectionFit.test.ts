@@ -44,6 +44,30 @@ describe('plane fitted to a marked surface', () => {
     expect(out.sigma).toBeLessThan(0.03)
   })
 
+  it('reads the residual extremes against the outward normal', () => {
+    // The top face, on every point: the extremes are exactly the furthest
+    // the marked vertices lie below and above the reported plane — with the
+    // sign following the normal that was turned to face out of the part.
+    const selection = mark(graph, (_x, _y, z) => z > SIZE / 2 - 0.1)
+    const out = fitPlaneOnSelection(graph, selection, { method: 'gaussian', sigma: 0 })
+    expect(out.normal[2]).toBeGreaterThan(0.999)
+    let lo = Infinity
+    let hi = -Infinity
+    for (const v of selection) {
+      const e =
+        (graph.positions[v * 3] - out.center[0]) * out.normal[0] +
+        (graph.positions[v * 3 + 1] - out.center[1]) * out.normal[1] +
+        (graph.positions[v * 3 + 2] - out.center[2]) * out.normal[2]
+      lo = Math.min(lo, e)
+      hi = Math.max(hi, e)
+    }
+    expect(out.residualMin!).toBeCloseTo(lo, 6)
+    expect(out.residualMax!).toBeCloseTo(hi, 6)
+    expect(out.formError!).toBeCloseTo(hi - lo, 6)
+    expect(out.residualMin!).toBeLessThan(0)
+    expect(out.residualMax!).toBeGreaterThan(0)
+  })
+
   it('refuses a marking too small to fit anything to', () => {
     const selection = mark(graph, (x, y, z) => z > SIZE / 2 - 0.1 && x > 9 && y > 9)
     expect(selection.length).toBeGreaterThan(0)

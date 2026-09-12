@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { ElementKind, FitData, PlaneFit, Vec3 } from './types'
+import type { ElementKind, FitBase, FitData, PlaneFit, Vec3 } from './types'
 import {
   EXTENT_MARGIN,
   refAxis,
@@ -408,6 +408,46 @@ export interface DimensionValue {
   /** Supporting numbers: ΔX/ΔY/ΔZ for point–point, the fold angle for
    *  near-parallel pairs. */
   detail?: string
+  /** Where the measured surfaces themselves put the value: the lowest and
+   *  the highest it reads once each face's form deviation is counted in —
+   *  the min and the max a caliper would find over the faces, or the
+   *  smallest and the largest diameter a bore reaches. Absent where nothing
+   *  in the dimension has a measured surface. */
+  range?: [number, number]
+}
+
+/** The signed residual extremes of a fitted surface, null when it carries
+ *  none — a constructed or picked element has no surface to stray. */
+function spread(fit: FitBase): [number, number] | null {
+  return fit.residualMin !== undefined && fit.residualMax !== undefined
+    ? [fit.residualMin, fit.residualMax]
+    : null
+}
+
+/** The smallest and the largest diameter a fitted sphere, cylinder or
+ *  circle reaches: the Gaussian radius moved in to the lowest and out to
+ *  the highest radial residual, doubled. A conservative bracket on the
+ *  two-point diameters a caliper finds — the tightest spot can be no
+ *  tighter, the widest no wider. Null for a kind without a diameter or a
+ *  fit without residuals. */
+export function diameterRange(fit: FitData): [number, number] | null {
+  if (!hasDiameter(fit)) return null
+  const s = spread(fit)
+  return s && [2 * (fit.radius + s[0]), 2 * (fit.radius + s[1])]
+}
+
+const rangeText = (r: [number, number]): string => `${r[0].toFixed(3)} – ${r[1].toFixed(3)} mm`
+const signedRangeText = (r: [number, number]): string => {
+  const f = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(3)}`
+  return `${f(r[0])} to ${f(r[1])} mm`
+}
+
+/** A signed distance read to a plane, moved to the plane's measured surface:
+ *  a point of the face at residual e sits e further out along the normal, so
+ *  the distance to the surface itself runs from d − max to d − min. */
+function toSurfaceRange(d: number, plane: PlaneFit): [number, number] | null {
+  const s = spread(plane)
+  return s && [d - s[1], d - s[0]]
 }
 
 /** Beyond this fold angle, "parallel" distances stop being reported. */
@@ -526,12 +566,16 @@ export function evaluateDimension(
       if (!p || !plane) return invalid('Distance to plane', 'A reference is missing.')
       const d = dot(sub(p, plane.center), plane.normal)
       const foot = footOnPlane(plane, p)
+      const range = toSurfaceRange(d, plane) ?? undefined
       return {
         label: 'Distance to plane',
         value: signedMm(d),
         raw: d,
         segment: [p, foot],
-        detail: 'Signed along the plane normal: + is outside the surface.',
+        detail: `Signed along the plane normal: + is outside the surface.${
+          range ? ` To the measured surface itself ${signedRangeText(range)}.` : ''
+        }`,
+        range,
         warning: overPatch(plane, foot)
           ? undefined
           : 'The projection falls outside the measured plane patch.',
@@ -608,11 +652,16 @@ export function evaluateDimension(
         )
       if (!overPatch(plane, foot))
         warnings.push('The projection falls outside the measured plane patch.')
+      // The axis is an averaged feature with no surface of its own to
+      // stray, so only the plane's form widens the reading.
+      const range = toSurfaceRange(d, plane) ?? undefined
       return {
         label: 'Axis to plane',
         value: signedMm(d),
         raw: d,
         segment: [axis.origin, foot],
+        detail: range ? `To the measured surface itself ${signedRangeText(range)}` : undefined,
+        range,
         warning: warnings.length ? warnings.join(' ') : undefined,
       }
     }
@@ -628,7 +677,8 @@ export function evaluateDimension(
           `The planes are ${deg(fold)} apart — a distance between non-parallel planes has no meaning. Use an angle dimension instead.`,
         )
       }
-      const d = Math.abs(dot(sub(a.center, b.center), b.normal))
+      const s = dot(sub(a.center, b.center), b.normal)
+      const d = Math.abs(s)
       const foot = footOnPlane(b, a.center)
       const warnings: string[] = []
       if (fold > PARALLEL_WARN_DEG)
@@ -639,12 +689,33 @@ export function evaluateDimension(
         warnings.push(
           'The measured patches do not overlap — the distance is taken at the center of the first plane.',
         )
+      // Surface to surface: a point of A at residual eA sits eA out along
+      // A's normal, one of B at eB out along B's, so the separation along
+      // B's normal is s + eA·(nA·nB) − eB — linear in both, so its extremes
+      // over the faces are at the corners of the two residual spans.
+      const sa = spread(a)
+      const sb = spread(b)
+      let range: [number, number] | undefined
+      if (sa && sb) {
+        const c = dot(a.normal, b.normal)
+        const sign = s < 0 ? -1 : 1
+        const corners = [
+          sign * (s + sa[0] * c - sb[0]),
+          sign * (s + sa[0] * c - sb[1]),
+          sign * (s + sa[1] * c - sb[0]),
+          sign * (s + sa[1] * c - sb[1]),
+        ]
+        range = [Math.min(...corners), Math.max(...corners)]
+      }
       return {
         label: 'Plane distance',
         value: mm(d),
         raw: d,
         segment: [a.center, foot],
-        detail: `Planes ${deg(fold)} off parallel`,
+        detail: `Planes ${deg(fold)} off parallel${
+          range ? ` · surface to surface ${rangeText(range)}` : ''
+        }`,
+        range,
         warning: warnings.length ? warnings.join(' ') : undefined,
       }
     }
@@ -727,11 +798,16 @@ export function evaluateDimension(
     case 'size-diameter': {
       const f = fits[0]
       if (!hasDiameter(f)) return invalid('Diameter', 'The reference has no diameter.')
+      const range = diameterRange(f) ?? undefined
       return {
         label: 'Diameter',
         value: mm(2 * f.radius),
         raw: 2 * f.radius,
         anchor: f.center,
+        detail: range
+          ? `Gaussian mean · min ${range[0].toFixed(3)} · max ${range[1].toFixed(3)} mm from the radial extremes of the used points`
+          : undefined,
+        range,
       }
     }
 

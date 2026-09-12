@@ -298,6 +298,10 @@ export interface ClippedConeFit {
   sigma: number
   /** Peak-to-peak residual — the surface's conicity. */
   span: number
+  /** The signed extremes `span` is the difference of: how far inside and
+   *  outside the fitted wall the kept points reach, along the slant normal. */
+  min: number
+  max: number
   used: Uint32Array
 }
 
@@ -325,7 +329,7 @@ export function fitConeClipped(
     },
     coneResidual,
   )
-  return r && { cone: r.model, sigma: r.sigma, span: r.span, used: r.used }
+  return r && { cone: r.model, sigma: r.sigma, span: r.span, min: r.min, max: r.max, used: r.used }
 }
 
 export interface RansacConeResult {

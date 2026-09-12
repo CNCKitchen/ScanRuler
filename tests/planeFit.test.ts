@@ -30,6 +30,25 @@ describe('Gaussian plane fit', () => {
     expect(fit.span).toBeLessThanOrEqual(6 * fit.sigma + 1e-9)
   })
 
+  it('reports how far the kept points reach below and above the fit', () => {
+    // A clean plane plus one point 30 µm above it and one 20 µm below: the
+    // extremes are those two, read against the fitted normal whichever way
+    // the eigenvector happened to point.
+    const n = 2000
+    const clean = samplePlane(n, POINT, NORMAL, 40, 0)
+    const pts = new Float32Array((n + 2) * 3)
+    pts.set(clean)
+    const [nx, ny, nz] = unitNormal()
+    pts.set([POINT[0] + 0.03 * nx, POINT[1] + 0.03 * ny, POINT[2] + 0.03 * nz], n * 3)
+    pts.set([POINT[0] - 0.02 * nx, POINT[1] - 0.02 * ny, POINT[2] - 0.02 * nz], (n + 1) * 3)
+    const fit = fitPlaneClipped(pts, allIndices(n + 2), 0)!
+    const facing = fit.plane.nx * nx + fit.plane.ny * ny + fit.plane.nz * nz > 0
+    const [below, above] = facing ? [fit.min, fit.max] : [-fit.max, -fit.min]
+    expect(Math.abs(above - 0.03)).toBeLessThan(2e-4)
+    expect(Math.abs(below + 0.02)).toBeLessThan(2e-4)
+    expect(fit.span).toBeCloseTo(fit.max - fit.min, 12)
+  })
+
   it('refuses a collinear point set', () => {
     const pts = new Float32Array(30 * 3)
     for (let i = 0; i < 30; i++) {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { ElementKind, ElementSource, FitData, SigmaPreset, Vec3 } from './types'
-import { verdictLines, type EvaluatedDimension } from './dimensions'
+import { diameterRange, verdictLines, type EvaluatedDimension } from './dimensions'
 import { hasDiameter } from './elements/assumed'
 import { describeConstruction } from './elements/construct'
 import {
@@ -89,16 +89,28 @@ export function formErrorLabel(kind: ElementKind): string | null {
   }
 }
 
+/** The smallest and the largest diameter the measured surface reaches, as
+ *  the detail line and the report print it — beside the Gaussian value,
+ *  which is the mean and stays the headline. Null where there is none. */
+export function formatDiameterRange(fit: FitData): string | null {
+  const r = diameterRange(fit)
+  return r && `Ø min ${r[0].toFixed(3)} · max ${r[1].toFixed(3)} mm`
+}
+
+const signed4 = (v: number): string => `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(4)}`
+
 /** The supporting numbers, for the panel's detail line and the summary. */
 export function formatDetail(fit: FitData): string {
   const points = `${fit.usedPoints.toLocaleString('en-US')} of ${fit.regionSize.toLocaleString('en-US')} points`
   const form =
     fit.formError !== undefined ? ` · ${formErrorLabel(fit.kind) ?? 'form'} ${fit.formError.toFixed(4)} mm` : ''
+  const range = formatDiameterRange(fit)
+  const dia = range ? ` · ${range}` : ''
   switch (fit.kind) {
     case 'sphere':
-      return `σ ${fit.sigma.toFixed(4)} mm${form} · ${points}`
+      return `σ ${fit.sigma.toFixed(4)} mm${form}${dia} · ${points}`
     case 'cylinder':
-      return `σ ${fit.sigma.toFixed(4)} mm${form} · length ${fit.length.toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
+      return `σ ${fit.sigma.toFixed(4)} mm${form}${dia} · length ${fit.length.toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
     case 'cone':
       return `σ ${fit.sigma.toFixed(4)} mm${form} · Ø ${(fit.radius1 * 2).toFixed(3)}–${(fit.radius2 * 2).toFixed(3)} mm · arc ${Math.round(fit.coverage)}° · ${points}`
     case 'plane':
@@ -107,7 +119,7 @@ export function formatDetail(fit: FitData): string {
         : `${(fit.extentU * 2).toFixed(2)} × ${(fit.extentV * 2).toFixed(2)} mm patch`
     case 'circle':
       return isFitted(fit)
-        ? `σ ${fit.sigma.toFixed(4)} mm${form} · from ${fit.usedPoints} points`
+        ? `σ ${fit.sigma.toFixed(4)} mm${form}${dia} · from ${fit.usedPoints} points`
         : `center (${fit.center.map((v) => v.toFixed(3)).join(', ')})`
     case 'point':
       return `at (${fit.center.map((v) => v.toFixed(3)).join(', ')})`
@@ -190,6 +202,17 @@ export function buildSummary(
       )
       if (f.formError !== undefined) {
         lines.push(`  ${formErrorLabel(f.kind) ?? 'form'} (peak-to-peak): ${f.formError.toFixed(4)} mm`)
+      }
+      // Where the surface actually reaches about the fit — and, for a round
+      // feature, what that makes the smallest and the largest diameter.
+      if (f.residualMin !== undefined && f.residualMax !== undefined) {
+        lines.push(`  residual min / max: ${signed4(f.residualMin)} / ${signed4(f.residualMax)} mm`)
+        const range = diameterRange(f)
+        if (range) {
+          lines.push(
+            `  diameter min / max: ${range[0].toFixed(4)} / ${range[1].toFixed(4)} mm (radial extremes)`,
+          )
+        }
       }
     }
     // A direction taken from a reference plane rather than from the fit, and
