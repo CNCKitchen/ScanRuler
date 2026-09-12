@@ -341,6 +341,13 @@ function freshDraft(
   }
 }
 
+/** What a draft leaves behind when it is closed unfinished: itself, if it
+ *  carries a marked surface — see `discarded` on the store. */
+function keptOf(d: Draft | null): Draft | null {
+  if (!d?.selection || d.selection.length === 0) return null
+  return takesSurface(creationMethod(d.kind, d.method)) ? d : null
+}
+
 /** The pick-mode method of a kind — the one a picked element re-opens on. */
 function pickMethodOf(kind: ElementKind): string {
   return kind === 'circle' ? 'circle-points' : 'pick'
@@ -712,6 +719,14 @@ interface AppState {
   errorText: string | null
   elements: Element[]
   draft: Draft | null
+  /** The last draft closed unfinished with a marked surface still on it. A
+   *  marking is minutes of work and the draft is the only thing that holds
+   *  it, so a draft dropped with one — a second Escape, a slip onto Cancel,
+   *  another editor taking the panel — is kept here until the next draft
+   *  starts, and restoreDraft puts it back, marking and all. Nothing else is
+   *  kept: a click or a choice of references is a moment to redo. Always
+   *  carries a non-empty `selection`. */
+  discarded: Draft | null
   dimensions: Dimension[]
   dimDraft: DimensionDraft | null
   alignDraft: AlignDraft | null
@@ -848,6 +863,12 @@ interface AppState {
   resolveDraft: (r: FitOutput) => void
   failDraft: (message: string) => void
   cancelDraft: () => void
+  /** Put the discarded draft back, with its marking, ready to be measured on
+   *  it again — the caller paints the selection back onto the part and asks
+   *  for the fit or the search. Does nothing over an open draft. */
+  restoreDraft: () => void
+  /** Let the discarded draft and its marking go for good. */
+  forgetDiscarded: () => void
   commitDraft: () => number | null
   /** Open the box a section is made in: choose the element to cut along and
    *  the offset, watch the cut on the part, create. Closes any other editor. */
@@ -999,6 +1020,7 @@ export const useStore = create<AppState>()((set, get) => ({
   errorText: null,
   elements: [],
   draft: null,
+  discarded: null,
   dimensions: [],
   dimDraft: null,
   alignDraft: null,
@@ -1034,6 +1056,8 @@ export const useStore = create<AppState>()((set, get) => ({
       errorText: null,
       elements: [],
       draft: null,
+      // A marking indexes the vertices of the scan it was made on.
+      discarded: null,
       dimensions: [],
       dimDraft: null,
       alignDraft: null,
@@ -1158,6 +1182,7 @@ export const useStore = create<AppState>()((set, get) => ({
   startDraft: (kind) =>
     set((s) => ({
       draft: freshDraft(kind, defaultMethod(kind), s.settings),
+      discarded: null,
       alignDraft: null,
       sectionDraft: null,
       errorText: null,
@@ -1173,6 +1198,7 @@ export const useStore = create<AppState>()((set, get) => ({
       const draft = draftFromElement(el, s.elements, s.modelSize, s.settings)
       return {
         draft,
+        discarded: null,
         selectMode:
           el.source.type === 'picked'
             ? s.selectMode
@@ -1412,9 +1438,43 @@ export const useStore = create<AppState>()((set, get) => ({
   cancelDraft: () =>
     set((s) => ({
       draft: null,
+      discarded: keptOf(s.draft),
       // A pick that was feeding a dimension slot is abandoned with it.
       dimDraft: s.dimDraft ? { ...s.dimDraft, pickSlot: null } : null,
     })),
+
+  restoreDraft: () =>
+    set((s) => {
+      const d = s.discarded
+      if (!d || s.draft) return {}
+      const alive = (id: number | null | undefined) => id != null && s.elements.some((e) => e.id === id)
+      // What it was built on may have gone since it was put aside: an edit of
+      // an element deleted meanwhile comes back as a new element, a seed
+      // plane or reference deleted meanwhile is simply not there any more.
+      // The marking is what is being brought back; the numbers are measured
+      // on it again by whoever restores it.
+      const edit = alive(d.editId) ? { editId: d.editId, name: d.name } : { editId: undefined, name: undefined }
+      return {
+        draft: {
+          ...d,
+          ...edit,
+          seed: alive(d.seed) ? d.seed : null,
+          refs: d.refs.map((r) => (alive(r) ? r : null)),
+          orient: d.orient && alive(d.orient.ref) ? d.orient : undefined,
+          status: 'empty',
+          fit: undefined,
+          message: undefined,
+          note: undefined,
+        },
+        selectMode: 'paint',
+        discarded: null,
+        alignDraft: null,
+        sectionDraft: null,
+        errorText: null,
+      }
+    }),
+
+  forgetDiscarded: () => set({ discarded: null }),
 
   commitDraft: () => {
     const d = get().draft
@@ -1530,7 +1590,7 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   startAlignment: () =>
-    set({
+    set((s) => ({
       alignDraft: {
         primary: null,
         primaryPicks: [],
@@ -1546,21 +1606,23 @@ export const useStore = create<AppState>()((set, get) => ({
         pickSlot: null,
       },
       draft: null,
+      discarded: keptOf(s.draft),
       dimDraft: null,
       sectionDraft: null,
       errorText: null,
-    }),
+    })),
 
   cancelAlignment: () => set({ alignDraft: null }),
 
   startSection: () =>
-    set({
+    set((s) => ({
       sectionDraft: { ref: null, offset: 0, axis: null, frame: null, status: 'empty' },
       draft: null,
+      discarded: keptOf(s.draft),
       dimDraft: null,
       alignDraft: null,
       errorText: null,
-    }),
+    })),
 
   // The draft opens on the frozen plane, sliding along its own normal: the
   // element it was cut along may have been re-fitted or deleted since, and
@@ -1587,6 +1649,7 @@ export const useStore = create<AppState>()((set, get) => ({
           name: sec.name,
         }),
         draft: null,
+        discarded: keptOf(s.draft),
         dimDraft: null,
         alignDraft: null,
         errorText: null,
@@ -1984,6 +2047,7 @@ export const useStore = create<AppState>()((set, get) => ({
         ? {
             dimDraft: { ...s.dimDraft, pickSlot: slot },
             draft: freshDraft('point', 'pick', s.settings),
+            discarded: keptOf(s.draft),
             errorText: null,
           }
         : {},

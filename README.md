@@ -108,7 +108,10 @@ takes what you mark, and nothing else. The tools are the same ones the
 pick a gesture, **left-drag marks and right-drag rubs out** while one is,
 Shift-drag still orbits, and **Navigate** or `Esc` hands the plain drags back to
 the camera without touching what is already marked. A second `Esc` discards the
-element, the way it always has.
+element — but not the marking: a draft discarded with a marked surface on it
+waits in the panel, under a **Restore** button, until the next element is
+started, so a slip of the key costs one click rather than the marking. (A held
+key does not repeat through both steps.)
 
 The **brush Ø** in millimetres sets how wide a brush stroke is — it starts sized
 to the part. A ring on the surface under the cursor shows the footprint before
@@ -266,7 +269,10 @@ appear. Only the marked points are searched and only the marked triangles
 are surface a mirror image may land on, so a fixture, a stamped number or a
 patch the scanner smeared is kept out of the search on both sides; the
 centroid of a marking is the centroid of that surface. The marking is saved
-with the element and is back on the part when it is re-opened.
+with the element and is back on the part when it is re-opened. `Esc` behaves
+as it does for a hand-marked fit: the first press hands the camera back and
+leaves the marking alone, and a draft discarded by a second press can be
+brought back from the panel, marking and all.
 
 ### Dimensions
 

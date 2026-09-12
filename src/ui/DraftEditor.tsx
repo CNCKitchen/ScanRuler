@@ -204,7 +204,7 @@ export function DraftEditor({
           {paintingSurface && (
             <MarkTools
               showCount={false}
-              escapeNote="Esc a second time discards the element."
+              escapeNote="Esc a second time discards the element — its marking is kept in the panel, under a Restore button, until the next element is started."
               onClear={onClearPaint}
             />
           )}

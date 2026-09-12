@@ -202,6 +202,33 @@ check(
 )
 check((await markedCount()) === markedBeforeOrbit, 'and leaves the marking alone')
 
+// A key held down auto-repeats; the repeat must not carry on from standing
+// the gesture down to discarding the element.
+await page.evaluate(() =>
+  document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', repeat: true, bubbles: true })),
+)
+await sleep(200)
+check((await page.$('[data-test="mark-gestures"]')) !== null, 'an auto-repeated Escape does nothing')
+
+// The second press discards the element — but not the marking on it: it waits
+// in the panel, and one click brings the draft back with it, re-fitted.
+await page.keyboard.press('Escape')
+await sleep(300)
+check((await page.$('[data-test="mark-gestures"]')) === null, 'a second Escape discards the element')
+check((await page.$('[data-test="restore-draft"]')) !== null, 'and the panel keeps its marking, with a Restore button')
+await click(page, '[data-test="restore-draft"]')
+await page.waitForSelector('[data-test="mark-gestures"]', { timeout: 10_000 })
+check(
+  (await markedCount()) === markedBeforeOrbit,
+  `Restore puts the marking back on the part (${markedBeforeOrbit} points)`,
+)
+check(await paintPreviewReady(), 'and the fit stands on it again')
+check(
+  await page.$eval('[data-test="mark-navigate"]', (e) => e.getAttribute('aria-pressed') === 'true'),
+  'in Navigate, the mouse still the camera\'s',
+)
+check((await page.$('[data-test="restore-draft"]')) === null, 'and the offer is gone once taken')
+
 // …and with no gesture live, a plain drag is the camera's again — the whole
 // point of porting Navigate over from the local fine fit.
 const beforeIdle = await shot()

@@ -12,7 +12,7 @@
 // else is pending — a part is turned to see where the next pick goes, and
 // making the draft first stand down would defeat that.
 import { useEffect } from 'react'
-import { creationMethod } from '../core/elements/construct'
+import { creationMethod, takesSurface } from '../core/elements/construct'
 import { evaluateDimension } from '../core/dimensions'
 import type { FitData } from '../core/types'
 import { sectionDraftReady, useStore } from '../state/store'
@@ -84,6 +84,11 @@ export function useGlobalShortcuts({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+      // One press, one step. A key held down auto-repeats, and Escape backs
+      // out of a marking session in steps — a repeat would carry straight on
+      // from standing the gesture down to discarding the draft, marking and
+      // all, which is exactly the trap the two steps exist to avoid.
+      if (e.repeat) return
       // Enter on a focused button belongs to the button — the browser clicks
       // it right after this handler, and confirming the draft as well would
       // fire two different actions from one key press.
@@ -134,13 +139,15 @@ export function useGlobalShortcuts({
       }
       if (store.draft) {
         if (e.key === 'Escape') {
-          // The same retreat while an element is being marked by hand: the
-          // first Escape hands the camera back, the second discards the draft.
+          // The same retreat while an element is being marked by hand — a fit
+          // on the marking, or a search of the scan confined to it: the first
+          // Escape hands the camera back, the second discards the draft.
           // Never both at once — the key is reached for to get the mouse
           // working again, and losing the marking to that would be a trap.
+          // (And the draft keeps its marking even then — see store.discarded.)
           const marked =
             store.selectMode === 'paint' &&
-            creationMethod(store.draft.kind, store.draft.method).mode === 'fit'
+            takesSurface(creationMethod(store.draft.kind, store.draft.method))
           if (marked && useMark.getState().gesture !== null) useMark.getState().setGesture(null)
           // Likewise a construction slot waiting for a click on the scan: the
           // first Escape stops the picking, the second discards the draft.

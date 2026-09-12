@@ -5,7 +5,7 @@
 import { useStore, type SelectMode } from '../state/store'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
-import { ELEMENT_KINDS } from '../core/elements/kinds'
+import { ELEMENT_KINDS, elementKindInfo } from '../core/elements/kinds'
 import { describeCut, sectionRefName, tiltOf } from '../core/section/frame'
 import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
@@ -32,6 +32,7 @@ export function Panel({
   onClearPaint,
   onUndoPick,
   onCancelDraft,
+  onRestoreDraft,
   onConfirmDraft,
   onPickPoint,
   onDelete,
@@ -61,6 +62,9 @@ export function Panel({
   onClearPaint: () => void
   onUndoPick: () => void
   onCancelDraft: () => void
+  /** Bring back the draft that was discarded with a marked surface on it,
+   *  marking and all — see store.discarded. */
+  onRestoreDraft: () => void
   onConfirmDraft: () => void
   /** Fill dimension slot n by picking a new point on the scan. */
   onPickPoint: (slot: number) => void
@@ -94,6 +98,8 @@ export function Panel({
   const triangleCount = useStore((s) => s.triangleCount)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
+  const discarded = useStore((s) => s.discarded)
+  const forgetDiscarded = useStore((s) => s.forgetDiscarded)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
   const sections = useStore((s) => s.sections)
@@ -213,6 +219,37 @@ export function Panel({
               onClick={onStartSection}
             >
               Section
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* A draft discarded with a marked surface on it — a second Esc, a slip
+          onto Cancel, another editor taking the panel — is not gone: the
+          marking is minutes of work, so it waits here, where the draft was,
+          until the next element is started. Out of the way while an
+          alignment or a section has the panel; back when they close. */}
+      {discarded?.selection && !draft && !alignDraft && !sectionDraft && (
+        <div className="group" data-test="discarded-draft">
+          <div className="g-label">
+            <span>
+              Discarded{' '}
+              {discarded.editId !== undefined
+                ? `edit of ${elements.find((e) => e.id === discarded.editId)?.name ?? 'element'}`
+                : elementKindInfo(discarded.kind).noun}
+            </span>
+            <b>{discarded.selection.length.toLocaleString('en-US')} points</b>
+          </div>
+          <p className="hint">
+            Its marked surface is kept until the next element is started — bring it back to carry
+            on where you were, marking and all.
+          </p>
+          <div className="toolrow">
+            <button data-test="restore-draft" onClick={onRestoreDraft}>
+              Restore
+            </button>
+            <button data-test="forget-draft" onClick={forgetDiscarded}>
+              Forget
             </button>
           </div>
         </div>

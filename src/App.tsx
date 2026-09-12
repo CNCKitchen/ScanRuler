@@ -1198,18 +1198,56 @@ export default function App() {
   }
 
   const handleCancelDraft = () => {
+    const closing = useStore.getState().draft
+    // The store first: a draft closed with a marking on it is put aside with
+    // that marking (store.discarded), and clearing the part would take the
+    // marking off the draft before it is.
+    useStore.getState().cancelDraft()
     clearPreview()
     clearPaint()
-    useStore.getState().cancelDraft()
-    useStore.getState().setStatus('')
+    const kept = useStore.getState().discarded
+    useStore.getState().setStatus(
+      kept?.selection && closing
+        ? `${closing.editId !== undefined ? 'The edit was' : `The ${elementKindInfo(closing.kind).noun} was`} discarded with ${kept.selection.length.toLocaleString('en-US')} marked points on it — Restore in the panel brings it back.`
+        : '',
+    )
+  }
+
+  /** The draft put aside with its marking, back where it was: the marking
+   *  goes back onto the part in the draft's colour and the draft is measured
+   *  on it again — a fit re-fits, a search of the scan starts over on it. */
+  const handleRestoreDraft = () => {
+    const store = useStore.getState()
+    const selection = store.discarded?.selection
+    if (!selection || store.draft) return
+    clearPreview()
+    clearPaint()
+    store.restoreDraft()
+    const draft = useStore.getState().draft
+    if (!draft) return
+    // Straight back onto the part; the brush arms itself around it on the
+    // next render, the way a re-opened element's marking does.
+    sceneRef.current?.setPaintedVertices(selection, draftColorOf(useStore.getState()))
+    useMark.getState().setCount(selection.length)
+    const method = creationMethod(draft.kind, draft.method)
+    if (method.mode === 'fit') void runDraftPaintFit(draft.kind, selection)
+    else useStore.getState().setDraftSelection(selection)
+    const editing = draft.editId !== undefined
+    useStore
+      .getState()
+      .setStatus(
+        `${editing ? 'The edit is' : `The ${elementKindInfo(draft.kind).noun} is`} back with its ${selection.length.toLocaleString('en-US')} marked points — add to or rub out the marking, then ${editing ? 'save' : 'create'}.`,
+      )
   }
 
   // ---- Sections ------------------------------------------------------------
 
   const handleStartSection = () => {
+    // The store first, as in handleCancelDraft: an element draft this closes
+    // is put aside with its marking, if it has one.
+    useStore.getState().startSection()
     clearPreview()
     clearPaint()
-    useStore.getState().startSection()
     useStore
       .getState()
       .setStatus(
@@ -1218,9 +1256,9 @@ export default function App() {
   }
 
   const handleEditSection = (id: number) => {
+    useStore.getState().editSection(id)
     clearPreview()
     clearPaint()
-    useStore.getState().editSection(id)
     const sec = useStore.getState().sections.find((x) => x.id === id)
     if (sec)
       useStore
@@ -1772,6 +1810,7 @@ export default function App() {
             onClearPaint={clearPaint}
             onUndoPick={handleUndoPick}
             onCancelDraft={handleCancelDraft}
+            onRestoreDraft={handleRestoreDraft}
             onConfirmDraft={handleConfirmDraft}
             onPickPoint={handleDimensionPick}
             onDelete={handleDelete}
