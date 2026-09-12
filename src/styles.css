@@ -674,6 +674,7 @@ select:disabled {
 
 .toolrow {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 

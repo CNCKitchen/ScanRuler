@@ -6,6 +6,8 @@ import { applyAssumed } from '../core/elements/assumed'
 import { applyExtension } from '../core/elements/extend'
 import { buildStepFile, type StepSection } from '../core/exportStep'
 import { buildBinaryStl } from '../core/exportStl'
+import { buildPointCloudPly, buildPointCloudXyz, type CloudFormat } from '../core/exportPointCloud'
+import { computeVertexNormals } from '../core/geometry/normals'
 import { liftFlatFit } from '../core/section/lift'
 import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
@@ -118,5 +120,43 @@ export const exportScanStl = (sceneRef: RefObject<SceneManager | null>) => {
     `Scan exported to ${name} — ${triangles.toLocaleString('en-US')} triangles${
       moved ? ', in its aligned position' : ''
     }.`,
+  )
+}
+
+/** Hand the scan back as a point cloud — every vertex with its normal, in
+ *  the pose it is being shown in, as a binary PLY or an XYZ text file — for
+ *  the reverse-engineering tools that model over points rather than
+ *  triangles. The pose comes along the way it does for the STL: a datum
+ *  alignment is in the vertices already, the deviation best fit is applied
+ *  on the way out. The normals are the scan's own, oriented out of the part
+ *  when it was loaded. */
+export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) => {
+  const store = useStore.getState()
+  const geometry = sceneRef.current?.scanGeometry()
+  if (!geometry || !store.fileName) return
+  const positions = geometry.getAttribute('position')?.array as Float32Array | undefined
+  if (!positions) return
+  const index = geometry.getIndex()?.array as Uint32Array | Uint16Array | undefined
+  const onMesh = geometry.getAttribute('normal')?.array as Float32Array | undefined
+  const normals =
+    onMesh ??
+    (index ? computeVertexNormals(positions, index instanceof Uint32Array ? index : Uint32Array.from(index)) : null)
+  const align = useDeviation.getState().align
+  const moved = align !== null || store.appliedAlignment !== null
+  const stem = exportStem()
+  const name = `${stem}-${moved ? 'aligned' : 'export'}.${format}`
+  const transform = align?.transform ?? null
+  const blob =
+    format === 'ply'
+      ? new Blob([buildPointCloudPly(positions, normals, transform, `ScanRuler point cloud - ${stem}`)], {
+          type: 'application/octet-stream',
+        })
+      : new Blob([buildPointCloudXyz(positions, normals, transform)], { type: 'text/plain' })
+  saveFile(name, blob)
+  const points = positions.length / 3
+  store.setStatus(
+    `Point cloud exported to ${name} — ${points.toLocaleString('en-US')} points${
+      normals ? ' with normals' : ''
+    }${moved ? ', in its aligned position' : ''}.`,
   )
 }

@@ -66,6 +66,7 @@ import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
 import type { StepStyle } from '../core/exportStep'
+import type { CloudFormat } from '../core/exportPointCloud'
 import type {
   ElementKind,
   ElementSource,
@@ -750,6 +751,10 @@ interface AppState {
    *  bodies or as construction geometry is a property of how the user works,
    *  not of the part on screen. */
   stepStyle: StepStyle
+  /** Which file the point-cloud export writes — remembered per browser for
+   *  the same reason: which cloud format the next tool reads is how the user
+   *  works, not what the part is. */
+  cloudFormat: CloudFormat
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
@@ -906,12 +911,14 @@ interface AppState {
   setNavScheme: (id: string) => void
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
+  setCloudFormat: (format: CloudFormat) => void
   openImprint: (v: boolean) => void
 }
 
 const NAV_SCHEME_KEY = 'scanruler.navscheme'
 const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
+const CLOUD_FORMAT_KEY = 'scanruler.cloudformat'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -936,6 +943,14 @@ const storedStepStyle = (): StepStyle => {
     return localStorage.getItem(STEP_STYLE_KEY) === 'surfaces' ? 'surfaces' : 'solids'
   } catch {
     return 'solids'
+  }
+}
+
+const storedCloudFormat = (): CloudFormat => {
+  try {
+    return localStorage.getItem(CLOUD_FORMAT_KEY) === 'xyz' ? 'xyz' : 'ply'
+  } catch {
+    return 'ply'
   }
 }
 
@@ -982,6 +997,7 @@ export const useStore = create<AppState>()((set, get) => ({
   navScheme: storedNavScheme(),
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
+  cloudFormat: storedCloudFormat(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
@@ -2010,6 +2026,14 @@ export const useStore = create<AppState>()((set, get) => ({
       // Same as above: the export still goes out in the form that was asked for.
     }
     set({ stepStyle })
+  },
+  setCloudFormat: (cloudFormat) => {
+    try {
+      localStorage.setItem(CLOUD_FORMAT_KEY, cloudFormat)
+    } catch {
+      // Same as above: the export still goes out in the form that was asked for.
+    }
+    set({ cloudFormat })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

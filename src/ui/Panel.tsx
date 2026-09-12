@@ -9,6 +9,7 @@ import { ELEMENT_KINDS } from '../core/elements/kinds'
 import { describeCut, sectionRefName, tiltOf } from '../core/section/frame'
 import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
+import type { CloudFormat } from '../core/exportPointCloud'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
 import type { ElementKind, SigmaPreset } from '../core/types'
@@ -47,6 +48,7 @@ export function Panel({
   onResetAlignment,
   onExportStep,
   onExportStl,
+  onExportCloud,
 }: {
   onOpenScan: (file: File) => void
   onStartDraft: (kind: ElementKind) => void
@@ -81,6 +83,8 @@ export function Panel({
   onExportStep: () => void
   /** Save the scan as an STL in the pose it is currently shown in. */
   onExportStl: () => void
+  /** Save the scan as a point cloud, in the chosen format, in the same pose. */
+  onExportCloud: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
   const busy = useStore((s) => s.busy)
@@ -104,6 +108,8 @@ export function Panel({
   const anyMeasuredOnSections = sections.some((sec) => measuredOn(sec.id) > 0)
   const stepStyle = useStore((s) => s.stepStyle)
   const setStepStyle = useStore((s) => s.setStepStyle)
+  const cloudFormat = useStore((s) => s.cloudFormat)
+  const setCloudFormat = useStore((s) => s.setCloudFormat)
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
   const setAllElementsVisible = useStore((s) => s.setAllElementsVisible)
   const toggleSectionVisible = useStore((s) => s.toggleSectionVisible)
@@ -366,6 +372,35 @@ export function Panel({
               <option value="surfaces">Construction surfaces</option>
             </select>
           </label>
+          <label className="field">
+            <span>
+              Point cloud as
+              <InfoDot title="What the point cloud contains">
+                <p>
+                  Every vertex of the scan with its normal, where the part now stands — any
+                  alignment or move you applied comes with it — for the reverse-engineering tools
+                  that model over points rather than triangles. Millimetres, like everything here.
+                </p>
+                <p>
+                  <b>PLY:</b> binary and compact, read by Geomagic, CloudCompare, MeshLab, ReCap and
+                  most others. Points only, no faces — a reader that wants a cloud gets a cloud.
+                </p>
+                <p>
+                  <b>XYZ text:</b> one point per line, x y z nx ny nz — the universal fallback, the
+                  same file ASC readers take. Autodesk ReCap turns either into an RCP for AutoCAD
+                  and Inventor.
+                </p>
+              </InfoDot>
+            </span>
+            <select
+              data-test="cloud-format"
+              value={cloudFormat}
+              onChange={(e) => setCloudFormat(e.target.value as CloudFormat)}
+            >
+              <option value="ply">PLY (binary, with normals)</option>
+              <option value="xyz">XYZ text (x y z nx ny nz)</option>
+            </select>
+          </label>
           <div className="toolrow">
             <CopyButton
               label="Copy summary"
@@ -387,6 +422,14 @@ export function Panel({
               title="Save the scan as an STL where it now stands — any alignment or move you applied comes with it"
             >
               Export STL
+            </button>
+            <button
+              data-test="export-cloud"
+              disabled={busy}
+              onClick={onExportCloud}
+              title="Save the scan as a point cloud where it now stands — every vertex with its normal, any alignment or move you applied included"
+            >
+              Export cloud
             </button>
           </div>
         </>

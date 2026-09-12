@@ -82,7 +82,7 @@ import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
 import { rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
 import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
-import { exportElementsStep, exportScanStl, saveFile } from './app/exports'
+import { exportElementsStep, exportScanPointCloud, exportScanStl, saveFile } from './app/exports'
 import { PICK_MARK_TOOL_STATUS, useDeviationWorkspace } from './app/useDeviationWorkspace'
 import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
@@ -753,6 +753,7 @@ export default function App() {
   // and the STL one needs the scene for the geometry as shown.
   const handleExportStep = exportElementsStep
   const handleExportStl = () => exportScanStl(sceneRef)
+  const handleExportCloud = () => exportScanPointCloud(sceneRef, useStore.getState().cloudFormat)
 
   // ---- Deviation workspace -------------------------------------------------
 
@@ -1702,6 +1703,7 @@ export default function App() {
             onResetAlignment={() => void handleResetAlignment()}
             onExportStep={handleExportStep}
             onExportStl={handleExportStl}
+            onExportCloud={handleExportCloud}
           />
         )}
         <div className={splitOpen ? 'stage split' : 'stage'}>

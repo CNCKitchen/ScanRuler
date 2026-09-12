@@ -632,6 +632,23 @@ selections and fit sigma. The cylinder and plane fits are covered by unit tests
 against synthetic geometry with known dimensions, since the included scan has
 no such feature.
 
+### Scan export: STL and point cloud
+
+The scan itself leaves the tool two ways, both **in the pose it is shown
+in** — a 3-2-1 or typed-in alignment, or the Deviation workspace's best fit,
+comes along, so the next tool receives the part levelled and zeroed.
+**Export STL** writes the mesh, binary, for anything that wants triangles.
+**Export cloud** writes every vertex with its outward normal as a **point
+cloud**, for the reverse-engineering tools that model over points: as a
+binary **PLY** (points only, no faces — Geomagic, CloudCompare, MeshLab and
+ReCap all read it) or as **XYZ text**, one `x y z nx ny nz` line per point in
+millimetres, which is the same file ASC readers take. Autodesk ReCap turns
+either into an RCP for AutoCAD and Inventor; RCP itself is an undocumented
+container nothing outside Autodesk writes. The format choice is remembered
+per browser like the STEP style. Neither export is ever saved under the
+scan's own name: the file is `name-aligned` or `name-export`, so the
+original can never be silently overwritten.
+
 ## Deviation
 
 The **Deviation** workspace paints how far the scan strays from what it should
