@@ -5,6 +5,77 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## 0.4.2 — 2026-09-13
+
+- **Symmetry plane and centroid of the scan** — two constructions that read
+  their numbers off the scan instead of off other elements, for the
+  reverse-engineering step that models one half of a symmetric part and
+  needs the mirror plane exact. *Symmetry plane of the scan* reflects a
+  sample of the scan through a candidate plane, fits the reflection back
+  onto the scan with the same point-to-plane ICP the Deviation workspace
+  uses, and reads the plane off the pairs — every sample and its registered
+  mirror image are bisected by the true plane — for a few passes until it
+  stops moving. **Find symmetry plane** starts from the scan's three
+  principal planes, or from a **seed plane** you name first when the part's
+  detail makes the choice ambiguous; a hole or a fixture on one side neither
+  steers the plane nor inflates its σ, which is how far the mirror image
+  lies from the scan, so an asymmetric part reports a loose fit rather than
+  a confident plane. *Centroid of the scan* is the centre of the volume the
+  mesh encloses, measured the moment the method is chosen; a scan that does
+  not close gets the centre of its surface, and the box says so. Both are
+  ordinary elements: they move with the part, save with the project, export
+  to STEP, cut sections and serve as datums — align the symmetry plane onto a
+  coordinate plane and the centroid onto the zero point, and the part is
+  levelled about its own mirror.
+- **Search on a marked surface** — either search can be confined to a
+  marking: switch *Search on* to *Marked surface* and the window, brush and
+  lasso a hand-marked fit uses appear. Only the marked points are searched
+  and only the marked triangles are surface a mirror image may land on, so a
+  fixture, a stamped number or a patch the scanner smeared is kept out of
+  the search on both sides; the centroid of a marking is the centroid of
+  that surface, measured again on every stroke. The marking saves with the
+  element, is back on the part when it is re-opened, and the copied summary
+  says how many points were searched.
+- **A discarded marking comes back** — `Esc` on a marked search behaves as
+  it does on a hand-marked fit now: the first press hands the camera back
+  and leaves the marking alone, where it used to fall straight through to
+  discarding the draft, marking and all. And the second press no longer
+  costs the marking either: a draft closed with a marked surface on it — by
+  that `Esc`, by a slip onto Cancel, or by an alignment, a section or a
+  dimension pick taking the panel — waits in the panel where the draft was,
+  with a **Restore** button that puts it back on the part, marking and all,
+  and a **Forget** button; it is let go when the next element is started or
+  a scan loads. A held `Esc` no longer repeats through both steps.
+- **Ø min / max and the surface-to-surface range** — a fitted diameter is a
+  Gaussian mean, and a bore 0.2 mm out of round reaches 0.1 mm inside that
+  circle at its tightest and 0.1 mm outside at its widest, which is what a
+  slice measured by hand in CAD, a caliper or a gauge pin finds first. A
+  sphere, a cylinder and a circle now also read **Ø min and Ø max** — the
+  smallest and the largest diameter the surface actually reaches — in the
+  detail line, the Diameter dimension and the copied summary, which prints
+  the residual extremes for every fitted element. The Point – Plane,
+  Axis – Plane and Plane – Plane distances carry the **range** the value
+  takes once each face's own form is counted in, the min and the max a
+  caliper would find over two opposite faces, under the value and in the
+  summary. An axis averages the whole wall, so Axis – Axis stays one number.
+- **Export cloud** — beside Export STL, the scan as a **point cloud**, every
+  vertex with its outward normal, in the pose the part is shown in: a
+  datum alignment or the Deviation best fit comes along, as for the STL.
+  Binary **PLY** with points only (Geomagic, CloudCompare, MeshLab and ReCap
+  read it) or **XYZ text**, one `x y z nx ny nz` line per point in
+  millimetres, the file ASC readers take; ReCap turns either into an RCP.
+  The format is remembered per browser like the STEP style, and the file is
+  `name-aligned` or `name-export`, never the scan's own name.
+- **Align part leads with measured elements** — step 2's slot is
+  *Direction* now, not *Edge*: it has always taken a plane by its normal or a
+  cylinder by its axis, and both steps' help say so first, and why — an
+  element averages thousands of scan points where a pick is one spot of
+  noise. The Point – Plane hint says what it is for: the CMM way to measure
+  a width, free of the in-plane offset two picked points carry. The README
+  gains *Comparing with a 2D slice*: why an angle between planes read off a
+  hand-placed slice comes out under the dihedral angle unless the cut is
+  square to the line the faces meet along, and how to settle it in the app.
+
 ## 0.4.1 — 2026-09-11
 
 - **A fitted region's border is as sharp as a marking's** — the surface a
