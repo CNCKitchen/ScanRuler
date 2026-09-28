@@ -10,7 +10,7 @@
 // measured region and the facing limit tighten it with the map following along,
 // instead of a round trip and a progress bar for each.
 
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import type { RefObject } from 'react'
 import { applyExtension } from '../core/elements/extend'
 import {
@@ -20,6 +20,7 @@ import {
 } from '../core/deviation/elementField'
 import { suggestRange } from '../core/deviation/deviation'
 import { useDeviation } from '../state/deviationStore'
+import { useHistory } from '../state/historyStore'
 import { useStore, type Element } from '../state/store'
 import type { SceneManager } from '../viewer/SceneManager'
 
@@ -67,11 +68,19 @@ export function useElementField({
   const targetFacingDeg = useDeviation((s) => s.targetFacingDeg)
   const targetScope = useDeviation((s) => s.targetScope)
   const scopeVersion = useDeviation((s) => s.scopeVersion)
-  const elements = useStore((s) => s.elements)
+  const fit = useStore((s) => s.elements.find((el) => el.id === targetId)?.fit)
+  const extend = useStore((s) => s.elements.find((el) => el.id === targetId)?.extend)
+  const revision = useHistory((s) => s.revision)
+  const seenRevision = useRef(revision)
+  const previousInputs = useRef<unknown[] | null>(null)
 
   // Held stable across renders: applyExtension builds a fresh object every call,
   // so depending on it directly would recompute the field on every render.
-  const target = useMemo(() => targetFitOf(elements, targetId), [elements, targetId])
+  const target = useMemo(() => {
+    if (!fit) return null
+    const drawn = applyExtension(fit, extend)
+    return isDeviationTarget(drawn) ? drawn : null
+  }, [fit, extend])
 
   // Deliberately not gated on the source being the element: an element can be
   // re-fitted, extended or deleted from the other workspace while a reference
@@ -80,6 +89,12 @@ export function useElementField({
   // and choosing one is only possible from the element side, so this costs a
   // session that never uses it nothing at all.
   useEffect(() => {
+    const restoring = seenRevision.current !== revision || useHistory.getState().restoring
+    seenRevision.current = revision
+    const inputs = [target, targetId, targetSide, targetFacingDeg, targetScope, scopeVersion]
+    // History in another workspace must not recompute a scan-sized field.
+    if (previousInputs.current?.every((value, index) => value === inputs[index])) return
+    previousInputs.current = inputs
     if (!target) {
       // The element the map was measured against is gone — deleted, or re-made
       // into something with no surface to measure against. The field goes with
@@ -106,7 +121,8 @@ export function useElementField({
     elementRgb.current = null
     useDeviation.getState().resolveElementMap(
       suggestRange(values, useDeviation.getState().maxDistance),
+      restoring,
     )
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target, targetSide, targetFacingDeg, targetScope, scopeVersion])
+  }, [target, targetId, targetSide, targetFacingDeg, targetScope, scopeVersion, revision])
 }

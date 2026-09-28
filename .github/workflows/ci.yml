@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Test-and-build gate. Deployment itself lives on Cloudflare (Workers Builds
-# watches this repo and runs its own build on push to main); this workflow is
-# what keeps a red test suite visible on the PR before that happens.
+# Test-and-build gate. Deployment itself lives on Cloudflare, which runs its
+# own build; this workflow is what keeps a red test suite visible on the PR
+# before that happens.
 name: CI
 
 on:
@@ -10,9 +10,17 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -20,5 +28,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Nothing outside plugins/ imports from it
+        run: node scripts/check-plugin-boundary.mjs
       - run: npm test
       - run: npm run build
+      - name: Browser regression checks and production smoke test
+        run: npm run e2e:ci
+      - name: Retain browser diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics
+          path: e2e-out/ci/
+          if-no-files-found: ignore
+          retention-days: 7

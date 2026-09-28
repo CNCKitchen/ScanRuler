@@ -17,6 +17,7 @@ import type { MarkingChannel, SceneManager } from '../viewer/SceneManager'
 import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import { brushRange, useMark, type MarkGesture } from '../state/markStore'
+import { Icon, type IconName } from './icons'
 import { MARK_COLOR, pairColor, useDeviation } from '../state/deviationStore'
 import { absoluteOrientation } from '../core/deviation/absoluteOrientation'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
@@ -30,15 +31,16 @@ const MIN_CONDITIONING = 0.02
  *  point, or taking surface with one of the three marking gestures. Same
  *  gestures, same words and same escape route as the marking tools in the
  *  panels — see MarkTools. */
-const GESTURES: { id: MarkGesture | null; label: string; title: string }[] = [
+const GESTURES: { id: MarkGesture | null; icon: IconName; label: string; title: string }[] = [
   {
     id: null,
-    label: '✥ Pick points',
+    icon: 'pickPoints',
+    label: 'Pick points',
     title: 'Click to place the next point, and orbit, pan and zoom as usual',
   },
-  { id: 'window', label: '▭ Window', title: 'Drag a rectangle: every triangle inside it is selected' },
-  { id: 'brush', label: '● Brush', title: 'Drag over the surface with a round brush' },
-  { id: 'lasso', label: '⌇ Lasso', title: 'Draw a free outline: everything inside it is selected' },
+  { id: 'window', icon: 'markWindow', label: 'Window', title: 'Drag a rectangle: every triangle inside it is selected' },
+  { id: 'brush', icon: 'markBrush', label: 'Brush', title: 'Drag over the surface with a round brush' },
+  { id: 'lasso', icon: 'markLasso', label: 'Lasso', title: 'Draw a free outline: everything inside it is selected' },
 ]
 
 function Half({
@@ -160,7 +162,7 @@ function PickTools({ onClear }: { onClear: () => void }) {
         {GESTURES.map((g) => (
           <button
             key={g.id ?? 'pick'}
-            className={m.gesture === g.id ? 'on' : ''}
+            className={m.gesture === g.id ? 'withicon on' : 'withicon'}
             data-test={`pick-${g.id ?? 'points'}`}
             aria-pressed={m.gesture === g.id}
             title={g.title}
@@ -168,6 +170,7 @@ function PickTools({ onClear }: { onClear: () => void }) {
             // clicks back to picking — the same key disarms it.
             onClick={() => m.setGesture(m.gesture === g.id ? null : g.id)}
           >
+            <Icon name={g.icon} size={16} />
             {g.label}
           </button>
         ))}
@@ -198,13 +201,14 @@ function PickTools({ onClear }: { onClear: () => void }) {
       {m.gesture !== null && (
         <>
           <button
-            className={m.erase ? 'on' : ''}
+            className={m.erase ? 'withicon on' : 'withicon'}
             data-test="pick-erase"
             aria-pressed={m.erase}
             title="The gesture takes surface out of the selection instead of adding it — the right button always does, and Alt inverts either way"
             onClick={() => m.setErase(!m.erase)}
           >
-            {m.erase ? '◐ Erasing' : '◑ Erase'}
+            <Icon name="erase" size={16} />
+            {m.erase ? 'Erasing' : 'Erase'}
           </button>
           <button
             className={m.backfaces ? 'on' : ''}

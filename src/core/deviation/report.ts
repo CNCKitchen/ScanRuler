@@ -7,6 +7,7 @@ const SOURCE: Record<AlignSource, string> = {
   auto: 'automatic',
   points: 'from picked points',
   local: 'local fine fit on marked surface',
+  built: 'none',
 }
 
 const mm = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(4)} mm`
@@ -41,9 +42,18 @@ export function buildDeviationReport(
     `Scan:      ${scanName}`,
     `Reference: ${nominalName}`,
     '',
-    `Alignment: rigid best fit (6 DOF, no scale), ${SOURCE[align.source]}`,
-    `  fit RMS         ${align.rms.toFixed(4)} mm over ${align.matched} of ${align.sampled} sampled points`,
-    `  passes          ${align.iterations}${align.ambiguous ? '  (a second starting pose fitted almost as well)' : ''}`,
+    // A reference modelled on this scan stands in its frame: no fit was run,
+    // and the report must not dress the identity up as one.
+    ...(align.source === 'built'
+      ? [
+          'Alignment: none — the reference was modelled on this scan and is',
+          '  compared in the scan’s own frame',
+        ]
+      : [
+          `Alignment: rigid best fit (6 DOF, no scale), ${SOURCE[align.source]}`,
+          `  fit RMS         ${align.rms.toFixed(4)} mm over ${align.matched} of ${align.sampled} sampled points`,
+          `  passes          ${align.iterations}${align.ambiguous ? '  (a second starting pose fitted almost as well)' : ''}`,
+        ]),
     // Which surface a fit was measured on decides what the whole map means, so
     // a local fit says so here rather than passing for a whole-part best fit.
     ...(align.source === 'local'

@@ -584,6 +584,21 @@ export class Overlays {
       return
     }
 
+    if (fit.kind === 'torus') {
+      // The stroke grows the tube, not the ring — a hull of its own, as the
+      // cone's.
+      const geo = new THREE.TorusGeometry(Math.max(fit.majorRadius, 1e-5), Math.max(fit.minorRadius, 1e-5) + t, 32, 96)
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.set(...fit.center)
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...fit.axis).normalize())
+      this.selectionGroup.add(mesh)
+      this.selectionCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+      return
+    }
+
     const mesh = this.buildShape(fit, mat)
     if (fit.kind === 'sphere' || fit.kind === 'circle') {
       mesh.scale.setScalar(Math.max(fit.radius, 1e-5) + t)
@@ -656,6 +671,16 @@ export class Overlays {
         new THREE.Vector3(0, 1, 0),
         new THREE.Vector3(...fit.axis).normalize(),
       )
+      mesh.userData.ownedGeometry = geo
+      return mesh
+    }
+    if (fit.kind === 'torus') {
+      // The whole ring, as the cylinder is drawn whole: the measured round is
+      // a stretch of it. Its own geometry, the mesh carrying it for disposal.
+      const geo = new THREE.TorusGeometry(Math.max(fit.majorRadius, 1e-5), Math.max(fit.minorRadius, 1e-5), 32, 96)
+      const mesh = new THREE.Mesh(geo, material)
+      mesh.position.set(...fit.center)
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...fit.axis).normalize())
       mesh.userData.ownedGeometry = geo
       return mesh
     }
@@ -745,6 +770,11 @@ export class Overlays {
       const lift = fit.radius * 1.2
       return [out.x * lift, out.y * lift, out.z * lift]
     }
+    if (fit.kind === 'torus') {
+      const out = this.acrossAxis(fit.axis)
+      const lift = (fit.majorRadius + fit.minorRadius) * 1.1
+      return [out.x * lift, out.y * lift, out.z * lift]
+    }
     if (fit.kind === 'point' || fit.kind === 'line') return [0, this.ctx.modelRadius() * 0.03, 0]
     const lift = Math.max(fit.extentU, fit.extentV) * 0.12
     return [fit.normal[0] * lift, fit.normal[1] * lift, fit.normal[2] * lift]
@@ -768,6 +798,7 @@ export class Overlays {
     if (fit.kind === 'plane') return Math.max(fit.extentU, fit.extentV) * 0.04
     if (fit.kind === 'point') return this.ctx.modelRadius() * 0.008
     if (fit.kind === 'line') return this.ctx.modelRadius() * 0.006
+    if (fit.kind === 'torus') return fit.minorRadius * 0.2
     return fit.radius * 0.07
   }
 
@@ -782,6 +813,11 @@ export class Overlays {
       const dir = new THREE.Vector3(...fit.axis).normalize()
       const over = fit.kind === 'cone' ? fit.radius2 : fit.radius
       const half = fit.length / 2 + over * 0.6
+      a = center.clone().addScaledVector(dir, -half)
+      b = center.clone().addScaledVector(dir, half)
+    } else if (fit.kind === 'torus') {
+      const dir = new THREE.Vector3(...fit.axis).normalize()
+      const half = fit.minorRadius * 1.6
       a = center.clone().addScaledVector(dir, -half)
       b = center.clone().addScaledVector(dir, half)
     } else if (fit.kind === 'circle') {

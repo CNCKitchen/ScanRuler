@@ -62,6 +62,9 @@ export interface OrthoViewportOptions {
   /** Runs after the scene render, before the labels — a corner gizmo drawn
    *  into the same canvas goes here. */
   onAfterRender?: (width: number, height: number) => void
+  /** A see-through canvas with no stage of its own: what a viewport laid
+   *  over another one is — the sketch sheet over the 3D view. */
+  transparent?: boolean
 }
 
 export class OrthoViewport {
@@ -106,13 +109,28 @@ export class OrthoViewport {
    *  mark shows as a stale image, so every path that could change what is on
    *  screen calls invalidate — an extra repaint costs nothing. */
   private needsRender = true
+  /** A turn of the camera under way — see animateLook. */
+  private flight: {
+    start: number
+    ms: number
+    q0: THREE.Quaternion
+    q1: THREE.Quaternion
+    t0: THREE.Vector3
+    t1: THREE.Vector3
+    zoom0: number
+    zoom1: number
+    dist: number
+  } | null = null
 
   invalidate = (): void => {
     this.needsRender = true
   }
 
   constructor(private container: HTMLDivElement, private opts: OrthoViewportOptions) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+    // A stencil buffer, for the cap that closes a part cut open at a plane
+    // — three.js leaves it out unless asked.
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: Boolean(opts.transparent), stencil: true })
+    if (opts.transparent) this.renderer.setClearColor(0x000000, 0)
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.container.appendChild(this.renderer.domElement)
 
@@ -175,6 +193,8 @@ export class OrthoViewport {
           this.opts.onMultiTouch?.()
         }
       }
+      // A hand on the canvas takes the camera back from a turn under way.
+      this.flight = null
       // Two fingers are the navigator's, whole: no pick, no stroke, no grip
       // comes out of the second one landing or of anything after it.
       if (this.multiTouch) return
@@ -203,13 +223,19 @@ export class OrthoViewport {
     this.resizeObserver.observe(this.container)
     this.resize()
 
+    this.renderer.domElement.addEventListener('wheel', () => {
+      this.flight = null
+    })
+
     const animate = (): void => {
       this.rafId = requestAnimationFrame(animate)
       if (this.paused) return
-      // These run every tick, rendered or not: the clip planes track the
-      // camera (and let the navigator drop its cached canvas rect), update()
-      // is what notices camera motion and fires 'change', and the owner's tick
-      // is what decides whether this frame has anything new to show at all.
+      // These run every tick, rendered or not: a turn under way moves the
+      // camera a step, the clip planes track the camera (and let the
+      // navigator drop its cached canvas rect), update() is what notices
+      // camera motion and fires 'change', and the owner's tick is what
+      // decides whether this frame has anything new to show at all.
+      this.stepFlight()
       this.nav.updateClipPlanes()
       this.controls.update()
       this.opts.onTick?.()
@@ -249,7 +275,7 @@ export class OrthoViewport {
   /** Swap the colour scheme: the stage behind the parts and the lights on them.
    *  What the parts are made of is their owner's — see applyFinish. */
   setTheme(theme: ViewTheme): void {
-    this.scene.background = new THREE.Color(theme.stage)
+    this.scene.background = this.opts.transparent ? null : new THREE.Color(theme.stage)
     const { sky, ground, hemisphere, ambient, key } = theme.lights
     this.hemiLight.color.setHex(sky)
     this.hemiLight.groundColor.setHex(ground)
@@ -409,6 +435,96 @@ export class OrthoViewport {
     this.camera.updateMatrixWorld(true)
     this.controls.update()
     this.invalidate()
+  }
+
+  /** The pose a look is asked for: the direction from the target to the
+   *  camera, what is up the screen, what the screen centre is on, and the
+   *  zoom — or the zoom as it is. */
+  private poseOf(dir: THREE.Vector3, up: THREE.Vector3, target: THREE.Vector3, zoom?: number) {
+    const dist = this.clipSphere.radius * 4 + 1
+    const eye = target.clone().addScaledVector(dir.clone().normalize(), dist)
+    const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(eye, target, up))
+    return { q, target: target.clone(), zoom: zoom ?? this.camera.zoom, dist }
+  }
+
+  /**
+   * Turn the camera over `ms` milliseconds to look from `dir` (target to
+   * camera) with `up` up the screen, at `target`, at `zoom` — the way CAD
+   * turns to a sketch plane: the part swings round under the eye rather
+   * than jumping, so it is plain where the plane sits on it and which way
+   * the sheet reads. A press or a wheel on the canvas cuts the turn short
+   * where it is; `ms` of 0 lands at once. A turn already under way is
+   * restarted from where it has got to.
+   */
+  animateLook(dir: THREE.Vector3, up: THREE.Vector3, target: THREE.Vector3, ms = 500, zoom?: number): void {
+    const goal = this.poseOf(dir, up, target, zoom)
+    this.flight = {
+      start: performance.now(),
+      ms,
+      q0: this.camera.quaternion.clone(),
+      q1: goal.q,
+      t0: this.controls.target.clone(),
+      t1: goal.target,
+      zoom0: this.camera.zoom,
+      zoom1: goal.zoom,
+      dist: goal.dist,
+    }
+    this.stepFlight()
+  }
+
+  /**
+   * Look from `dir` with `up`, at `target`, at `zoom`, now — or, while a
+   * turn is under way, make that where the turn lands, without restarting
+   * it: what a view that follows another one calls on every change of it.
+   */
+  retarget(dir: THREE.Vector3, up: THREE.Vector3, target: THREE.Vector3, zoom?: number): void {
+    const goal = this.poseOf(dir, up, target, zoom)
+    const f = this.flight
+    if (f) {
+      f.q1 = goal.q
+      f.t1 = goal.target
+      f.zoom1 = goal.zoom
+      f.dist = goal.dist
+      return
+    }
+    this.applyPose(goal.q, goal.target, goal.zoom, goal.dist)
+  }
+
+  /** Whether a turn is under way. */
+  turning(): boolean {
+    return this.flight !== null
+  }
+
+  private applyPose(q: THREE.Quaternion, target: THREE.Vector3, zoom: number, dist: number): void {
+    // The controls re-aim the camera at its target from `up` every frame,
+    // so the pose is written as a position and an up that re-aim to it.
+    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(q)
+    this.camera.up.copy(new THREE.Vector3(0, 1, 0).applyQuaternion(q))
+    this.controls.target.copy(target)
+    this.camera.position.copy(target).addScaledVector(forward, -dist)
+    this.camera.lookAt(target)
+    if (this.camera.zoom !== zoom) {
+      this.camera.zoom = zoom
+      this.camera.updateProjectionMatrix()
+    }
+    this.camera.updateMatrixWorld(true)
+    this.invalidate()
+  }
+
+  private stepFlight(): void {
+    const f = this.flight
+    if (!f) return
+    const k = f.ms > 0 ? Math.min(1, (performance.now() - f.start) / f.ms) : 1
+    // Eased both ends: a turn that starts and stops dead reads as a jump
+    // with frames in it.
+    const s = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2
+    const q = f.q0.clone().slerp(f.q1, s)
+    const target = f.t0.clone().lerp(f.t1, s)
+    // The zoom eases on a log scale: a zoom is a ratio, and halving reads
+    // as far as doubling.
+    const zoom = Math.exp(Math.log(f.zoom0) * (1 - s) + Math.log(f.zoom1) * s)
+    if (k >= 1) this.flight = null
+    this.applyPose(q, target, zoom, f.dist)
   }
 
   /**

@@ -16,7 +16,7 @@
 // material, which fixes each loop's direction in turn — and every edge ends up
 // used exactly twice, once each way, which is what makes the shell manifold.
 
-import type { ConeFit, CylinderFit, PlaneFit, SphereFit, Vec3 } from './types'
+import type { ConeFit, CylinderFit, PlaneFit, SphereFit, TorusFit, Vec3 } from './types'
 import { addScaled, cross, normalize, sub } from './vec'
 import { orthoBasis } from './fit/linalg'
 import { direction, esc, num, placement, point, StepWriter } from './stepWriter'
@@ -209,6 +209,41 @@ export function writeConeSolid(w: StepWriter, name: string, fit: ConeFit): numbe
  * and every kernel handles it — and which half of the surface is meant is
  * settled, as always, by which way the rim is walked.
  */
+/**
+ * A measured torus as a solid: the whole ring, one face on the toroidal
+ * surface bounded by its two seams — the circle round the tube where the
+ * spine's parameter starts, and the circle along the spine where the
+ * tube's does — each used once each way, the four uses meeting at the one
+ * vertex on the outer equator. The same one-face form CAD writes a torus
+ * in; a fillet's round is a stretch of this ring.
+ */
+export function writeTorusSolid(w: StepWriter, name: string, fit: TorusFit): number {
+  const axis = normalize(fit.axis) ?? [0, 0, 1]
+  const ref = orthoBasis(axis)[0]
+  const R = Math.max(fit.majorRadius, MIN)
+  const r = Math.max(fit.minorRadius, MIN)
+  const outer = addScaled(fit.center, ref, R + r)
+  const v = vertex(w, outer)
+  // The seam along the spine: the outer equator.
+  const spine = w.add(`CIRCLE('',#${placement(w, fit.center, axis, ref)},${num(R + r)})`)
+  const spineEdge = w.add(`EDGE_CURVE('',#${v},#${v},#${spine},.T.)`)
+  // The seam round the tube: the circle in the plane of the axis and the
+  // reference direction, centred on the spine.
+  const tubeAxis = normalize(cross(axis, ref)) ?? orthoBasis(axis)[1]
+  const tube = w.add(`CIRCLE('',#${placement(w, addScaled(fit.center, ref, R), tubeAxis, ref)},${num(r)})`)
+  const tubeEdge = w.add(`EDGE_CURVE('',#${v},#${v},#${tube},.T.)`)
+  const surf = w.add(`TOROIDAL_SURFACE('',#${placement(w, fit.center, axis, ref)},${num(R)},${num(r)})`)
+  const loop = edgeLoop(w, [
+    { edge: spineEdge, forward: true },
+    { edge: tubeEdge, forward: true },
+    { edge: spineEdge, forward: false },
+    { edge: tubeEdge, forward: false },
+  ])
+  const f = face(w, name, surf, [w.add(`FACE_OUTER_BOUND('',#${loop},.T.)`)])
+  const shell = w.add(`CLOSED_SHELL('',(#${f}))`)
+  return w.add(`MANIFOLD_SOLID_BREP('${esc(name)}',#${shell})`)
+}
+
 export function writeSphereSolid(w: StepWriter, name: string, fit: SphereFit): number {
   const axis: Vec3 = [0, 0, 1]
   const ref: Vec3 = [1, 0, 0]

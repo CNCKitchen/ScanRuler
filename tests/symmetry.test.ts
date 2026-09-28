@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { NominalSurface } from '../src/core/deviation/surface'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { trianglesWithin } from '../src/core/geometry/region'
-import { findSymmetryPlane } from '../src/core/symmetry'
+import { BASE_PLANE_SEEDS, baseSeedPlane, findSymmetryPlane } from '../src/core/symmetry'
 import type { MeshGraph, Vec3 } from '../src/core/types'
 import { boxMesh } from './helpers'
 
@@ -63,6 +63,18 @@ describe('symmetry plane', () => {
     expect(Math.abs(Math.abs(offset) - 7)).toBeLessThan(0.02)
   })
 
+  it('takes the caller’s directions as further candidates, and drops the ones it already has', () => {
+    const g = lShape()
+    const surface = new NominalSurface(g.positions, g.indices)
+    // The mirror normal itself and a direction of no use: the first is a
+    // principal axis already, so nothing past the three principal planes is
+    // tried and the winner is one of those.
+    const r = findSymmetryPlane(surface, g.positions, g.normals, null, { ...OPTS, directions: [[0, 0, 1]] })
+    expect(Math.abs(r.normal[2])).toBeGreaterThan(0.9999)
+    expect(r.candidate).toBeLessThan(3)
+    expect(r.rms).toBeLessThan(0.03)
+  })
+
   it('says so when the part is not symmetric', () => {
     // The small cube lifted 3 mm out of the plane: nothing mirrors cleanly.
     const g = lShape(0, 3)
@@ -89,5 +101,18 @@ describe('symmetry plane', () => {
     expect(Math.max(...r.normal.map(Math.abs))).toBeGreaterThan(0.9999)
     expect(Math.abs(r.point[0] * r.normal[0] + r.point[1] * r.normal[1] + r.point[2] * r.normal[2])).toBeLessThan(0.02)
     expect(r.sampled).toBeLessThanOrEqual(vertices.length)
+  })
+})
+
+describe('a coordinate plane as the seed', () => {
+  it('is the plane itself where it cuts the part, and its parallel through the part’s centre where it does not', () => {
+    expect(BASE_PLANE_SEEDS.map((p) => p.id).every((id) => id < 0)).toBe(true)
+    // A part of 40 across, centred 5 off the XY plane: the plane runs through it.
+    expect(baseSeedPlane(-1, [10, 20, 5], 40)).toMatchObject({ name: 'XY plane', normal: [0, 0, 1], point: [0, 0, 0] })
+    // The same part 300 up, fresh from the scanner: the plane misses it.
+    expect(baseSeedPlane(-1, [10, 20, 300], 40)).toMatchObject({ normal: [0, 0, 1], point: [10, 20, 300] })
+    expect(baseSeedPlane(-2, [0, 0, 0], 40)?.normal).toEqual([1, 0, 0])
+    expect(baseSeedPlane(-3, [0, 0, 0], 40)?.normal).toEqual([0, 1, 0])
+    expect(baseSeedPlane(7, [0, 0, 0], 40)).toBeNull()
   })
 })

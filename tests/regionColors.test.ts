@@ -121,6 +121,76 @@ describe('field maps', () => {
   })
 })
 
+describe('a field map on a scan with shading copies', () => {
+  it('is a reading per vertex of the scan, the copies past them left to the scene', () => {
+    // Eight vertices of the scan and three copies split off at sharp edges.
+    const COPIES = 3
+    const colors = new Uint8Array((N + COPIES) * 3)
+    for (let v = 0; v < N + COPIES; v++) colors.set(BASE, v * 3)
+    const rc = new RegionColors(BASE)
+    rc.attach(colors, new Uint8Array(N + COPIES), new Uint8Array(N + COPIES), N)
+    expect(rc.setFieldColors(new Uint8Array(N * 3).fill(77))).toBe(true)
+    expect(colorAt(colors, 0)).toEqual([77, 77, 77])
+    expect(colorAt(colors, N - 1)).toEqual([77, 77, 77])
+    // A map the length of the whole buffer is some other layout's.
+    rc.setFieldColors(new Uint8Array((N + COPIES) * 3).fill(55))
+    expect(colorAt(colors, 0)).toEqual(BASE)
+  })
+})
+
+describe('the sparse map', () => {
+  it('paints its vertices only, over the element tints, and lifts cleanly', () => {
+    const { rc, colors, tint } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1, 2))
+    const rgb = new Uint8Array([9, 9, 9, 5, 5, 5])
+    expect(rc.setSparseField(Uint32Array.of(2, 5), rgb)).toBe(true)
+    expect(colorAt(colors, 2)).toEqual([9, 9, 9])
+    expect(colorAt(colors, 5)).toEqual([5, 5, 5])
+    expect(colorAt(colors, 1)).toEqual(RED)
+    expect(colorAt(colors, 0)).toEqual(BASE)
+    expect(tint[5]).toBe(1)
+    expect(tint[0]).toBe(0)
+    // A new subset gives the vertices it dropped their colour back.
+    expect(rc.setSparseField(Uint32Array.of(6), new Uint8Array([1, 2, 3]))).toBe(true)
+    expect(colorAt(colors, 2)).toEqual(RED)
+    expect(colorAt(colors, 5)).toEqual(BASE)
+    expect(tint[5]).toBe(0)
+    expect(colorAt(colors, 6)).toEqual([1, 2, 3])
+    expect(rc.setSparseField(null, null)).toBe(true)
+    expect(colorAt(colors, 6)).toEqual(BASE)
+    expect(rc.setSparseField(null, null)).toBe(false)
+  })
+
+  it('is put back on top by a repaint underneath it', () => {
+    const { rc, colors } = setup()
+    rc.setSparseField(Uint32Array.of(3), new Uint8Array([7, 7, 7]))
+    rc.applyRegion(1, GREEN, Uint32Array.of(3, 4))
+    expect(colorAt(colors, 3)).toEqual([7, 7, 7])
+    expect(colorAt(colors, 4)).toEqual(GREEN)
+    rc.setHiddenRegions([1])
+    expect(colorAt(colors, 3)).toEqual([7, 7, 7])
+    expect(colorAt(colors, 4)).toEqual(BASE)
+    rc.setBaseColor([1, 1, 1])
+    expect(colorAt(colors, 3)).toEqual([7, 7, 7])
+  })
+
+  it('waits under a full map and lands when the map lifts', () => {
+    const { rc, colors } = setup()
+    rc.setFieldColors(new Uint8Array(N * 3).fill(77))
+    expect(rc.setSparseField(Uint32Array.of(1), new Uint8Array([8, 8, 8]))).toBe(false)
+    expect(colorAt(colors, 1)).toEqual([77, 77, 77])
+    rc.setFieldColors(null)
+    expect(colorAt(colors, 1)).toEqual([8, 8, 8])
+    expect(colorAt(colors, 0)).toEqual(BASE)
+  })
+
+  it('ignores a subset whose colours do not match it', () => {
+    const { rc, colors } = setup()
+    expect(rc.setSparseField(Uint32Array.of(1, 2), new Uint8Array([1, 2, 3]))).toBe(false)
+    expect(colorAt(colors, 1)).toEqual(BASE)
+  })
+})
+
 describe('the marking layer', () => {
   it('markVertex moves mask and count together, both ways, never the colours', () => {
     const { rc, colors, paint } = setup()
@@ -339,5 +409,38 @@ describe('the tint mask', () => {
       const bare = colorAt(colors, v).every((c, i) => c === [23, 112, 176][i])
       expect(tint[v]).toBe(bare ? 0 : 1)
     }
+  })
+})
+
+describe('trading states', () => {
+  it('swaps everything with another compositor, and back', () => {
+    const scan = setup()
+    scan.rc.applyRegion(1, RED, Uint32Array.from([0, 1, 2]))
+    scan.rc.markVertex(5, false)
+    // The copy: a mesh of its own, bare, with a marking of its own.
+    const copyColors = new Uint8Array(4 * 3)
+    for (let v = 0; v < 4; v++) copyColors.set(BASE, v * 3)
+    const copyPaint = new Uint8Array(4)
+    const copyTint = new Uint8Array(4)
+    const copy = new RegionColors(BASE)
+    copy.attach(copyColors, copyPaint, copyTint)
+    copy.markVertex(3, false)
+    copy.markVertex(2, false)
+
+    scan.rc.exchange(copy)
+    // The compositor the marking holds now speaks for the copy…
+    expect(scan.rc.paintCount).toBe(2)
+    expect(Array.from(scan.rc.paintedVertices())).toEqual([2, 3])
+    expect(scan.rc.visibleOwnerAt(0)).toBeNull()
+    // …and the other one keeps the scan's, painting into the scan's buffers.
+    expect(copy.visibleOwnerAt(0)).toBe(1)
+    copy.applyRegion(2, GREEN, Uint32Array.from([6]))
+    expect(colorAt(scan.colors, 6)).toEqual(GREEN)
+    expect(Array.from(copyColors.subarray(0, 3))).toEqual([...BASE])
+
+    scan.rc.exchange(copy)
+    expect(scan.rc.visibleOwnerAt(6)).toBe(2)
+    expect(scan.rc.paintCount).toBe(1)
+    expect(colorAt(scan.colors, 0)).toEqual(RED)
   })
 })

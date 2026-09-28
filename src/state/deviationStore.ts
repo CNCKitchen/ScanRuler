@@ -134,7 +134,7 @@ interface DeviationState extends ProbeSlice {
   /** A fresh element field has landed. Cheap enough to be computed on the main
    *  thread, so unlike the reference map there is no running state to pass
    *  through — it is ready by the time anything can ask. */
-  resolveElementMap: (range: number) => void
+  resolveElementMap: (range: number, preserveProbes?: boolean) => void
   clearElementMap: () => void
   setShowElement: (v: boolean) => void
   setTargetScope: (scope: 'all' | 'marked') => void
@@ -306,11 +306,11 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // The scale and the pins belong to whichever map is being read, and this one
   // is also recomputed behind the reference map whenever the element it measures
   // against changes under it — so neither is touched unless it is this map's.
-  resolveElementMap: (range) =>
+  resolveElementMap: (range, preserveProbes = false) =>
     set((s) => ({
       elementStatus: 'ready',
       elementVersion: s.elementVersion + 1,
-      ...(s.source === 'element' ? { range: s.rangeAuto ? range : s.range, probes: [] } : {}),
+      ...(s.source === 'element' ? { range: s.rangeAuto ? range : s.range, ...(preserveProbes ? {} : { probes: [] }) } : {}),
     })),
 
   clearElementMap: () =>

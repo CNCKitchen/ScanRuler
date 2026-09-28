@@ -186,6 +186,15 @@ describe('the layers', () => {
     expect(draft.regionMode).toBe(true)
   })
 
+  it('draw a fit-to-edge draft as a cloud too, but leave the drag to pan', () => {
+    useFlat.getState().startDraft('circle', 'flat-circle-seed')
+    useFlat.getState().addDraftPoints([[100, 100], [200, 100]])
+    const draft = sheetDraft(useFlat.getState())
+    expect(draft.pins).toEqual([])
+    expect(draft.cloud).toEqual([[10, 10], [20, 10]])
+    expect(draft.regionMode).toBe(false)
+  })
+
   it('draw a spline draft with a handle through every pin once the curve exists', () => {
     useFlat.getState().startDraft('spline', 'flat-spline-pick')
     useFlat.getState().stageClick([10, 10], alt, null)

@@ -134,6 +134,38 @@ export function sectionFrameAlong(axis: CutAxis, offset: number, seedU?: Vec3): 
   return { origin, normal, basisU, basisV: cross(normal, basisU) }
 }
 
+/**
+ * The frame a sketch takes on a plane — the rule FreeCAD, Fusion, Onshape
+ * and SolidWorks converged on: the sheet's zero is the part's origin
+ * projected square onto the plane, and the sheet's X is a coordinate axis
+ * flattened into it. So a sketch on the XY plane has the part's own X and
+ * Y, and one on a face at z = 20 has them too, its zero straight above the
+ * origin — not the face's centre, which moves with every edit of the face.
+ * Which axis: the one next round from the axis the normal is nearest, as
+ * the coordinate planes have it (Z's plane gets X, X's gets Y, Y's gets Z),
+ * so a right-handed sheet seen from the side the normal points to. `seedU`
+ * keeps an X already in use, flattened into the plane.
+ */
+export function sketchFrameOn(plane: { origin: Vec3; normal: Vec3 }, seedU?: Vec3): SectionFrame | null {
+  const normal = normalize(plane.normal)
+  if (!normal) return null
+  // The foot of the world origin on the plane: along the normal by the
+  // plane's distance from it.
+  const origin = addScaled([0, 0, 0], normal, dot(plane.origin, normal))
+  const basisU = inPlaneX(normal, seedU ?? sketchXAxis(normal))
+  return { origin, normal, basisU, basisV: cross(normal, basisU) }
+}
+
+/** The coordinate axis a sketch's X is taken from: the one next round from
+ *  the axis the normal is nearest. Never the nearest itself, which may lie
+ *  along the normal and have nothing in the plane. */
+export function sketchXAxis(normal: Vec3): Vec3 {
+  const a = [Math.abs(normal[0]), Math.abs(normal[1]), Math.abs(normal[2])]
+  const nearest = a[0] >= a[1] && a[0] >= a[2] ? 0 : a[1] >= a[2] ? 1 : 2
+  const next = (nearest + 1) % 3
+  return next === 0 ? [1, 0, 0] : next === 1 ? [0, 1, 0] : [0, 0, 1]
+}
+
 /** The axis a frozen frame slides along, given the offset it was taken at —
  *  what an edit works from when the element it was cut along is gone, or has
  *  since been re-fitted somewhere else: the section stays exactly where it

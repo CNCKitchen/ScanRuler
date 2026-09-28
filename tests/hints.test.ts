@@ -94,6 +94,14 @@ describe('hint ladder', () => {
     expect(target(base({ workspace: 'thickness' }))).toBe('measure-thickness')
     expect(nextHint(base({ workspace: 'thickness', thicknessReady: true }))).toBe('done')
   })
+
+  it('asks a plugin workspace for the scan, then for the step the plugin names', () => {
+    const step = { target: 'plugin-step', text: 'Part loaded — do the plugin’s thing' }
+    expect(target(base({ workspace: 'plugin', scanLoaded: false, pluginStep: step }))).toBe('open-scan')
+    expect(target(base({ workspace: 'plugin', pluginStep: step }))).toBe('plugin-step')
+    expect(nextHint(base({ workspace: 'plugin', pluginStep: 'done' }))).toBe('done')
+    expect(nextHint(base({ workspace: 'plugin' }))).toBe(null)
+  })
 })
 
 // The rule these enforce is that finishing a workspace once is not enough to

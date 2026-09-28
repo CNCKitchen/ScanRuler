@@ -54,7 +54,6 @@ export function useDragDrop({
       // An image can only ever be a flatbed scan, so it opens the 2D Measure
       // workspace with itself — dropped from anywhere.
       if (isImageFile(file.name)) {
-        useShell.getState().setWorkspace('flat')
         void openImage(file)
         return
       }

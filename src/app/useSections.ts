@@ -33,12 +33,13 @@ export function useSections({ clientRef }: { clientRef: RefObject<MeshWorkerClie
         const key = frameKey(d.frame)
         if (d.cutKey === key) return
         const { origin, normal } = d.frame
+        const scanVersion = clientRef.current!.scanVersion
         try {
           const cut = await clientRef.current!.section(origin, normal, EDGE_MIN_FEATURE_MM)
-          if (!useStore.getState().sectionDraft) return
+          if (scanVersion !== clientRef.current!.scanVersion || !useStore.getState().sectionDraft) return
           useStore.getState().resolveSectionDraft(key, cut)
         } catch (e) {
-          if (!useStore.getState().sectionDraft) return
+          if (scanVersion !== clientRef.current!.scanVersion || !useStore.getState().sectionDraft) return
           useStore.getState().failSectionDraft(message(e))
           return
         }
@@ -68,10 +69,11 @@ export function useSections({ clientRef }: { clientRef: RefObject<MeshWorkerClie
       if (inFlight.current.has(sec.id)) continue
       inFlight.current.add(sec.id)
       const key = frameKey(sec.frame)
+      const scanVersion = clientRef.current!.scanVersion
       clientRef.current!
         .section(sec.frame.origin, sec.frame.normal, EDGE_MIN_FEATURE_MM)
-        .then((cut) => useStore.getState().resolveSection(sec.id, key, cut))
-        .catch((e) => useStore.getState().failSection(sec.id, message(e)))
+        .then((cut) => { if (scanVersion === clientRef.current!.scanVersion) useStore.getState().resolveSection(sec.id, key, cut) })
+        .catch((e) => { if (scanVersion === clientRef.current!.scanVersion) useStore.getState().failSection(sec.id, message(e)) })
         .finally(() => {
           inFlight.current.delete(sec.id)
           // The part may have been aligned while the cut was being taken, in

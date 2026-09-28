@@ -11,25 +11,28 @@
 
 import { brushRange, useMark, type MarkGesture } from '../state/markStore'
 import { useStore } from '../state/store'
+import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 
 /** The marking modes, with plain navigation as one of them. A gesture takes
  *  both plain mouse drags away from the camera for as long as it is on, so
  *  which of the four is live has to be as visible as any other mode switch —
  *  and getting the camera back has to be one click, not an escape hatch. */
-const GESTURES: { id: MarkGesture | null; label: string; title: string }[] = [
+const GESTURES: { id: MarkGesture | null; icon: IconName; label: string; title: string }[] = [
   {
     id: null,
-    label: '✥ Navigate',
+    icon: 'navigate',
+    label: 'Navigate',
     title: 'Marking off — orbit, pan and zoom as usual. What is marked stays marked.',
   },
   {
     id: 'window',
-    label: '▭ Window',
+    icon: 'markWindow',
+    label: 'Window',
     title: 'Drag a rectangle: every triangle inside it is marked',
   },
-  { id: 'brush', label: '● Brush', title: 'Drag over the surface with a round brush' },
-  { id: 'lasso', label: '⌇ Lasso', title: 'Draw a free outline: everything inside it is marked' },
+  { id: 'brush', icon: 'markBrush', label: 'Brush', title: 'Drag over the surface with a round brush' },
+  { id: 'lasso', icon: 'markLasso', label: 'Lasso', title: 'Draw a free outline: everything inside it is marked' },
 ]
 
 export function MarkTools({
@@ -55,7 +58,7 @@ export function MarkTools({
         {GESTURES.map((g) => (
           <button
             key={g.id ?? 'navigate'}
-            className={m.gesture === g.id ? 'on' : ''}
+            className={m.gesture === g.id ? 'withicon on' : 'withicon'}
             data-test={`mark-${g.id ?? 'navigate'}`}
             aria-pressed={m.gesture === g.id}
             title={g.title}
@@ -63,6 +66,7 @@ export function MarkTools({
             // key that armed it disarms it.
             onClick={() => m.setGesture(m.gesture === g.id ? null : g.id)}
           >
+            <Icon name={g.icon} size={16} />
             {g.label}
           </button>
         ))}
@@ -136,13 +140,14 @@ export function MarkTools({
 
       <div className="toolrow">
         <button
-          className={m.erase ? 'on' : ''}
+          className={m.erase ? 'withicon on' : 'withicon'}
           data-test="mark-erase"
           aria-pressed={m.erase}
           onClick={() => m.setErase(!m.erase)}
           title="The gesture takes marking away instead of laying it down — the right button always does, and Alt inverts either way"
         >
-          {m.erase ? '◐ Erasing' : '◑ Erase'}
+          <Icon name="erase" size={16} />
+          {m.erase ? 'Erasing' : 'Erase'}
         </button>
         <button data-test="mark-clear" disabled={m.count === 0} onClick={onClear}>
           Clear marking

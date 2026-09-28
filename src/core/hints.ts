@@ -13,8 +13,9 @@
 // fit is still being collected, "Create element" is the named step but wears
 // nothing, and the ring appears the moment the fit is ready.
 
-/** One workspace's worth of guidance. The workspace ids are the tracks. */
-export type HintTrack = 'elements' | 'deviation' | 'thickness' | 'flat'
+/** One workspace's worth of guidance. The workspace ids are the tracks — the
+ *  app's own, and those of the plugins' workspaces. */
+export type HintTrack = string
 
 export interface HintStep {
   /** data-test of the control to ring — one control, in one place on screen. */
@@ -59,6 +60,10 @@ export interface HintInput {
   // Wall thickness workspace.
   thicknessReady: boolean
 
+  /** A plugin's workspace: its step once the scan is open — see
+   *  WorkspaceTab.useHintStep. */
+  pluginStep?: HintResult
+
   // 2D Measure workspace. Its first step is an image, not the scan mesh.
   imageLoaded: boolean
 }
@@ -88,6 +93,7 @@ export function nextHint(m: HintInput): HintResult {
       ? 'done'
       : { target: 'measure-thickness', text: 'Part loaded — measure its wall thickness' }
   }
+  if (m.workspace !== 'elements') return m.pluginStep ?? null
   return elementsLadder(m)
 }
 

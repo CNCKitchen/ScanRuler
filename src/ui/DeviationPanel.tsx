@@ -28,6 +28,7 @@ const SOURCE_LABEL = {
   auto: 'automatic',
   points: 'from points',
   local: 'local fine fit',
+  built: 'none — built on this scan',
 } as const
 
 const SOURCES: { id: DeviationSource; label: string; what: string }[] = [
@@ -348,8 +349,18 @@ export function DeviationPanel({
 
         {d.alignMessage && <p className="alarmtext">{d.alignMessage}</p>}
 
+        {/* A reference modelled on the scan stands in the scan's own frame:
+            there is no fit to report, and a row of zeros under "fit
+            deviation" would read as a perfect one. */}
+        {aligned && d.align!.source === 'built' && (
+          <p className="hint" data-test="align-built">
+            No best fit was run: the reference was modelled on this scan, in its frame, so the map
+            shows the model's own offsets. <i>Align automatically</i> fits it anyway.
+          </p>
+        )}
         {aligned && (
           <>
+            {d.align!.source !== 'built' && (
             <div className="dro">
               <div className="dro-label">
                 <span>Fit deviation</span>
@@ -376,6 +387,7 @@ export function DeviationPanel({
                   : ''}
               </div>
             </div>
+            )}
             {d.align!.underconstrained && (
               <p className="warnnote">
                 ⚠ The marked surface faces one way only, so the fit could correct the distance

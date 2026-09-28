@@ -13,6 +13,10 @@ import { useThickness } from '../state/thicknessStore'
 
 export function BusyOverlay() {
   const loading = useStore((s) => s.busy)
+  // A search run for the user — Auto-align, Use symmetry — that takes
+  // seconds on a big scan, with nothing on the part to show for it until it
+  // ends.
+  const working = useStore((s) => s.working)
   const fitting = useStore(
     (s) => s.draft?.status === 'fitting' || s.elements.some((e) => e.status === 'fitting'),
   )
@@ -25,22 +29,24 @@ export function BusyOverlay() {
   // alignment it was opened for from its own buttons.
   const picking = useDeviation((s) => s.picking)
 
-  const busy = loading || nominalBusy || fitting || aligning || mapping || measuring
+  const busy = loading || nominalBusy || working !== null || fitting || aligning || mapping || measuring
   if (!busy || picking) return null
 
   const label =
     loading || nominalBusy
       ? 'LOADING…'
-      : fitting
-        ? 'FITTING…'
-        : aligning
-          ? 'ALIGNING…'
-          : 'MEASURING…'
+      : working !== null
+        ? working
+        : fitting
+          ? 'FITTING…'
+          : aligning
+            ? 'ALIGNING…'
+            : 'MEASURING…'
 
   // A fit is short and reports nothing, so the strip still holds the
   // instruction that started it — repeating that under the spinner would read
   // as if the tool were still waiting to be told what to do.
-  const note = fitting && !loading && !nominalBusy ? null : statusText
+  const note = fitting && !loading && !nominalBusy && working === null ? null : statusText
 
   return (
     <div className="busyoverlay" data-test="fitting-chip">

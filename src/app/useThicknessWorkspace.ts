@@ -18,6 +18,7 @@ export function useThicknessWorkspace({
   thicknessRgb: RefObject<Uint8Array | null>
 }) {
   const runThickness = async () => {
+    const scanVersion = clientRef.current!.scanVersion
     const t = useThickness.getState()
     t.begin()
     useStore.getState().setStatus('Measuring wall thickness…')
@@ -29,11 +30,13 @@ export function useThicknessWorkspace({
         normalDeviationDeg: t.normalDeviationDeg,
         maxThickness: t.maxThickness,
       })
+      if (scanVersion !== clientRef.current!.scanVersion) return
       thickness.current = result.values
       thicknessRgb.current = null
       useThickness.getState().resolve(result.suggestedLow, result.suggestedHigh)
       useStore.getState().setStatus('Wall thickness measured.')
     } catch (e) {
+      if (scanVersion !== clientRef.current!.scanVersion) return
       const message = e instanceof Error ? e.message : String(e)
       useThickness.getState().fail(message)
       useStore.getState().setStatus('')

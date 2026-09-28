@@ -4,6 +4,7 @@ import { fitConeFromSeed, fitConeOnSelection } from '../fit/fitConeFromSeed'
 import { fitCylinderFromSeed, fitCylinderOnSelection } from '../fit/fitCylinderFromSeed'
 import { fitPlaneFromSeed, fitPlaneOnSelection } from '../fit/fitPlaneFromSeed'
 import { fitSphereFromSeed, fitSphereOnSelection } from '../fit/fitSphereFromSeed'
+import { fitTorusFromSeed, fitTorusOnSelection } from '../fit/fitTorusFromSeed'
 
 /** The extension seam for measurement primitives: each fitted element type
  *  provides a click-seeded auto-fit and inherits the whole pick → fit →
@@ -33,6 +34,7 @@ const FITTERS: Record<FittedElementKind, FitFromSeed> = {
   cylinder: fitCylinderFromSeed,
   cone: fitConeFromSeed,
   plane: fitPlaneFromSeed,
+  torus: fitTorusFromSeed,
 }
 
 const SELECTION_FITTERS: Record<FittedElementKind, FitOnSelection> = {
@@ -40,6 +42,7 @@ const SELECTION_FITTERS: Record<FittedElementKind, FitOnSelection> = {
   cylinder: fitCylinderOnSelection,
   cone: fitConeOnSelection,
   plane: fitPlaneOnSelection,
+  torus: fitTorusOnSelection,
 }
 
 export function getFitter(id: string): FitFromSeed {

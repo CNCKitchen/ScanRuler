@@ -5,6 +5,19 @@ import { buildAdjacency } from './adjacency'
 import { computeVertexNormals, orientNormalsOutward } from './normals'
 
 export function buildMeshGraph(parsed: ParsedMesh, onProgress?: (text: string) => void): MeshGraph {
+  if (parsed.positions.length === 0 || parsed.positions.length % 3 !== 0 ||
+      (parsed.kind === 'soup' && parsed.positions.length % 9 !== 0)) {
+    throw new Error('The file contains incomplete vertex or triangle coordinates.')
+  }
+  for (const coordinate of parsed.positions) {
+    if (!Number.isFinite(coordinate)) throw new Error('The file contains non-finite vertex coordinates.')
+  }
+  if (parsed.indices) {
+    if (parsed.indices.length % 3 !== 0) throw new Error('The file contains incomplete triangle indices.')
+    for (const index of parsed.indices) {
+      if (index >= parsed.positions.length / 3) throw new Error('The file references vertices that do not exist.')
+    }
+  }
   let positions: Float32Array
   let indices: Uint32Array
 

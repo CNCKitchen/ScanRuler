@@ -18,6 +18,8 @@ import {
   sectionFrameAlong,
   sectionFrameFrom,
   sectionRefName,
+  sketchFrameOn,
+  sketchXAxis,
   tiltOf,
   transformFrame,
   turnAxis,
@@ -331,5 +333,54 @@ describe('turning a plane by hand', () => {
   it('leaves a degenerate or unfinished turn alone', () => {
     expect(turnAxis(axis, 5, [1, 0, 0], NaN)).toBe(axis)
     expect(turnAxis({ origin: [0, 0, 0], dir: [0, 0, 0] }, 5, [1, 0, 0], 10).dir).toEqual([0, 0, 0])
+  })
+})
+
+describe('the sketch frame on a plane', () => {
+  it('puts the zero at the origin projected onto the plane, never at the patch', () => {
+    // A face at z = 20 whose centre is off to the side: the sheet's zero
+    // stands straight above the origin, as every CAD sketcher has it.
+    const f = sketchFrameOn({ origin: [5, 7, 20], normal: [0, 0, 1] })!
+    expect(f.origin).toEqual([0, 0, 20])
+    expect(f.basisU).toEqual([1, 0, 0])
+    expect(f.basisV).toEqual([0, 1, 0])
+    // A tilted plane through (10, 0, 0) with normal (1, 0, 1)/√2: the foot
+    // of the origin is (5, 0, 5).
+    const t = sketchFrameOn({ origin: [10, 0, 0], normal: [1, 0, 1] })!
+    expect(t.origin[0]).toBeCloseTo(5, 12)
+    expect(t.origin[1]).toBeCloseTo(0, 12)
+    expect(t.origin[2]).toBeCloseTo(5, 12)
+    expect(sketchFrameOn({ origin: [0, 0, 0], normal: [0, 0, 0] })).toBeNull()
+  })
+
+  it('takes X from the coordinate axis next round from the one the normal is nearest', () => {
+    expect(sketchXAxis([0, 0, 1])).toEqual([1, 0, 0])
+    expect(sketchXAxis([0, 0, -1])).toEqual([1, 0, 0])
+    expect(sketchXAxis([1, 0, 0])).toEqual([0, 1, 0])
+    expect(sketchXAxis([0, 1, 0])).toEqual([0, 0, 1])
+    expect(sketchXAxis([0.1, 0, 0.99])).toEqual([1, 0, 0])
+    // The bottom face: X still the part's X, and the sheet seen from
+    // below, so its Y runs the other way — a right-handed frame.
+    const bottom = sketchFrameOn({ origin: [0, 0, 0], normal: [0, 0, -1] })!
+    expect(bottom.basisU).toEqual([1, 0, 0])
+    expect(bottom.basisV.map((x) => x + 0)).toEqual([0, -1, 0])
+    // A face leaning off Z: X is the part's X flattened into the plane,
+    // not the patch's own axes.
+    const lean = sketchFrameOn({ origin: [0, 0, 10], normal: [0.1, 0, 0.99] })!
+    expect(lean.basisU[1]).toBeCloseTo(0, 12)
+    expect(lean.basisU[0]).toBeGreaterThan(0.99)
+    expect(lean.basisU[0] * lean.normal[0] + lean.basisU[2] * lean.normal[2]).toBeCloseTo(0, 12)
+    // The right hand: U × V = N on every one.
+    for (const f of [bottom, lean, sketchFrameOn({ origin: [3, 4, 5], normal: [0, 1, 0] })!]) {
+      const [u, v, n] = [f.basisU, f.basisV, f.normal]
+      expect(u[0] * v[1] * n[2] + u[1] * v[2] * n[0] + u[2] * v[0] * n[1] - u[2] * v[1] * n[0] - u[1] * v[0] * n[2] - u[0] * v[2] * n[1]).toBeCloseTo(1, 12)
+    }
+  })
+
+  it('keeps an X already in use, flattened into the plane', () => {
+    const f = sketchFrameOn({ origin: [0, 0, 5], normal: [0, 0, 1] }, [0, 1, 0.3])!
+    expect(f.basisU[0]).toBeCloseTo(0, 12)
+    expect(f.basisU[1]).toBeCloseTo(1, 12)
+    expect(f.basisU[2]).toBeCloseTo(0, 12)
   })
 })

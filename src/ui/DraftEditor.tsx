@@ -8,6 +8,7 @@ import { isExtendable } from '../core/elements/extend'
 import { isOrientable } from '../core/elements/orient'
 import { elementKindInfo } from '../core/elements/kinds'
 import { formatDetail, formatPrimary, SIGMA_LABELS } from '../core/summary'
+import { BASE_PLANE_SEEDS } from '../core/symmetry'
 import type { SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
 import { blockedRefs, draftColorOf, orientedDraft, useStore, type SelectMode } from '../state/store'
@@ -216,7 +217,7 @@ export function DraftEditor({
                 <>
                   <RefSelect
                     label="Seed plane (optional)"
-                    options={providersFor(['plane'], elements, blocked)}
+                    options={[...BASE_PLANE_SEEDS, ...providersFor(['plane'], elements, blocked)]}
                     value={draft.seed ?? null}
                     testId="draft-seed"
                     picking={false}
@@ -226,7 +227,7 @@ export function DraftEditor({
                     data-test="find-symmetry"
                     disabled={busy || draft.status === 'fitting'}
                     onClick={onFindSymmetry}
-                    title="Reflect the scan through the seed — or, with none, through each of its principal planes — fit the reflection back onto the scan, and read the mirror plane off the fit"
+                    title="Reflect the scan through the seed — a coordinate plane or a plane element; with none, through each of its principal planes — fit the reflection back onto the scan, and read the mirror plane off the fit"
                   >
                     {draft.status === 'ready' ? 'Find again' : 'Find symmetry plane'}
                   </button>

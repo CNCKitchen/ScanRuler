@@ -23,13 +23,14 @@ export interface FlatMethod {
   id: string
   kind: FlatElementKind
   /** How the geometry is collected: `pick` takes clicks on the image and fits
-   *  once there are enough, `edge` takes dragged regions and consumes the
+   *  once there are enough, `seed` takes one click on a detected edge and
+   *  grows the fit along it from there (the 2D twin of the 3D fit from a
+   *  click — see flat/grow.ts), `edge` takes dragged regions and consumes the
    *  detected edge points inside them, `construct` assembles from other
-   *  elements. Edge picks flow through the same draft — the collected points
-   *  ARE the picks, there are just very many of them. Per kind, the first
-   *  method listed is the default the kind button opens with: picking, since
-   *  a hand pick is right wherever the edge detector is not. */
-  mode: 'pick' | 'edge' | 'construct'
+   *  elements. Seed and edge picks flow through the same draft — the
+   *  collected points ARE the picks, there are just very many of them.
+   *  Which method a kind's button opens with is flatDefaultMethod's. */
+  mode: 'pick' | 'seed' | 'edge' | 'construct'
   label: string
   /** One line for the creation UI. */
   hint: string
@@ -85,6 +86,14 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     minPicks: 2,
   },
   {
+    id: 'flat-line-seed',
+    kind: 'line',
+    mode: 'seed',
+    label: 'Fit to edge',
+    hint: 'Click anywhere on a straight stretch of a detected edge — the line grows along the edge from there and stops where it bends away, at a corner or into a fillet.',
+    minPicks: 4,
+  },
+  {
     id: 'flat-line-edge',
     kind: 'line',
     mode: 'edge',
@@ -99,6 +108,14 @@ export const FLAT_METHODS: readonly FlatMethod[] = [
     label: 'Through points',
     hint: 'Click three or more points around the circle — more points give the best fit.',
     minPicks: 3,
+  },
+  {
+    id: 'flat-circle-seed',
+    kind: 'circle',
+    mode: 'seed',
+    label: 'Fit to edge',
+    hint: "Click anywhere on a round stretch of a detected edge — the circle grows along the edge from there and stops where it leaves the arc; a hole's rim is taken all the way round.",
+    minPicks: 6,
   },
   {
     id: 'flat-circle-edge',
@@ -146,10 +163,33 @@ export function flatMethodsForKind(kind: FlatElementKind): FlatMethod[] {
   return FLAT_METHODS.filter((m) => m.kind === kind)
 }
 
+/** The method a kind's button opens with. On the scanned image, picking by
+ *  hand — the first method listed — since a hand pick is right wherever the
+ *  edge detector is not. On a section the cut is one clean chain and every
+ *  edge is detected by construction, so a line or a circle opens with the
+ *  fit to edge: one click per side and per bore is how a section is
+ *  measured. */
+export function flatDefaultMethod(kind: FlatElementKind, onSection: boolean): string {
+  const methods = flatMethodsForKind(kind)
+  if (onSection) {
+    const seed = methods.find((m) => m.mode === 'seed')
+    if (seed) return seed.id
+  }
+  return methods[0].id
+}
+
 export function flatMethod(id: string): FlatMethod {
   const m = FLAT_METHODS.find((x) => x.id === id)
   if (!m) throw new Error(`Unknown flat method "${id}".`)
   return m
+}
+
+/** Whether a method's picks are edge points collected off the detected
+ *  chains — by a click that grows along them or a region that takes them
+ *  in — rather than points placed by hand: thousands of them, drawn as a
+ *  cloud, cleared as one. */
+export function collectsEdgePoints(m: FlatMethod): boolean {
+  return m.mode === 'seed' || m.mode === 'edge'
 }
 
 /** Fit a pick-mode method from its collected points. `spline` is read by the
@@ -170,9 +210,13 @@ export function evaluateFlatPicks(
       if (points.length < 1) throw new FitError('Click the point first.')
       return flatPoint(points[points.length - 1])
     }
+    // A click's grown points are the straight or round stretch itself, so
+    // the plain least squares is the fit — the growing did the choosing.
     case 'flat-line-pick':
+    case 'flat-line-seed':
       return fitLinePoints(points)
     case 'flat-circle-pick':
+    case 'flat-circle-seed':
       return fitCirclePoints(points)
     case 'flat-arc-pick':
       return fitArcPoints(points)

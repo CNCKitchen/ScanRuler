@@ -7,13 +7,17 @@
 //
 // Env, honoured by every script: APP_URL, CHROME (chrome.exe path),
 // SHOT_DIR / OUT_DIR (screenshots, default <repo>/e2e-out).
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import puppeteer from 'puppeteer-core'
 
 export const APP_URL = process.env.APP_URL ?? 'http://localhost:5173/'
-export const CHROME = process.env.CHROME ?? 'C:/Program Files/Google/Chrome/Application/chrome.exe'
+export const CHROME = process.env.CHROME ?? (
+  process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' :
+    process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' :
+      '/usr/bin/google-chrome'
+)
 
 /** A file at the repo root, e.g. the default STL fixtures. */
 export const repoFile = (name) => fileURLToPath(new URL(`../${name}`, import.meta.url))
@@ -47,6 +51,16 @@ export async function finish(browser, consoleErrors) {
   const real = consoleErrors.filter((e) => !CONSOLE_WHITELIST.test(e))
   console.log('console errors:', real.length ? JSON.stringify(real) : 'none')
   if (real.length) failed = true
+  if (failed) {
+    try {
+      writeFileSync(shotPath('console-errors.json'), JSON.stringify(real, null, 2))
+      for (const [index, page] of (await browser.pages()).entries()) {
+        if (page.url() === 'about:blank') continue
+        await page.screenshot({ path: shotPath(`failure-${index}.png`) })
+        writeFileSync(shotPath(`failure-${index}.html`), await page.content())
+      }
+    } catch (error) { console.error('Could not capture failure diagnostics:', error.message) }
+  }
   await browser.close()
   if (failed) process.exitCode = 1
   console.log(failed ? 'FAILED' : 'ALL PASS')
@@ -60,7 +74,7 @@ export async function launchApp({ width = 1500, height = 950, protocolTimeout } 
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: 'new',
-    args: [`--window-size=${width},${height}`, '--no-sandbox'],
+    args: [`--window-size=${width},${height}`, '--no-sandbox', ...(process.env.CI ? ['--enable-unsafe-swiftshader'] : [])],
     defaultViewport: { width, height },
     ...(protocolTimeout ? { protocolTimeout } : {}),
   })
@@ -70,8 +84,22 @@ export async function launchApp({ width = 1500, height = 950, protocolTimeout } 
     if (m.type() === 'error') consoleErrors.push(m.text())
   })
   page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${e.message}`))
-  await page.goto(APP_URL, { waitUntil: 'networkidle0' })
-  await page.waitForSelector('.panel')
+  // The fixtures are in millimetres, and the units question an STL import
+  // puts up would stall every upload waiting on an answer: switched off
+  // before the app's first script runs, the way an operator's "Don't ask
+  // again" leaves it. A script that wants the question sets the preference
+  // back on itself (e2e-import does).
+  await page.evaluateOnNewDocument(() => {
+    try { localStorage.setItem('scanruler.askstlunits', '0') } catch { /* private mode: the question is answered by hand */ }
+  })
+  try {
+    await page.goto(APP_URL, { waitUntil: 'networkidle0' })
+    await page.waitForSelector('.panel')
+  } catch (error) {
+    fail(`App did not start: ${error.message}`)
+    await finish(browser, consoleErrors)
+    throw error
+  }
   return { browser, page, consoleErrors }
 }
 
@@ -120,6 +148,31 @@ export async function click(page, sel, { timeout = 10_000 } = {}) {
 }
 
 /** Choose a <select> option by its visible label rather than its value. */
+/** A RefPicker (ui/RefPicker.tsx): open it, hover the option with this label
+ *  — which is when the viewport shows what it stands for — then take it. */
+export async function pickOption(page, sel, label) {
+  // The list is the face's test id with "-list": [data-test=x] → [data-test=x-list].
+  const listSel = sel.replace(/\]$/, '-list]')
+  await click(page, sel)
+  await page.waitForSelector(listSel)
+  // A string is matched whole, a RegExp (passed as its source) tested.
+  const want = typeof label === 'string' ? { exact: label } : { pattern: label.source }
+  const handle = await page.evaluateHandle(
+    (s, w) =>
+      [...document.querySelectorAll(`${s} [data-test=pick-option]`)].find((o) =>
+        w.exact !== undefined ? o.textContent.trim() === w.exact : new RegExp(w.pattern).test(o.textContent),
+      ) ?? null,
+    listSel,
+    want,
+  )
+  const el = handle.asElement()
+  if (!el) throw new Error(`option "${label}" not found in ${sel}`)
+  await el.hover()
+  await sleep(200)
+  await el.click()
+  await sleep(100)
+}
+
 export async function selectByLabel(page, sel, label) {
   const value = await page.$eval(
     sel,

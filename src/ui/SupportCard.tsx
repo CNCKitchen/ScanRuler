@@ -16,8 +16,13 @@
 // close survives the card being unmounted and remounted mid-session (the point
 // picker takes the stage and takes the card with it) — a card that came back
 // while the user was still working would read as one that cannot be closed.
+//
+// Putting it away for good is a setting — Support card in ⚙ Settings, held in
+// the prefs store with the instrument's others — for the operator who has seen
+// it and works in the tool every day.
 
 import { useState } from 'react'
+import { usePrefs } from '../state/prefsStore'
 
 let closedThisLoad = false
 
@@ -44,7 +49,8 @@ const LINKS = [
 
 export function SupportCard() {
   const [closed, setClosed] = useState(closedThisLoad)
-  if (closed) return null
+  const shown = usePrefs((s) => s.supportCard)
+  if (closed || !shown) return null
   const close = () => {
     closedThisLoad = true
     setClosed(true)

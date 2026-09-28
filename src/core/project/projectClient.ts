@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { WorkerRpc } from '../workerRpc'
 import type { ArchiveMember, UnpackedProject } from './archive'
 import type { ProjectManifest } from './manifest'
 import type { ProjectWorkerRequest, ProjectWorkerResponse } from './projectWorker'
@@ -6,28 +7,16 @@ import type { ProjectWorkerRequest, ProjectWorkerResponse } from './projectWorke
 /** Main-thread handle on the project worker: one request in flight at a time
  *  is all the UI ever asks for, but the ids keep it honest regardless. */
 export class ProjectClient {
-  private worker: Worker
+  private rpc = new WorkerRpc(() => new Worker(new URL('./projectWorker.ts', import.meta.url), { type: 'module' }), 'Project worker')
   private nextId = 1
-  private pending = new Map<number, { resolve: (v: never) => void; reject: (e: Error) => void }>()
-
-  constructor() {
-    this.worker = new Worker(new URL('./projectWorker.ts', import.meta.url), { type: 'module' })
-    this.worker.onmessage = (e: MessageEvent<ProjectWorkerResponse>) => {
-      const msg = e.data
-      const p = this.pending.get(msg.requestId)
-      if (!p) return
-      this.pending.delete(msg.requestId)
-      if (msg.type === 'error') p.reject(new Error(msg.message))
-      else p.resolve(msg as never)
-    }
-  }
+  get dead(): boolean { return this.rpc.dead }
 
   private request<T>(msg: ProjectWorkerRequest, transfer: Transferable[]): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(msg.requestId, { resolve: resolve as (v: never) => void, reject })
-      this.worker.postMessage(msg, transfer)
-    })
+    if (this.rpc.dead) this.rpc.restart()
+    return this.rpc.request<T>(msg, transfer)
   }
+
+  dispose(): void { this.rpc.dispose() }
 
   /** Members are copied in, not transferred: the session keeps its bytes. */
   async pack(manifest: ProjectManifest, members: ArchiveMember[]): Promise<Uint8Array> {

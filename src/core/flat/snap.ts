@@ -42,6 +42,13 @@ export class EdgeIndex {
    *  belongs to — what a click on an edge selects — or null when no edge is
    *  within reach. */
   chainNear(x: number, y: number, maxDist: number): Vec2[] | null {
+    return this.chainHit(x, y, maxDist)?.chain ?? null
+  }
+
+  /** The chain under a click, and where on it the click landed: the index
+   *  of the nearest edge point within the chain — the seed a fit grows
+   *  along the chain from. Null when no edge is within reach. */
+  chainHit(x: number, y: number, maxDist: number): { chain: Vec2[]; index: number } | null {
     const i = this.nearestIndex(x, y, maxDist)
     if (i < 0) return null
     // Chains are laid out in order, so the one holding point i is the last
@@ -53,11 +60,11 @@ export class EdgeIndex {
       if (this.offsets[mid] <= i) lo = mid
       else hi = mid - 1
     }
-    const out: Vec2[] = []
+    const chain: Vec2[] = []
     for (let k = this.offsets[lo]; k < this.offsets[lo + 1]; k++) {
-      out.push([this.points[k * 2], this.points[k * 2 + 1]])
+      chain.push([this.points[k * 2], this.points[k * 2 + 1]])
     }
-    return out
+    return { chain, index: i - this.offsets[lo] }
   }
 
   private nearestIndex(x: number, y: number, maxDist: number): number {

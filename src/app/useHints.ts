@@ -5,20 +5,27 @@
 
 import { useEffect } from 'react'
 import { isDeviationTarget } from '../core/deviation/elementField'
-import { nextHint, type HintInput, type HintResult } from '../core/hints'
+import { nextHint, type HintInput, type HintResult, type HintTrack } from '../core/hints'
 import { useDeviation } from '../state/deviationStore'
 import { useShell } from '../state/shellStore'
 import { hasLearned, useHintPrefs } from '../state/hintStore'
 import { useStore } from '../state/store'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
+import { plugins } from '../plugins/registry'
+import type { WorkspaceTab } from '../plugins/api'
 
 /** The ladder's answer for the workspace on screen, already silenced where it
  *  has no business speaking. Every field is a primitive or a boolean, so the
  *  components that call this only re-render when the answer can actually
  *  change. */
 function useLadder(): HintResult {
-  const workspace = useShell((s) => s.workspace)
+  const workspace: HintTrack = useShell((s) => s.workspace)
+  // Every plugin's hint is asked for, in the same order on every render, so
+  // the hooks behind them stay put; only the workspace on screen's is read.
+  const tabs = plugins().flatMap((p) => (p.workspace ? [p.workspace] : []))
+  const pluginHints = tabs.map((tab: WorkspaceTab) => tab.useHintStep?.() ?? null)
+  const tab = tabs.findIndex((t) => t.id === workspace)
   const on = useHintPrefs((s) => s.on)
   const learned = useHintPrefs((s) => hasLearned(s, workspace))
 
@@ -52,7 +59,7 @@ function useLadder(): HintResult {
 
   const input: HintInput = {
     workspace,
-    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning || imageBusy,
+    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning || imageBusy || pluginHints.some((h) => h?.busy),
     scanLoaded,
     fittedElements,
     dimensions,
@@ -67,9 +74,13 @@ function useLadder(): HintResult {
     hasTargetElement,
     targetChosen,
     thicknessReady,
+    pluginStep: tab >= 0 ? (pluginHints[tab]?.step ?? null) : undefined,
     imageLoaded,
   }
   const result = nextHint(input)
+  // A plugin's workspace without hints of its own: nothing to ring, nothing
+  // to retire.
+  if (tab >= 0 && !tabs[tab].useHintStep) return null
   // 'done' still has to reach the caller that retires the track — it is only
   // the ring and the chip that go quiet here.
   if (inSubFlow) return result === 'done' ? 'done' : null

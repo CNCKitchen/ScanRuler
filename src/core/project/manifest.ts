@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { MeshUnits } from '../meshUnits'
 // What a saved project carries, and how the pieces of live state that are not
 // JSON (typed arrays inside elements and rigid transforms) are written and
 // read back. Only user intent is saved: every map, field, edge chain and
@@ -22,6 +23,7 @@ import type { FlatDimension } from '../flat/dimensions'
 import type { FlatDatum } from '../flat/datum'
 import type { PixelsPerMm } from '../flat/image'
 import type { Vec2 } from '../flat/types'
+import { validateProjectParts } from './validation'
 
 export const PROJECT_APP = 'ScanRuler'
 export const PROJECT_SCHEMA = 1
@@ -121,6 +123,10 @@ export interface ScanPart {
   fileName: string
   /** Archive member holding the original file bytes. */
   member: string
+  /** What the member's coordinates are in, when not millimetres: the scan
+   *  was read in millimetres from it, and is again on load. Absent in
+   *  projects saved before the STL import asked, and for a file in mm. */
+  units?: MeshUnits
   /** The datum alignment baked into the scan. Elements are saved in the
    *  aligned frame, so the same transform goes onto the raw scan first. */
   appliedAlignment: RigidJson | null
@@ -149,7 +155,8 @@ export interface ScanPart {
 
 export interface DeviationPart {
   source: 'reference' | 'element'
-  reference: { fileName: string; member: string } | null
+  /** `units` as on the scan: what the member is in, when not millimetres. */
+  reference: { fileName: string; member: string; units?: MeshUnits } | null
   /** The global best fit and the one shown (a local fine fit refines it). */
   align: AlignResultJson | null
   globalAlign: AlignResultJson | null
@@ -241,6 +248,9 @@ export interface ProjectManifest {
   deviation: DeviationPart
   thickness: ThicknessPart
   flat: FlatPart
+  /** The plugins' parts, each under the key its section owns — see
+   *  app/projectSections.ts. */
+  [section: string]: unknown
 }
 
 /** Check a parsed manifest is one of ours and one this build can read. */
@@ -249,6 +259,7 @@ export function validateManifest(raw: unknown): ProjectManifest {
   if (!m || typeof m !== 'object' || m.app !== PROJECT_APP || typeof m.schemaVersion !== 'number') {
     throw new Error('Not a ScanRuler project file.')
   }
+  if (!Number.isInteger(m.schemaVersion) || m.schemaVersion < 1) throw new Error('Unsupported project schema version.')
   if (m.schemaVersion > PROJECT_SCHEMA) {
     throw new Error('This project was saved by a newer version of ScanRuler — please reload the app to open it.')
   }
@@ -256,6 +267,7 @@ export function validateManifest(raw: unknown): ProjectManifest {
     throw new Error('Malformed project: scan entry.')
   }
   if (!m.deviation || !m.thickness || !m.flat) throw new Error('Malformed project: missing parts.')
+  validateProjectParts(m)
   return m as ProjectManifest
 }
 

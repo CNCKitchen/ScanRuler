@@ -5,6 +5,7 @@
 // (§ 5 DDG / Art. 13 DSGVO). Opened from the status strip.
 
 import { useEffect } from 'react'
+import { plugins } from '../plugins/registry'
 import { useStore } from '../state/store'
 import { APP_VERSION } from '../version'
 
@@ -26,6 +27,8 @@ export function ImprintModal() {
   }, [open, close])
 
   if (!open) return null
+  // The plugins' notices on the third-party software they ship.
+  const notices = plugins().flatMap((p) => (p.notices ? [{ id: p.id, Notices: p.notices }] : []))
   return (
     <div className="modalback" onClick={() => close(false)}>
       <div className="modal imprint" onClick={(e) => e.stopPropagation()}>
@@ -66,6 +69,15 @@ export function ImprintModal() {
             ec.europa.eu/consumers/odr
           </a>
         </p>
+
+        {notices.length > 0 && (
+          <>
+            <h3>Third-party software</h3>
+            {notices.map(({ id, Notices }) => (
+              <Notices key={id} />
+            ))}
+          </>
+        )}
 
         <h3>Privacy Policy (Datenschutzerklärung)</h3>
         <p>

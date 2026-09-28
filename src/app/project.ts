@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { MeshUnits } from '../core/meshUnits'
 // Reading a project manifest off the stores and writing one back onto them.
 // The orchestration around it — loading the model files, re-measuring the
 // maps — lives in useProject; this is the plain data half, so it can be
@@ -8,7 +9,9 @@ import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { sheetKeyOf, sheetOf, useFlat, type FlatSubject, type SheetState } from '../state/flatStore'
-import { useShell, type Workspace } from '../state/shellStore'
+import { CORE_WORKSPACES, useShell, type Workspace } from '../state/shellStore'
+import { plugins } from '../plugins/registry'
+import { keptParts, projectSections } from './projectSections'
 import {
   alignFromJson,
   alignToJson,
@@ -33,14 +36,29 @@ import type { ArchiveMember } from '../core/project/archive'
 
 /** The original bytes of every model the session holds, kept from the moment
  *  each was opened: the worker takes its copy by transfer and the scene keeps
- *  only geometry, so nothing else could write the file back out as it came. */
+ *  only geometry, so nothing else could write the file back out as it came.
+ *  A scan swapped for an edited version of itself (app/useScanSwap) is kept
+ *  as the file it now is: a PLY in millimetres, in the frame the original was
+ *  opened in, so the applied alignment goes on it the same way — see
+ *  core/mesh/plyWriter. */
 export interface SourceFiles {
-  scan: { name: string; bytes: Uint8Array } | null
-  reference: { name: string; bytes: Uint8Array } | null
+  /** `units` is what the bytes' coordinates are in — the mesh was read in
+   *  millimetres from them, and is read the same way again from a project or
+   *  after a worker restart. Absent means millimetres. */
+  scan: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
+  reference: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
   image: { name: string; bytes: Uint8Array } | null
 }
 
 export const emptySources = (): SourceFiles => ({ scan: null, reference: null, image: null })
+
+/** The name a member is read under: the one it was saved with, carrying the
+ *  member's own extension — an edited scan is a PLY, kept under the name of
+ *  the STL it was opened as. */
+export function readAs(fileName: string, member: string): string {
+  const ext = extensionOf(member)
+  return extensionOf(fileName) === ext ? fileName : `${fileName.replace(/\.[^.]+$/, '')}.${ext}`
+}
 
 /** True when the session holds work worth a warning before it is replaced. */
 export function sessionIsDirty(): boolean {
@@ -56,7 +74,19 @@ export function sessionIsDirty(): boolean {
     s.dimensions.length > 0 ||
     s.sections.length > 0 ||
     sheetHasWork(f) ||
-    Object.values(f.sheets).some(sheetHasWork)
+    Object.values(f.sheets).some(sheetHasWork) ||
+    projectSections().some((p) => p.holdsWork?.())
+  )
+}
+
+/** True when there is anything to save as a project: a scan, an image, or
+ *  a plugin's work — or a part kept from the project opened last. */
+export function projectHasContent(sources: SourceFiles): boolean {
+  return (
+    !!sources.scan ||
+    !!sources.image ||
+    projectSections().some((p) => p.holdsWork?.()) ||
+    Object.keys(keptParts().parts).length > 0
   )
 }
 
@@ -78,6 +108,7 @@ export function collectProject(
     scan = {
       fileName: s.fileName,
       member,
+      ...(sources.scan.units && sources.scan.units !== 'mm' ? { units: sources.scan.units } : {}),
       appliedAlignment: s.appliedAlignment ? rigidToJson(s.appliedAlignment) : null,
       elements: s.elements.map(elementToJson),
       dimensions: s.dimensions,
@@ -102,7 +133,11 @@ export function collectProject(
   if (sources.reference && dev.nominalName) {
     const member = `${REFERENCE_STEM}.${extensionOf(sources.reference.name)}`
     members.push({ name: member, bytes: sources.reference.bytes })
-    reference = { fileName: dev.nominalName, member }
+    reference = {
+      fileName: dev.nominalName,
+      member,
+      ...(sources.reference.units && sources.reference.units !== 'mm' ? { units: sources.reference.units } : {}),
+    }
   }
   const deviation: DeviationPart = {
     source: dev.source,
@@ -184,26 +219,34 @@ export function collectProject(
     sheets: { ...f.sheets, [sheetKeyOf(f.subject)]: sheetOf(f) },
   }
 
-  return {
-    manifest: {
-      app: PROJECT_APP,
-      schemaVersion: PROJECT_SCHEMA,
-      appVersion,
-      workspace: useShell.getState().workspace,
-      scan,
-      deviation,
-      thickness,
-      flat,
-    },
-    members,
+  const manifest: ProjectManifest = {
+    app: PROJECT_APP,
+    schemaVersion: PROJECT_SCHEMA,
+    appVersion,
+    workspace: useShell.getState().workspace,
+    scan,
+    deviation,
+    thickness,
+    flat,
   }
+  // What was kept of the project opened last, then every section's own part —
+  // a section in use writes its part over a kept one of the same key.
+  const kept = keptParts()
+  Object.assign(manifest, kept.parts)
+  members.push(...kept.members)
+  const ctx = { sources, scanSaved: scan !== null, addMember: (name: string, bytes: Uint8Array) => members.push({ name, bytes }) }
+  for (const section of projectSections()) {
+    const part = section.collect(ctx)
+    if (part !== undefined) manifest[section.key] = part
+  }
+  return { manifest, members }
 }
 
 /** The Measure state of a project, onto a freshly loaded (and aligned) scan.
  *  Fitted elements come back as `done` with their saved fits; the caller
  *  re-fits them to get their surface regions tinted. */
-export function applyScanPart(p: ScanPart): void {
-  useStore.setState({
+function scanPartState(p: ScanPart): Partial<ReturnType<typeof useStore.getState>> {
+  return {
     // An element saved before the cut-off was its own was measured with the
     // project's — so it comes back measured the same way.
     elements: p.elements.map((e) => elementFromJson(e, p.settings)),
@@ -225,11 +268,15 @@ export function applyScanPart(p: ScanPart): void {
     sections: (p.sections ?? []).map(sectionFromJson),
     sectionDraft: null,
     nextSectionNumber: p.nextSectionNumber ?? 1,
-  })
+  }
 }
 
-export function applyDeviationPart(p: DeviationPart): void {
-  useDeviation.setState({
+export function applyScanPart(p: ScanPart): void {
+  useStore.setState(scanPartState(p))
+}
+
+function deviationPartState(p: DeviationPart): Partial<ReturnType<typeof useDeviation.getState>> {
+  return {
     source: p.source,
     align: p.align ? alignFromJson(p.align) : null,
     globalAlign: p.globalAlign ? alignFromJson(p.globalAlign) : null,
@@ -259,11 +306,15 @@ export function applyDeviationPart(p: DeviationPart): void {
     split: p.split,
     probes: p.probes,
     nextProbeId: p.nextProbeId,
-  })
+  }
 }
 
-export function applyThicknessPart(p: ThicknessPart): void {
-  useThickness.setState({
+export function applyDeviationPart(p: DeviationPart): void {
+  useDeviation.setState(deviationPartState(p))
+}
+
+function thicknessPartState(p: ThicknessPart): Partial<ReturnType<typeof useThickness.getState>> {
+  return {
     method: p.method,
     maxThickness: p.maxThickness,
     maxThicknessAuto: p.maxThicknessAuto,
@@ -278,12 +329,16 @@ export function applyThicknessPart(p: ThicknessPart): void {
     showHistogram: p.showHistogram,
     probes: p.probes,
     nextProbeId: p.nextProbeId,
-  })
+  }
+}
+
+export function applyThicknessPart(p: ThicknessPart): void {
+  useThickness.setState(thicknessPartState(p))
 }
 
 /** The 2D state, onto an image that has already been opened (or none). The
  *  sections it may put on the stage are the scan part's, applied first. */
-export function applyFlatPart(p: FlatPart): void {
+function flatPartState(p: FlatPart, sections = useStore.getState().sections) {
   // The sheet on the stage and the ones behind it. A project from before
   // sections holds one sheet, the image's, in the flat fields themselves.
   const legacy: SheetState = {
@@ -312,14 +367,14 @@ export function applyFlatPart(p: FlatPart): void {
   // on the stage; the image is.
   if (subject.kind === 'section') {
     const id = subject.id
-    if (!useStore.getState().sections.some((sec) => sec.id === id)) subject = { kind: 'image' }
+    if (!sections.some((sec) => sec.id === id)) subject = { kind: 'image' }
   }
   const sheets: Record<string, SheetState> = {}
   for (const [k, sheet] of Object.entries(p.sheets ?? {})) sheets[k] = sheetFromJson(sheet)
   const key = sheetKeyOf(subject)
   const active = sheets[key] ?? legacy
   delete sheets[key]
-  useFlat.setState((s) => ({
+  return (s: ReturnType<typeof useFlat.getState>): Partial<typeof s> => ({
     ...active,
     subject,
     subjectVersion: s.subjectVersion + 1,
@@ -332,10 +387,45 @@ export function applyFlatPart(p: FlatPart): void {
     showGrid: p.showGrid,
     draft: null,
     dimDraft: null,
-  }))
+  })
 }
 
+export function applyFlatPart(p: FlatPart): void {
+  useFlat.setState(flatPartState(p))
+}
+
+/** Convert every saved recipe before replacing any live state. Malformed
+ * elements, sketches or alignments must fail while the old session is intact. */
+export function prepareProjectState(m: ProjectManifest, members: ReadonlyMap<string, Uint8Array> = new Map()): () => void {
+  for (const [name, arrays] of [
+    ['scan', m.scan ? [m.scan.elements, m.scan.dimensions] : []],
+    ['deviation', [m.deviation.pairs, m.deviation.probes]],
+    ['thickness', [m.thickness.probes]],
+    ['flat', [m.flat.elements, m.flat.dimensions, m.flat.counts]],
+  ] as const) {
+    if (arrays.some((a) => !Array.isArray(a))) throw new Error(`Malformed project: ${name} entries.`)
+  }
+  const scan = m.scan ? scanPartState(m.scan) : null
+  const deviation = deviationPartState(m.deviation)
+  const thickness = thicknessPartState(m.thickness)
+  const flat = flatPartState(m.flat, scan?.sections ?? [])
+  // Each section checks and converts its part the same way, before anything
+  // is replaced — a part the file lacks is theirs to read as they will.
+  const sections = projectSections().map((section) => section.prepare(m[section.key], { manifest: m, members }))
+  return () => {
+    if (scan) useStore.setState(scan)
+    useDeviation.setState(deviation)
+    useThickness.setState(thickness)
+    useFlat.setState(flat)
+    for (const apply of sections) apply()
+    applyWorkspace(m.workspace)
+  }
+}
+
+/** Open the workspace a project was saved in — one of the app's, or one a
+ *  plugin in use adds. A workspace this build does not have opens 3D
+ *  Measure instead. */
 export function applyWorkspace(w: string): void {
-  const known: Workspace[] = ['elements', 'deviation', 'thickness', 'flat']
-  useShell.getState().setWorkspace(known.includes(w as Workspace) ? (w as Workspace) : 'elements')
+  const known: Workspace[] = [...CORE_WORKSPACES, ...plugins().flatMap((p) => (p.workspace ? [p.workspace.id] : []))]
+  useShell.getState().setWorkspace(known.includes(w) ? w : 'elements')
 }

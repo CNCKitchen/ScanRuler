@@ -3,10 +3,15 @@
 // it — globally or on a marked surface — and measure the map. The field
 // itself lives in refs owned by App, because other workspaces read it too.
 import type { RefObject } from 'react'
-import { isReferenceFile, isStepFile } from '../core/formats'
+import { isStepFile } from '../core/formats'
+import { unitsLabel, type MeshUnits } from '../core/meshUnits'
+import { meshUnitsFor } from '../state/unitsPromptStore'
+import type { ImportQueue } from './importQueue'
+import { prepareNominal, runImport, type PreparedNominal } from './imports'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
+import { clearHistory } from '../state/historyStore'
 import { useDeviation } from '../state/deviationStore'
 import { rigidToColumnMajor } from '../core/deviation/rigid'
 import { useMark } from '../state/markStore'
@@ -25,80 +30,92 @@ export function useDeviationWorkspace({
   deviation,
   deviationRgb,
   sources,
+  imports,
 }: {
   clientRef: RefObject<MeshWorkerClient | null>
   sceneRef: RefObject<SceneManager | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
+  imports: ImportQueue
   sources: RefObject<SourceFiles>
 }) {
-  const openNominal = async (file: File) => {
-    if (!isReferenceFile(file.name)) {
-      useStore.getState().setError('Unsupported file type — use STL, PLY, OBJ, or STEP.')
-      return
-    }
-    const dev = useDeviation.getState()
+  const commitNominal = (prepared: PreparedNominal | null) => {
     deviation.current = null
     deviationRgb.current = null
+    sources.current.reference = prepared?.source ?? null
     sceneRef.current?.setFieldColors(null)
-    dev.beginNominalLoad(file.name)
-    useStore
-      .getState()
-      .setStatus(
-        isStepFile(file.name)
-          ? 'Reading STEP file — tessellating the CAD surfaces…'
-          : 'Reading reference geometry…',
-      )
-    try {
-      const buffer = await file.arrayBuffer()
-      sources.current.reference = { name: file.name, bytes: new Uint8Array(buffer.slice(0)) }
-      const mesh = await clientRef.current!.loadNominal(file.name, buffer)
-      sceneRef.current?.setNominal(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots)
-      sceneRef.current?.setAlignment(null)
-      useDeviation
-        .getState()
-        .finishNominalLoad(file.name, mesh.vertexCount, mesh.triangleCount, mesh.step ?? null)
-      // Both models on screen from here, wherever the reference happens to sit
-      // — otherwise a reference exported in another frame would be aligned
-      // entirely off-camera.
-      sceneRef.current?.frameAll()
-
-      // A STEP reference is a conversion, and how good a conversion decides
-      // how much of the map is the part. A file that came apart in the
-      // conversion breaks the sign of every reading, so it gets the toast; a
-      // clean one just says what it cost.
-      const step = mesh.step
-      const converted = step
-        ? ` Tessellated from STEP at ${step.surfaceDeviation} mm chord tolerance${
-            step.units && step.units !== 'mm' ? `, converted from ${step.units}` : ''
-          }.`
-        : ''
-      useStore
-        .getState()
-        .setStatus(
-          `Reference loaded — ${mesh.triangleCount.toLocaleString('en-US')} triangles.${converted} Check it is the right part, then align the scan to it.`,
-        )
-      if (step?.warning) {
-        if (step.unsound) useStore.getState().setError(step.warning)
-        else useStore.getState().setStatus(step.warning)
-      }
-    } catch (e) {
+    useDeviation.getState().clearAlign()
+    sceneRef.current?.setAlignment(null)
+    if (prepared) {
+      prepared.view.commit()
+      const { mesh, source } = prepared
+      useDeviation.getState().finishNominalLoad(source.name, mesh.vertexCount, mesh.triangleCount, mesh.step ?? null)
+    } else {
+      sceneRef.current?.clearNominal()
       useDeviation.getState().nominalFailed()
-      useStore.getState().loadFailed(e instanceof Error ? e.message : String(e))
     }
+    clearHistory()
+  }
+
+  /** An STL is asked about first — what units it is in — unless `units` is
+   *  given: a file the instrument wrote itself, in millimetres like
+   *  everything it holds. A question dismissed leaves the file unopened. */
+  const openNominal = async (file: File, units?: MeshUnits): Promise<void> => {
+    const read = units ?? (await meshUnitsFor(file.name))
+    if (!read) return
+    await runImport(imports,
+    isStepFile(file.name) ? 'Reading STEP file — tessellating the CAD surfaces…' : 'Reading reference geometry…',
+    async () => {
+      const client = clientRef.current!
+      const prepared = await prepareNominal(client, sceneRef.current!, file, read)
+      try {
+        await client.commitImport({ nominal: prepared.id })
+        commitNominal(prepared)
+        sceneRef.current?.frameAll()
+        const mesh = prepared.mesh
+        // A STEP reference is a conversion, and how good a conversion decides
+        // how much of the map is the part. A file that came apart in the
+        // conversion breaks the sign of every reading, so it gets the toast; a
+        // clean one just says what it cost.
+        const step = mesh.step
+        const converted = step
+          ? ` Tessellated from STEP at ${step.surfaceDeviation} mm chord tolerance${
+              step.units && step.units !== 'mm' ? `, converted from ${step.units}` : ''
+            }.`
+          : read !== 'mm'
+            ? ` Read in ${unitsLabel(read).toLowerCase()} and converted to millimetres.`
+            : ''
+        useStore
+          .getState()
+          .setStatus(
+            `Reference loaded — ${mesh.triangleCount.toLocaleString('en-US')} triangles.${converted} Check it is the right part, then align the scan to it.`,
+          )
+        if (step?.warning) {
+          if (step.unsound) useStore.getState().setError(step.warning)
+          else useStore.getState().setStatus(step.warning)
+        }
+      } finally {
+        prepared.view.dispose()
+        await client.discardImport([prepared.id])
+      }
+    })
   }
 
   const runDeviation = async () => {
+    const { scanVersion, nominalVersion } = clientRef.current!
+    const current = () => scanVersion === clientRef.current!.scanVersion && nominalVersion === clientRef.current!.nominalVersion
     const dev = useDeviation.getState()
     if (!dev.align) return
     dev.beginMap()
     try {
       const result = await clientRef.current!.deviate(dev.align.transform)
+      if (!current()) return
       deviation.current = result.values
       deviationRgb.current = null
       useDeviation.getState().resolveMap(result.suggestedRange, result.suggestedMaxDistance)
       useStore.getState().setStatus('Deviation measured.')
     } catch (e) {
+      if (!current()) return
       // The alignment the map was measured under is still good — only the
       // measurement refused.
       useDeviation.getState().failMap(e instanceof Error ? e.message : String(e))
@@ -165,11 +182,14 @@ export function useDeviationWorkspace({
    *  starts from them instead, and only the surface selected in the picker (if
    *  any) is refined on. Either way ICP does the fine work. */
   const runAlign = async (usePairs: boolean) => {
+    const { scanVersion, nominalVersion } = clientRef.current!
+    const current = () => scanVersion === clientRef.current!.scanVersion && nominalVersion === clientRef.current!.nominalVersion
     const dev = useDeviation.getState()
     const selection = usePairs ? sceneRef.current?.paintedVertices() : null
     dev.beginAlign()
     try {
       const result = await clientRef.current!.align(usePairs ? dev.pairs : null, selection)
+      if (!current()) return
       if (!result) {
         alignStopped()
         return
@@ -185,6 +205,7 @@ export function useDeviationWorkspace({
         )
       void runDeviation()
     } catch (e) {
+      if (!current()) return
       const message = e instanceof Error ? e.message : String(e)
       restoreAlignment()
       useDeviation.getState().failAlign(message)
@@ -218,6 +239,8 @@ export function useDeviationWorkspace({
   /** Refine the alignment on the marked surface only, starting from the fit
    *  already in hand. */
   const runLocalAlign = async () => {
+    const { scanVersion, nominalVersion } = clientRef.current!
+    const current = () => scanVersion === clientRef.current!.scanVersion && nominalVersion === clientRef.current!.nominalVersion
     const dev = useDeviation.getState()
     const start = dev.align
     if (!start) return
@@ -229,6 +252,7 @@ export function useDeviationWorkspace({
         start.transform,
         dev.localMaxDistance,
       )
+      if (!current()) return
       if (!result) {
         alignStopped()
         return
@@ -247,6 +271,7 @@ export function useDeviationWorkspace({
         )
       void runDeviation()
     } catch (e) {
+      if (!current()) return
       const message = e instanceof Error ? e.message : String(e)
       // The fit that was in hand is still the fit that is in hand: a refusal
       // here must not throw away a good global alignment, or the map measured
@@ -301,6 +326,7 @@ export function useDeviationWorkspace({
 
   return {
     openNominal,
+    commitNominal,
     runAlign,
     abortAlign,
     startPicking,

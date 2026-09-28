@@ -147,6 +147,10 @@ export interface MarkingContext {
   /** The mesh's paint-mask attribute — flagged dirty after every gesture that
    *  moved the marking. */
   paintAttr(): THREE.BufferAttribute | null
+  /** The scan's own vertex behind an index off the render mesh: a corner
+   *  split for sharp shading names a copy, and the marking is kept on the
+   *  vertex it was cut from — see core/geometry/crease.ts. */
+  graphVertex(v: number): number
   /** The colour the shader lays the marking down in — a uniform, so a recolour
    *  costs nothing per vertex. */
   setPaintColor(rgb: [number, number, number]): void
@@ -441,6 +445,7 @@ export class SurfaceMarking {
     // keeps a stroke on the face under the cursor is the same one that keeps
     // it off the far wall, so switching it off does both.
     const anyFacing = brush.backfaces === true
+    const own = this.ctx.graphVertex
 
     bvh.shapecast({
       intersectsBounds: (box) => (sphere.intersectsBox(box) ? INTERSECTED : NOT_INTERSECTED),
@@ -458,9 +463,9 @@ export class SurfaceMarking {
           if (edge1.dot(face) <= 0) return false
         }
         const f = triIndex * 3
-        regions.markVertex(idx[f], erase)
-        regions.markVertex(idx[f + 1], erase)
-        regions.markVertex(idx[f + 2], erase)
+        regions.markVertex(own(idx[f]), erase)
+        regions.markVertex(own(idx[f + 1]), erase)
+        regions.markVertex(own(idx[f + 2]), erase)
         return false
       },
     })
@@ -593,15 +598,16 @@ export class SurfaceMarking {
 
     const test = polygonTester(outline)
     const regions = this.ctx.regions
+    const own = this.ctx.graphVertex
     const before = regions.paintCount
     for (let f = 0; f < idx.length; f += 3) {
       const a = idx[f], b = idx[f + 1], c = idx[f + 2]
       if (clipped[a] || clipped[b] || clipped[c]) continue
       if (!test((sx[a] + sx[b] + sx[c]) / 3, (sy[a] + sy[b] + sy[c]) / 3)) continue
       if (!anyFacing && !facesCamera(pos, a, b, c, viewLocal)) continue
-      regions.markVertex(a, erase)
-      regions.markVertex(b, erase)
-      regions.markVertex(c, erase)
+      regions.markVertex(own(a), erase)
+      regions.markVertex(own(b), erase)
+      regions.markVertex(own(c), erase)
     }
     if (regions.paintCount !== before) {
       this.ctx.paintAttr()!.needsUpdate = true

@@ -15,12 +15,17 @@ import { useEffect } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { evaluateDimension } from '../core/dimensions'
 import type { FitData } from '../core/types'
-import { sectionDraftReady, useStore } from '../state/store'
+import { draftHolds, sectionDraftReady, useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
+import { plugins } from '../plugins/registry'
+import { undo, redo } from '../state/historyStore'
 import type { StandardView } from '../viewer/orthoViewport'
+
+/** The keys of the plugin whose workspace is on screen, if one is. */
+const pluginKeys = () => plugins().find((p) => p.workspace?.id === useShell.getState().workspace)?.keyboard ?? null
 
 /** The number row, bound as PrusaSlicer binds it. */
 const VIEW_KEYS: Record<string, StandardView> = {
@@ -38,6 +43,7 @@ export function useGlobalShortcuts({
   abortAlign,
   stopPicking,
   cancelDraft,
+  restartDraft,
   confirmDraft,
   cancelSection,
   confirmSection,
@@ -50,6 +56,8 @@ export function useGlobalShortcuts({
   /** Close the split-screen point picker, selection and all. */
   stopPicking: () => void
   cancelDraft: () => void
+  /** The draft emptied, the kind kept in hand. */
+  restartDraft: () => void
   confirmDraft: () => void
   /** The section being made: discard it, or create it. */
   cancelSection: () => void
@@ -83,12 +91,17 @@ export function useGlobalShortcuts({
     }
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
-      if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return
+      if (target && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable)) return
       // One press, one step. A key held down auto-repeats, and Escape backs
       // out of a marking session in steps — a repeat would carry straight on
       // from standing the gesture down to discarding the draft, marking and
       // all, which is exactly the trap the two steps exist to avoid.
       if (e.repeat) return
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && ['z', 'y'].includes(e.key.toLowerCase())) {
+        e.preventDefault()
+        void (e.key.toLowerCase() === 'y' || e.shiftKey ? redo() : undo())
+        return
+      }
       // Enter on a focused button belongs to the button — the browser clicks
       // it right after this handler, and confirming the draft as well would
       // fire two different actions from one key press.
@@ -99,9 +112,12 @@ export function useGlobalShortcuts({
       const view = VIEW_KEYS[e.key]
       if (view && !e.ctrlKey && !e.altKey && !e.metaKey) {
         if (useShell.getState().workspace === 'flat' || useDeviation.getState().picking) return
+        if (plugins().some((p) => p.keyboard?.holdsViewKeys?.())) return
         viewFrom(view)
         return
       }
+      // A plugin's workspace has the keys first.
+      if (pluginKeys()?.keydown?.(e, { confirmButton })) return
       // A best fit that is running owns Escape, wherever it was started from:
       // it is the one thing on screen that cannot be waited out, and stopping
       // it costs nothing — the alignment in hand is kept and no measurement is
@@ -152,6 +168,11 @@ export function useGlobalShortcuts({
           // Likewise a construction slot waiting for a click on the scan: the
           // first Escape stops the picking, the second discards the draft.
           else if (store.draft.pickSlot != null) store.cancelDraftPick()
+          // A new draft with picks in it is emptied first and the kind kept
+          // in hand, as a sketch tool's half-placed points go before the
+          // tool. Not a marked surface: that draft closes and keeps it (see
+          // store.discarded), so no Escape rubs out minutes of marking.
+          else if (store.draft.editId === undefined && !store.draft.selection?.length && draftHolds(store.draft)) restartDraft()
           else cancelDraft()
         } else if (e.key === 'Enter' && store.draft.status === 'ready') confirmDraft()
         return
@@ -177,9 +198,13 @@ export function useGlobalShortcuts({
       if (e.key === 'Enter') confirmButton()?.click()
     }
     /** What a confirm would land on right now, if anything. */
-    const confirmable = (): 'draft' | 'dimension' | 'section' | 'flat' | 'button' | null => {
+    const confirmable = (): 'draft' | 'dimension' | 'section' | 'flat' | 'plugin' | 'button' | null => {
       const button = () => (confirmButton() ? 'button' : null)
       if (useShell.getState().workspace === 'flat') return flatConfirmable() ? 'flat' : button()
+      // A plugin's workspace confirms by the middle button like everything
+      // else, when it has something ready of its own.
+      const plugin = pluginKeys()
+      if (plugin?.confirmable) return plugin.confirmable() ? 'plugin' : button()
       const store = useStore.getState()
       if (store.draft) return store.draft.status === 'ready' ? 'draft' : null
       if (store.dimDraft) return dimensionReady() ? 'dimension' : null
@@ -206,6 +231,7 @@ export function useGlobalShortcuts({
       else if (what === 'dimension') useStore.getState().commitDimension()
       else if (what === 'section') confirmSection()
       else if (what === 'flat') flatConfirmable()?.()
+      else if (what === 'plugin') pluginKeys()?.confirmable?.()?.()
       else if (what === 'button') confirmButton()?.click()
     }
     window.addEventListener('keydown', onKey)

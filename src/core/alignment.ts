@@ -294,6 +294,7 @@ export function transformFit(fit: FitData, m: Rigid): FitData {
       return { ...fit, center: movePoint(m, fit.center), dir: moveDir(m, fit.dir) }
     case 'cylinder':
     case 'cone':
+    case 'torus':
       return { ...fit, center: movePoint(m, fit.center), axis: moveDir(m, fit.axis) }
     case 'circle':
       return { ...fit, center: movePoint(m, fit.center), normal: moveDir(m, fit.normal) }

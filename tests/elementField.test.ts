@@ -15,7 +15,7 @@ import {
 import { buildElementReport } from '../src/core/deviation/report'
 import { deviationStats } from '../src/core/deviation/deviation'
 import { applyExtension } from '../src/core/elements/extend'
-import type { CylinderFit, PlaneFit, PointFit, SphereFit, Vec3 } from '../src/core/types'
+import type { CylinderFit, PlaneFit, PointFit, SphereFit, TorusFit, Vec3 } from '../src/core/types'
 
 const NO_RESIDUALS = { sigma: 0, usedPoints: 0, regionSize: 0 }
 const FACING = { side: 1 as const, maxNormalDeviation: (DEFAULT_FACING_DEG * Math.PI) / 180 }
@@ -179,6 +179,36 @@ describe('deviation from a cylinder', () => {
   it('leaves a point on the axis unmeasured', () => {
     const { positions, normals } = scan([[[0, 0, 0], [1, 0, 0]]])
     expect(computeElementDeviation(zCylinder(), positions, normals, ANY_FACING)[0]).toBeNaN()
+  })
+})
+
+describe('deviation from a torus', () => {
+  /** A ring of R 10, tube r 2, about Z at the origin. */
+  const ring: TorusFit = { kind: 'torus', ...NO_RESIDUALS, center: [0, 0, 0], axis: [0, 0, 1], majorRadius: 10, minorRadius: 2, tubeCoverage: 360, spineCoverage: 360 }
+
+  it('reads the distance out of the tube, signed by the tube’s own outward direction', () => {
+    const out: Vec3 = [1, 0, 0]
+    const up: Vec3 = [0, 0, 1]
+    const { positions, normals } = scan([
+      [[12.1, 0, 0], out],
+      [[11.9, 0, 0], out],
+      [[0, 10, 2.05], up],
+      [[7.9, 0, 0], [-1, 0, 0]],
+    ])
+    const v = computeElementDeviation(ring, positions, normals, FACING)
+    expect(v[0]).toBeCloseTo(0.1, 5)
+    expect(v[1]).toBeCloseTo(-0.1, 5)
+    expect(v[2]).toBeCloseTo(0.05, 5)
+    // On the inner side of the ring the tube's outward direction points
+    // toward the axis, and a point there reads by it.
+    expect(v[3]).toBeCloseTo(0.1, 5)
+    expect(isDeviationTarget(ring)).toBe(true)
+    expect(describeTarget(ring)).toMatch(/torus, tube R 2.000 mm on a ring ⌀20.000 mm/)
+  })
+
+  it('leaves a point on the axis unmeasured', () => {
+    const { positions, normals } = scan([[[0, 0, 0], [1, 0, 0]]])
+    expect(computeElementDeviation(ring, positions, normals, ANY_FACING)[0]).toBeNaN()
   })
 })
 

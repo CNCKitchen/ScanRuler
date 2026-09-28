@@ -137,6 +137,7 @@ export class PickScene {
       setPickRay: (x, y) => this.viewport.setPickRay(x, y),
       mesh: () => this.mesh,
       paintAttr: channel.paintAttr,
+      graphVertex: channel.graphVertex,
       // Both uniforms: one mask, two renderers, and the tint has to be the same
       // colour on this canvas as on the main one.
       setPaintColor: (rgb) => {

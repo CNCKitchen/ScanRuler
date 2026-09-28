@@ -96,6 +96,9 @@ export function InfoDot({
         type="button"
         className={'infodot' + (open ? ' on' : '')}
         data-test={testId}
+        // Out of the Tab order: Tab from one number goes to the next number,
+        // not to the explanation between them. The mouse still opens it.
+        tabIndex={-1}
         aria-expanded={open}
         aria-label={`More about ${title}`}
         onClick={(e) => {

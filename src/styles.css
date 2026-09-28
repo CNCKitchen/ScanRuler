@@ -156,6 +156,30 @@ body {
   outline-offset: 1px;
 }
 
+.project-save-status {
+  font-size: 11px;
+  max-width: 170px;
+}
+.project-save-status small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recovery-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.recovery-bar select { max-width: min(420px, 90vw); }
+@media (max-width: 1100px) {
+  .project-save-status { max-width: 95px; }
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -246,6 +270,8 @@ body {
   padding: 5px 12px 6px;
   box-shadow: var(--inset);
   min-width: 0;
+  /* Squeezed by the keys on its right it is cut short, not written over them. */
+  overflow: hidden;
 }
 
 .partchip b {
@@ -462,12 +488,25 @@ button.block {
   white-space: nowrap;
 }
 
-/* The settings key's gear, a size up from the text so it reads as a glyph
-   rather than a stray character — and what is left of the key when the
-   narrow layouts drop its word. */
-.top .gear {
-  font-size: 14px;
-  line-height: 1;
+/* Undo and redo: two picture keys kept together, apart from the project
+   keys beside them. */
+.top .undokeys {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin: 0 8px;
+}
+
+.top .undokeys button {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+}
+
+/* The keys on the right carry a picture, which is what is left of them when
+   the narrow layouts drop their words. */
+.top button.withicon {
+  gap: 5px;
 }
 
 /* The top bar is one row that never wraps. Below this the keys on the right
@@ -478,6 +517,14 @@ button.block {
 @media (max-width: 1240px) {
   .top .btxt,
   .partchip span {
+    display: none;
+  }
+}
+
+/* The workspace tabs give up their pictures first: five of them are a
+   hundred pixels the part chip's file name needs sooner. */
+@media (max-width: 1800px) {
+  .modeswitch svg.icon {
     display: none;
   }
 }
@@ -647,6 +694,17 @@ select:disabled {
   font-size: 12px;
   color: var(--dim);
   white-space: nowrap;
+}
+
+/* What a feature has picked on the part so far — "2 faces picked" — in
+   the place of the control it would otherwise have. */
+.field > span.picked {
+  flex: 0 1 172px;
+  width: 172px;
+  min-width: 108px;
+  white-space: normal;
+  text-align: right;
+  color: var(--ink);
 }
 
 /* Preferred width, not a fixed one: a long label — "Max. deviation of
@@ -820,6 +878,180 @@ select:disabled {
   background: var(--accent-soft);
 }
 
+/* The drawn icons of ui/icons.tsx. Ink follows the key's text colour, the
+   accent is what the key makes or changes — see the head of that file. */
+svg.icon {
+  flex: none;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  overflow: visible;
+}
+
+svg.icon .i-a {
+  stroke: var(--accent);
+}
+
+svg.icon .i-f {
+  stroke: var(--accent);
+  fill: var(--accent-soft);
+}
+
+svg.icon .i-g {
+  fill: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+svg.icon .i-gf {
+  stroke: none;
+  fill: color-mix(in srgb, currentColor 13%, transparent);
+}
+
+svg.icon .i-dt {
+  stroke: none;
+  fill: currentColor;
+}
+
+svg.icon .i-adt {
+  stroke: none;
+  fill: var(--accent);
+}
+
+svg.icon .i-th {
+  stroke-width: 1.1;
+}
+
+svg.icon .i-ft {
+  opacity: 0.5;
+}
+
+svg.icon .i-ds {
+  stroke-dasharray: 2 2.4;
+}
+
+svg.icon .i-ax {
+  stroke-dasharray: 3.2 1.6 0.6 1.6;
+  stroke-width: 1.1;
+}
+
+svg.icon .i-as {
+  stroke: var(--accent);
+  opacity: 0.3;
+}
+
+/* At 16 px and under a 1.5-unit stroke is less than a pixel. */
+svg.icon.small {
+  stroke-width: 1.9;
+}
+
+svg.icon.small .i-th,
+svg.icon.small .i-ax {
+  stroke-width: 1.4;
+}
+
+/* A key that inverts when it is on — the view bar's — takes the soft fill
+   with it, or the fill is a pale patch on the dark key. */
+.keys button.on svg.icon .i-f {
+  fill: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.viewbar .keys button,
+.modeswitch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* The ends of the list rows: a pencil, an eye, a bin. */
+button.x svg.icon {
+  display: inline-block;
+  vertical-align: -2px;
+}
+
+.g-label button.x.eye.all svg.icon {
+  margin-right: 4px;
+}
+
+/* On a primary key the ground is the accent itself: the drawing goes white
+   with it, the made part told from the given by its fill alone. So on a key
+   that stays pressed — the tool in hand — or its accent would vanish into
+   the ground. */
+button.primary svg.icon .i-a,
+button.primary svg.icon .i-f,
+.kindrow button.on svg.icon .i-a,
+.kindrow button.on svg.icon .i-f {
+  stroke: currentColor;
+}
+
+button.primary svg.icon .i-f,
+.kindrow button.on svg.icon .i-f {
+  fill: rgba(255, 255, 255, 0.28);
+}
+
+button.primary svg.icon .i-adt,
+.kindrow button.on svg.icon .i-adt {
+  fill: currentColor;
+}
+
+/* The feature keys: the picture over its word, four to a row. Sixteen new
+   pictures are a lot to learn without the words. */
+.kindrow.featurekeys {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* Nine element types are three rows of three. */
+.kindrow.featurekeys.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.kindrow.featurekeys button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 2px 6px;
+  font-family: var(--cond);
+  font-size: 11.5px;
+  line-height: 1.1;
+}
+
+.kindrow.featurekeys button span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toolrow button.iconkey {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0;
+  background: var(--well);
+  box-shadow: var(--inset);
+}
+
+.toolrow button.iconkey {
+  flex: 0 0 36px;
+}
+
+.toolrow button.iconkey:hover:not(:disabled) {
+  color: var(--accent-d);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* A key with a picture beside its word. */
+button.withicon {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 /* ---------------- readouts ---------------- */
 
 /* The measured number, in its window. Everything the tool exists to report
@@ -961,6 +1193,25 @@ button.x:disabled {
   cursor: default;
 }
 
+/* The kind of a feature, as an icon in the body's colour where an element
+   row has its dot: a CAD tree's row is a symbol and a name. */
+.kv .kind {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: 15px;
+  height: 15px;
+  opacity: 0.9;
+}
+
+.kv.ghost .kind {
+  opacity: 0.35;
+}
+
+.kv.rolled .kind {
+  color: var(--faint) !important;
+}
+
 .kv b.warn {
   color: var(--amber);
 }
@@ -986,6 +1237,20 @@ button.x:disabled {
 
 .kv.ghost .dot {
   opacity: 0.35;
+}
+
+/* A feature below the rollback bar: set aside, not built. */
+.kv.rolled {
+  opacity: 0.55;
+}
+
+.kv.rolled .dot {
+  background: var(--faint);
+}
+
+.kv.rolled b {
+  font-weight: 400;
+  color: var(--faint);
 }
 
 /* The same quieting for a dimension hidden in the viewport. */
@@ -2112,6 +2377,25 @@ button.x:disabled {
   color: var(--ink);
 }
 
+/* ---------------- units of an STL ---------------- */
+
+.modal.units {
+  width: 480px;
+}
+
+.modal.units > p.dim {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.modal.units .modalfoot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 /* ---------------- responsive ---------------- */
 
 @media (max-width: 860px) {
@@ -2194,8 +2478,8 @@ button.x:disabled {
   display: flex;
 }
 
-/* Last of the three, and deliberately: it has the same specificity as the split
-   rule above, so being hidden has to be the thing that wins. */
+/* Last of these, and deliberately: it has the same specificity as the rules
+   above, so being hidden has to be the thing that wins. */
 .viewslot[hidden] {
   display: none;
 }
@@ -2926,6 +3210,12 @@ button.x:disabled {
   color: var(--faint);
 }
 
+.startskip {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
 /* ---------------- hover reading ---------------- */
 
 /* Fixed, because it tracks the cursor in viewport coordinates and must not be
@@ -2963,7 +3253,6 @@ button.x:disabled {
   color: var(--ink);
 }
 
-
 /* A free text note on the 2D sheet: the one label that takes the pointer —
    a press drags it across the sheet, a click opens it for typing. Anchored
    at its lower-left so the pin spot is where the text begins. */
@@ -2993,10 +3282,192 @@ button.x:disabled {
   outline-offset: 1px;
 }
 
+/* Its name, the moment the cursor is over it — a title would keep the hand
+   waiting. Above the glyph, so the piece under it stays in view. */
+.viewport-label[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: var(--ink);
+  color: var(--panel, var(--stage));
+  font-family: var(--ui);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .note-row-kind {
   font-family: var(--cond);
   font-size: 9.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--dim);
+}
+
+/* ---------------- pressed keys, grip fields, warnings ---------------- */
+
+/* The tool in hand, and any other key that stays pressed. */
+.kindrow button.on,
+.kindrow button.on:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* The number field on a feature grip in the viewport. */
+.viewport-label.grip-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  pointer-events: auto;
+}
+
+.viewport-label.grip-field input {
+  width: 64px;
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 4px;
+}
+
+.viewport-label.grip-field input:read-only {
+  color: var(--dim);
+}
+
+.viewport-label.grip-field i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--dim);
+}
+
+.g-label .working {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hint.warn {
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+
+/* A warning in a row never pushes the name out of it. */
+.kv b.warn {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---- a dropdown whose options can be pointed at (ui/RefPicker) ----------
+   Styled as the selects around it; the list opens under the face and the
+   option under the cursor is what the viewport shows. */
+.picker {
+  position: relative;
+  width: 172px;
+  flex: 0 1 172px;
+  min-width: 108px;
+}
+
+.picker .picker-face {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  font-family: var(--ui);
+  font-size: 12.5px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 5px 7px;
+  box-shadow: var(--inset);
+}
+
+.picker .picker-face span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker .picker-face .placeholder {
+  color: var(--dim);
+}
+
+.picker .picker-face i {
+  font-style: normal;
+  color: var(--dim);
+  flex: none;
+}
+
+.picker.open .picker-face {
+  border-color: var(--accent);
+}
+
+.picklist {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: calc(100% + 3px);
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  padding: 3px;
+}
+
+.pickgroup-label {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+  padding: 5px 7px 2px;
+}
+
+.pickoption {
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pickoption.active,
+.pickoption:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pickoption.chosen {
+  font-weight: 600;
+}
+
+.pickoption.empty {
+  color: var(--dim);
+  cursor: default;
+}
+
+/* The prompt that stands in for the sketch box when Escape asks. */
+button.danger {
+  color: #f0776f;
+  border-color: rgba(240, 119, 111, 0.45);
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: #f0776f;
 }

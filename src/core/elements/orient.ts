@@ -46,6 +46,7 @@ export const ORIENTABLE_KINDS: readonly ElementKind[] = [
   'cylinder',
   'cone',
   'circle',
+  'torus',
 ]
 
 export type OrientableFit = Exclude<FitData, { kind: 'point' | 'sphere' }>

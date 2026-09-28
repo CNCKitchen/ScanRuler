@@ -30,16 +30,16 @@
 // the element keeps its value, so the display's max search distance stays a
 // pure display control that can be dragged either way without recomputing.
 
-import type { CylinderFit, FitData, PlaneFit, SphereFit } from '../types'
+import type { CylinderFit, FitData, PlaneFit, SphereFit, TorusFit } from '../types'
 
 /** The kinds a signed deviation can be measured against: the three with a
  *  surface and therefore two sides. A point and a line have neither — the
  *  distance to them is unsigned, so there is no zero for a scale to run warm
  *  and cool around, and a map of one would be a different instrument. */
-export type ElementTarget = PlaneFit | CylinderFit | SphereFit
+export type ElementTarget = PlaneFit | CylinderFit | SphereFit | TorusFit
 
 export function isDeviationTarget(fit: FitData | undefined): fit is ElementTarget {
-  return fit !== undefined && (fit.kind === 'plane' || fit.kind === 'cylinder' || fit.kind === 'sphere')
+  return fit !== undefined && (fit.kind === 'plane' || fit.kind === 'cylinder' || fit.kind === 'sphere' || fit.kind === 'torus')
 }
 
 /** Which side of the element the material is on: `1` the element's own outward
@@ -115,6 +115,45 @@ function probeElement(fit: ElementTarget, x: number, y: number, z: number, out: 
     out.oy = wy / rho
     out.oz = wz / rho
     out.inside = Math.abs(t) <= fit.length / 2
+    return
+  }
+
+  if (fit.kind === 'torus') {
+    // Out of the tube: from the nearest spine point, which lies a ring
+    // radius out from the axis in the point's own meridian plane.
+    const dx = x - fit.center[0]
+    const dy = y - fit.center[1]
+    const dz = z - fit.center[2]
+    const t = dx * fit.axis[0] + dy * fit.axis[1] + dz * fit.axis[2]
+    const wx = dx - t * fit.axis[0]
+    const wy = dy - t * fit.axis[1]
+    const wz = dz - t * fit.axis[2]
+    const rho = Math.hypot(wx, wy, wz)
+    if (rho <= 1e-12) {
+      out.offset = Math.hypot(fit.majorRadius, t) - fit.minorRadius
+      out.ox = 0
+      out.oy = 0
+      out.oz = 0
+      out.inside = false
+      return
+    }
+    const sx = dx - (fit.majorRadius * wx) / rho
+    const sy = dy - (fit.majorRadius * wy) / rho
+    const sz = dz - (fit.majorRadius * wz) / rho
+    const d = Math.hypot(sx, sy, sz)
+    out.offset = d - fit.minorRadius
+    if (d <= 1e-12) {
+      out.ox = 0
+      out.oy = 0
+      out.oz = 0
+      out.inside = false
+      return
+    }
+    out.ox = sx / d
+    out.oy = sy / d
+    out.oz = sz / d
+    // The ring is drawn whole, as the sphere is.
+    out.inside = true
     return
   }
 
@@ -225,6 +264,9 @@ export function describeTarget(fit: ElementTarget): string {
   }
   if (fit.kind === 'cylinder') {
     return `cylinder, ⌀${(2 * fit.radius).toFixed(3)} mm × ${fit.length.toFixed(1)} mm as drawn`
+  }
+  if (fit.kind === 'torus') {
+    return `torus, tube R ${fit.minorRadius.toFixed(3)} mm on a ring ⌀${(2 * fit.majorRadius).toFixed(3)} mm`
   }
   return `sphere, ⌀${(2 * fit.radius).toFixed(3)} mm`
 }

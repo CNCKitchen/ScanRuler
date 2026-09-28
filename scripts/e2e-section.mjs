@@ -175,8 +175,13 @@ const centre = [flatRect.x + flatRect.w / 2, flatRect.y + flatRect.h / 2]
 const toScreen = (mx, my) => [centre[0] + mx * pxPerMm, centre[1] - my * pxPerMm]
 
 // A circle from every edge point on the sheet: one drag over the lot, kept
-// on the sheet — a drag that starts off it collects nothing.
+// on the sheet — a drag that starts off it collects nothing. On a section
+// the circle button opens with the fit to edge; the region fit is chosen.
 await click(page, '[data-test="flat-fit-circle"]')
+check(
+  /Click anywhere on a round stretch/.test(await page.$eval('[data-test="flat-draft-hint"]', (el) => el.textContent)),
+  'on a section the circle button opens with the fit to edge',
+)
 await page.select('[data-test="flat-draft-method"]', 'flat-circle-edge')
 await drag(page, toScreen(-r - 2, r + 2), toScreen(r + 2, -r - 2))
 await sleep(400)
@@ -231,6 +236,25 @@ check(
   `one click on the rim takes the whole loop and reads the ball’s diameter (${clickedDia})`,
 )
 await click(page, '[data-test="flat-draft-cancel"]')
+
+// The same rim by a fit to edge: the circle grows along the cut from the
+// click and stops where the cut runs out along the stem's shoulder, so it
+// is the ball's rim and nothing of the stem.
+if (hitAt !== null) {
+  await click(page, '[data-test="flat-fit-circle"]')
+  await page.select('[data-test="flat-draft-method"]', 'flat-circle-seed')
+  await sleep(300)
+  const a = (hitAt * Math.PI) / 180
+  await page.mouse.click(centre[0] + r * Math.cos(a) * ppmDrawn, centre[1] - r * Math.sin(a) * ppmDrawn)
+  await sleep(400)
+  const grownDia = await readDia()
+  console.log(`fit to edge from ${hitAt}° (${await page.$eval('[data-test="flat-draft-picks"]', (e) => e.textContent)})`)
+  check(
+    Math.abs(grownDia - ballDia[1]) < 0.15,
+    `the fit to edge grows round the rim and reads the ball’s diameter (${grownDia})`,
+  )
+  await click(page, '[data-test="flat-draft-cancel"]')
+}
 
 // ---- each source keeps its own sheet ----------------------------------------
 await page.select('[data-test="flat-source"]', 'image')

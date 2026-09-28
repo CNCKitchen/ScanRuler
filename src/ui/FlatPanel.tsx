@@ -8,7 +8,7 @@
 
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
-import { flatMethodsForKind } from '../core/flat/construct'
+import { flatDefaultMethod } from '../core/flat/construct'
 import { datumFrame, describeShown, fitInFrame } from '../core/flat/datum'
 import { FLAT_KIND_LABELS } from '../core/flat/elements'
 import { formatFlatDetail, formatFlatPrimary } from '../core/flat/summary'
@@ -29,12 +29,16 @@ import { ElementRow } from './ElementRow'
 import { ShowAllButton } from './ShowAllButton'
 import { FlatDimensionSection } from './FlatDimensionSection'
 import { FlatDraftEditor } from './FlatDraftEditor'
+import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { NumberField } from './NumberField'
 import { tintStyle } from './tint'
 
 const FLAT_KINDS: FlatElementKind[] = ['point', 'line', 'circle', 'arc', 'spline']
+
+/** The picture on each kind's key — line, circle and arc are the sketch's. */
+const FLAT_KIND_ICON: Record<FlatElementKind, IconName> = { point: 'elPoint', line: 'line', circle: 'circle', arc: 'arc', spline: 'spline' }
 
 export function FlatPanel({
   onOpenImage,
@@ -147,7 +151,7 @@ export function FlatPanel({
             </p>
             <p>Drop it anywhere in the window. Nothing is uploaded.</p>
             <p>
-              Or a <b>section</b>: the 3D scan cut with a plane in the Measure workspace. Its
+              Or a <b>section</b>: the 3D scan cut with a plane in the 3D Measure workspace. Its
               edges lie on the sheet in millimetres already, so there is nothing to calibrate,
               and they are snapped to, fitted and measured exactly like an image&apos;s. One source
               is on the sheet at a time; each keeps its own elements, dimensions and alignment, and
@@ -368,7 +372,7 @@ export function FlatPanel({
         </div>
       )}
 
-      {hasSheet && draft === null && counting === null && !placingNote && !editedNote && (
+      {hasSheet && counting === null && !placingNote && !editedNote && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -381,13 +385,22 @@ export function FlatPanel({
                 An element is <b>picked</b>, by clicking the points it runs through — with{' '}
                 <b>Snap to edge</b> on, every click and drag lands on the nearest detected edge
                 at subpixel, and <b>Alt</b> inverts that for one pick; any pin can be dragged
-                afterwards; <b>fitted to an edge region</b>, by clicking a detected edge to take
-                all of it or dragging a box over it and letting every edge point inside feed the
-                fit; or <b>constructed</b> from elements you already have — a midpoint, a
+                afterwards; <b>fitted to an edge</b> from one click on it, the way a fit from a
+                click works on the scan — the line or circle grows along the detected edge from
+                the point you clicked and stops where the edge bends away, at a corner or into a
+                fillet, so a click on one side of a part takes that side and a click on a hole's
+                rim takes the hole; <b>fitted to an edge region</b>, by clicking a detected edge
+                to take all of it or dragging a box over it and letting every edge point inside
+                feed the fit; or <b>constructed</b> from elements you already have — a midpoint, a
                 circle's center, the intersection of two lines.
               </p>
               <p>
                 Which of those a kind offers appears as <i>Created</i> once you choose it.
+              </p>
+              <p>
+                The kind stays in hand after <b>Create</b>, ready for the next one, as a sketch
+                tool does — <b>Cancel</b> or <b>Esc</b> puts it down; on a box with picks in it,
+                <b> Esc</b> first empties the box.
               </p>
               <p>
                 A <b>spline</b> is the free curve a CAD sketch draws through fit points — a cam
@@ -413,30 +426,46 @@ export function FlatPanel({
               </p>
             </InfoDot>
           </div>
-          <div className="kindrow">
+          <div className="kindrow featurekeys">
             {FLAT_KINDS.map((k) => (
+              // The kind in hand is shown pressed, as the sketch's tools are,
+              // and pressed again starts its box over; while an element is
+              // being edited the row stands down.
               <button
                 key={k}
                 data-test={`flat-fit-${k}`}
-                disabled={calibrating !== null}
-                onClick={() => flat.getState().startDraft(k, flatMethodsForKind(k)[0].id)}
+                className={draft?.kind === k && draft.editId === undefined ? 'on' : undefined}
+                aria-pressed={draft?.kind === k && draft.editId === undefined}
+                disabled={calibrating !== null || draft?.editId !== undefined}
+                onClick={() => flat.getState().startDraft(k, flatDefaultMethod(k, onSection))}
               >
-                {FLAT_KIND_LABELS[k]}
+                <Icon name={FLAT_KIND_ICON[k]} />
+                <span>{FLAT_KIND_LABELS[k]}</span>
               </button>
             ))}
+            {/* A tally or a text takes the stage from the kind in hand: the
+                kind is put down first, so a click has one taker. */}
             <button
               data-test="flat-fit-count"
-              disabled={calibrating !== null}
-              onClick={() => flat.getState().startCount()}
+              disabled={calibrating !== null || draft?.editId !== undefined}
+              onClick={() => {
+                if (draft) flat.getState().cancelDraft()
+                flat.getState().startCount()
+              }}
             >
-              Count
+              <Icon name="count" />
+              <span>Count</span>
             </button>
             <button
               data-test="flat-fit-text"
-              disabled={calibrating !== null}
-              onClick={() => flat.getState().startNote()}
+              disabled={calibrating !== null || draft?.editId !== undefined}
+              onClick={() => {
+                if (draft) flat.getState().cancelDraft()
+                flat.getState().startNote()
+              }}
             >
-              Text
+              <Icon name="note" />
+              <span>Text</span>
             </button>
           </div>
         </div>
@@ -733,34 +762,42 @@ export function FlatPanel({
           )}
           <div className="toolrow">
             <button
+              className="withicon"
               data-test="flat-turn-ccw"
               title="Turn the sheet a quarter turn counter-clockwise"
               onClick={() => flat.getState().turnSheet(1)}
             >
-              ↺ Rotate 90°
+              <Icon name="rotateCcw" size={18} />
+              Rotate 90°
             </button>
             <button
+              className="withicon"
               data-test="flat-turn-cw"
               title="Turn the sheet a quarter turn clockwise"
               onClick={() => flat.getState().turnSheet(-1)}
             >
-              Rotate 90° ↻
+              <Icon name="rotateCw" size={18} />
+              Rotate 90°
             </button>
           </div>
           <div className="toolrow">
             <button
+              className="withicon"
               data-test="flat-mirror-lr"
               title="Mirror the sheet left-to-right (horizontally), as it is shown — a scan seen through the glass, shown as from above"
               onClick={() => flat.getState().mirrorSheet('left-right')}
             >
-              ↔ Mirror
+              <Icon name="mirror" size={18} />
+              Mirror
             </button>
             <button
+              className="withicon"
               data-test="flat-mirror-tb"
               title="Mirror the sheet top-to-bottom (vertically), as it is shown"
               onClick={() => flat.getState().mirrorSheet('top-bottom')}
             >
-              ↕ Mirror
+              <Icon name="mirrorTB" size={18} />
+              Mirror
             </button>
           </div>
           {(turns !== 0 || mirror) && (

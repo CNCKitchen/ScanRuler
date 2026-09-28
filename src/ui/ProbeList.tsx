@@ -7,6 +7,7 @@
 
 import { usePrefs } from '../state/prefsStore'
 import type { Probe } from '../state/probes'
+import { Icon } from './icons'
 import { InfoDot } from './InfoDot'
 
 export function ProbeList({
@@ -65,7 +66,7 @@ export function ProbeList({
               <span className="name">{p.point.map((v) => v.toFixed(1)).join(', ')}</span>
               <b>{format(p.value)}</b>
               <button className="x" title="Remove" onClick={() => onRemove(p.id)}>
-                ✕
+                <Icon name="bin" size={14} />
               </button>
             </div>
           ))}

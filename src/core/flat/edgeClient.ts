@@ -5,29 +5,14 @@
 // after a newer one would put the wrong edges on screen — so anything but the
 // newest request resolves to null and is thrown away.
 
+import { WorkerRpc } from '../workerRpc'
 import type { EdgeChains, EdgeOptions } from './edges'
 import type { EdgeWorkerRequest, EdgeWorkerResponse } from './edgeWorker'
 
 export class EdgeClient {
-  private worker: Worker
+  private rpc = new WorkerRpc(() => new Worker(new URL('./edgeWorker.ts', import.meta.url), { type: 'module' }), 'Edge worker')
   private nextId = 1
   private latest = 0
-  private pending = new Map<number, (chains: EdgeChains | null) => void>()
-
-  constructor() {
-    this.worker = new Worker(new URL('./edgeWorker.ts', import.meta.url), { type: 'module' })
-    this.worker.onmessage = (ev: MessageEvent<EdgeWorkerResponse>) => {
-      const msg = ev.data
-      const resolve = this.pending.get(msg.requestId)
-      if (!resolve) return
-      this.pending.delete(msg.requestId)
-      if (msg.type === 'error' || msg.requestId !== this.latest) {
-        resolve(null)
-        return
-      }
-      resolve({ points: msg.points, offsets: msg.offsets })
-    }
-  }
 
   /** Detect edges on a grayscale image. The buffer is transferred — hand in a
    *  copy if the caller still needs it. Resolves null when a newer request
@@ -41,17 +26,15 @@ export class EdgeClient {
     const requestId = this.nextId++
     this.latest = requestId
     const msg: EdgeWorkerRequest = { requestId, gray, width, height, options }
-    return new Promise((resolve) => {
-      this.pending.set(requestId, resolve)
-      this.worker.postMessage(msg, [gray.buffer])
+    if (this.rpc.dead) this.rpc.restart()
+    return this.rpc.request<EdgeWorkerResponse>(msg, [gray.buffer]).then((answer) => {
+      if (requestId !== this.latest || answer.type === 'error') return null
+      return { points: answer.points, offsets: answer.offsets }
     })
   }
 
-  dispose(): void {
-    this.worker.terminate()
-    for (const resolve of this.pending.values()) resolve(null)
-    this.pending.clear()
-  }
+  dispose(): void { this.rpc.dispose() }
+
 }
 
 /** Grayscale (Rec. 601) off a decoded bitmap, for the worker. Main-thread on

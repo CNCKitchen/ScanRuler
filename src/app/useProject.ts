@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { meshUnitsOf } from '../core/meshUnits'
 // Saving the session as a project and opening one: the data half is in
 // ./project, the archive in core/project. What is left here is the order
 // things have to happen in on load — scan, its alignment, reference, image,
@@ -12,20 +13,22 @@ import { useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
+import { keepUnownedParts, projectSections } from './projectSections'
 import { ProjectClient } from '../core/project/projectClient'
 import { PROJECT_EXTENSION, projectStem, rigidFromJson } from '../core/project/manifest'
 import { saveFile } from './exports'
 import {
-  applyDeviationPart,
-  applyFlatPart,
-  applyScanPart,
-  applyThicknessPart,
-  applyWorkspace,
+  prepareProjectState,
   collectProject,
+  projectHasContent,
+  readAs,
   sessionIsDirty,
   type SourceFiles,
 } from './project'
 import { APP_VERSION } from '../version'
+import { useRecovery } from './useRecovery'
+import type { ImportQueue } from './importQueue'
+import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 
 export const isProjectFile = (name: string) =>
   name.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`)
@@ -35,9 +38,11 @@ export function useProject({
   clientRef,
   sceneRef,
   elementScope,
-  openFile,
-  openNominal,
-  openImage,
+  imports,
+  commitScan,
+  commitNominal,
+  commitImage,
+  runEdgeDetect,
   runFit,
   runDeviation,
   runThickness,
@@ -46,92 +51,95 @@ export function useProject({
   clientRef: RefObject<MeshWorkerClient | null>
   sceneRef: RefObject<SceneManager | null>
   elementScope: RefObject<Uint32Array | null>
-  openFile: (file: File) => Promise<void>
-  openNominal: (file: File) => Promise<void>
-  openImage: (file: File) => Promise<void>
+  imports: ImportQueue
+  commitScan: (scan: PreparedScan | null) => void
+  commitNominal: (nominal: PreparedNominal | null) => void
+  commitImage: (image: PreparedImage | null) => void
+  runEdgeDetect: () => Promise<void>
   runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array) => Promise<void>
   runDeviation: () => Promise<void>
   runThickness: () => Promise<void>
 }) {
   const projectClient = useRef<ProjectClient | null>(null)
   const client = () => (projectClient.current ??= new ProjectClient())
+  const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
+  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true))
 
-  const saveProject = async () => {
+  const saveProject = () => imports.run(async () => {
     const store = useStore.getState()
-    if (!sources.current.scan && !sources.current.image) return
+    if (!projectHasContent(sources.current)) return
     store.setError(null)
     useStore.setState({ busy: true, statusText: 'Saving project…' })
     try {
-      const { manifest, members } = collectProject(sources.current, elementScope.current, APP_VERSION)
+      const snapshot = capture()
+      const { manifest, members } = snapshot
       const bytes = await client().pack(manifest, members)
       const stem = projectStem(store.fileName, useFlat.getState().imageName)
       saveFile(`${stem}.${PROJECT_EXTENSION}`, new Blob([bytes as BlobPart], { type: 'application/zip' }))
+      recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
         statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
       })
     } catch (e) {
+      if (projectClient.current?.dead) projectClient.current = null
       useStore.setState({ busy: false, statusText: '' })
-      store.setError(e instanceof Error ? e.message : String(e))
+      store.setError(`The project could not be saved — ${e instanceof Error ? e.message : String(e)}`)
     }
-  }
+  })
 
-  const openProject = async (file: File) => {
-    if (
-      sessionIsDirty() &&
-      !window.confirm('Opening a project replaces the measurements in this session. Continue?')
-    )
-      return
-    useStore.getState().setError(null)
-    useStore.setState({ busy: true, statusText: 'Reading project…' })
+  const openProject = (file: File, recovered = false) => runImport(imports, 'Reading project…', async () => {
+    const meshClient = clientRef.current!
+    let scan: PreparedScan | null = null
+    let nominal: PreparedNominal | null = null
+    let image: PreparedImage | null = null
+    let committed = false
     try {
       const { manifest, members } = await client().unpack(new Uint8Array(await file.arrayBuffer()))
+      const applyState = prepareProjectState(manifest, members)
       const memberFile = (member: string, name: string) => {
         const bytes = members.get(member)
         if (!bytes) throw new Error(`Project is missing ${member}.`)
         return new File([bytes as BlobPart], name)
       }
-
-      // ---- the scan, then the datum alignment it was measured under ----
-      if (manifest.scan) {
-        await openFile(memberFile(manifest.scan.member, manifest.scan.fileName))
-        if (useStore.getState().errorText) throw new Error(useStore.getState().errorText!)
-        const m = manifest.scan.appliedAlignment
-        if (m) {
-          const rigid = rigidFromJson(m)
-          await clientRef.current!.transform(rigid)
-          sceneRef.current?.applyTransform(rigid)
-          // With no elements yet, this only books the transform and moves the
-          // model centre along.
-          useStore.getState().applyAlignment(rigid)
-        }
-        applyScanPart(manifest.scan)
-      } else {
-        useStore.getState().beginLoad(useStore.getState().fileName ?? '')
-        useStore.setState({ busy: true, statusText: 'Reading project…' })
+      // Check every referenced member before allocating candidate geometry.
+      const scanFile = manifest.scan && memberFile(manifest.scan.member, readAs(manifest.scan.fileName, manifest.scan.member))
+      const ref = manifest.deviation.reference
+      const nominalFile = ref && memberFile(ref.member, ref.fileName)
+      const img = manifest.flat.image
+      const imageFile = img && memberFile(img.member, img.fileName)
+      const alignment = manifest.scan?.appliedAlignment ? rigidFromJson(manifest.scan.appliedAlignment) : null
+      if (alignment && (alignment.r.length !== 9 || alignment.t.length !== 3 || ![...alignment.r, ...alignment.t].every(Number.isFinite))) {
+        throw new Error('Malformed project: scan alignment.')
       }
+      const scope = manifest.deviation.scope ? Uint32Array.from(manifest.deviation.scope) : null
+      // Preparation never changes stores, original bytes, the viewport, or
+      // the worker's current scan/reference. Any member may still fail here.
+      // A member saved in other units is read in millimetres from them again,
+      // the way it was when it came in; the manifest checked the value.
+      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, scanFile, useStore.getState().creaseMode, alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm')
+      if (nominalFile) nominal = await prepareNominal(meshClient, sceneRef.current!, nominalFile, meshUnitsOf(ref?.units) ?? 'mm')
+      if (imageFile) image = await prepareImage(imageFile)
 
-      // ---- the reference part ----
-      if (manifest.deviation.reference && manifest.scan) {
-        const ref = manifest.deviation.reference
-        await openNominal(memberFile(ref.member, ref.fileName))
-        if (useStore.getState().errorText) throw new Error(useStore.getState().errorText!)
-      }
-      applyDeviationPart(manifest.deviation)
-      elementScope.current = manifest.deviation.scope
-        ? Uint32Array.from(manifest.deviation.scope)
-        : null
+      await meshClient.commitImport({ scan: scan?.id ?? null, nominal: nominal?.id ?? null })
+      commitScan(scan)
+      commitNominal(nominal)
+      commitImage(image)
+      committed = true
+      // The scan keeps the name it was opened under, whatever the file it
+      // is now kept as.
+      useStore.setState({ appliedAlignment: alignment, ...(manifest.scan ? { fileName: manifest.scan.fileName } : {}) })
+      elementScope.current = scope
+      applyState()
       useDeviation.setState((s) => ({ scopeVersion: s.scopeVersion + 1 }))
+      // What of the project no section here owns is kept, to be written back.
+      const unowned = keepUnownedParts(manifest, members)
+      void runEdgeDetect()
 
-      applyThicknessPart(manifest.thickness)
-
-      // ---- the flatbed image ----
-      if (manifest.flat.image) {
-        const img = manifest.flat.image
-        await openImage(memberFile(img.member, img.fileName))
-      }
-      applyFlatPart(manifest.flat)
-      applyWorkspace(manifest.workspace)
+      // What the sections keep in the archive's own files, back in place —
+      // before anything is measured, which may be measured on it.
+      const present = projectSections().filter((s) => manifest[s.key] !== undefined)
+      for (const section of present) await section.restore?.(manifest[section.key], { manifest, members })
 
       // ---- everything measured rather than stored ----
       const jobs: Promise<void>[] = []
@@ -144,16 +152,27 @@ export function useProject({
         await runDeviation()
       }
       if (manifest.scan && manifest.thickness.measured) await runThickness()
+      for (const section of present) await section.remeasure?.(manifest[section.key], { manifest, members })
       useThickness.setState({ probes: manifest.thickness.probes })
       useDeviation.setState({ probes: manifest.deviation.probes })
 
       sceneRef.current?.frameAll()
-      useStore.setState({ busy: false, statusText: `Project opened — ${file.name}.` })
+      useStore.setState({
+        busy: false,
+        statusText: `Project opened — ${file.name}.${unowned.length > 0 ? ' It also holds work this build has no workspace for; that is kept, and saved with the project.' : ''}`,
+      })
+      if (recovered) recovery.restored()
+      else recovery.markSaved(capture())
     } catch (e) {
-      useStore.setState({ busy: false, statusText: '' })
-      useStore.getState().setError(e instanceof Error ? e.message : String(e))
+      if (projectClient.current?.dead) projectClient.current = null
+      throw e
+    } finally {
+      scan?.view.dispose()
+      nominal?.view.dispose()
+      if (!committed) image?.bitmap.close()
+      await meshClient.discardImport([scan?.id, nominal?.id].filter((id): id is number => id !== undefined))
     }
-  }
+  }, () => !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?'))
 
-  return { saveProject, openProject }
+  return { saveProject, openProject, recovery }
 }

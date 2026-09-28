@@ -44,7 +44,8 @@ describe('the flat draft flow', () => {
     const el = useFlat.getState().elements[0]
     expect(el.name).toBe('Circle 1')
     expect(el.fit?.kind).toBe('circle')
-    expect(useFlat.getState().draft).toBeNull()
+    // The kind stays in hand for the next circle, its box empty.
+    expect(useFlat.getState().draft).toMatchObject({ kind: 'circle', method: draft.method, picks: [], fit: null })
   })
 
   it('moves a picked point instead of accumulating', () => {

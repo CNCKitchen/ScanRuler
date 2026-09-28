@@ -5,10 +5,27 @@ import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 import type { MeshCentroid } from './geometry/centroid'
+import type { CreaseMode, CreaseReport } from './geometry/crease'
 import type { SeedPlane, SymmetryPlane } from './symmetry'
+import type { AutoAlignResult } from './autoAlign'
 
 export type WorkerRequest =
-  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer }
+  /** `crease` says whether the scan's sharp edges are to be drawn sharp —
+   *  see geometry/crease.ts. */
+  /** `scale` is millimetres per unit of the file — an STL in inches is
+   *  25.4 — applied to the coordinates before anything is built on them.
+   *  Absent or 1, the file is taken in millimetres. */
+  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseMode; staged?: boolean; transform?: Rigid; scale?: number }
+  /** Staged imports leave the current scan/reference available until all
+   * members and their render resources have been prepared. Omitted keeps a
+   * slot; null clears it; a number selects a staged load's request id. */
+  /** Put prepared models in place: the scan and the reference — a number is
+   *  a prepared load, null empties the slot. */
+  | { type: 'commit-import'; requestId: number; scan?: number | null; nominal?: number | null }
+  | { type: 'discard-import'; requestId: number; ids: number[] }
+  /** The loaded scan's render geometry again, split for sharp edges as
+   *  `crease` now says — the setting changed under a loaded scan. */
+  | { type: 'recrease'; requestId: number; crease: CreaseMode }
   | {
       type: 'fit'
       requestId: number
@@ -29,7 +46,7 @@ export type WorkerRequest =
       settings: FitSettings
       window?: AxialWindow
     }
-  | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer }
+  | { type: 'load-nominal'; requestId: number; name: string; buffer: ArrayBuffer; staged?: boolean; scale?: number }
   | { type: 'align'; requestId: number; mode: 'auto' }
   /** From hand-picked pairs. `vertices` narrows what the refinement after them
    *  is measured on, exactly as a local fit's marking does; absent means the
@@ -88,8 +105,23 @@ export type WorkerRequest =
    *  core/symmetry. With `vertices`, only the marked surface is sampled and
    *  only it is surface the mirror images may land on. */
   | { type: 'symmetry'; requestId: number; seed: SeedPlane | null; vertices?: Uint32Array }
+  /** The vertices a flood from `seed` reaches over edges whose normals turn
+   *  by less than `maxAngleDeg` — a region for a surface fit, see
+   *  fit/regionGrow floodByNormal. Capped at `limit` vertices. */
+  | { type: 'flood'; requestId: number; seed: number; maxAngleDeg: number; limit?: number }
+  /** The scan's mean curvature at every vertex, 1/mm, convex positive, for
+   *  colouring the scan by it. See geometry/curvature. */
+  | { type: 'curvature'; requestId: number }
+  /** The coordinate system the scan itself suggests — its face directions,
+   *  the side it stood on, a zero point. See core/autoAlign. Nothing moves:
+   *  the answer is a proposal for the alignment editor. */
+  | { type: 'auto-align'; requestId: number }
+  /** A request for a plugin's part of the worker — see workerPluginApi.ts.
+   *  `op` names the plugin's operation, `payload` is its own. */
+  | { type: 'plugin'; requestId: number; plugin: string; op: string; payload: unknown }
 
 export type WorkerResponse =
+  | { type: 'import-ok'; requestId: number }
   | { type: 'progress'; text: string }
   | {
       type: 'loaded'
@@ -100,6 +132,12 @@ export type WorkerResponse =
       /** One byte per vertex, for the viewport's mesh mode — see
        *  geometry/wireSlots.ts. */
       wireSlots: Uint8Array
+      /** The vertex each appended copy stands in for, where the sharp edges
+       *  were split for shading — see geometry/crease.ts. The arrays hold
+       *  `vertexCount` vertices and then these copies; empty when unsplit. */
+      copyOf: Uint32Array
+      crease: CreaseReport
+      /** The scan's own vertices — what every region and marking indexes. */
       vertexCount: number
       triangleCount: number
     }
@@ -154,4 +192,9 @@ export type WorkerResponse =
   | { type: 'section-ok'; requestId: number; points: Float32Array; offsets: Uint32Array }
   | { type: 'centroid-ok'; requestId: number; result: MeshCentroid }
   | { type: 'symmetry-ok'; requestId: number; result: SymmetryPlane }
+  | { type: 'flood-ok'; requestId: number; vertices: Uint32Array }
+  | { type: 'curvature-ok'; requestId: number; values: Float32Array }
+  | { type: 'auto-align-ok'; requestId: number; result: AutoAlignResult }
+  /** A plugin's answer. */
+  | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

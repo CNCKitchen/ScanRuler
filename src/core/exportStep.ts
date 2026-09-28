@@ -22,7 +22,7 @@ import { orthoBasis } from './fit/linalg'
 import { isFullTurn, type ArcGeometry, type SplineGeometry } from './section/lift'
 import { addScaled } from './vec'
 import { esc, num, placement, StepWriter, vec } from './stepWriter'
-import { writeConeSolid, writeCylinderSolid, writePlaneShell, writeSphereSolid } from './stepBrep'
+import { writeConeSolid, writeCylinderSolid, writePlaneShell, writeSphereSolid, writeTorusSolid } from './stepBrep'
 
 /** What an element can be written as: the 3D workspace's fits, and the arc
  *  and the spline a section's sheet measures — see core/section/lift. */
@@ -104,6 +104,14 @@ function writeElement(w: StepWriter, name: string, fit: StepGeometry): number {
       return w.add(
         `RECTANGULAR_TRIMMED_SURFACE('${label}',#${surf},0.,${num(TWO_PI)},${num(-HALF_PI)},${num(HALF_PI)},.T.,.T.)`,
       )
+    }
+
+    // The whole ring as a surface: the round that was measured is a stretch
+    // of it, and which stretch is the trim's business.
+    case 'torus': {
+      const pl = placement(w, fit.center, fit.axis, orthoBasis(fit.axis)[0])
+      const surf = w.add(`TOROIDAL_SURFACE('',#${pl},${num(Math.max(fit.majorRadius, 1e-6))},${num(Math.max(fit.minorRadius, 1e-6))})`)
+      return w.add(`RECTANGULAR_TRIMMED_SURFACE('${label}',#${surf},0.,${num(TWO_PI)},0.,${num(TWO_PI)},.T.,.T.)`)
     }
 
     // A circle is a curve in either form, the way a line is: reference
@@ -249,6 +257,13 @@ function writeSolidBody(w: StepWriter, elements: StepElement[], shape: number, g
         relate(
           w.add(
             `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeSphereSolid(w, el.name, el.fit)}),#${geomCtx})`,
+          ),
+        )
+        break
+      case 'torus':
+        relate(
+          w.add(
+            `ADVANCED_BREP_SHAPE_REPRESENTATION('${label}',(#${writeTorusSolid(w, el.name, el.fit)}),#${geomCtx})`,
           ),
         )
         break

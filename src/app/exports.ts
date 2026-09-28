@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The two ways measurements leave the tool as geometry: the created elements
-// as analytic STEP, and the scan itself as an STL in the pose it is shown in.
+// The ways measurements leave the tool as geometry: the created elements as
+// analytic STEP, and the scan itself as an STL or a point cloud in the pose
+// it is shown in.
 import type { RefObject } from 'react'
 import { applyAssumed } from '../core/elements/assumed'
 import { applyExtension } from '../core/elements/extend'
-import { buildStepFile, type StepSection } from '../core/exportStep'
+import type { StepSection } from '../core/exportStep'
 import { buildBinaryStl } from '../core/exportStl'
-import { buildPointCloudPly, buildPointCloudXyz, type CloudFormat } from '../core/exportPointCloud'
+import type { CloudFormat } from '../core/exportPointCloud'
 import { computeVertexNormals } from '../core/geometry/normals'
 import { liftFlatFit } from '../core/section/lift'
 import { useStore } from '../state/store'
@@ -34,6 +35,15 @@ export const saveFile = (name: string, blob: Blob) => {
  *  on. */
 export const exportStem = () => (useStore.getState().fileName ?? 'scan').replace(/\.[^.]+$/, '')
 
+/** Lazy export modules can fail to load (for example after a deployment).
+ * Keep the session usable and report the failure through the normal UI. */
+export async function runExport(job: () => Promise<void>): Promise<void> {
+  try { await job() }
+  catch (error) {
+    useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 /** Every section with something measured on its sheet, the elements stood
  *  up in the part under the section's name — what the STEP export writes
  *  beside the 3D elements. Hidden ones come too, as hidden 3D elements do:
@@ -53,13 +63,15 @@ export const sectionStepGroups = (): StepSection[] => {
 
 /** Hand the created elements over as analytic STEP geometry — and with
  *  them, in a group per section, what was measured on the sections. */
-export const exportElementsStep = () => {
+export const exportElementsStep = () => runExport(async () => {
   const store = useStore.getState()
   const els = store.elements.filter((e) => e.fit)
   const groups = sectionStepGroups()
   const onSections = groups.reduce((n, g) => n + g.elements.length, 0)
   if (els.length === 0 && onSections === 0) return
   const assumed = els.filter((e) => e.assumed !== undefined).length
+  const name = `${exportStem()}-elements.step`
+  const { buildStepFile } = await import('../core/exportStep')
   const text = buildStepFile(
     // What is exported is what is on screen, extensions and all — with the
     // assumed diameter swapped in wherever the user gave one.
@@ -72,7 +84,6 @@ export const exportElementsStep = () => {
     store.stepStyle,
     groups,
   )
-  const name = `${exportStem()}-elements.step`
   saveFile(name, new Blob([text], { type: 'model/step' }))
   const what: string[] = []
   if (els.length) what.push(`${els.length} element${els.length === 1 ? '' : 's'}`)
@@ -85,7 +96,7 @@ export const exportElementsStep = () => {
       store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
     }${assumed ? ` — ${assumed} at ${assumed === 1 ? 'its' : 'their'} assumed Ø` : ''}.`,
   )
-}
+})
 
 /** Hand the scan back as an STL in the pose it is being shown in.
  *
@@ -130,17 +141,27 @@ export const exportScanStl = (sceneRef: RefObject<SceneManager | null>) => {
  *  alignment is in the vertices already, the deviation best fit is applied
  *  on the way out. The normals are the scan's own, oriented out of the part
  *  when it was loaded. */
-export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) => {
+export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) => runExport(async () => {
+  const { buildPointCloudPly, buildPointCloudXyz } = await import('../core/exportPointCloud')
+  // Geometry can be transformed in place; read it and its alignment together
+  // after loading the writer, with no async gap before serialization.
   const store = useStore.getState()
-  const geometry = sceneRef.current?.scanGeometry()
-  if (!geometry || !store.fileName) return
-  const positions = geometry.getAttribute('position')?.array as Float32Array | undefined
-  if (!positions) return
+  const scene = sceneRef.current
+  const geometry = scene?.scanGeometry()
+  if (!scene || !geometry || !store.fileName) return
+  const drawn = geometry.getAttribute('position')?.array as Float32Array | undefined
+  if (!drawn) return
   const index = geometry.getIndex()?.array as Uint32Array | Uint16Array | undefined
   const onMesh = geometry.getAttribute('normal')?.array as Float32Array | undefined
-  const normals =
+  const drawnNormals =
     onMesh ??
-    (index ? computeVertexNormals(positions, index instanceof Uint32Array ? index : Uint32Array.from(index)) : null)
+    (index ? computeVertexNormals(drawn, index instanceof Uint32Array ? index : Uint32Array.from(index)) : null)
+  // The scan's own vertices only: past them the render arrays carry the
+  // copies its sharp edges were split into for shading (see
+  // core/geometry/crease.ts), and a cloud wants each point once.
+  const own = scene.scanVertexCount() * 3
+  const positions = drawn.subarray(0, own)
+  const normals = drawnNormals ? drawnNormals.subarray(0, own) : null
   const align = useDeviation.getState().align
   const moved = align !== null || store.appliedAlignment !== null
   const stem = exportStem()
@@ -159,4 +180,4 @@ export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, f
       normals ? ' with normals' : ''
     }${moved ? ', in its aligned position' : ''}.`,
   )
-}
+})

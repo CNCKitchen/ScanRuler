@@ -133,6 +133,56 @@ check(
 )
 await click(page, '[data-test=flat-draft-cancel]')
 
+// ---- the same circle by a fit to edge: the click that grows -----------------
+// The fit starts at the point clicked and grows along the chain; on a
+// closed rim it goes all the way round.
+const readStatus = async () => page.$eval('[data-test=flat-draft-status]', (el) => el.textContent)
+await click(page, '[data-test=flat-fit-circle]')
+await page.select('[data-test=flat-draft-method]', 'flat-circle-seed')
+await page.mouse.click(...toScreen(DISC_C[0] + DISC_DIA / 2, DISC_C[1]))
+await sleep(400)
+const grownPicks = Number((await page.$eval('[data-test=flat-draft-picks]', (el) => el.textContent)).replace(/[^\d]/g, ''))
+const grownDia = Number(((await readStatus()).match(/([\d.]+)/) ?? [])[1])
+check(grownPicks > 600, `the fit to edge grows round the whole rim (${grownPicks} points)`)
+check(
+  Math.abs(grownDia - DISC_DIA) < 0.08,
+  `and reads Ø ${DISC_DIA.toFixed(3)} mm (got ${grownDia})`,
+)
+// A line clicked on the rim is refused with the reason, and the box says so.
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-fit-line]')
+await page.select('[data-test=flat-draft-method]', 'flat-line-seed')
+await page.mouse.click(...toScreen(DISC_C[0], DISC_C[1] + DISC_DIA / 2))
+await sleep(400)
+const rimLine = await readStatus()
+check(/curved/.test(rimLine), `a line clicked on the rim is refused as curved (${rimLine})`)
+await click(page, '[data-test=flat-draft-cancel]')
+
+// ---- one side of the rectangle by a fit to edge ------------------------------
+// The rectangle's outline is one chain with four corners; a click on the
+// top side takes that side alone, corner to corner.
+await click(page, '[data-test=flat-fit-line]')
+await page.select('[data-test=flat-draft-method]', 'flat-line-seed')
+await page.mouse.click(...toScreen(mm((RECT.x0 + RECT.x1) / 2), RECT_TOP_Y))
+await sleep(400)
+const grownLine = await readStatus()
+const grownLen = Number((grownLine.match(/L ([\d.]+)/) ?? [])[1])
+const grownAngle = Number((grownLine.match(/· (-?[\d.]+)°/) ?? [])[1])
+check(
+  Math.abs(grownLen - RECT_WIDTH) < 0.3,
+  `the fit to edge takes the top side corner to corner, L ${RECT_WIDTH.toFixed(3)} mm (got ${grownLen})`,
+)
+check(Math.abs(grownAngle) < 0.15, `and it is horizontal (${grownAngle}°)`)
+// A circle clicked on the side is refused: the edge there is straight.
+await click(page, '[data-test=flat-draft-cancel]')
+await click(page, '[data-test=flat-fit-circle]')
+await page.select('[data-test=flat-draft-method]', 'flat-circle-seed')
+await page.mouse.click(...toScreen(mm((RECT.x0 + RECT.x1) / 2), RECT_TOP_Y))
+await sleep(400)
+const sideCircle = await readStatus()
+check(/straight/.test(sideCircle), `a circle clicked on the side is refused as straight (${sideCircle})`)
+await click(page, '[data-test=flat-draft-cancel]')
+
 // ---- snap to edge off, and a right-drag pan ----------------------------------
 // With the snap off a click is the measurement; a right-drag moves the sheet
 // under the cursor by exactly the drag, whatever the navigation scheme. A

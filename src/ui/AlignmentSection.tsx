@@ -136,11 +136,17 @@ function AlignSelect({
 }
 
 export function AlignmentSection({
+  onAutoAlign,
+  onAlignSymmetry,
   onStartAlignment,
   onApplyAlignment,
   onApplyManual,
   onResetAlignment,
 }: {
+  /** Ask the scan for a proposal and open the editor on it. */
+  onAutoAlign: () => void
+  /** Settle the pose being set up on the scan's own symmetry plane. */
+  onAlignSymmetry: () => void
   onStartAlignment: () => void
   /** Bake the computed datum alignment into the part. */
   onApplyAlignment: (m: Rigid) => void
@@ -190,11 +196,27 @@ export function AlignmentSection({
             against an axis mean nothing.
           </p>
           <p>
+            <b>Auto-align</b> reads the pose off the scan itself: the directions most of its faces
+            are square to, the axis its round walls run along, and the side it stood on — an open
+            scan is open where it sat, and a flat rim it ends in counts as the face that is
+            missing. It opens the
+            same three steps filled in, previewed on the part — change which side is down or which
+            way X runs, or replace a step, before anything is applied. A part with no flat faces
+            and no round walls gets its principal axes, which is a guess.
+          </p>
+          <p>
             <b>Align part</b> places it in up to three steps — set a face on a coordinate plane,
             run an edge or a bore along an axis, put the zero point on a corner. Each step takes a
             measured element — the accurate choice, it averages thousands of scan points — or
             points clicked straight on the scan, and the viewport previews every choice against
             the coordinate planes before anything is applied.
+          </p>
+          <p>
+            <b>Use symmetry</b>, in the Align part box, settles the pose on the part’s own mirror
+            plane: the plane is searched for on the scan — or taken from a symmetry plane already
+            measured — the axis nearest its normal is turned onto it, and the zero point is put on
+            it. The plane is then a coordinate plane of the part, which is what a sketch on the
+            middle and a Mirror want. With no pose set up yet it starts from Auto-align’s.
           </p>
           <p>
             <b>Move / rotate by numbers</b> applies a transform you already know instead. Both are
@@ -263,6 +285,14 @@ export function AlignmentSection({
         <>
           <button
             className="block"
+            data-test="auto-align"
+            disabled={!fileName || busy}
+            onClick={onAutoAlign}
+          >
+            Auto-align
+          </button>
+          <button
+            className="block"
             data-test="start-alignment"
             disabled={!fileName || busy}
             onClick={onStartAlignment}
@@ -321,6 +351,11 @@ export function AlignmentSection({
               </p>
             </InfoDot>
           </div>
+          {alignDraft.proposal && (
+            <p className="hint" data-test="align-proposal">
+              {alignDraft.proposal}
+            </p>
+          )}
           <StepHead n={1} text="Set on a plane" />
           <AlignSelect
             label="Face"
@@ -402,6 +437,15 @@ export function AlignmentSection({
             </p>
           )}
 
+          <button
+            className="block"
+            data-test="align-symmetry"
+            disabled={busy || alignDraft.pickSlot !== null}
+            title="Find the part’s mirror plane on the scan — or use a symmetry plane already measured — and settle this pose on it: the axis nearest its normal turned onto it, the zero point put on it. With nothing set up yet, Auto-align’s pose is the start. Nothing is applied until Align part is pressed"
+            onClick={onAlignSymmetry}
+          >
+            Use symmetry
+          </button>
           <button
             className="primary block"
             data-test="apply-alignment"

@@ -1,25 +1,54 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /**
  * Grips for extending the element being made — one per end of a cylinder,
- * one per edge of a plane — and the gizmo a section plane wears: an arrow
- * that slides it, two rings that tilt it. Live only while a draft is open,
- * and always on top of
- * everything — a grip that could hide inside the part it belongs to would be a
- * grip that cannot be grabbed.
+ * one per edge of a plane — the gizmo a section plane wears: an arrow
+ * that slides it, two rings that tilt it — and the grips a plugin puts on
+ * something of its own being set up: arrows and rings, named by the plugin.
+ * Live only while a draft is open, and always on top of everything — a grip
+ * that could hide inside the part it belongs to would be a grip that cannot
+ * be grabbed.
  */
 import * as THREE from 'three'
-import type { ExtendSide } from '../core/elements/extend'
+import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
+import { CYLINDER_SIDES, PLANE_SIDES, type ExtendSide } from '../core/elements/extend'
 import type { SectionFrame } from '../core/section/frame'
-import type { FitData } from '../core/types'
+import type { FitData, Vec3 } from '../core/types'
 
-/** What a grip moves: one side of an element being extended, or — on the
- *  gizmo a section plane wears — its offset along its normal (the arrow) or
- *  its tilt about one of its in-plane axes (the two rings). */
-export type GripSide = ExtendSide | 'offset' | 'tiltU' | 'tiltV'
+/** A plugin grip's side: a name of the plugin's own, none of the app's. */
+export type PluginGripSide = string & {}
+
+/** What a grip moves: one side of an element being extended; on the gizmo
+ *  a section plane wears, its offset along its normal (the arrow) or its
+ *  tilt about one of its in-plane axes (the two rings); on something a
+ *  plugin sets up, whatever the plugin names the grip for. */
+export type GripSide = ExtendSide | 'offset' | 'tiltU' | 'tiltV' | PluginGripSide
+
+/** A grip a plugin puts on something of its own: an arrow along `dir`, or a
+ *  ring about it, in the part's coordinates. */
+export interface PluginGrip {
+  side: PluginGripSide
+  shape: 'arrow' | 'ring'
+  position: Vec3
+  dir: Vec3
+  /** An arrow's length, or a ring's radius. */
+  size: number
+}
+
+const ELEMENT_SIDES: readonly string[] = [...CYLINDER_SIDES, ...PLANE_SIDES]
 
 /** The gizmo's own sides, as against an element's. */
 export function isSectionSide(side: GripSide | null): side is 'offset' | 'tiltU' | 'tiltV' {
   return side === 'offset' || side === 'tiltU' || side === 'tiltV'
+}
+
+/** One of the app's own sides — an element's or the gizmo's. */
+export function isCoreSide(side: GripSide | null): side is ExtendSide | 'offset' | 'tiltU' | 'tiltV' {
+  return side !== null && (isSectionSide(side) || ELEMENT_SIDES.includes(side))
+}
+
+/** A side a plugin named. */
+export function isPluginSide(side: GripSide | null): side is PluginGripSide {
+  return side !== null && !isCoreSide(side)
 }
 
 /** One grip on an element being extended: where it sits, which way its side
@@ -55,6 +84,10 @@ export interface ExtendGripsContext {
    *  after the cursor has wandered off it — or null for none. The ghost marks
    *  that side of itself, so a hand on a grip can see the edge it is moving. */
   onActiveSide(side: GripSide | null): void
+  /** The number field on a feature grip: a value typed and entered, or the
+   *  field closed with Escape. */
+  onFieldCommit(side: GripSide, value: number): void
+  onFieldClose(): void
 }
 
 export class ExtendGrips {
@@ -71,6 +104,13 @@ export class ExtendGrips {
    *  without the other being forgotten. */
   private fit: FitData | null = null
   private plane: SectionFrame | null = null
+  private feature: readonly PluginGrip[] = []
+  /** The number field on a feature grip — its DOM label, the input in it,
+   *  and which grip it stands on. Kept apart from the grips, which are
+   *  rebuilt on every change of the number: the field moves with its grip
+   *  and keeps what is being typed. */
+  private fieldGroup = new THREE.Group()
+  private field: { side: GripSide; label: CSS2DObject; input: HTMLInputElement; unit: HTMLElement; value: number } | null = null
   private hoveredHandle: GripSide | null = null
   /** What was last reported through onActiveSide, so it is only said when it
    *  changes. */
@@ -94,6 +134,10 @@ export class ExtendGrips {
   /** Grip shapes: an arrow for an end that grows along an axis, a bar for an
    *  edge that grows across itself. Both unit-sized about their own middle. */
   private unitCone = new THREE.ConeGeometry(0.5, 1, 20)
+  /** A feature's arrow: longer and slimmer than an element's grip, the
+   *  shape of a CAD manipulator, so it reads as a direction and leaves the
+   *  face it stands on in view. */
+  private unitSlimCone = new THREE.ConeGeometry(0.22, 1, 20)
   private unitBox = new THREE.BoxGeometry(1, 1, 1)
   /** A ring of unit radius, its tube a fixed share of it — thick enough to
    *  take hold of, thin enough to read as a line. */
@@ -101,6 +145,7 @@ export class ExtendGrips {
 
   constructor(private ctx: ExtendGripsContext) {
     ctx.partGroup.add(this.handleGroup)
+    ctx.partGroup.add(this.fieldGroup)
     // A grip dragged off the edge of the viewport keeps pulling, and one
     // released outside it — or taken back by the system mid-drag — still lets
     // go rather than staying stuck to the pointer.
@@ -132,6 +177,98 @@ export class ExtendGrips {
     this.rebuild()
   }
 
+  /** Put a plugin's grips on something of its own being set up, in the
+   *  part's coordinates — or take them away with an empty list. */
+  setFeatureGrips(grips: readonly PluginGrip[], color: string): void {
+    this.feature = grips
+    this.handleColor = color
+    this.rebuild()
+  }
+
+  /**
+   * The number field on a feature grip, or none. While the grip is being
+   * dragged the field only reads; once the hand lets go it takes typing —
+   * Enter commits, Escape closes — and is left where it is, since the grip
+   * stays where the number put it. A field with a value being typed is
+   * not written over by the store's value, or the keystrokes would be
+   * lost to the very number they are changing.
+   */
+  setField(field: { side: GripSide; value: number; unit: string } | null): void {
+    if (!field) {
+      this.dropField()
+      return
+    }
+    if (!this.field || this.field.side !== field.side) {
+      this.dropField()
+      const div = document.createElement('div')
+      div.className = 'viewport-label grip-field'
+      const input = document.createElement('input')
+      input.type = 'number'
+      input.step = 'any'
+      input.dataset.test = 'grip-field'
+      input.title = 'The number this grip drags — type a value and press Enter; Escape closes the field'
+      const unit = document.createElement('i')
+      div.append(input, unit)
+      // The label layer takes no pointer events, so a field on it has to
+      // ask for them itself — and keep them from the viewport under it,
+      // whose navigator would otherwise take the press.
+      div.style.pointerEvents = 'auto'
+      const stop = (e: Event) => e.stopPropagation()
+      div.addEventListener('pointerdown', stop)
+      div.addEventListener('pointerup', stop)
+      div.addEventListener('wheel', stop)
+      input.addEventListener('keydown', (e) => {
+        e.stopPropagation()
+        if (e.key === 'Enter') {
+          const v = Number(input.value)
+          if (Number.isFinite(v) && this.field) this.ctx.onFieldCommit(this.field.side, v)
+          input.blur()
+        } else if (e.key === 'Escape') {
+          this.ctx.onFieldClose()
+        }
+      })
+      const label = new CSS2DObject(div)
+      this.fieldGroup.add(label)
+      this.field = { side: field.side, label, input, unit, value: Number.NaN }
+    }
+    const f = this.field
+    f.unit.textContent = field.unit
+    f.input.readOnly = this.handleDrag !== null
+    // Only a settled value is shown: not the one under a hand still typing.
+    if (document.activeElement !== f.input && f.value !== field.value) {
+      f.input.value = String(Math.round(field.value * 100) / 100)
+    }
+    f.value = field.value
+    this.placeField()
+  }
+
+  private dropField(): void {
+    if (!this.field) return
+    this.fieldGroup.remove(this.field.label)
+    this.field.label.element.remove()
+    this.field = null
+    this.ctx.invalidate()
+  }
+
+  /** The field stands off the tip of its grip's arrow, or beside its ring,
+   *  where the hand that dragged it is. */
+  private placeField(): void {
+    const f = this.field
+    if (!f) return
+    const grip = this.handles.find((h) => h.side === f.side)
+    if (!grip) {
+      f.label.visible = false
+      this.ctx.invalidate()
+      return
+    }
+    const size = Math.max(this.ctx.modelRadius() * 0.05, 1e-5)
+    const ring = grip.mesh.geometry === this.unitRing
+    f.label.visible = true
+    f.label.position.copy(grip.position)
+    if (!ring) f.label.position.addScaledVector(grip.dir, size * 1.4)
+    this.ctx.invalidate()
+  }
+
   private rebuild(): void {
     for (const fn of this.handleCleanup) fn()
     this.handleCleanup = []
@@ -140,6 +277,17 @@ export class ExtendGrips {
     this.handleMeshes = []
     this.ctx.invalidate()
     if (this.hoveredHandle !== null && this.handleDrag === null) this.setHoveredHandle(null)
+    // The grips are placed below; the field follows them once they are.
+    queueMicrotask(() => this.placeField())
+
+    for (const g of this.feature) {
+      const position = new THREE.Vector3(...g.position)
+      const dir = new THREE.Vector3(...g.dir).normalize()
+      if (g.shape === 'ring') this.addRing(g.side, position, dir, Math.max(g.size, 1e-5))
+      // Sized to the profiles the arrow stands on, never smaller than a grip
+      // on the part would be — a hairline profile still needs a handle.
+      else this.addGrip(g.side, position, dir, Math.max(g.size, this.ctx.modelRadius() * 0.05, 1e-5), undefined, true)
+    }
 
     if (this.plane) {
       // Bigger than an element's grips: the gizmo stands alone on a bare
@@ -207,6 +355,7 @@ export class ExtendGrips {
     dir: THREE.Vector3,
     size: number,
     edge?: { along: THREE.Vector3; span: number },
+    slim = false,
   ): void {
     const material = new THREE.MeshBasicMaterial({
       // A rebuild in the middle of a drag must not put the lit grip out.
@@ -217,7 +366,7 @@ export class ExtendGrips {
       depthWrite: false,
       side: THREE.DoubleSide,
     })
-    const mesh = new THREE.Mesh(edge ? this.unitBox : this.unitCone, material)
+    const mesh = new THREE.Mesh(edge ? this.unitBox : slim ? this.unitSlimCone : this.unitCone, material)
     if (edge) {
       // The bar lies in the plane, along the edge, and reaches a little past it
       // on the outside so the shape it will grow into is legible.
@@ -310,6 +459,12 @@ export class ExtendGrips {
     this.ctx.onActiveSide(side)
   }
 
+  /** Whether a grip is lit under the cursor or held — what is under it is
+   *  the grip's, not anything drawn beneath. */
+  isHovered(): boolean {
+    return this.hoveredHandle !== null || this.handleDrag !== null
+  }
+
   /** A grip under the cursor takes the plain left-drag — the navigator has
    *  already stepped aside for it, the same way it does for the brush.
    *  Returns whether the event was taken. */
@@ -324,7 +479,7 @@ export class ExtendGrips {
 
   private beginHandleDrag(grip: ExtendGrip, clientX: number, clientY: number): void {
     const world = this.gripLine(grip)
-    if (grip.side === 'tiltU' || grip.side === 'tiltV') {
+    if (grip.side === 'tiltU' || grip.side === 'tiltV' || grip.side === 'turn') {
       // Any two perpendiculars of the axis do for reading angles — only
       // differences are reported — as long as (b1, b2, axis) is right-handed,
       // so the angle grows with the turn it is asking for.
@@ -347,6 +502,7 @@ export class ExtendGrips {
     this.ctx.canvas.style.cursor = 'grabbing'
     this.syncActiveSide()
     this.ctx.onExtendDrag(grip.side, 0, 'start')
+    if (this.field) this.field.input.readOnly = true
   }
 
   /** A grip's line in world space — the part can be sitting under an alignment,
@@ -439,6 +595,13 @@ export class ExtendGrips {
     this.ctx.canvas.style.cursor = this.hoveredHandle !== null ? 'grab' : ''
     this.syncActiveSide()
     this.ctx.onExtendDrag(drag.side, 0, 'end')
+    // The hand let go: the field on the grip takes typing now, and the
+    // cursor is put in it so the number can be typed straight over.
+    if (this.field && this.field.side === drag.side) {
+      this.field.input.readOnly = false
+      this.field.input.focus()
+      this.field.input.select()
+    }
     // The cursor may have left the grip while it was held; settle the hover
     // from where it actually is now.
     this.ctx.requestHover()
@@ -449,8 +612,11 @@ export class ExtendGrips {
     document.removeEventListener('pointerup', this.onHandleUp)
     document.removeEventListener('pointercancel', this.onHandleUp)
     this.plane = null
+    this.feature = []
+    this.dropField()
     this.setHandles(null, '#ffffff')
     this.unitCone.dispose()
+    this.unitSlimCone.dispose()
     this.unitBox.dispose()
     this.unitRing.dispose()
   }

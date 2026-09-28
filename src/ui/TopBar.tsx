@@ -11,18 +11,35 @@ import { useStore } from '../state/store'
 import { usePrefs } from '../state/prefsStore'
 import { useDeviation } from '../state/deviationStore'
 import { useShell, type Workspace } from '../state/shellStore'
+import { plugins } from '../plugins/registry'
+import { UndoRedo } from './UndoRedo'
+import { Icon, type IconName } from './icons'
 import { IMAGE_ACCEPT, MESH_ACCEPT, isImageFile, isMeshFile, isStepFile } from '../core/formats'
 import { PROJECT_EXTENSION } from '../core/project/manifest'
 import { isProjectFile } from '../app/useProject'
 import { APP_VERSION } from '../version'
+import type { RecoveryStatus } from '../app/useRecovery'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
 
-const WORKSPACES: { id: Workspace; label: string; title: string }[] = [
-  { id: 'elements', label: 'Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
-  { id: 'deviation', label: 'Surface Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
-  { id: 'thickness', label: 'Wall Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
-  { id: 'flat', label: '2D Measure', title: 'Measure a flatbed scan the way a measuring microscope would' },
+/** What the GitHub key links to: the whole app, or — with plugins in use,
+ *  which are not published there — the app without them. */
+const sourceTitle = () =>
+  plugins().length > 0 ? 'Source code of the open-source core (AGPL-3.0-only) on GitHub' : 'Source code (AGPL-3.0-only) on GitHub'
+
+const CORE_TABS: { id: Workspace; icon: IconName; label: string; title: string }[] = [
+  { id: 'elements', icon: 'wsMeasure', label: '3D Measure', title: 'Fit spheres, cylinders and planes, and measure between them' },
+  { id: 'deviation', icon: 'compare', label: 'Surface Deviation', title: 'Best-fit the scan to a nominal part and map the difference' },
+  { id: 'thickness', icon: 'wsThickness', label: 'Wall Thickness', title: 'Map the wall thickness of the part itself — no reference needed' },
+  { id: 'flat', icon: 'wsFlat', label: '2D Measure', title: 'Measure a flatbed scan the way a measuring microscope would' },
+]
+
+/** The app's tabs, then those of the plugins in use, in their order. */
+const workspaceTabs = () => [
+  ...CORE_TABS,
+  ...plugins()
+    .flatMap((p) => (p.workspace ? [p.workspace] : []))
+    .sort((a, b) => a.order - b.order),
 ]
 
 export function TopBar({
@@ -31,12 +48,14 @@ export function TopBar({
   onOpenScan,
   onOpenImage,
   canSave,
+  recovery,
 }: {
   onSaveProject: () => void
   onOpenProject: (file: File) => void
   onOpenScan: (file: File) => void
   onOpenImage: (file: File) => void
   canSave: boolean
+  recovery: RecoveryStatus
 }) {
   const fileName = useStore((s) => s.fileName)
   const triangleCount = useStore((s) => s.triangleCount)
@@ -52,7 +71,6 @@ export function TopBar({
     if (file) {
       if (isProjectFile(file.name)) onOpenProject(file)
       else if (isImageFile(file.name)) {
-        setWorkspace('flat')
         onOpenImage(file)
       } else if (isMeshFile(file.name)) onOpenScan(file)
       else
@@ -86,7 +104,7 @@ export function TopBar({
       {/* Both workspaces share the loaded scan, the scene and the camera, so
           switching is free and neither side loses what it had. */}
       <div className="modeswitch" role="tablist">
-        {WORKSPACES.map((w) => (
+        {workspaceTabs().map((w) => (
           <button
             key={w.id}
             role="tab"
@@ -97,6 +115,7 @@ export function TopBar({
             disabled={picking}
             onClick={() => setWorkspace(w.id)}
           >
+            <Icon name={w.icon} size={16} />
             {w.label}
           </button>
         ))}
@@ -111,6 +130,12 @@ export function TopBar({
         </div>
       )}
       <div className="grow" />
+      <span className="project-save-status" data-test="project-save-status"
+        title={`${recovery.status || 'Checkpoints are stored only in this browser.'} Checkpoints and project files include completed work; finish active drawings before leaving. Save Project downloads a portable copy.`}>
+        {recovery.dirty ? 'Unsaved changes' : 'No unsaved changes'}
+        {recovery.status && <small role="status">{recovery.status}</small>}
+      </span>
+      <UndoRedo />
       <input
         ref={openRef}
         type="file"
@@ -120,35 +145,35 @@ export function TopBar({
         onChange={(e) => onLoad(e.target.files?.[0] ?? undefined)}
       />
       <button
-        className="ghost"
+        className="ghost withicon"
         data-test="save-project"
         onClick={onSaveProject}
         disabled={busy || !canSave}
         title={`Save the scan, the reference, the image and every measurement as one .${PROJECT_EXTENSION} file`}
       >
+        <Icon name="save" size={16} />
         Save<span className="btxt"> Project</span>
       </button>
       <button
-        className="ghost"
+        className="ghost withicon"
         data-test="load-project"
         onClick={() => openRef.current?.click()}
         disabled={busy}
         title={`Open a .${PROJECT_EXTENSION} project — or a plain scan or image to start fresh`}
       >
+        <Icon name="load" size={16} />
         Load<span className="btxt"> Project</span>
       </button>
       {/* What is set once and left — the chassis, the colour mode, the mouse
           controls, the line weights, the hints. Beside the project keys
           because it is about the instrument rather than about any workspace. */}
       <button
-        className="ghost"
+        className="ghost withicon"
         data-test="open-settings"
         onClick={() => openSettings(true)}
         title="Interface theme, colour mode, mouse controls, line widths and guided hints"
       >
-        <span className="gear" aria-hidden="true">
-          ⚙
-        </span>
+        <Icon name="settings" size={16} />
         <span className="btxt"> Settings</span>
       </button>
       <a
@@ -156,8 +181,8 @@ export function TopBar({
         href={GITHUB_URL}
         target="_blank"
         rel="noopener noreferrer"
-        title="Source code (AGPL-3.0-only) on GitHub"
-        aria-label="Source code, AGPL-3.0-only, on GitHub"
+        title={sourceTitle()}
+        aria-label={sourceTitle()}
       >
         <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />

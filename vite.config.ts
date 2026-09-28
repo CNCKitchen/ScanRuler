@@ -18,9 +18,25 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1500,
   },
+  // The workers are module workers already (`type: 'module'` everywhere they
+  // are made), and a worker may load a large package with a dynamic import
+  // so that it is fetched only when it is needed — which needs a worker
+  // bundle that can split.
+  worker: {
+    format: 'es',
+  },
+  // The dev server's dependency scan starts from index.html and does not
+  // follow `new Worker(new URL(…))`, so a package only a worker imports was
+  // found the first time that worker ran — pre-bundled then, and the page
+  // reloaded under the user. Every worker module is named *Worker.ts; the
+  // scan starts from those too.
+  optimizeDeps: {
+    entries: ['index.html', '**/*Worker.ts'],
+  },
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts'],
+    // Each plugin keeps its tests beside it; the open-source tree has none.
+    include: ['tests/**/*.test.ts', 'plugins/*/tests/**/*.test.ts'],
     testTimeout: 180_000,
   },
 })

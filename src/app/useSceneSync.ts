@@ -3,7 +3,7 @@
 // the marking brush, overlays and highlights, the alignment previews, and the
 // colouring of whichever map the workspace is showing. The stores hold the
 // truth; these effects repeat it to the viewport.
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
@@ -41,6 +41,7 @@ import { deviationScale, deviationStats } from '../core/deviation/deviation'
 import { thicknessStats } from '../core/thickness/thickness'
 import { rigidToColumnMajor } from '../core/deviation/rigid'
 import type { RefObject } from 'react'
+import type { PluginRuntime } from '../plugins/api'
 
 export function useSceneSync({
   sceneRef,
@@ -51,6 +52,7 @@ export function useSceneSync({
   thickness,
   thicknessRgb,
   thickScale,
+  plugin,
   cancelDraft,
 }: {
   sceneRef: RefObject<SceneManager | null>
@@ -65,6 +67,9 @@ export function useSceneSync({
   /** Held stable across renders by App, because it is what tells the repaint
    *  below whether anything actually changed. */
   thickScale: FieldScale
+  /** The runtime of the plugin whose workspace is on screen, if one is —
+   *  its colouring, its marking, what it shows of the part. */
+  plugin: PluginRuntime | null
   /** Close a half-finished element draft, preview and marking included. */
   cancelDraft: () => void
 }) {
@@ -130,6 +135,10 @@ export function useSceneSync({
   const brushDiameter = useMark((s) => s.diameter)
   const paintSession = painting && paintWorkspace
   const markSession = marking && markWorkspace
+  // A plugin's workspace marks with the same tools, in a colour of its own —
+  // and may keep a marking shown with the gestures stood down.
+  const pluginMarkColor = plugin?.marking?.color ?? null
+  const pluginGestures = plugin?.marking?.gestures ?? false
   // The third session that marks is the split-screen picker's, and it marks the
   // same mask through a viewport of its own. So the main one stands aside
   // entirely while it is open: disarming here would rub the selection out
@@ -139,22 +148,24 @@ export function useSceneSync({
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene || picking) return
-    if (!paintSession && !markSession) {
+    if (!paintSession && !markSession && pluginMarkColor === null) {
       scene.setPaintBrush(null)
       if (useMark.getState().count !== 0) useMark.getState().setCount(0)
       return
     }
     scene.setPaintBrush({
-      color: paintSession ? draftColor : MARK_COLOR,
+      color: paintSession ? draftColor : (pluginMarkColor ?? MARK_COLOR),
       diameter: brushDiameter,
       erase: markErase,
-      gesture: markGesture,
+      gesture: pluginMarkColor !== null && !pluginGestures ? null : markGesture,
       backfaces: markBackfaces,
     })
   }, [
     picking,
     paintSession,
     markSession,
+    pluginMarkColor,
+    pluginGestures,
     draftColor,
     brushDiameter,
     markErase,
@@ -198,6 +209,10 @@ export function useSceneSync({
   // is done by clicking one of them on the part. The one in use is outlined and
   // the rest are faded bodies on offer.
   const elementsWorkspace = useShell((s) => s.workspace === 'elements')
+  // A plugin's workspace may show the measured elements and sections too, as
+  // the datums it works against — without the readings, which are the
+  // measure workspace's.
+  const showElements = elementsWorkspace || Boolean(plugin?.showsElements)
   const offeredElements = useDeviation((s) => s.source === 'element' && s.showElement)
   const candidates = markWorkspace && offeredElements
   const targetId = useDeviation((s) => s.targetId)
@@ -229,7 +244,7 @@ export function useSceneSync({
   useEffect(() => {
     const items: OverlayElement[] = elements
       .filter((e) =>
-        elementsWorkspace
+        showElements
           ? e.fit && e.visible && e.id !== editingElementId
           : // Only the kinds a deviation can be measured against: a point or a
             // line is not on offer here, so drawing it would invite a click
@@ -251,10 +266,10 @@ export function useSceneSync({
         // switched off, when the point is to see the surface and every body
         // gets out of the way.
         style:
-          elementsWorkspace || (e.id !== targetId && !bareSurface)
+          showElements || (e.id !== targetId && !bareSurface)
             ? ('shell' as const)
             : ('outline' as const),
-        muted: !elementsWorkspace && e.id !== targetId,
+        muted: !showElements && e.id !== targetId,
       }))
     // Distances draw as a line between their two anchor points, angles as an
     // arc at their hinge.
@@ -308,7 +323,7 @@ export function useSceneSync({
       elementsWorkspace ? pairs : [],
       elementsWorkspace ? angles : [],
       elementsWorkspace ? tags : [],
-      elementsWorkspace || items.length > 0,
+      showElements || items.length > 0,
     )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
@@ -317,6 +332,8 @@ export function useSceneSync({
     // The element being edited goes with them: its surface is about to be
     // re-chosen, and its old tint underneath the new one would only be read as
     // part of it.
+    // A plugin's workspace shows the elements as datums, and nothing of the
+    // surfaces they were fitted to.
     sceneRef.current?.setHiddenRegions(
       (elementsWorkspace ? elements.filter((e) => !e.visible || e.id === editingElementId) : elements).map(
         (e) => e.id,
@@ -330,6 +347,7 @@ export function useSceneSync({
     dimensions,
     surfaceVersion,
     elementsWorkspace,
+    showElements,
     candidates,
     targetId,
     bareSurface,
@@ -369,9 +387,9 @@ export function useSceneSync({
             .filter((el) => el.visible && el.fit)
             .map((el) => liftFlatFit(sec.frame, el.fit!)),
         })),
-      elementsWorkspace,
+      showElements,
     )
-  }, [sections, editingSectionId, elementsWorkspace, flatSubject, flatElements, flatSheets])
+  }, [sections, editingSectionId, showElements, flatSubject, flatElements, flatSheets])
 
   // The name tags and readouts, the measure workspace's own switch: off, the
   // bodies, the cuts and the callout lines stay and only the text goes.
@@ -556,6 +574,10 @@ export function useSceneSync({
   // workspaces re-runs both effects anyway, so gating on the workspace loses
   // nothing.
   const thickScaleShown = workspace === 'thickness' ? thickScale : null
+  // A plugin's workspace paints its own map, when it has one.
+  const pluginFieldVersion = plugin?.fieldVersion
+  const pluginRef = useRef(plugin)
+  pluginRef.current = plugin
   /** Whichever map this workspace is showing: its values, and the scale they
    *  are read through. The maps differ only in that scale and in the figures
    *  that go under it — the two deviation maps not even in that, since a
@@ -574,7 +596,7 @@ export function useSceneSync({
     if (workspace === 'thickness' && thickness.current) {
       return { values: thickness.current, rgb: thicknessRgb, scale: thickScale }
     }
-    return null
+    return pluginRef.current?.field ?? null
   }
   // The colour plot can be switched off to look at the bare scan surface — its
   // shape, its holes, the marks a finish leaves — with the map still measured
@@ -612,6 +634,7 @@ export function useSceneSync({
     showMap,
     thickVersion,
     thickScaleShown,
+    pluginFieldVersion,
   ])
 
   // The figures under the legend, separately from the paint: the tolerance and
@@ -620,7 +643,8 @@ export function useSceneSync({
   const toleranceRead = workspace === 'deviation' ? tolerance : null
   const thickLimitRead = workspace === 'thickness' ? thickLimit : null
   useEffect(() => {
-    const showing = shownField()
+    // A plugin's map brings its own figures; nothing here adds to them.
+    const showing = workspace === 'deviation' || workspace === 'thickness' ? shownField() : null
     if (!showing) return
     const { values, scale } = showing
     const histogram = fieldHistogram(values, scale.low, scale.high, scale.validMin, scale.validMax)
@@ -658,6 +682,9 @@ export function useSceneSync({
   // Side by side, the reference has a viewport of its own — so it comes out of
   // this one. Two parts in one frame is exactly what the split view undoes.
   const split = useDeviation((s) => s.split)
+  // A plugin's workspace may put the scan away, for something of its own
+  // that stands in its place.
+  const scanHidden = Boolean(plugin?.hideScan)
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -666,8 +693,8 @@ export function useSceneSync({
     const onDev = workspace === 'deviation' && source === 'reference'
     scene.setNominalVisible(onDev && nominalReady && showNominal && !split)
     scene.setNominalGhost(!onDev || showScan)
-    scene.setScanVisible(workspace !== 'deviation' || showScan)
-  }, [workspace, source, showNominal, showScan, nominalReady, split])
+    scene.setScanVisible(workspace === 'deviation' ? showScan : !scanHidden)
+  }, [workspace, source, showNominal, showScan, nominalReady, split, scanHidden])
 
   // Which mouse buttons orbit, pan and zoom. Held in the store rather than the
   // scene so the settings dialog can show it and remember it.
@@ -754,7 +781,9 @@ export function useSceneSync({
   )
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
   const hasMap =
-    (workspace === 'deviation' && hasDeviationMap) || (workspace === 'thickness' && hasThicknessMap)
+    (workspace === 'deviation' && hasDeviationMap) ||
+    (workspace === 'thickness' && hasThicknessMap) ||
+    Boolean(plugin?.hoverReadout)
   useEffect(() => {
     sceneRef.current?.setHoverEnabled(hasMap && !picking)
   }, [hasMap, picking])

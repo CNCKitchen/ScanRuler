@@ -4,6 +4,7 @@ import {
   FLAT_METHODS,
   evaluateFlatConstruction,
   evaluateFlatPicks,
+  flatDefaultMethod,
   flatMethod,
   flatMethodsForKind,
 } from '../src/core/flat/construct'
@@ -27,6 +28,17 @@ describe('the flat method table', () => {
 
   it('refuses an unknown id', () => {
     expect(() => flatMethod('flat-nonsense')).toThrow(/Unknown/)
+  })
+
+  it('opens a kind with hand picking on the image and with the fit to edge on a section', () => {
+    expect(flatDefaultMethod('line', false)).toBe('flat-line-pick')
+    expect(flatDefaultMethod('circle', false)).toBe('flat-circle-pick')
+    expect(flatDefaultMethod('line', true)).toBe('flat-line-seed')
+    expect(flatDefaultMethod('circle', true)).toBe('flat-circle-seed')
+    // Kinds with no fit to edge open as they do on the image.
+    for (const kind of ['point', 'arc', 'spline'] as const) {
+      expect(flatDefaultMethod(kind, true)).toBe(flatMethodsForKind(kind)[0].id)
+    }
   })
 })
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from 'vitest'
 import { strToU8, unzipSync } from 'fflate'
-import { packProject, unpackProject } from '../src/core/project/archive'
+import { manifestText, packProject, unpackProject } from '../src/core/project/archive'
 import {
   alignFromJson,
   alignToJson,
@@ -68,6 +68,27 @@ describe('the project archive', () => {
     expect(back.manifest.flat.image?.member).toBe('image.png')
     expect([...back.members.keys()].sort()).toEqual(['image.png', 'reference.step', 'scan.stl'])
     expect(back.members.get('reference.step')).toEqual(sources().reference.bytes)
+  })
+
+  it('remembers what units a mesh was read in, and only when not millimetres', () => {
+    useDeviation.setState({ nominalName: 'bracket.step' })
+    const inMm = collectProject(sources(), null, '0.1.0').manifest
+    expect(inMm.scan).not.toHaveProperty('units')
+    expect(inMm.deviation.reference).not.toHaveProperty('units')
+    const src = sources()
+    const scaled = collectProject(
+      { ...src, scan: { ...src.scan, units: 'mm' }, reference: { ...src.reference, units: 'in' } },
+      null,
+      '0.1.0',
+    )
+    expect(scaled.manifest.scan).not.toHaveProperty('units')
+    expect(scaled.manifest.deviation.reference?.units).toBe('in')
+    const back = unpackProject(packProject(scaled.manifest, scaled.members))
+    expect(back.manifest.deviation.reference?.units).toBe('in')
+    const inches = collectProject({ ...src, scan: { ...src.scan, units: 'in' } }, null, '0.1.0').manifest
+    expect(inches.scan?.units).toBe('in')
+    expect(() => validateManifest({ ...inches, scan: { ...inches.scan, units: 'furlong' } })).toThrow('scan.units')
+    expect(() => validateManifest({ ...scaled.manifest, deviation: { ...scaled.manifest.deviation, reference: { ...scaled.manifest.deviation.reference, units: 3 } } })).toThrow('deviation.reference.units')
   })
 
   it('refuses what is not a project', () => {
@@ -390,5 +411,17 @@ describe('writing a project back onto the stores', () => {
     expect(useFlat.getState().subject).toEqual({ kind: 'image' })
     expect(useFlat.getState().elements).toHaveLength(1)
     expect(useFlat.getState().sheets).toEqual({})
+  })
+})
+
+describe('the manifest as text', () => {
+  it('is indented to be read while it is small, and compact once a marking makes it large', () => {
+    const manifest = { app: 'x', big: Array.from({ length: 2000 }, (_, i) => i) } as never
+    const small = manifestText(manifest)
+    expect(small).toContain('\n')
+    const compact = manifestText(manifest, 1000)
+    expect(compact).not.toContain('\n')
+    expect(compact.length).toBeLessThan(small.length / 2)
+    expect(JSON.parse(compact)).toEqual(JSON.parse(small))
   })
 })

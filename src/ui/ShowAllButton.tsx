@@ -3,6 +3,8 @@
 // shows everything once it is all hidden. Sits in the list's label row beside
 // the count.
 
+import { Icon } from './icons'
+
 export function ShowAllButton({
   anyVisible,
   what,
@@ -22,7 +24,8 @@ export function ShowAllButton({
       title={anyVisible ? `Hide all ${what} in the viewport` : `Show all ${what}`}
       onClick={() => onSet(!anyVisible)}
     >
-      {anyVisible ? '◉ Hide all' : '○ Show all'}
+      <Icon name={anyVisible ? 'eye' : 'eyeOff'} size={13} />
+      {anyVisible ? 'Hide all' : 'Show all'}
     </button>
   )
 }

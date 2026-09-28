@@ -51,7 +51,7 @@ export interface SplineGeometry extends FitBase {
 export type SectionGeometry = PointFit | LineFit | CircleFit | ArcGeometry | SplineGeometry
 
 /** A sheet point in the part. */
-export function liftPoint(frame: SectionFrame, p: Vec2): Vec3 {
+export function liftPoint(frame: SectionFrame, p: readonly [number, number]): Vec3 {
   return addScaled(addScaled(frame.origin, frame.basisU, p[0]), frame.basisV, p[1])
 }
 

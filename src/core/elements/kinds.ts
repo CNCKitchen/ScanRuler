@@ -20,6 +20,7 @@ export const ELEMENT_KINDS: readonly ElementKindInfo[] = [
   { id: 'cylinder', label: 'Cylinder', noun: 'cylinder' },
   { id: 'cone', label: 'Cone', noun: 'cone' },
   { id: 'circle', label: 'Circle', noun: 'circle' },
+  { id: 'torus', label: 'Torus', noun: 'round' },
 ]
 
 export function elementKindInfo(id: ElementKind): ElementKindInfo {

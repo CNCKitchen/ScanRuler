@@ -7,10 +7,17 @@
 
 import { create } from 'zustand'
 
-/** The things this tool does. The three mesh workspaces share the scan, the
- *  scene and the camera, differing only in what is drawn on top of the part;
- *  the flat workspace measures a 2D scan image in a viewport of its own. */
-export type Workspace = 'elements' | 'deviation' | 'thickness' | 'flat'
+/** The things this tool does of itself. The mesh workspaces share the scan,
+ *  the scene and the camera, differing only in what is drawn on top of the
+ *  part; the flat workspace measures a 2D scan image in a viewport of its
+ *  own. */
+export type CoreWorkspace = 'elements' | 'deviation' | 'thickness' | 'flat'
+
+export const CORE_WORKSPACES: readonly CoreWorkspace[] = ['elements', 'deviation', 'thickness', 'flat']
+
+/** A core workspace, or one a plugin adds under its own id — see
+ *  plugins/api.ts. */
+export type Workspace = CoreWorkspace | (string & {})
 
 interface ShellState {
   workspace: Workspace

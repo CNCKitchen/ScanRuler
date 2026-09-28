@@ -6,7 +6,9 @@ import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
-import { ExtendGrips, isSectionSide, type GripSide } from './extendGrips'
+import { ExtendGrips, isPluginSide, isSectionSide, type GripSide, type PluginGrip } from './extendGrips'
+import { liftPoint } from '../core/section/lift'
+import { LAYER_ORDER, type SceneLayer, type SceneLayerHost } from './sceneLayers'
 import {
   Overlays,
   type OverlayElement,
@@ -104,7 +106,7 @@ function principalAxis(positions: Float32Array): THREE.Vector3 {
  *  draw them; consumers keep importing everything from here. */
 export type { OverlayElement, OverlayPair, OverlayAngle, OverlayTag, ProbeMarker } from './overlays'
 export type { MarkGesture, PaintBrush } from './marking'
-export type { GripSide } from './extendGrips'
+export type { GripSide, PluginGrip } from './extendGrips'
 export type { SectionOverlayItem } from './sections'
 
 /** Where a ray met the scan. The barycentric weights come along so a caller
@@ -121,6 +123,9 @@ export interface PickHit {
   /** Cursor position that produced the hit, so a readout can follow it. */
   clientX: number
   clientY: number
+  /** Ctrl was held for the click — a pick that takes away instead of
+   *  adding, where a pick can do both. */
+  ctrlKey: boolean
 }
 
 /** A point picked on the scan while setting up an alignment — the same marker
@@ -149,6 +154,23 @@ export interface MarkingChannel {
   regions: RegionColors
   paintAttr: () => THREE.BufferAttribute | null
   setPaintColor: (rgb: [number, number, number]) => void
+  /** The scan's own vertex behind a render index — see graphVertex. */
+  graphVertex: (v: number) => number
+}
+
+/** A mesh laid out for the scan's place in the viewport: its geometry, the
+ *  channels painted on it, their compositor, and how it is framed — the
+ *  scan's, or an edited copy's. See SceneManager.showEdited. */
+interface SlotLayout {
+  geometry: THREE.BufferGeometry
+  colorAttr: THREE.BufferAttribute
+  tintAttr: THREE.BufferAttribute
+  paintAttr: THREE.BufferAttribute
+  scanVertices: number
+  copyOf: Uint32Array
+  regions: RegionColors
+  modelRadius: number
+  axis: THREE.Vector3
 }
 
 export class SceneManager {
@@ -199,7 +221,45 @@ export class SceneManager {
    *  out of the colour attribute on purpose — vertex colours are interpolated,
    *  and an interpolated marking has a blurred border. */
   private paintAttr: THREE.BufferAttribute | null = null
+  /** The scan's own vertex count. The render arrays may run on past it with
+   *  the copies its sharp edges were split into for shading (see
+   *  core/geometry/crease.ts); `copyOf` names the vertex behind each. Every
+   *  region, field and marking is keyed by the scan's own vertices, so a
+   *  render index is put through graphVertex before it means anything. */
+  private scanVertices = 0
+  private copyOf: Uint32Array = new Uint32Array(0)
+  /** The attribute versions the copies were last brought level with — see
+   *  syncCopies. */
+  private synced = { color: -1, tint: -1, paint: -1 }
+  /** An edited copy of the scan, laid out to take the scan's place — see
+   *  setEditedMesh — or, while it is shown there, the scan's own layout,
+   *  waiting. Null with no edited copy. */
+  private other: SlotLayout | null = null
+  private editedShown = false
   private nominalMesh: THREE.Mesh | null = null
+  /** The plane the part is cut open at, and the clip plane it makes in
+   *  world coordinates — see setSlicePlane. */
+  private slice: SectionFrame | null = null
+  private slicePlanes: THREE.Plane[] | null = null
+  private sliceCapColor: number | null = null
+  /** Whether the cut is closed with a cap — see setSliceCapped. */
+  private sliceCapped = true
+  /** A 2D sheet laid over this view, which it follows: the sheet's frame,
+   *  what lies under its screen centre and its scale — see followSheet. The
+   *  size the follow was last applied at, so a viewport shown again after
+   *  being put away catches up. */
+  private sheetFollow: { frame: SectionFrame; centre: readonly [number, number]; unitsPerPx: number } | null = null
+  private followedSize = { w: 0, h: 0 }
+  /** The cap that closes the part where it is cut open — see applySlice. */
+  private cap: { back: THREE.Mesh; front: THREE.Mesh; sheet: THREE.Mesh; dispose: () => void } | null = null
+  private capGeometry = new THREE.PlaneGeometry(1, 1)
+  /** Elements lit because something being built refers to them, and
+   *  elements lit because a picker's option is hovered — two reasons, one
+   *  look; the overlays hear the union. */
+  private highlightedElements: readonly number[] = []
+  private hintedElements: readonly number[] = []
+  /** What the plugins draw and pick in this viewport — see sceneLayers.ts. */
+  private layers: SceneLayer[] = []
   /** Long axis of the scan, kept so the camera can be re-framed later without
    *  walking the vertices again. */
   private scanAxis = new THREE.Vector3(1, 0, 0)
@@ -218,6 +278,12 @@ export class SceneManager {
   /** While on, a click resolves to the element under the cursor (overlay
    *  shape or painted region) before falling back to a plain surface pick. */
   private elementPickEnabled = false
+  /** Whether the element under the cursor lights while element picking is
+   *  on — for a pick that asks for an element, or a click that selects one —
+   *  and which one is lit. The Measure workspace's pickers say what is
+   *  pickable by other means and leave this off. */
+  private elementHoverLights = false
+  private hoveredElement: number | null = null
 
   /** Back-face tinting, shared by every material of this view that opts in.
    *  The split view's reference half keeps a pair of its own and is driven
@@ -239,6 +305,7 @@ export class SceneManager {
    *  fitted elements, the pinned readings — shows. Held here as well as on
    *  the materials because a part loaded later has to be dressed the same. */
   private translucent = false
+  private scanGhost = false
   /** Whether the reference is a ghost or a solid part — see setNominalGhost.
    *  A ghost until the workspace says otherwise, which is how it starts. */
   private nominalGhost = true
@@ -259,7 +326,9 @@ export class SceneManager {
 
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
-  onElementPick: ((id: number) => void) | null = null
+  /** A click on an element while element picking is on — with where the
+   *  click was, for a chip bar to stand by. */
+  onElementPick: ((id: number, clientX: number, clientY: number) => void) | null = null
   /** A click on one of the coordinate planes offered to a section. */
   onWorldPlanePick: ((axis: WorldAxis) => void) | null = null
   /** How many vertices the brush has marked, reported when a stroke ends. */
@@ -269,6 +338,10 @@ export class SceneManager {
    *  grip, how far along its normal it has been moved. */
   onExtendDrag: ((side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
     null
+  /** A number typed into the field on a plugin's grip, or the field closed
+   *  with Escape — see setGripField. */
+  onGripFieldCommit: ((side: GripSide, value: number) => void) | null = null
+  onGripFieldClose: (() => void) | null = null
 
   constructor(container: HTMLDivElement) {
     this.viewport = new OrthoViewport(container, {
@@ -276,11 +349,12 @@ export class SceneManager {
       // An orbit pivots on whichever part is actually on screen: in the
       // deviation workspace the scan can be hidden behind the reference, or
       // the other way round, and turning about a surface nobody can see reads
-      // as a glitch.
+      // as a glitch. Whatever a plugin shows in the scan's place counts too.
       navTargets: () => {
         const targets: THREE.Object3D[] = []
         if (this.mesh?.visible) targets.push(this.mesh)
         if (this.nominalMesh?.visible) targets.push(this.nominalMesh)
+        for (const layer of this.layers) targets.push(...(layer.navTargets?.() ?? []))
         return targets
       },
       onPointerDown: (e) => this.handlePointerDown(e),
@@ -288,7 +362,7 @@ export class SceneManager {
       // what it took and ends there, rather than being dragged across the part
       // by a hand that has started navigating.
       onMultiTouch: () => this.marking.endGesture(),
-      onClick: (x, y) => this.handleClick(x, y),
+      onClick: (x, y, e) => this.handleClick(x, y, e?.ctrlKey ?? false),
       // The stroke and hover queues are what decide whether this frame has
       // anything new to show at all.
       onTick: () => {
@@ -304,12 +378,25 @@ export class SceneManager {
         // The section curves are fat lines sized in pixels and need the canvas.
         const el = this.viewport.renderer.domElement
         this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
+        for (const layer of this.layers) layer.tick?.(el.clientWidth || 1, el.clientHeight || 1)
+        // A viewport that follows a sheet re-reads its scale when its own
+        // size changes — shown again after being put away, or the window
+        // resized — since the scale is millimetres per pixel.
+        if (this.sheetFollow && (el.clientWidth !== this.followedSize.w || el.clientHeight !== this.followedSize.h)) {
+          this.applyFollow(0)
+        }
+        // Last, after everything above that may have written a vertex
+        // attribute, and before the frame that uploads it.
+        this.syncCopies()
       },
       onAfterRender: (w, h) => this.drawGizmo(w, h),
     })
     this.container = container
     this.gizmo = new AxisGizmo()
     this.stage = new DatumStage(this.scene)
+    // A material may carry a clip plane of its own — the slice through the
+    // part at a sketch plane. Nothing is clipped until one is set.
+    this.viewport.renderer.localClippingEnabled = true
 
     this.partGroup.matrixAutoUpdate = false
     this.scene.add(this.partGroup)
@@ -323,6 +410,7 @@ export class SceneManager {
       setPickRay: (x, y) => this.setPickRay(x, y),
       mesh: () => this.mesh,
       paintAttr: () => this.paintAttr,
+      graphVertex: this.graphVertex,
       setPaintColor: (rgb) => {
         setPaintUniform(this.uPaintColor, rgb)
         this.invalidate()
@@ -364,10 +452,13 @@ export class SceneManager {
       },
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
       // Only an element's ghost has ends to mark; a section plane's gizmo
-      // stands on a sheet that is its own mark.
-      onActiveSide: (side) => this.overlays.setPreviewActiveSide(isSectionSide(side) ? null : side),
+      // stands on a sheet that is its own mark, and a plugin's grips are on
+      // something of its own.
+      onActiveSide: (side) =>
+        this.overlays.setPreviewActiveSide(isSectionSide(side) || isPluginSide(side) ? null : side),
+      onFieldCommit: (side, value) => this.onGripFieldCommit?.(side, value),
+      onFieldClose: () => this.onGripFieldClose?.(),
     })
-
     this.viewport.renderer.domElement.addEventListener('pointermove', (e) => {
       this.hoverAt = { x: e.clientX, y: e.clientY }
       this.hoverDirty = true
@@ -421,12 +512,17 @@ export class SceneManager {
     this.backface.uBackfaceColor.value.setHex(theme.backface)
     setSurfaceColor(this.uSurfaceColor.value, theme)
     if (this.regions.setBaseColor(theme.surface)) this.surfaceRepainted()
+    // The layout waiting out of sight is flagged when it comes back.
+    this.other?.regions.setBaseColor(theme.surface)
     if (this.mesh) applyFinish(this.mesh.material as THREE.MeshStandardMaterial, theme)
+    // The cap wears the surface colour of the scheme.
+    if (this.cap) this.applySlice()
     if (this.nominalMesh) {
       const material = this.nominalMesh.material as THREE.MeshStandardMaterial
       material.color.setHex(theme.nominal)
       applyFinish(material, theme)
     }
+    for (const layer of this.layers) layer.themeChanged?.(theme)
     this.invalidate()
   }
 
@@ -453,7 +549,9 @@ export class SceneManager {
       }
     }
     if (this.marking.pointerGesture() !== null) return this.marking.handlePointerDown(e)
-    return this.grips.handlePointerDown(e)
+    if (this.grips.handlePointerDown(e)) return true
+    for (const layer of this.sortedLayers()) if (layer.pointerDown?.(e)) return true
+    return false
   }
 
   /** The gizmo arrow under a client point, if any. */
@@ -473,26 +571,87 @@ export class SceneManager {
     this.viewFrom(there ? far : near)
   }
 
-  /** A click that survived the drag threshold: an element when element picking
-   *  is on and one is under the cursor, then a coordinate plane on offer
-   *  there, a surface pick otherwise. An element comes before a plane: the
-   *  planes are drawn through the part and would otherwise take every click
-   *  on whatever lies behind them. */
-  private handleClick(x: number, y: number): void {
-    if (this.elementPickEnabled) {
-      const id = this.elementAt(x, y)
-      if (id !== null) {
-        this.onElementPick?.(id)
-        return
-      }
-    }
-    const plane = this.worldPlaneAt(x, y)
-    if (plane !== null) {
-      this.onWorldPlanePick?.(plane)
-      return
-    }
+  /** The layers in their order — see sceneLayers.ts. */
+  private sortedLayers(): SceneLayer[] {
+    return [...this.layers].sort((a, b) => a.order - b.order)
+  }
+
+  /** What a click is offered to, in order: the layers' picks, and the
+   *  viewport's own — a measured element while element picking is on, then
+   *  a coordinate plane on offer. An element comes before a plane: the planes
+   *  are drawn through the part and would otherwise take every click on
+   *  whatever lies behind them. */
+  private clickSteps(): ((x: number, y: number, additive: boolean) => boolean)[] {
+    const steps: { order: number; click: (x: number, y: number, additive: boolean) => boolean }[] = [
+      {
+        order: LAYER_ORDER.elements,
+        click: (x, y) => {
+          if (!this.elementPickEnabled) return false
+          const id = this.elementAt(x, y)
+          if (id === null) return false
+          this.onElementPick?.(id, x, y)
+          return true
+        },
+      },
+      {
+        order: LAYER_ORDER.worldPlanes,
+        click: (x, y) => {
+          const plane = this.worldPlaneAt(x, y)
+          if (plane === null) return false
+          this.onWorldPlanePick?.(plane)
+          return true
+        },
+      },
+      ...this.layers.flatMap((layer) => (layer.click ? [{ order: layer.order, click: layer.click }] : [])),
+    ]
+    return steps.sort((a, b) => a.order - b.order).map((step) => step.click)
+  }
+
+  /** A click that survived the drag threshold: whatever of the layers' and
+   *  the viewport's own takes it, else a surface pick. */
+  private handleClick(x: number, y: number, ctrlKey = false): void {
+    for (const click of this.clickSteps()) if (click(x, y, ctrlKey)) return
+    // Nothing selectable was there: the scan, or empty space.
+    if (!ctrlKey) for (const layer of this.layers) layer.clickedAway?.(x, y)
     const hit = this.pick(x, y)
-    if (hit) this.onPick?.(hit)
+    if (hit) this.onPick?.({ ...hit, ctrlKey })
+  }
+
+  /** What lights under the cursor, in order: the layers' and the viewport's
+   *  own — the grips, which never light while a marking gesture is armed
+   *  (both plain drags are the brush's then), and a measured element on
+   *  offer. */
+  private hoverSteps(): { covers: boolean; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] {
+    const steps: { order: number; covers: boolean; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] = [
+      {
+        order: LAYER_ORDER.grips,
+        covers: true,
+        hover: (at, covered) => {
+          this.grips.updateHover(covered ? null : at, this.marking.gestureArmed())
+          return this.grips.isHovered()
+        },
+      },
+      { order: LAYER_ORDER.elements, covers: false, hover: (at, covered) => this.hoverElement(covered ? null : at) },
+      ...this.layers.flatMap((layer) => (layer.hover ? [{ order: layer.order, covers: Boolean(layer.covers), hover: layer.hover }] : [])),
+    ]
+    return steps.sort((a, b) => a.order - b.order)
+  }
+
+  /** An element on offer lights under the cursor the way a sketch region
+   *  does, so the part says what a click would take. */
+  private hoverElement(at: { x: number; y: number } | null): boolean {
+    if (this.elementHoverLights) {
+      const id = at && this.elementPickEnabled ? this.elementAt(at.x, at.y) : null
+      if (id !== this.hoveredElement) {
+        this.hoveredElement = id
+        this.applyElementHighlight()
+        this.viewport.renderer.domElement.style.cursor = id !== null ? 'pointer' : ''
+      }
+    } else if (this.hoveredElement !== null) {
+      this.hoveredElement = null
+      this.applyElementHighlight()
+    }
+    return false
   }
 
   /** One pointer test per frame, and only when the answer could have changed:
@@ -520,9 +679,14 @@ export class SceneManager {
       this.viewport.renderer.domElement.style.cursor = plane !== null ? 'pointer' : ''
     }
     if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
-    // Grips resolve after the footprint, and never light while a marking
-    // gesture is armed — both plain drags are the brush's then.
-    this.grips.updateHover(this.hoverAt, this.marking.gestureArmed())
+    // Then everything that lights under the cursor, in order: what lights
+    // covers what comes after it where it says so — a grip, or a sketch
+    // region, over what lies behind — and nothing lights under the gizmo
+    // corner, which is a button first.
+    let covered = axis !== null
+    for (const step of this.hoverSteps()) {
+      if (step.hover(this.hoverAt, covered) && step.covers) covered = true
+    }
     if (!this.hoverEnabled) return
     const at = this.hoverAt
     const hit = at ? this.pick(at.x, at.y) : null
@@ -545,42 +709,40 @@ export class SceneManager {
   }
 
   /** Replace the displayed mesh. Synchronous and heavy (includes the BVH
-   *  build) — callers should show a status message and yield a frame first. */
+   *  build) — callers should show a status message and yield a frame first.
+   *  `copyOf` names the scan vertex behind each render vertex past the
+   *  scan's own — the copies its sharp edges were split into for shading. */
   setMesh(
     positions: Float32Array,
     indices: Uint32Array,
     normals: Float32Array,
     wireSlots?: Uint8Array,
+    copyOf: Uint32Array = new Uint32Array(0),
   ): void {
-    this.disposeMesh()
-    this.setPreview(null)
+    this.prepareMesh(positions, indices, normals, wireSlots, copyOf).commit()
+  }
 
-    const vertexCount = positions.length / 3
+  /** Allocate and index a replacement before releasing the current mesh. */
+  prepareMesh(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+    copyOf: Uint32Array = new Uint32Array(0),
+  ): { commit(): void; dispose(): void } {
     const geometry = new THREE.BufferGeometry()
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
-    const colors = new Uint8Array(vertexCount * 3)
-    const base = this.theme.surface
-    for (let i = 0; i < vertexCount; i++) {
-      colors[i * 3] = base[0]
-      colors[i * 3 + 1] = base[1]
-      colors[i * 3 + 2] = base[2]
-    }
-    this.colorAttr = new THREE.BufferAttribute(colors, 3, true)
-    geometry.setAttribute('color', this.colorAttr)
-    const tint = new Uint8Array(vertexCount)
-    this.tintAttr = new THREE.BufferAttribute(tint, 1)
-    geometry.setAttribute('tint', this.tintAttr)
-    const paint = new Uint8Array(vertexCount)
-    this.paintAttr = new THREE.BufferAttribute(paint, 1)
-    geometry.setAttribute('paint', this.paintAttr)
-    // The corner slots the mesh mode draws the edges from. Without them the
-    // shader sees one slot everywhere and draws no edges, and nothing else
-    // minds.
-    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
-    geometry.computeBoundingBox()
-    geometry.computeBoundingSphere()
+    const { colors, paint, tint } = this.layOutScan(
+      geometry,
+      positions,
+      indices,
+      normals,
+      wireSlots,
+      copyOf,
+      null,
+      false,
+    )
+    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    const axis = principalAxis(positions)
 
     // Scans have holes; double-sided rendering keeps interior surfaces
     // visible instead of culling them to black.
@@ -591,21 +753,200 @@ export class SceneManager {
     applyFinish(material, this.theme)
     this.patchScanShader(material)
     setSurfaceOpacity(material, this.scanOpacity())
-    this.mesh = new THREE.Mesh(geometry, material)
-    this.partGroup.add(this.mesh)
-    // A new scan is not aligned to anything yet, and nothing is being
-    // previewed on it.
-    this.previewMatrix.identity()
-    this.setAlignment(null)
-    this.regions.attach(colors, paint, tint)
+    const mesh = new THREE.Mesh(geometry, material)
+    let owned = true
+    return {
+      dispose: () => {
+        if (!owned) return
+        owned = false
+        geometry.disposeBoundsTree?.()
+        geometry.dispose()
+        material.dispose()
+      },
+      commit: () => {
+        if (!owned) throw new Error('The prepared scan has already been used.')
+        owned = false
+        this.disposeMesh()
+        this.setPreview(null)
+        this.mesh = mesh
+        this.adoptScanLayout(geometry, copyOf)
+        this.partGroup.add(this.mesh)
+        this.applySlice()
+        // A new scan is not aligned to anything yet, and nothing is being
+        // previewed on it.
+        this.previewMatrix.identity()
+        this.setAlignment(null)
+        this.regions.attach(colors, paint, tint, this.scanVertices)
 
-    this.modelRadius = Math.max(
-      geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2,
-      1e-4,
+        this.modelRadius = Math.max(
+          geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2,
+          1e-4,
+        )
+        this.scanAxis = axis
+        this.frameCamera(geometry.boundingBox!, this.scanAxis)
+      },
+    }
+  }
+
+  /**
+   * Fill a geometry with the scan's arrays and fresh colour, tint and paint
+   * buffers, sized to the render vertex count. `keep` is the previous
+   * buffers when the same scan is being laid out again: their first
+   * `scanVertices` entries — the scan's own vertices — are carried over, and
+   * the copies take theirs from them on the next tick.
+   */
+  private layOutScan(
+    geometry: THREE.BufferGeometry,
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots: Uint8Array | undefined,
+    copyOf: Uint32Array,
+    keep: { colors: Uint8Array; paint: Uint8Array; tint: Uint8Array } | null,
+    adopt = true,
+  ): { colors: Uint8Array; paint: Uint8Array; tint: Uint8Array } {
+    const vertexCount = positions.length / 3
+    const own = vertexCount - copyOf.length
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    const colors = new Uint8Array(vertexCount * 3)
+    if (keep) colors.set(keep.colors.subarray(0, own * 3))
+    else {
+      const base = this.theme.surface
+      for (let i = 0; i < vertexCount; i++) {
+        colors[i * 3] = base[0]
+        colors[i * 3 + 1] = base[1]
+        colors[i * 3 + 2] = base[2]
+      }
+    }
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3, true))
+    const tint = new Uint8Array(vertexCount)
+    if (keep) tint.set(keep.tint.subarray(0, own))
+    geometry.setAttribute('tint', new THREE.BufferAttribute(tint, 1))
+    const paint = new Uint8Array(vertexCount)
+    if (keep) paint.set(keep.paint.subarray(0, own))
+    geometry.setAttribute('paint', new THREE.BufferAttribute(paint, 1))
+    // The corner slots the mesh mode draws the edges from. Without them the
+    // shader sees one slot everywhere and draws no edges, and nothing else
+    // minds.
+    if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
+    else geometry.deleteAttribute('wireSlot')
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    geometry.computeBoundingBox()
+    geometry.computeBoundingSphere()
+    if (adopt) this.adoptScanLayout(geometry, copyOf)
+    return { colors, paint, tint }
+  }
+
+  private adoptScanLayout(geometry: THREE.BufferGeometry, copyOf: Uint32Array): void {
+    this.colorAttr = geometry.getAttribute('color') as THREE.BufferAttribute
+    this.tintAttr = geometry.getAttribute('tint') as THREE.BufferAttribute
+    this.paintAttr = geometry.getAttribute('paint') as THREE.BufferAttribute
+    this.scanVertices = geometry.getAttribute('position').count - copyOf.length
+    this.copyOf = copyOf
+    // Whatever the copies held is gone with the old arrays; the first tick
+    // fills them from their vertices.
+    this.synced = { color: -1, tint: -1, paint: -1 }
+  }
+
+  /**
+   * The same scan, laid out again with its sharp edges split differently —
+   * the shading setting changed under it. The mesh, its material and the
+   * geometry object stay, so every view sharing the geometry (the split
+   * view, the point picker) sees the new arrays on its next frame; only the
+   * GPU buffers are let go — dispose() is just that event, and the renderer
+   * uploads afresh. Ownership, the deviation map and the marking are keyed
+   * by the scan's own vertices and carry straight across.
+   */
+  resplitScan(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots: Uint8Array | undefined,
+    copyOf: Uint32Array,
+  ): void {
+    // Laid out on the scan: the copy, if it is showing, steps aside for it.
+    const shown = this.editedShown
+    if (shown) this.swapSlots()
+    try {
+      this.resplitShown(positions, indices, normals, wireSlots, copyOf)
+    } finally {
+      if (shown) this.swapSlots()
+    }
+  }
+
+  private resplitShown(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots: Uint8Array | undefined,
+    copyOf: Uint32Array,
+  ): void {
+    if (!this.mesh || !this.colorAttr || !this.tintAttr || !this.paintAttr) return
+    const geometry = this.mesh.geometry as THREE.BufferGeometry
+    const keep = {
+      colors: this.colorAttr.array as Uint8Array,
+      tint: this.tintAttr.array as Uint8Array,
+      paint: this.paintAttr.array as Uint8Array,
+    }
+    geometry.disposeBoundsTree?.()
+    geometry.dispose()
+    const { colors, paint, tint } = this.layOutScan(
+      geometry,
+      positions,
+      indices,
+      normals,
+      wireSlots,
+      copyOf,
+      keep,
     )
-    this.scanAxis = principalAxis(positions)
-    this.frameCamera(geometry.boundingBox!, this.scanAxis)
+    this.regions.rebind(colors, paint, tint, this.scanVertices)
     geometry.computeBoundsTree()
+    this.invalidate()
+  }
+
+  /** How many vertices the scan itself has — the render arrays may carry
+   *  shading copies past this many; see core/geometry/crease.ts. */
+  scanVertexCount(): number {
+    return this.editedShown && this.other ? this.other.scanVertices : this.scanVertices
+  }
+
+  /** The scan's own vertex behind a render index: a corner split for sharp
+   *  shading names a copy, and every region, field and marking is keyed by
+   *  the vertex it was cut from. */
+  private graphVertex = (v: number): number =>
+    v < this.scanVertices ? v : this.copyOf[v - this.scanVertices]
+
+  /**
+   * Bring the shading copies level with their vertices. Colour, tint and
+   * paint are written per scan vertex by everything that paints the surface
+   * — none of which knows about the copies — so the copies take their values
+   * here, once per frame that changed an attribute (its version moves when
+   * a writer flags it), before the renderer uploads it.
+   */
+  private syncCopies(): void {
+    const copies = this.copyOf.length
+    if (copies === 0) return
+    const n = this.scanVertices
+    const c = this.copyOf
+    const level = (attr: THREE.BufferAttribute | null, key: keyof typeof this.synced, size: 1 | 3) => {
+      if (!attr || attr.version === this.synced[key]) return
+      const a = attr.array as Uint8Array
+      if (size === 1) {
+        for (let k = 0; k < copies; k++) a[n + k] = a[c[k]]
+      } else {
+        for (let k = 0; k < copies; k++) {
+          const d = (n + k) * 3, s = c[k] * 3
+          a[d] = a[s]
+          a[d + 1] = a[s + 1]
+          a[d + 2] = a[s + 2]
+        }
+      }
+      this.synced[key] = attr.version
+    }
+    level(this.colorAttr, 'color', 3)
+    level(this.tintAttr, 'tint', 1)
+    level(this.paintAttr, 'paint', 1)
   }
 
   /**
@@ -680,6 +1021,7 @@ export class SceneManager {
         this.nominalOpacity(),
       )
     }
+    for (const layer of this.layers) layer.opacityChanged?.(this.scanOpacity())
     this.invalidate()
   }
 
@@ -691,7 +1033,18 @@ export class SceneManager {
   }
 
   private scanOpacity(): number {
-    return this.translucent ? SEE_THROUGH_OPACITY : 1
+    return this.translucent || this.scanGhost ? SEE_THROUGH_OPACITY : 1
+  }
+
+  /** The scan as a see-through reference over something modelled on it:
+   *  what is being designed is what is solid, the scan a veil over it that
+   *  says where the part still stands proud or shy. Picking is untouched. */
+  setScanGhost(on: boolean): void {
+    if (this.scanGhost === on) return
+    this.scanGhost = on
+    if (this.mesh) setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
+    for (const layer of this.layers) layer.opacityChanged?.(this.scanOpacity())
+    this.invalidate()
   }
 
   /** The ghost is see-through in its own right; the see-through mode only
@@ -754,6 +1107,199 @@ export class SceneManager {
    *  the point the camera is looking at, keeping the zoom. */
   viewFrom(view: StandardView): void {
     this.viewport.viewFrom(view)
+  }
+
+  /**
+   * Follow a 2D sheet laid over this viewport: look at the sheet's plane
+   * face on, from the side its normal points to with its V up the screen,
+   * with the sheet point under the sheet's screen centre under this one and
+   * the sheet's millimetres per pixel as this view's — so a line drawn on
+   * the sheet lies exactly on the part beneath it. With `ms` the camera
+   * swings there from wherever it was, the way CAD turns to a sketch plane,
+   * so it is plain where the plane sits; with 0 it is there at once, or —
+   * during a swing — the swing lands there instead.
+   */
+  followSheet(frame: SectionFrame, centre: readonly [number, number], unitsPerPx: number, ms = 0): void {
+    this.sheetFollow = { frame, centre, unitsPerPx }
+    this.applyFollow(ms)
+  }
+
+  /** The sheet's frame changed under the follow — Align turned it: swing
+   *  round to the new frame with the sheet's view as it is. */
+  reframeSheet(frame: SectionFrame, ms = 400): void {
+    if (!this.sheetFollow) return
+    this.sheetFollow = { ...this.sheetFollow, frame }
+    this.applyFollow(ms)
+  }
+
+  /** The sheet put away: the camera is the operator's again. */
+  stopFollowingSheet(): void {
+    this.sheetFollow = null
+  }
+
+  private applyFollow(ms: number): void {
+    const f = this.sheetFollow
+    if (!f) return
+    const el = this.viewport.renderer.domElement
+    const w = el.clientWidth
+    const h = el.clientHeight
+    // Put away: nothing to size by until it is shown again — the tick
+    // applies it then.
+    if (!w || !h) return
+    this.followedSize = { w, h }
+    this.partGroup.updateMatrixWorld(true)
+    const m = this.partGroup.matrixWorld
+    const n = new THREE.Vector3(...f.frame.normal).transformDirection(m)
+    const v = new THREE.Vector3(...f.frame.basisV).transformDirection(m)
+    const target = new THREE.Vector3(...liftPoint(f.frame, f.centre)).applyMatrix4(m)
+    // Millimetres per pixel is (top − bottom) / zoom / height.
+    const cam = this.camera
+    const zoom = (cam.top - cam.bottom) / (h * f.unitsPerPx)
+    if (ms > 0) this.viewport.animateLook(n, v, target, ms, zoom)
+    else this.viewport.retarget(n, v, target, zoom)
+  }
+
+  /** Whether the camera is still swinging round — see followSheet. */
+  turning(): boolean {
+    return this.viewport.turning()
+  }
+
+  /** Whether the part is cut open — see setSlicePlane. A plane that misses
+   *  the part cuts nothing, so this can be false with a plane set. */
+  sliced(): boolean {
+    return this.slicePlanes !== null
+  }
+
+  /**
+   * Cut the part open at a plane, taking away the half on the side its
+   * normal points to — the side the camera faces it from, so the slice is
+   * the face in view; null puts the part back together. Nothing is cut where
+   * the plane misses the part: a plane beside it would take all or none.
+   * The scan is cut, and so is whatever a plugin's layer cuts with it; the
+   * elements and the sections are drawn whole, being lines on the part.
+   */
+  setSlicePlane(frame: SectionFrame | null): void {
+    this.slice = frame
+    this.applySlice()
+  }
+
+  /** The colour the cut face is filled with, flat and unlit — for a face
+   *  something is drawn over: a lit cap seen face on comes out near white,
+   *  which no line reads against. Null for the surface's own colour, lit. */
+  setSliceCapColor(color: number | null): void {
+    if (this.sliceCapColor === color) return
+    this.sliceCapColor = color
+    if (this.slice) this.applySlice()
+  }
+
+  /** Whether the part is closed where it is cut open — on by default; off
+   *  for a cut whose cap is drawn by something else, or left open. */
+  setSliceCapped(on: boolean): void {
+    if (this.sliceCapped === on) return
+    this.sliceCapped = on
+    if (this.slice) this.applySlice()
+  }
+
+  private applySlice(): void {
+    const frame = this.slice
+    let planes: THREE.Plane[] | null = null
+    if (frame && this.mesh) {
+      this.partGroup.updateMatrixWorld(true)
+      const m = this.partGroup.matrixWorld
+      const n = new THREE.Vector3(...frame.normal).transformDirection(m)
+      const o = new THREE.Vector3(...frame.origin).applyMatrix4(m)
+      // Kept: what lies behind the plane, seen from its normal's side.
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(n.negate(), o)
+      const box = this.movedScanBox()
+      if (box && box.intersectsPlane(plane)) planes = [plane]
+    }
+    this.slicePlanes = planes
+    const dress = (mesh: THREE.Mesh | null) => {
+      if (!mesh) return
+      const material = mesh.material as THREE.Material
+      material.clippingPlanes = planes
+      material.needsUpdate = true
+    }
+    dress(this.mesh)
+    for (const layer of this.layers) layer.clippingChanged?.(planes)
+    this.clearCap()
+    if (planes && this.mesh && this.sliceCapped) this.buildCap(planes[0])
+    this.invalidate()
+  }
+
+  /**
+   * Close the part where the slice cut it open, so the section reads as a
+   * solid and not as a shell looked into: the standard stencil cap. The
+   * scan's back faces on the kept side count the stencil up and its front
+   * faces count it down, so inside the solid — where the eye has passed
+   * through one more back face than front — the count is not zero; a
+   * sheet on the cut plane is drawn where it is not, in the surface's
+   * colour, and writes depth, so the shell's inside behind it stays hidden.
+   */
+  private buildCap(plane: THREE.Plane): void {
+    const geometry = this.mesh!.geometry
+    const stencilMaterial = (side: THREE.Side, op: THREE.StencilOp) => {
+      const m = new THREE.MeshBasicMaterial({ side, depthWrite: false, depthTest: false, colorWrite: false })
+      m.stencilWrite = true
+      m.stencilFunc = THREE.AlwaysStencilFunc
+      m.stencilFail = op
+      m.stencilZFail = op
+      m.stencilZPass = op
+      m.clippingPlanes = [plane]
+      return m
+    }
+    const back = new THREE.Mesh(geometry, stencilMaterial(THREE.BackSide, THREE.IncrementWrapStencilOp))
+    const front = new THREE.Mesh(geometry, stencilMaterial(THREE.FrontSide, THREE.DecrementWrapStencilOp))
+    back.renderOrder = -3
+    front.renderOrder = -3
+    this.partGroup.add(back, front)
+
+    let material: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial
+    if (this.sliceCapColor !== null) material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, color: this.sliceCapColor })
+    else {
+      material = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide })
+      setSurfaceColor(material.color, this.theme)
+      // A shade under the surface: a cut face is not the skin of the part.
+      material.color.multiplyScalar(0.82)
+      applyFinish(material, this.theme)
+    }
+    material.stencilWrite = true
+    material.stencilRef = 0
+    material.stencilFunc = THREE.NotEqualStencilFunc
+    material.stencilFail = THREE.ReplaceStencilOp
+    material.stencilZFail = THREE.ReplaceStencilOp
+    material.stencilZPass = THREE.ReplaceStencilOp
+    const sheet = new THREE.Mesh(this.capGeometry, material)
+    // On the cut plane, centred where the part's centre falls on it, wide
+    // enough to cross the whole part — the same sheet a plane hint draws.
+    this.partGroup.updateMatrixWorld(true)
+    const m = this.partGroup.matrixWorld
+    const centre = plane.projectPoint(new THREE.Vector3(...this.modelCenter()).applyMatrix4(m), new THREE.Vector3())
+    const half = this.modelRadius * 1.3
+    sheet.position.copy(centre)
+    sheet.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), plane.normal)
+    sheet.scale.set(2 * half, 2 * half, 1)
+    sheet.renderOrder = -2
+    sheet.onAfterRender = () => this.viewport.renderer.clearStencil()
+    this.scene.add(sheet)
+    this.cap = {
+      back,
+      front,
+      sheet,
+      dispose: () => {
+        back.material.dispose()
+        front.material.dispose()
+        material.dispose()
+      },
+    }
+  }
+
+  private clearCap(): void {
+    if (!this.cap) return
+    this.partGroup.remove(this.cap.back, this.cap.front)
+    this.scene.remove(this.cap.sheet)
+    this.cap.dispose()
+    this.cap = null
   }
 
   /** Frame the part broadside, and remember what was framed so the alignment
@@ -822,10 +1368,17 @@ export class SceneManager {
     if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return null
     const index = (this.mesh.geometry as THREE.BufferGeometry).getIndex()!
     const f = hit.faceIndex * 3
-    const vertices: [number, number, number] = [
+    // The corners as drawn, which may be shading copies; what goes back is
+    // the scan's own vertices behind them, at the same places.
+    const corners: [number, number, number] = [
       index.getX(f),
       index.getX(f + 1),
       index.getX(f + 2),
+    ]
+    const vertices: [number, number, number] = [
+      this.graphVertex(corners[0]),
+      this.graphVertex(corners[1]),
+      this.graphVertex(corners[2]),
     ]
     // hit.point is in world space, which is the *reference's* frame once the
     // scan has been aligned. Everything a caller does with it — pinning a
@@ -834,16 +1387,18 @@ export class SceneManager {
     // hover readout is on.
     this.partGroup.updateWorldMatrix(true, false)
     const local = this.partGroup.worldToLocal(this.scratchD.copy(hit.point))
-    const weights = this.barycentric(vertices, local)
+    const weights = this.barycentric(corners, local)
     // The surface direction at the hit, interpolated the same way the fields
-    // are read. The normal attribute lives in scan coordinates, like the point
-    // handed back. Scratch registers are free again after barycentric().
+    // are read — off the corners as drawn, so on a split edge it is the
+    // face's own side. The normal attribute lives in scan coordinates, like
+    // the point handed back. Scratch registers are free again after
+    // barycentric().
     const normalAttr = (this.mesh.geometry as THREE.BufferGeometry).getAttribute(
       'normal',
     ) as THREE.BufferAttribute
     const n = this.scratchA.set(0, 0, 0)
     for (let i = 0; i < 3; i++) {
-      n.addScaledVector(this.scratchB.fromBufferAttribute(normalAttr, vertices[i]), weights[i])
+      n.addScaledVector(this.scratchB.fromBufferAttribute(normalAttr, corners[i]), weights[i])
     }
     if (n.lengthSq() < 1e-12) n.set(0, 0, 1)
     n.normalize()
@@ -854,6 +1409,7 @@ export class SceneManager {
       normal: [n.x, n.y, n.z],
       clientX,
       clientY,
+      ctrlKey: false,
     }
   }
 
@@ -888,6 +1444,25 @@ export class SceneManager {
 
   setElementPickEnabled(enabled: boolean): void {
     this.elementPickEnabled = enabled
+    this.hoverDirty = true
+  }
+
+  /** Whether the element under the cursor lights while element picking is
+   *  on. */
+  setElementHoverLights(on: boolean): void {
+    if (this.elementHoverLights === on) return
+    this.elementHoverLights = on
+    this.hoverDirty = true
+    this.invalidate()
+  }
+
+  /** The selection, the picker's hint and the hover, lit together. */
+  private applyElementHighlight(): void {
+    this.overlays.setHighlightedElements([
+      ...this.highlightedElements,
+      ...this.hintedElements,
+      ...(this.hoveredElement !== null ? [this.hoveredElement] : []),
+    ])
   }
 
   // ---- the surface brush ---------------------------------------------------
@@ -914,6 +1489,14 @@ export class SceneManager {
     this.marking.clearPaint()
   }
 
+  /** How far along the pick ray the scan is met, or null off it. */
+  private scanDistanceAt(clientX: number, clientY: number): number | null {
+    if (!this.mesh?.visible) return null
+    this.setPickRay(clientX, clientY)
+    const hits = this.raycaster.intersectObject(this.mesh, false)
+    return hits[0]?.distance ?? null
+  }
+
   /** The element under the cursor: the nearest hit among the overlay shapes
    *  and the scan, where a scan hit counts as the element whose painted
    *  region it landed on. Null over bare scan or empty space. */
@@ -934,9 +1517,9 @@ export class SceneManager {
       const index = (this.mesh.geometry as THREE.BufferGeometry).getIndex()!
       const f = hit.faceIndex * 3
       const vertices: [number, number, number] = [
-        index.getX(f),
-        index.getX(f + 1),
-        index.getX(f + 2),
+        this.graphVertex(index.getX(f)),
+        this.graphVertex(index.getX(f + 1)),
+        this.graphVertex(index.getX(f + 2)),
       ]
       this.partGroup.updateWorldMatrix(true, false)
       const weights = this.barycentric(
@@ -944,7 +1527,21 @@ export class SceneManager {
         this.partGroup.worldToLocal(this.scratchD.copy(hit.point)),
       )
       const nearest = weights.indexOf(Math.max(...weights))
-      return this.regions.visibleOwnerAt(vertices[nearest])
+      const owner = this.regions.visibleOwnerAt(vertices[nearest])
+      if (owner !== null) return owner
+      // Bare scan occludes what is behind it — but not the element lying *on*
+      // it. A fitted plane's shell is the scan's own face to within the fit,
+      // the ray meets the two at the same distance, and which sorts first is
+      // the floating point's say: half the fitted faces of a part could not
+      // be clicked. A shell within the scan's scatter behind the hit is on
+      // the surface, not inside the part.
+      const slack = Math.max(0.05, this.modelRadius * 2e-3)
+      for (const next of hits) {
+        if (next.object === this.mesh || next.distance > hit.distance + slack) continue
+        const id = next.object.userData.elementId
+        if (typeof id === 'number') return id
+      }
+      return null
     }
     return null
   }
@@ -952,7 +1549,15 @@ export class SceneManager {
   /** Make the given elements read as selected: their translucent shells get
    *  denser, glow in their own colour, and wear a white stroke. */
   setHighlightedElements(ids: readonly number[]): void {
-    this.overlays.setHighlightedElements(ids)
+    this.highlightedElements = ids
+    this.applyElementHighlight()
+  }
+
+  /** Light elements a picker is pointing at — the option under the cursor
+   *  in a plane or axis list — without disturbing the selection. */
+  setHintedElements(ids: readonly number[]): void {
+    this.hintedElements = ids
+    this.applyElementHighlight()
   }
 
   /** Pin readings to the part, each titled with the map it came off. */
@@ -973,30 +1578,32 @@ export class SceneManager {
   }
 
   applyRegion(elementId: number, colorHex: string, region: Uint32Array): void {
-    if (!this.colorAttr || !this.regions.ready) return
+    const regions = this.scanRegions()
+    if (!this.mesh || !regions.ready) return
     this.invalidate()
-    if (this.regions.applyRegion(elementId, colorToRgb(colorHex), region))
-      this.surfaceRepainted()
+    if (regions.applyRegion(elementId, colorToRgb(colorHex), region)) this.scanRepainted()
   }
 
   clearElement(elementId: number): void {
-    if (!this.colorAttr || !this.regions.ready) return
+    const regions = this.scanRegions()
+    if (!this.mesh || !regions.ready) return
     this.invalidate()
-    if (this.regions.clearElement(elementId)) this.surfaceRepainted()
+    if (regions.clearElement(elementId)) this.scanRepainted()
   }
 
   clearAllRegions(): void {
-    if (!this.colorAttr || !this.regions.ready) return
+    const regions = this.scanRegions()
+    if (!this.mesh || !regions.ready) return
     this.invalidate()
-    if (this.regions.clearAllRegions()) this.surfaceRepainted()
+    if (regions.clearAllRegions()) this.scanRepainted()
   }
 
   /** Tint the surfaces a pending fit is using, in the colour the element will
    *  get once it is created. Unlike applyRegion this takes no ownership, so
    *  lifting the preview restores whatever was underneath. */
   setPreviewRegion(region: Uint32Array | null, colorHex?: string): void {
-    if (!this.regions.setPreviewRegion(region, colorHex ? colorToRgb(colorHex) : undefined)) return
-    this.surfaceRepainted()
+    if (!this.scanRegions().setPreviewRegion(region, colorHex ? colorToRgb(colorHex) : undefined)) return
+    this.scanRepainted()
     this.invalidate()
   }
 
@@ -1020,6 +1627,23 @@ export class SceneManager {
   /** How heavy the section cuts are drawn, in pixels (Settings → Lines). */
   setSectionLineWidth(px: number): void {
     this.sections.setLineWidth(px)
+    for (const layer of this.layers) layer.lineWidthChanged?.(px)
+  }
+
+  // ---- a plugin's grips -------------------------------------------------------
+
+  /** The grips a plugin puts on something of its own being set up — see
+   *  PluginGrip. Empty takes them away. */
+  setFeatureGrips(grips: readonly PluginGrip[], color: string): void {
+    this.grips.setFeatureGrips(grips, color)
+  }
+
+  /** A number field on a plugin's grip: the grip's value while it is
+   *  dragged, and a field to type into once the hand lets go — Enter
+   *  commits through onGripFieldCommit, Escape closes through
+   *  onGripFieldClose. Null takes it away. */
+  setGripField(field: { side: GripSide; value: number; unit: string } | null): void {
+    this.grips.setField(field)
   }
 
   /** Show or put away the name tags and readouts on the part — every label
@@ -1096,6 +1720,7 @@ export class SceneManager {
    *  copy or a second tree — three.js keeps per-renderer GPU state, so one
    *  geometry can safely appear in two canvases. */
   scanGeometry(): THREE.BufferGeometry | null {
+    if (this.editedShown && this.other) return this.other.geometry
     return (this.mesh?.geometry as THREE.BufferGeometry) ?? null
   }
 
@@ -1113,6 +1738,7 @@ export class SceneManager {
     return {
       regions: this.regions,
       paintAttr: () => this.paintAttr,
+      graphVertex: this.graphVertex,
       setPaintColor: (rgb) => {
         setPaintUniform(this.uPaintColor, rgb)
         this.invalidate()
@@ -1150,7 +1776,7 @@ export class SceneManager {
   /** Centre of the scan's bounding box, in scan coordinates — the point a
    *  first alignment centres on the origin. */
   modelCenter(): Vec3 {
-    const box = (this.mesh?.geometry as THREE.BufferGeometry | undefined)?.boundingBox
+    const box = this.scanGeometry()?.boundingBox
     if (!box) return [0, 0, 0]
     const c = box.getCenter(this.scratchA)
     return [c.x, c.y, c.z]
@@ -1169,7 +1795,15 @@ export class SceneManager {
     normals: Float32Array,
     wireSlots?: Uint8Array,
   ): void {
-    this.disposeNominal()
+    this.prepareNominal(positions, indices, normals, wireSlots).commit()
+  }
+
+  prepareNominal(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots?: Uint8Array,
+  ): { commit(): void; dispose(): void } {
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
@@ -1177,7 +1811,7 @@ export class SceneManager {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
-    geometry.computeBoundsTree()
+    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
 
     const material = new THREE.MeshStandardMaterial({
       color: this.theme.nominal,
@@ -1186,10 +1820,38 @@ export class SceneManager {
     applyFinish(material, this.theme)
     patchWireframe(material, this.wire)
     setSurfaceOpacity(material, this.nominalOpacity())
-    this.nominalMesh = new THREE.Mesh(geometry, material)
-    this.nominalMesh.visible = false
-    this.nominalMesh.renderOrder = 1
-    this.scene.add(this.nominalMesh)
+    const mesh = new THREE.Mesh(geometry, material)
+    let owned = true
+    return {
+      dispose: () => {
+        if (!owned) return
+        owned = false
+        geometry.disposeBoundsTree?.()
+        geometry.dispose()
+        material.dispose()
+      },
+      commit: () => {
+        if (!owned) throw new Error('The prepared reference has already been used.')
+        owned = false
+        this.disposeNominal()
+        this.nominalMesh = mesh
+        this.nominalMesh.visible = false
+        this.nominalMesh.renderOrder = 1
+        this.scene.add(this.nominalMesh)
+        this.invalidate()
+      },
+    }
+  }
+
+  clearScan(): void {
+    this.disposeMesh()
+    this.setPreview(null)
+    this.setAlignment(null)
+    this.invalidate()
+  }
+
+  clearNominal(): void {
+    this.disposeNominal()
     this.invalidate()
   }
 
@@ -1210,6 +1872,28 @@ export class SceneManager {
     geometry.computeBoundingSphere()
     geometry.disposeBoundsTree?.()
     geometry.computeBoundsTree()
+    // The edited copy — or the scan, while the copy is shown — is in the same
+    // frame, and moves with it.
+    if (this.other) {
+      const g = this.other.geometry
+      rigidApplyToPoints(m, g.getAttribute('position').array as Float32Array)
+      rigidRotateVectors(m, g.getAttribute('normal').array as Float32Array)
+      g.getAttribute('position').needsUpdate = true
+      g.getAttribute('normal').needsUpdate = true
+      g.computeBoundingBox()
+      g.computeBoundingSphere()
+      g.disposeBoundsTree?.()
+      g.computeBoundsTree()
+      const a = this.other.axis
+      const r = m.r
+      this.other.axis = new THREE.Vector3(
+        r[0] * a.x + r[1] * a.y + r[2] * a.z,
+        r[3] * a.x + r[4] * a.y + r[5] * a.z,
+        r[6] * a.x + r[7] * a.y + r[8] * a.z,
+      ).normalize()
+    }
+    // So does whatever the layers keep in the scan's frame.
+    for (const layer of this.layers) layer.partMoved?.(m)
     // Keep framing the part broadside: its long axis moved with it.
     const a = this.scanAxis
     const r = m.r
@@ -1287,6 +1971,8 @@ export class SceneManager {
     this.partGroup.matrix.multiplyMatrices(this.alignMatrix, this.previewMatrix)
     this.partGroup.matrixWorldNeedsUpdate = true
     this.partGroup.updateMatrixWorld(true)
+    // The slice is a world plane through a part that just moved.
+    if (this.slice) this.applySlice()
     this.invalidate()
   }
 
@@ -1297,6 +1983,166 @@ export class SceneManager {
 
   setScanVisible(visible: boolean): void {
     if (this.mesh) this.mesh.visible = visible
+    this.invalidate()
+  }
+
+  /**
+   * An edited copy of the scan — its render arrays, laid out as a scan's
+   * are, in the scan's frame — or null to throw it away. It waits beside the
+   * scan until showEdited puts it in the scan's place; a copy replaced while
+   * it is shown stays shown.
+   */
+  setEditedMesh(
+    mesh: {
+      positions: Float32Array
+      indices: Uint32Array
+      normals: Float32Array
+      wireSlots?: Uint8Array
+      copyOf: Uint32Array
+    } | null,
+  ): void {
+    const shown = this.editedShown
+    if (shown) this.swapSlots()
+    if (this.other) {
+      this.other.geometry.disposeBoundsTree?.()
+      this.other.geometry.dispose()
+      this.other.regions.detach()
+      this.other = null
+    }
+    if (mesh && this.mesh) {
+      const geometry = new THREE.BufferGeometry()
+      const { colors, paint, tint } = this.layOutScan(
+        geometry,
+        mesh.positions,
+        mesh.indices,
+        mesh.normals,
+        mesh.wireSlots,
+        mesh.copyOf,
+        null,
+        false,
+      )
+      geometry.computeBoundsTree()
+      const own = mesh.positions.length / 3 - mesh.copyOf.length
+      const regions = new RegionColors(this.theme.surface)
+      regions.attach(colors, paint, tint, own)
+      this.other = {
+        geometry,
+        colorAttr: geometry.getAttribute('color') as THREE.BufferAttribute,
+        tintAttr: geometry.getAttribute('tint') as THREE.BufferAttribute,
+        paintAttr: geometry.getAttribute('paint') as THREE.BufferAttribute,
+        scanVertices: own,
+        copyOf: mesh.copyOf,
+        regions,
+        modelRadius: Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4),
+        axis: principalAxis(mesh.positions),
+      }
+      if (shown) this.swapSlots()
+    }
+    this.invalidate()
+  }
+
+  /** Show the edited copy in the scan's place, or the scan again.
+   *  Everything that works on the surface on screen works on the copy while
+   *  it is shown: the marking, a map painted on it, picking, the slice. The
+   *  scan keeps its element tints and its maps out of sight, and has them
+   *  back as it was. */
+  showEdited(on: boolean): void {
+    if (on === this.editedShown || (on && !this.other)) return
+    this.swapSlots()
+  }
+
+  /** Whether the edited copy is what is on screen in the scan's place. */
+  showingEdited(): boolean {
+    return this.editedShown
+  }
+
+  /** Trade the layout on screen for the one waiting — see showEdited. The
+   *  mesh object, its material and everything set on them stay; only the
+   *  geometry and the channels painted on it change hands. The compositor
+   *  keeps its identity, since the marking holds it, and trades its state. */
+  private swapSlots(): void {
+    const next = this.other
+    const mesh = this.mesh
+    if (!next || !mesh || !this.colorAttr || !this.tintAttr || !this.paintAttr) return
+    this.marking.meshDisposed()
+    this.regions.exchange(next.regions)
+    const waiting: SlotLayout = {
+      geometry: mesh.geometry as THREE.BufferGeometry,
+      colorAttr: this.colorAttr,
+      tintAttr: this.tintAttr,
+      paintAttr: this.paintAttr,
+      scanVertices: this.scanVertices,
+      copyOf: this.copyOf,
+      regions: next.regions,
+      modelRadius: this.modelRadius,
+      axis: this.scanAxis,
+    }
+    mesh.geometry = next.geometry
+    this.colorAttr = next.colorAttr
+    this.tintAttr = next.tintAttr
+    this.paintAttr = next.paintAttr
+    this.scanVertices = next.scanVertices
+    this.copyOf = next.copyOf
+    this.modelRadius = next.modelRadius
+    this.scanAxis = next.axis
+    this.synced = { color: -1, tint: -1, paint: -1 }
+    // Painted while it waited: uploaded afresh.
+    this.colorAttr.needsUpdate = true
+    this.tintAttr.needsUpdate = true
+    this.paintAttr.needsUpdate = true
+    this.other = waiting
+    this.editedShown = !this.editedShown
+    // The slice's cap is cut from the geometry on screen.
+    this.applySlice()
+    this.hoverDirty = true
+    this.invalidate()
+  }
+
+  /** The compositor holding the scan's own colouring — its element tints, a
+   *  fit's preview — wherever the scan is: on screen, or waiting while the
+   *  edited copy is shown. */
+  private scanRegions(): RegionColors {
+    return this.editedShown && this.other ? this.other.regions : this.regions
+  }
+
+  /** The scan's colouring changed: uploaded now if it is on screen, or when
+   *  it comes back. */
+  private scanRepainted(): void {
+    if (!this.editedShown) this.surfaceRepainted()
+  }
+
+  /**
+   * The scan's geometry replaced by another version of the same scan — an
+   * edit of it, or the one before an edit, on undo. The mesh, its material
+   * and everything set on them stay: whether it is shown, how it is shaded,
+   * the slice through it, the pose its group holds, the camera. The
+   * colouring starts over bare, because regions, fields and marks are all
+   * keyed by vertex number and the numbers are the new geometry's: whoever
+   * changed the scan paints them on again. What the layers made of the old
+   * scan goes.
+   */
+  replaceScan(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots: Uint8Array | undefined,
+    copyOf: Uint32Array,
+  ): void {
+    if (!this.mesh) return
+    // A copy of the scan that went is not a copy of this one.
+    this.setEditedMesh(null)
+    const geometry = this.mesh.geometry as THREE.BufferGeometry
+    this.marking.meshDisposed()
+    for (const layer of this.layers) layer.scanReplaced?.()
+    geometry.disposeBoundsTree?.()
+    geometry.dispose()
+    const { colors, paint, tint } = this.layOutScan(geometry, positions, indices, normals, wireSlots, copyOf, null)
+    this.regions.attach(colors, paint, tint, this.scanVertices)
+    geometry.computeBoundsTree()
+    this.modelRadius = Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4)
+    this.scanAxis = principalAxis(positions)
+    // The cap is cut from the geometry.
+    this.applySlice()
     this.invalidate()
   }
 
@@ -1325,12 +2171,22 @@ export class SceneManager {
     if (this.mesh) {
       const g = this.mesh.geometry as THREE.BufferGeometry
       if (g.boundingBox) box.union(g.boundingBox.clone().applyMatrix4(this.partGroup.matrixWorld))
+    } else {
+      // No scan: what a layer stands in its place is the part.
+      for (const layer of this.layers) {
+        const b = layer.frameBox?.()
+        if (b) box.union(b.clone().applyMatrix4(this.partGroup.matrixWorld))
+      }
     }
     if (this.nominalMesh) {
       const g = this.nominalMesh.geometry as THREE.BufferGeometry
       if (g.boundingBox) box.union(g.boundingBox)
     }
-    if (!box.isEmpty()) this.frameCamera(box, this.scanAxis)
+    if (box.isEmpty()) return
+    // A scan is framed across its long axis; anything else on a blank stage
+    // from the standard three-quarter view, with room round it to work into.
+    if (this.mesh || this.nominalMesh) this.frameCamera(box, this.scanAxis)
+    else this.frameCamera(box.clone().expandByScalar(box.min.distanceTo(box.max) * 0.3), null)
   }
 
   /** Paint the scan from a measured map — deviation, wall thickness — or pass
@@ -1342,11 +2198,54 @@ export class SceneManager {
     this.surfaceRepainted()
   }
 
+  /** Paint a reading on some of the scan's vertices, leaving the rest as
+   *  they are, or pass null to lift it. See regionColors.setSparseField. */
+  setSparseField(subset: Uint32Array | null, rgb: Uint8Array | null): void {
+    if (!this.scanRegions().setSparseField(subset, rgb)) return
+    this.scanRepainted()
+    this.invalidate()
+  }
+
+  /** The scan's own vertices, as the viewport holds them — every datum
+   *  alignment baked in — without the shading copies past them. A view
+   *  into the live buffer: copy before handing it anywhere. */
+  scanPositions(): Float32Array | null {
+    const g = this.scanGeometry()
+    if (!g) return null
+    const a = g.getAttribute('position') as THREE.BufferAttribute | undefined
+    if (!a) return null
+    return (a.array as Float32Array).subarray(0, this.scanVertexCount() * 3)
+  }
+
+  /** The scan's triangles over its own vertices — a shading copy folded
+   *  back to the vertex it was cut from — a fresh array, for a worker that
+   *  wants the scan as a surface. */
+  scanIndices(): Uint32Array | null {
+    const g = this.scanGeometry()
+    const index = g?.getIndex()
+    if (!g || !index) return null
+    const src = index.array as Uint32Array
+    const out = new Uint32Array(src.length)
+    const own = this.scanVertexCount()
+    const copyOf = this.editedShown && this.other ? this.other.copyOf : this.copyOf
+    for (let i = 0; i < src.length; i++) out[i] = src[i] < own ? src[i] : copyOf[src[i] - own]
+    return out
+  }
+
+  /** The colour the scan wears at one of its vertices, for the development
+   *  hook and the end-to-end checks. */
+  scanColorAt(v: number): [number, number, number] | null {
+    const a = this.editedShown && this.other ? this.other.colorAttr : this.colorAttr
+    if (!a || v < 0 || v >= this.scanVertexCount()) return null
+    const c = a.array as Uint8Array
+    return [c[v * 3], c[v * 3 + 1], c[v * 3 + 2]]
+  }
+
   /** Switch the surface tint of the given elements off (and everyone else's
    *  back on). Cheap enough to run on every visibility toggle. */
   setHiddenRegions(ids: readonly number[]): void {
-    if (!this.regions.setHiddenRegions(ids)) return
-    this.surfaceRepainted()
+    if (!this.scanRegions().setHiddenRegions(ids)) return
+    this.scanRepainted()
     this.invalidate()
   }
 
@@ -1361,8 +2260,11 @@ export class SceneManager {
   }
 
   private disposeMesh(): void {
+    this.setEditedMesh(null)
     this.regions.detach()
     this.marking.meshDisposed()
+    // What the layers made of the scan goes with it.
+    for (const layer of this.layers) layer.scanReplaced?.()
     if (!this.mesh) return
     const geometry = this.mesh.geometry as THREE.BufferGeometry
     geometry.disposeBoundsTree?.()
@@ -1373,9 +2275,13 @@ export class SceneManager {
     this.colorAttr = null
     this.tintAttr = null
     this.paintAttr = null
+    this.scanVertices = 0
+    this.copyOf = new Uint32Array(0)
   }
 
   dispose(): void {
+    for (const layer of [...this.layers]) layer.dispose()
+    this.layers = []
     this.marking.dispose()
     this.grips.dispose()
     this.overlays.dispose()
@@ -1385,5 +2291,63 @@ export class SceneManager {
     this.disposeNominal()
     this.disposeMesh()
     this.viewport.dispose()
+  }
+
+  // ---- the plugins' layers -----------------------------------------------------
+
+  /** Add a plugin's layer — see sceneLayers.ts. The returned function takes
+   *  it away again, disposing it. */
+  addLayer(layer: SceneLayer): () => void {
+    this.layers.push(layer)
+    this.hoverDirty = true
+    this.invalidate()
+    return () => {
+      const i = this.layers.indexOf(layer)
+      if (i < 0) return
+      this.layers.splice(i, 1)
+      layer.dispose()
+      this.invalidate()
+    }
+  }
+
+  /** What a layer is lent of this viewport. */
+  layerHost(): SceneLayerHost {
+    return {
+      scene: this.scene,
+      partGroup: this.partGroup,
+      raycaster: this.raycaster,
+      canvas: this.viewport.renderer.domElement,
+      container: this.container,
+      camera: () => this.camera,
+      setPickRay: (x, y) => this.setPickRay(x, y),
+      invalidate: this.invalidate,
+      requestHover: () => {
+        this.hoverDirty = true
+      },
+      setCursor: (cursor) => {
+        this.viewport.renderer.domElement.style.cursor = cursor
+      },
+      theme: () => this.theme,
+      modelRadius: () => this.modelRadius,
+      modelCenter: () => this.modelCenter(),
+      hasScan: () => this.mesh !== null,
+      pickScan: (x, y) => this.pick(x, y),
+      scanDistanceAt: (x, y) => this.scanDistanceAt(x, y),
+      clipPlanes: () => this.slicePlanes,
+      scanOpacity: () => this.scanOpacity(),
+      click: (x, y, additive) => this.handleClick(x, y, additive),
+      sizeStage: (radius, frame) => this.sizeStage(radius, frame),
+      framedSphere: () => new THREE.Sphere(this.framedClip.center.clone(), this.framedClip.radius),
+    }
+  }
+
+  /** With no scan, a layer's size stands in for the part's — what overlays
+   *  and elements are drawn at — and, given a box, the camera frames it. A
+   *  scan loaded later sizes the stage to itself. */
+  private sizeStage(radius: number, frame?: THREE.Box3): void {
+    if (this.mesh) return
+    this.modelRadius = radius
+    if (frame) this.frameCamera(frame, null)
+    this.invalidate()
   }
 }

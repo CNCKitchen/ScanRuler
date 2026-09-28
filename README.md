@@ -4,9 +4,9 @@
 install.
 
 Check a 3D scan against what it should have been — entirely in your browser.
-Three workspaces share the loaded scan:
+The workspaces share the loaded scan:
 
-- **Elements** — pick features and get automatically fitted **spheres,
+- **3D Measure** — pick features and get automatically fitted **spheres,
   cylinders and planes**, construct **points, lines and planes** from them,
   and create the **distance and angle dimensions** you actually need between
   them, the way metrology software like GOM Inspect does it — and check
@@ -36,13 +36,39 @@ once you have carried it through on two separate visits, so a reload always
 gives them back to you the first time; **Guided hints** in ⚙ Settings switches
 the guidance off outright, and switching it back on starts it over.
 
-## Elements: fitting and measuring features
+## Undo and redo
+
+The top bar's **Undo** and **Redo** buttons work across 3D Measure, 2D Measure,
+Deviation and Thickness. **Ctrl+Z** (Mac: **Cmd+Z**) undoes;
+**Ctrl+Shift+Z** or **Ctrl+Y** redoes (Cmd on Mac). Text fields keep their native
+text-editing undo.
+
+The last 64 document edits share one chronological history. Undo returns to
+the workspace, and the 2D sheet where applicable, that made the edit.
+Elements, dimensions, sections and their 2D measurements, calibration, notes,
+counts, datum placement, analysis settings and probes, and scan alignment can
+be restored. Dependent removals undo together; an alignment also restores the
+scan in the geometry worker and viewport. Camera
+navigation, workspace switching and calculated worker results do not add steps.
+Drags and consecutive changes while a field has focus are grouped.
+
+Finish or cancel an open editor before undoing document changes. History
+waits while imports or computations
+are running. Successful scan, reference, image or project replacement starts
+fresh history; failed imports preserve it. Saving preserves history in the
+current session, but history itself is not stored in project or recovery files.
+
+## 3D Measure: fitting and measuring features
 
 ### How to use it
 
-1. **Open** your scan (STL, PLY, or OBJ — meshes only, units assumed mm), or
-   drag & drop it anywhere in the window. (CAD goes in the Deviation
-   workspace's reference slot, which also takes STEP.)
+1. **Open** your scan (STL, PLY, or OBJ — meshes only), or drag & drop it
+   anywhere in the window. An STL carries no units, so opening one asks
+   what it is in — millimetres, centimetres, metres or inches — and reads it
+   in millimetres; **Don't ask again** makes the answer stand for every STL,
+   and **Settings → Files** brings the question back. A PLY or OBJ is taken
+   in millimetres. (CAD goes in the Deviation workspace's reference slot,
+   which also takes STEP, and a STEP file says its own units.)
 2. Press **Sphere**, **Cylinder** or **Plane**, then **click a point on that
    feature** in the 3D view. The tool automatically selects the surface around
    your click — the spherical patch without leaking onto the connecting rod,
@@ -52,7 +78,9 @@ the guidance off outright, and switching it back on starts it over.
    broken into unconnected patches, click a point on each one — every pick
    feeds the same fit. Press **Create …** when the preview looks right (*Undo
    point* drops the last pick, *Cancel* or `Esc` discards). The finished
-   element stays on screen in its own colour.
+   element stays on screen in its own colour, and the kind stays in hand for
+   the next one — as a sketch tool does — until *Cancel* or `Esc` puts it
+   down; `Esc` on a box with picks in it empties the box first.
 
    **Every point you click is pinned where it landed**, numbered in the order
    you clicked it, for as long as the element is being made — so which picks
@@ -69,7 +97,9 @@ the guidance off outright, and switching it back on starts it over.
    leave the mouse.
 3. Press **New dimension**, pick the measurement type, and select the two
    elements to measure between. The value previews live; **Add dimension**
-   keeps it. *Copy summary* puts everything on your clipboard.
+   keeps it and leaves the box open for the next one of that type, until
+   *Cancel* or `Esc` closes it. *Copy summary* puts everything on your
+   clipboard.
 4. Nothing is final: the **✎** key on any element or dimension row re-opens it
    in the box it was made in — see [Changing what you have
    made](#changing-what-you-have-made).
@@ -164,6 +194,24 @@ of a bad scan all show up in that highlight long before they show up in matt
 shading. Every viewport follows — the reference half of the split view and both
 halves of the point picker with it.
 
+A mesh exported from CAD rather than scanned — a low-poly STL out of OpenSCAD
+or a slicer, a part to be measured before it is even made — is drawn with its
+edges sharp: at every edge sharper than 30° the two faces get their own
+normals, so a box has six flat faces instead of shading like a pillow and a
+bored hole reads as a hole instead of a dent. A scan is shaded smooth, which is
+what a scanned surface is; drawing its noise sharp would speckle it and double
+its vertex list. **Sharp edges** in ⚙ Settings decides which treatment the scan
+gets. **Auto**, the default, tells the two apart by the mesh itself: a
+tessellation of exact surfaces is full of dead-flat edges between coplanar
+triangles, a scan has practically none. **Always sharp** and **Always smooth**
+overrule it either way, for a mesh Auto reads wrong — it says so in the status
+line — and take effect on the loaded scan at once. However it is set, a split
+that would add more vertices than the scan has is not made, so a noisy mesh
+forced sharp cannot run the viewport out of memory. The reference part is CAD
+and is always drawn sharp. None of this touches what is measured: the split is
+in the picture only, and every fit, region and marking is on the scan's own
+vertices.
+
 Nothing measured changes colour with the scheme. The element tints, the
 deviation and thickness ramps and the grey a map paints where nothing was
 measured are all exactly the same in both: a reading that shifted with the
@@ -198,14 +246,27 @@ remembered per browser and none of it saved with a project:
   tints, the deviation and thickness ramps and the axis colours are the same
   on both.
 - **Colour mode** — Studio grey or Scanner blue, as [above](#how-the-part-is-shown).
+- **Sharp edges** — whether the scan's creases are shaded sharp, as
+  [above](#how-the-part-is-shown): **Auto** does it only on a mesh that reads
+  as CAD, **Always sharp** and **Always smooth** do as they say. The reference
+  part is always drawn sharp.
 - **Mouse controls** — the CAD tool whose buttons the viewport should answer
   to, with a line under the dropdown saying which button does what.
+- **Ask what units an STL is in** — whether opening an STL puts the question
+  up; the question's own **Don't ask again** switches this off, and this
+  switches it back on. **STL units** beside it is what an STL is read in
+  while the question is off, and what the question offers first: the last
+  answer given. A project remembers the units its scan and reference were
+  read in and reads them the same way again.
 - **Section cuts**, **2D fitted curves** and **2D edges** — how heavy the
   lines are drawn, in pixels. The first two carry everything drawn beside them
   in proportion: the preview of a cut and the sheet's curves stood up on it in
   3D, the callouts and pin marks over a flatbed scan in 2D. The edges are the
   chains the curves are fitted to, found in the scan or cut by a section.
 - **Guided hints** — the amber ring around the control to press next.
+- **Support card** — whether the thank-you card comes up in the corner of the
+  stage on each visit. Its × closes it until the page is reloaded; switched
+  off here it stays away.
 
 The ways of *looking* at a part are not settings and are not here: they are on
 the **view bar** in the bottom-left corner of the stage, where they change with
@@ -226,6 +287,7 @@ choice of creation methods:
 | **Line** | through two points · a cylinder's axis · intersection of two planes |
 | **Plane** | fit to the scan · through three points · offset from a plane · midplane of two planes · typed-in normal + point · **symmetry plane of the scan** |
 | **Sphere, Cylinder** | fit to the scan |
+| **Torus** | fit to the scan — one click on a round: a fillet, a bend, an O-ring seat. Reads the tube radius (the fillet's R) and the ring's; its axis is an axis wherever one is asked for |
 | **Circle** | through **3 or more picked points** (three give the exact circle, more refine a best fit — a hole rim, a boss edge) · intersection of a plane with a cylinder or a sphere · typed-in diameter + normal + center |
 
 Anywhere a *point* is asked for, a sphere or a circle stands in with its
@@ -253,8 +315,21 @@ and reading the plane off the pairs (every sample and its registered mirror
 image are bisected by the true plane), for a few passes until it stops
 moving. **Find symmetry plane** starts from the best of the scan's three
 principal planes — for a symmetric part the mirror normal is always one of
-them — or from a **seed plane** you name first, a midplane of two faces or a
-fitted face, when the part's detail makes the principal choice ambiguous.
+them — and of the part's own face directions (the ones
+[Auto-align](#aligning-the-part) reads, which a lug or a patch the scanner
+missed does not turn the way it turns the principal axes), or from a **seed
+plane** you name first — one of the **coordinate planes** (XY, YZ, ZX: on a
+part that was aligned first the mirror plane is usually one of them; where
+the plane misses the part, its parallel through the part's centre is the
+seed), a midplane of two faces or a fitted face — when the part's detail
+makes the choice ambiguous. The search runs in two stages,
+because a plane the part is not symmetric about never lets the registration
+settle and would burn every iteration: each candidate is first settled and
+judged on a sixth of the samples with a loose registration, and only the
+winner — with a runner-up too close to call — goes on to the full sample and
+the tight registration the reported plane needs. After the first pass the
+search for a mirror image reaches only a few times as far as the last pass
+showed them to lie.
 The plane's σ is how far the mirror image lies from the scan, so an
 asymmetric part reports a loose fit rather than a confident plane. Both are
 ordinary elements: they move with the part, save with the project, export to
@@ -562,6 +637,66 @@ would rotate and move. Measured elements make the most accurate references —
 each one averages the thousands of scan points behind its fit, where a picked
 point is a single spot of scan noise.
 
+**Auto-align** fills the three steps in for you, from the scan alone, and
+opens the same editor on the result — the pose previewed on the part, nothing
+applied, every choice still yours to change. What it reads:
+
+- **The directions.** Every bit of the surface votes the way it faces into a
+  histogram over all directions, a normal and its opposite together, so the
+  two sides of a plate are one vote. The peaks are the directions the part's
+  faces are square to; a direction that every wall's normal is square to is
+  the axis of a turned or extruded part. Frames built from those candidates
+  are judged by how much of the surface they explain, and the winner is
+  settled on the normals themselves — the one rotation that best lays every
+  face on its axis, so the two walls of a drafted pocket, leaning a degree
+  each way, average onto the direction they were drawn about. None of this
+  needs a closed scan: half a part votes the same directions as the whole
+  one. Scan noise is taken out by averaging each normal over its
+  neighbourhood — never across an edge of the part — and a coarse mesh out of
+  CAD, whose vertex normals point along no face, votes by its triangles.
+- **What is missing.** Where the scan ends in a flat rim — the mouth of a
+  housing, the edge a part was cut off at on the table — the face that would
+  close it is a face of the part, and often its largest: the one it rested
+  on, which the scanner never saw. Such an opening votes as the face it
+  stands for, with the area it spans. Without it the chamfers of a housing
+  scanned from above can outvote the frame its missing base belongs to, and
+  the part comes out turned by 45°.
+- **Which way is up.** A part is laid on its largest flat face, the way a
+  slicer lays a part on the bed, a turned part on an end of its axis — and
+  the side the scan is open on weighs in beside the faces, by how much of
+  that side of the box the opening covers, because an open scan is open where
+  it sat: a side wholly open outweighs any face. How open a scan is, and
+  which way, is its *vector area* — every triangle's area along its normal,
+  summed — which is zero for a closed surface and otherwise exactly the area
+  of the openings seen along the way they face, however ragged their edges
+  and wherever in the box they lie. Between equals the side already nearest
+  to down wins, so a part that lies nearly right is not turned over. The long
+  side of what is left runs along X.
+- **Zero.** On the face the part stands on, under the middle of its box — or,
+  for a turned part, on the common axis of its round walls.
+
+The editor says what the proposal rests on — *85 % of the surface is faces
+square to these axes*, *the main axis from the round walls* — and a part with
+no flat faces and no round walls gets the principal axes of its points, said
+to be the guess it is. The slots hold the proposal as picked points (three on
+the standing plane, two along X, the zero point), so *It is the part's* and
+*It runs* turn it to any of its 24 poses, and a measured element dropped into
+a slot replaces that part of it. On a scan of two million triangles the whole
+reading takes a second or so, in the background.
+
+**Use symmetry**, in the Align part box, settles the pose being set up on the
+part's own mirror plane — the plane [Find symmetry plane](#elements-fitted-picked-and-constructed)
+searches for, or a symmetry plane already measured, which is taken first. The
+coordinate axis nearest the plane's normal is turned onto it, the other two are
+squared up again with the least change (what stands up stays up unless it was
+the axis turned), and the zero point is dropped onto the plane: the mirror
+plane is then a coordinate plane of the part, which is what a sketch on the
+middle and a Mirror want. The box says which plane it became, how far the axis
+was turned and the zero moved, and holds the result as picked points like
+Auto-align's — nothing applied, every choice still open. With no pose set up
+yet it starts from Auto-align's. A mirror image more than 0.5 mm off the scan
+is no symmetry, and the pose is left alone.
+
 **Move / rotate by numbers** does the same thing by hand: type how far to
 move (mm) and turn (°) along the global axes. The part turns about the zero
 point — about X, then Y, then Z — and moves after that. Useful for nudging a
@@ -593,6 +728,22 @@ takes a plain scan or image to start fresh. Per-browser preferences — the
 interface theme, colour mode, navigation scheme, line widths, STEP style,
 scanner profiles — are not part
 of a project.
+
+Completed work is also checkpointed locally in **this browser** about every
+two seconds after changes, once imports and measurements have settled. On a
+later visit, choose **Restore** from the recovery bar, or **Discard checkpoint**
+to remove a stored session. Each tab has its own checkpoint; tabs cannot
+overwrite each other's work. Source meshes and images are stored once per
+session and reused for subsequent measurement edits. A failed storage write
+preserves the previous complete checkpoint and displays a recovery warning.
+
+The top bar tracks changes since the last **Save Project** download or project
+load. Local checkpoints do not clear that indicator. Closing or reloading with
+unsaved changes requests a browser confirmation. Finish active drawings and
+other drafts before leaving: drafts are warned about but are not included in
+checkpoints or project files. Browser storage can be cleared or run out of
+space, so use **Save Project** for a portable copy. Old session checkpoints
+remain available until discarded; nothing is uploaded to a server.
 
 ### STEP export
 
@@ -686,6 +837,8 @@ per browser like the STEP style. Neither export is ever saved under the
 scan's own name: the file is `name-aligned` or `name-export`, so the
 original can never be silently overwritten.
 
+Both write the scan at its full density.
+
 ## Deviation
 
 The **Deviation** workspace paints how far the scan strays from what it should
@@ -695,7 +848,7 @@ decides what "should have been" means:
 - **Reference model** — the whole nominal part, best-fitted onto the scan.
   Answers *is this the shape it was drawn as*.
 - **Fitted element** — one plane, cylinder or sphere measured on this same scan
-  in the Elements workspace. Answers *is this face flat, is this bore round,
+  in the 3D Measure workspace. Answers *is this face flat, is this bore round,
   does this surface sit where the datum says*.
 
 Both paint the same map, read through the same colour scale, with the same
@@ -898,7 +1051,7 @@ Four modes, one of which is always live:
 |---|---|
 | **Navigate** | Marking off. Orbit, pan and zoom exactly as everywhere else. This is what the tools open in and return to after a fit — what is already marked stays marked. |
 | **Window** | Drag a rectangle. Everything inside it is marked — the fastest way to drop a riser or a whole scanned-in fixture. |
-| **Brush** | Drag over the surface with a round brush of a set diameter, as in the Elements workspace. For working along an edge. |
+| **Brush** | Drag over the surface with a round brush of a set diameter, as in the 3D Measure workspace. For working along an edge. |
 | **Lasso** | Draw a free outline; everything it encloses is marked. For a patch of spray that follows no straight line. |
 
 The three gestures are additive and all undone by the same gesture with the
@@ -993,7 +1146,7 @@ back to within **0.9 µm** of the fit found in place.
 ## Deviation from a fitted element
 
 Choose **Fitted element** under *Measure against* and every plane, cylinder and
-sphere you measured in the Elements workspace appears on the part, each in its own
+sphere you measured in the 3D Measure workspace appears on the part, each in its own
 colour. **Click one on the model** — or pick it from the dropdown — and that is
 the whole setup: **no reference file and no alignment**, because the element was
 fitted on this scan and is already in its frame. There is no *Measure* button
@@ -1011,7 +1164,7 @@ until the [colour plot](#the-colour-plot-off) goes off, when they become
 outlines too: with the map gone the surface itself is what is being looked at,
 and a body lying on it is the one thing that would still be covering it.
 *Show elements on the part* takes them all off for a clean screenshot, and with
-them the clicking; an element hidden by its own eye in the Elements workspace
+them the clicking; an element hidden by its own eye in the 3D Measure workspace
 stays hidden here too.
 
 A point and a line are not offered. The distance to them is unsigned, so there is
@@ -1022,7 +1175,7 @@ Three things turn a raw closest distance into a measurement here.
 **The region is the element as drawn.** A plane is infinite and a cylinder is an
 endless tube; taken literally, a plane would paint a slab clean through the part.
 So a vertex counts only where it falls within the element's own extent — which
-is the extent the **grips** set, so extending a plane in the Elements workspace
+is the extent the **grips** set, so extending a plane in the 3D Measure workspace
 grows the measured region with it. That is how a plane fitted on one pad becomes
 a flatness map of the whole face it belongs to, and the outline drawn over the
 map is exactly the boundary of what was measured.
@@ -1185,7 +1338,7 @@ sessions on its own, in localStorage) and apply it to every scan from that scann
 source is recorded in image pixels, so recalibrating re-derives every fit and
 dimension — nothing measured ever bakes in a stale scale.
 
-### Edges, and the two ways to fit
+### Edges, and the three ways to fit
 
 On load the image is swept once for edges in a worker — Canny with automatic
 thresholds, the surviving pixels linked into chains, every point refined to
@@ -1204,11 +1357,31 @@ synthetic edge the recovery is better than a tenth of a pixel.
   raw click — and a 4× loupe rides the cursor with a crosshair on the exact
   pixel. Every pin can be **dragged** afterwards, snapping as it goes, and the
   fit follows the drag.
+- **Fit to edge** (lines and circles; what Line and Circle open with on a
+  section): click anywhere on the edge, and the fit grows along it from
+  there — the 2D twin of the fit from a click on the scan. A detected chain is the whole outline of a part or the whole rim of a
+  hole, and a click on it means *this straight stretch* or *this round one*:
+  the line or circle is fitted to a dozen points around the click, then
+  extended point by point in both directions while the next point still
+  lies within a noise band of the fit and the edge still runs its way,
+  refitting as it goes, until the edge bends away — at a corner, or where a
+  fillet runs out into the side it joins. So a click on one side of a part
+  takes that side and stops at its fillets, a click on a fillet takes the
+  fillet, and a click on a hole's rim takes the hole all the way round. The
+  band and every sanity check are scaled by the chain's own scatter,
+  measured off it, so the same rule serves a 600 dpi scan in pixels and a
+  section in millimetres. A line clicked on a curve, or a circle clicked on
+  a straight edge, is refused with the reason rather than fitted to
+  whatever was there (a circle needs the edge to bow clearly beyond the
+  noise and cover at least 8°). A second click adds another stretch of the
+  same edge — the far side of a slot that breaks it, the other half of a
+  hole a keyway cuts — and *Clear points* starts over.
 - **From edge region**: drag a box over the edge, and every detected edge
   point inside it feeds the fit. Strays from neighbouring edges are voted out
   (LMedS consensus) before the least squares runs, so a sloppy drag over both
   sides of a bar still lands on the edge you meant. One drag is a complete
   measurement — when the detector has found the edge; where it has not, pick.
+  A plain click takes the whole detected chain under it.
 
 Points can also be constructed: the midpoint of two points, the center of a
 circle, or the **intersection of two lines** — the corner two edges meet at,
@@ -1302,10 +1475,15 @@ panel lists the flatbed image and every section; choose one and it is on the
 sheet. A section's cut lands there as edge chains **already in
 millimetres** — no calibration, no alarm, the origin at the cutting plane's
 centre and the sheet seen from the side the plane's normal points to — and
-everything above applies unchanged: picks snap to the cut, an edge-region
-fit takes it point for point (the chains are as fine as the scan's
-triangles), constructions, the alignment, dimensions, the report, the CSV, the
-SVG and the DXF all read off it. The report's traceability line says it is a
+everything above applies unchanged: picks snap to the cut, a fit to edge
+takes one side or one bore of it from a click, an edge-region fit takes it
+point for point (the chains are as fine as the scan's triangles),
+constructions, the alignment, dimensions, the report, the CSV, the SVG and
+the DXF all read off it. A section's outline is one closed chain, which is
+what makes the click fit the natural tool there: the cut through a machined
+part is clean, and one click per side and per bore measures it — so on a
+section, **Line** and **Circle** open with *Fit to edge* rather than with
+hand picking. The report's traceability line says it is a
 section of which scan, cut along what, at what offset.
 
 One source is on the sheet at a time. **Each keeps its own sheet** — its
@@ -1324,14 +1502,36 @@ npm install
 npm run dev       # local dev server
 npm test          # unit tests + ballbar.stl and deviation acceptance tests
 npm run build     # type-check + production build to dist/
+npm run e2e:ci    # generated-fixture browser tests; run after building
 ```
 
-The repository includes `ballbar.stl`, a real 3D scan of a ball bar used by the
-acceptance test in `tests/ballbar.test.ts`, and the pair `side bracket
-left.stl` / `block-marius.stl` — a nominal part and a structured-light scan of
-it — used by `tests/align.test.ts`. Both files are already aligned in GOM, so
+The optional local fixtures are `ballbar.stl`, a real 3D scan of a ball bar used
+by `tests/ballbar.test.ts`, and the pair `side bracket left.stl` /
+`block-marius.stl` — a nominal part and a structured-light scan of it — used by
+`tests/align.test.ts`. These scan files are not committed; their acceptance
+tests report skips when the fixtures are absent. The latter pair is already
+aligned in GOM, so
 that test displaces the scan by random rigid transforms first; otherwise the
 automatic match would never be asked a real question.
+
+CI runs `npm ci`, the unit suite, the type-checked production build, and
+`npm run e2e:ci` on pull requests and pushes to `main`. The browser checks
+generate their own small fixtures: transactional imports, recovery and undo
+history — and the checks a plugin in the tree lists in its `ci.json` — run
+against a fresh development server; a separate smoke test imports a mesh,
+saves its project, and reopens it against the built `dist/` app. The runner
+starts and closes both servers on available local ports. An existing dev
+server is not needed. It exits unsuccessfully if any suite fails.
+
+Install Google Chrome to run these checks locally; `CHROME` overrides the
+executable path when it is outside the usual Windows, macOS or Linux location.
+CI uses the Chrome installation in GitHub's Ubuntu 24.04 runner image. Logs
+land in `e2e-out/ci/`, with screenshots and page HTML on browser failures.
+Failed CI runs retain that directory as the `browser-diagnostics` artifact
+for seven days. The workflow has a 20-minute limit and cancels superseded
+runs on the same branch. Deployment remains a separate Cloudflare workflow;
+these checks do not configure branch protection or prevent deployment by
+themselves.
 
 A set of end-to-end smoke tests drives the real app in headless Chrome against
 a running dev server:
@@ -1342,6 +1542,9 @@ node scripts/e2e-paint.mjs      # hand-marked surface fitting + back-face tint
 node scripts/e2e-deviation.mjs  # load, align, measure, split-screen picking
 node scripts/e2e-local-fit.mjs  # window / brush / lasso marking + local fine fit
 node scripts/e2e-align.mjs      # 3-2-1 datum alignment + STEP export round-trip
+node scripts/e2e-auto-align.mjs # Auto-align: a block at an odd angle, then proposed the pose it is in
+node scripts/e2e-align-symmetry.mjs # Use symmetry: a pose askew and off the middle, settled on the mirror plane
+node scripts/e2e-crease.mjs     # sharp-edge shading: Auto / Always / Never, marking on a split mesh
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
@@ -1377,6 +1580,17 @@ part covers and where that silhouette sits in it. Two viewports in one pose have
 to agree on both numbers, before and after a drag in either half and after a
 zoom — which is a check no amount of asserting on camera matrices would give,
 since the claim being made is about what is on the screen.
+
+### Plugins
+
+Workspaces can be added by plugins: `plugins/<id>/plugin.ts` beside `src/`,
+found at build time and read through the interfaces in
+[src/plugins/api.ts](src/plugins/api.ts) — a workspace's tab, panel and stage,
+its part of the project file, of the undo history, of the mesh worker and of
+the 3D viewport, and its notices in the imprint. This repository has no `plugins/` folder, and nothing in
+`src/` imports from one; `node scripts/check-plugin-boundary.mjs` checks
+that. `?plugins=none` in the address runs a build with plugins as if it had
+none.
 
 ### Releases
 

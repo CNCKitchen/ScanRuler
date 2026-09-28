@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { buildStepFile, type StepElement } from '../src/core/exportStep'
 import { parseSTEP } from '../src/core/parsers/step'
 import { stepBuffer } from './stepFixtures'
-import type { CylinderFit, PlaneFit, SphereFit } from '../src/core/types'
+import type { CylinderFit, PlaneFit, SphereFit, TorusFit } from '../src/core/types'
 
 const NO_STATS = { sigma: 0, usedPoints: 0, regionSize: 0 }
 const STAMP = '2026-08-16T12:00:00'
@@ -99,6 +99,26 @@ describe('what CAD gets back from a solids export', () => {
     }
     const { min, max } = bounds(mesh.positions)
     expect(max[2] - min[2]).toBeGreaterThan(16 - 2 * info.surfaceDeviation)
+  })
+
+  it('builds the torus into a closed ring of the fitted radii', () => {
+    const axis: [number, number, number] = [0.6, 0, 0.8]
+    const fit: TorusFit = { kind: 'torus', center: [2, 1, -3], axis, majorRadius: 12, minorRadius: 3, tubeCoverage: 360, spineCoverage: 360, ...NO_STATS }
+    const { mesh, info } = importBack([{ name: 'Torus 1', fit }])
+
+    expect(info.warning).toBeNull()
+    expect(info.unsound).toBe(false)
+    expect(openEdgeCount(mesh.indices!)).toBe(0)
+
+    // Every vertex on the ring's tube, to the chord tolerance — the seams
+    // included, which is where a badly bounded torus face comes apart.
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const dx = mesh.positions[i] - 2, dy = mesh.positions[i + 1] - 1, dz = mesh.positions[i + 2] + 3
+      const a = dx * axis[0] + dy * axis[1] + dz * axis[2]
+      const rho = Math.hypot(dx - a * axis[0], dy - a * axis[1], dz - a * axis[2])
+      expect(Math.abs(Math.hypot(rho - 12, a) - 3)).toBeLessThan(info.surfaceDeviation + 1e-4)
+    }
+    expect(mesh.positions.length / 3).toBeGreaterThan(100)
   })
 
   it('builds the plane into the patch it was measured on', () => {

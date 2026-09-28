@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useMemo, useRef } from 'react'
+import { useProjectHistory } from './app/useProjectHistory'
+import { clearHistory, historyAction, historyAsync } from './state/historyStore'
 import { MeshWorkerClient } from './core/workerClient'
+import type { CreaseMode, CreaseReport } from './core/geometry/crease'
 import { buildSummary } from './core/summary'
-import { isMeshFile, isStepFile, IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
-import { imagePixelsPerMm } from './core/flat/image'
-import { EdgeClient, grayscaleOf } from './core/flat/edgeClient'
+import { baseSeedPlane } from './core/symmetry'
+import { IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
+import { EdgeClient } from './core/flat/edgeClient'
 import { EDGE_MIN_FEATURE_MM } from './core/flat/edges'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
 import { evaluateFlatDimensions } from './core/flat/dimensions'
 import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
 import type { FlatDrawingInput } from './core/flat/drawing'
-import { buildFlatDxf, DXF_EDGE_TOLERANCE } from './core/flat/dxf'
-import { buildFlatSvg } from './core/flat/svg'
 import type { Vec2 } from './core/flat/types'
 import {
   canCutAlong,
@@ -40,6 +41,8 @@ import {
 } from './app/surfaces'
 import type { ElementKind, FitData, PointFit, SigmaPreset, Vec3 } from './core/types'
 import {
+  alignCenterOf,
+  alignmentPreview,
   alignSlotPicks,
   blockedRefs,
   draftColorOf,
@@ -48,15 +51,18 @@ import {
   type SelectMode,
 } from './state/store'
 import type { GripSide, SceneManager, PickHit } from './viewer/SceneManager'
+import { isCoreSide } from './viewer/extendGrips'
 import { schemeById } from './viewer/navSchemes'
 import { sceneTheme } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
 import { TopBar } from './ui/TopBar'
+import { RecoveryBar } from './ui/RecoveryBar'
 import { StatusStrip } from './ui/StatusStrip'
 import { BusyOverlay } from './ui/BusyOverlay'
 import { ImprintModal } from './ui/Imprint'
 import { SettingsModal } from './ui/SettingsModal'
+import { UnitsModal } from './ui/UnitsModal'
 import { SupportCard } from './ui/SupportCard'
 import { ViewBar } from './ui/ViewBar'
 import { DeviationPanel } from './ui/DeviationPanel'
@@ -80,14 +86,19 @@ import { imageScaleX, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
-import { rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
+import { rigidApply, rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
 import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
-import { exportElementsStep, exportScanPointCloud, exportScanStl, saveFile } from './app/exports'
+import { autoAlignPicks } from './core/autoAlign'
+import { ALIGN_SYMMETRY_MAX_RMS_MM, poseOfRigid, poseOnSymmetry } from './core/alignSymmetry'
+import { SYMMETRY_MAX_RMS_MM, SYMMETRY_MIN_MATCHED } from './core/symmetry'
+import { exportElementsStep, exportScanPointCloud, exportScanStl, saveFile, runExport } from './app/exports'
 import { PICK_MARK_TOOL_STATUS, useDeviationWorkspace } from './app/useDeviationWorkspace'
 import { targetFitOf, useElementField } from './app/useElementField'
 import { detectMaterialSide } from './core/deviation/elementField'
 import { useThicknessWorkspace } from './app/useThicknessWorkspace'
 import { useSceneSync } from './app/useSceneSync'
+import { useScanSwap } from './app/useScanSwap'
+import { scanLoaded } from './app/scanEvents'
 import { useSections } from './app/useSections'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
 import { sheetAlignment, sheetElements, sheetFrame, sheetLoupeActive, sheetPoseOf, sheetScale } from './app/flatSheet'
@@ -96,13 +107,49 @@ import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
 import { useProject } from './app/useProject'
 import { emptySources, type SourceFiles } from './app/project'
+import { ImportQueue } from './app/importQueue'
+import { prepareScan, prepareImage, runImport, type PreparedScan, type PreparedImage } from './app/imports'
+import { unitsLabel, type MeshUnits } from './core/meshUnits'
+import { meshUnitsFor } from './state/unitsPromptStore'
+import { plugins } from './plugins/registry'
+import type { PluginHost, PluginRuntime } from './plugins/api'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
 
+/** What a plugin without a hook adds: nothing. */
+const NO_RUNTIME: PluginRuntime = {}
+
+/** What became of the sharp-edge split, for the status line. Null when it
+ *  went as asked and there is nothing to add. */
+function creaseNote(report: CreaseReport, mode: CreaseMode): string | null {
+  if (report.skipped === 'budget') {
+    return 'Sharp edges are shaded smooth: drawing them sharp would add more vertices than the scan has.'
+  }
+  if (report.skipped === 'scan') {
+    return 'This mesh reads as a scan, so its edges are shaded smooth — set Sharp edges to Always to split them regardless.'
+  }
+  if (report.skipped === 'off') return 'Sharp edges shaded smooth.'
+  if (report.added === 0) {
+    return mode === 'on' ? 'No sharp edges to split on this mesh.' : 'Sharp edges drawn sharp.'
+  }
+  return `Sharp edges drawn sharp — ${report.added.toLocaleString('en-US')} vertices split.`
+}
+
 export default function App() {
+  const imports = useRef(new ImportQueue()).current
   const clientRef = useRef<MeshWorkerClient | null>(null)
   if (!clientRef.current) clientRef.current = new MeshWorkerClient()
   const sceneRef = useRef<SceneManager | null>(null)
+  // In development the viewport, the worker and the Measure store are
+  // reachable from the console and the browser checks — nothing in a
+  // production build.
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { __scanruler?: unknown }).__scanruler = {
+      scene: () => sceneRef.current,
+      client: () => clientRef.current,
+      measure: useStore,
+    }
+  }
   // The 2D Measure viewport and its decoded scan image. The bitmap stays out
   // of the store like every other big buffer; the scene ref is separate from
   // sceneRef because this viewport, unlike the 3D one, mounts and unmounts
@@ -163,6 +210,14 @@ export default function App() {
   const draftSeq = useRef(0)
 
   useEffect(() => {
+    clientRef.current!.restoreState = () => ({
+      scan: sources.current.scan ? {
+        ...sources.current.scan,
+        crease: useStore.getState().creaseMode,
+        transform: useStore.getState().appliedAlignment,
+      } : null,
+      nominal: sources.current.reference,
+    })
     clientRef.current!.onProgress = (text) => useStore.getState().setStatus(text)
     // Each refinement pose, straight onto the scan's group. The reference is
     // the datum and stays put, so watching the fit means watching the scan
@@ -171,6 +226,42 @@ export default function App() {
       sceneRef.current?.setAlignment(rigidToColumnMajor(transform))
     }
   }, [])
+
+  // The sharp-edge setting changed under a loaded scan: the worker lays the
+  // render geometry out again as it now says, and the scene swaps it in
+  // under everything measured on it. A scan still loading takes the setting
+  // as it stands when the load began, and is left to it.
+  const creaseMode = useStore((s) => s.creaseMode)
+  const creaseSettled = useRef(false)
+  useEffect(() => {
+    if (!creaseSettled.current) {
+      creaseSettled.current = true
+      return
+    }
+    const store = useStore.getState()
+    if (!store.fileName || store.busy || !sceneRef.current?.scanGeometry()) return
+    const scanVersion = clientRef.current!.scanVersion
+    let stale = false
+    void (async () => {
+      try {
+        const mesh = await clientRef.current!.recrease(creaseMode)
+        if (stale || scanVersion !== clientRef.current!.scanVersion) return
+        sceneRef.current?.resplitScan(
+          mesh.positions,
+          mesh.indices,
+          mesh.normals,
+          mesh.wireSlots,
+          mesh.copyOf,
+        )
+        useStore.getState().setStatus(creaseNote(mesh.crease, creaseMode) ?? 'Sharp edges drawn sharp.')
+      } catch (e) {
+        useStore.getState().setStatus(e instanceof Error ? e.message : String(e))
+      }
+    })()
+    return () => {
+      stale = true
+    }
+  }, [creaseMode])
 
   const clearPreview = () => {
     draftSeq.current++
@@ -183,27 +274,30 @@ export default function App() {
    *  the resolution it declares about itself, and hand it to the flat scene.
    *  Decoded with a vertical flip because the document frame is y-up and an
    *  ImageBitmap bypasses the GPU-side flip — see FlatScene.setImage. */
-  const openImage = async (file: File) => {
-    const flat = useFlat.getState()
-    flat.beginImageLoad(file.name)
-    try {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      sources.current.image = { name: file.name, bytes }
-      const meta = imagePixelsPerMm(bytes)
-      const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
-      flatBitmapRef.current?.close()
-      flatBitmapRef.current = bitmap
-      flatGrayRef.current = grayscaleOf(bitmap)
-      imageChainsRef.current = null
-      imageIndexRef.current = null
-      useFlat.getState().finishImageLoad(file.name, bitmap.width, bitmap.height, meta)
-      void runEdgeDetect()
-    } catch (e) {
-      console.error(e)
+  const commitImage = (image: PreparedImage | null) => {
+    flatBitmapRef.current?.close()
+    flatBitmapRef.current = image?.bitmap ?? null
+    flatGrayRef.current = image?.gray ?? null
+    imageChainsRef.current = null
+    imageIndexRef.current = null
+    sources.current.image = image?.source ?? null
+    if (image) {
+      useFlat.getState().finishImageLoad(image.source.name, image.bitmap.width, image.bitmap.height, image.meta)
+    } else {
       useFlat.getState().imageFailed()
-      useStore.getState().setError(`Couldn't read ${file.name} as an image.`)
+      useFlat.getState().failEdges()
+      flatSceneRef.current?.setBlankSheet([-10, -10], [10, 10])
     }
+    clearHistory()
   }
+
+  const openImage = (file: File) => runImport(imports, 'Reading image…', async () => {
+    const image = await prepareImage(file)
+    commitImage(image)
+    useShell.getState().setWorkspace('flat')
+    void runEdgeDetect()
+    useStore.getState().setStatus(`Image loaded — ${file.name}.`)
+  })
 
   /** A section laid flat for the 2D sheet: its cut projected into its own
    *  plane, indexed for snapping, and the bounds of a sheet with room round
@@ -251,6 +345,38 @@ export default function App() {
   // The flat store holds the truth; useFlatSceneSync repeats it to the 2D
   // viewport, and app/flatSheet says what each layer draws.
   const flatSync = useFlatSceneSync({ sceneRef: flatSceneRef, sheetOf: activeSheet })
+
+  // What the plugins add, for this render: each plugin's hook, called in the
+  // same order every time — see plugins/api.ts. The verbs they are handed
+  // are defined further down and bound there; a plugin calls them only from
+  // handlers and effects, after this render has run.
+  const hostVerbs = useRef<Pick<PluginHost, 'openScan' | 'openReference' | 'runFit' | 'runDeviation' | 'runThickness' | 'clearPreview' | 'swapScan' | 'remapScan' | 'remeasureScan'> | null>(null)
+  const host = useRef<PluginHost>({
+    clientRef,
+    sceneRef,
+    sources,
+    imports,
+    maps: { deviation, deviationRgb, elementField, elementRgb, elementScope, thickness, thicknessRgb },
+    openScan: (file, units) => hostVerbs.current!.openScan(file, units),
+    openReference: (file, units) => hostVerbs.current!.openReference(file, units),
+    runFit: (...args) => hostVerbs.current!.runFit(...args),
+    runDeviation: () => hostVerbs.current!.runDeviation(),
+    runThickness: () => hostVerbs.current!.runThickness(),
+    clearPreview: () => hostVerbs.current!.clearPreview(),
+    swapScan: (source, transform) => hostVerbs.current!.swapScan(source, transform),
+    remapScan: (vertexMap) => hostVerbs.current!.remapScan(vertexMap),
+    remeasureScan: (refit) => hostVerbs.current!.remeasureScan(refit),
+  }).current
+  const runtimes: PluginRuntime[] = plugins().map((p) => p.usePlugin?.(host) ?? NO_RUNTIME)
+  const shellWorkspace = useShell((s) => s.workspace)
+  const activeIndex = plugins().findIndex((p) => p.workspace?.id === shellWorkspace)
+  /** The runtime of the plugin whose workspace is on screen, if one is. */
+  const active: PluginRuntime | null = activeIndex >= 0 ? runtimes[activeIndex] : null
+  // The same, for handlers that run after this render.
+  const activeRef = useRef(active)
+  activeRef.current = active
+  const runtimesRef = useRef(runtimes)
+  runtimesRef.current = runtimes
   const flatLoupeActive = useFlat(sheetLoupeActive)
   const flatSubject = useFlat((s) => s.subject)
 
@@ -275,8 +401,14 @@ export default function App() {
         // 1 mm at the scale in force, or its 600 dpi equivalent before any.
         minLength: scale ? EDGE_MIN_FEATURE_MM * scale : undefined,
       },
-    )
-    if (!chains) return
+    ).catch((error) => {
+      if (flatGrayRef.current === source) {
+        useFlat.getState().failEdges()
+        useStore.getState().setError(error instanceof Error ? error.message : String(error))
+      }
+      return null
+    })
+    if (!chains || flatGrayRef.current !== source) return
     imageChainsRef.current = chains
     imageIndexRef.current = new EdgeIndex(chains)
     if (useFlat.getState().subject.kind === 'image') useFlat.getState().resolveEdges(chainCount(chains))
@@ -406,11 +538,11 @@ export default function App() {
 
   /** "1,234 edge chains and 3 elements" — with a word on the edges when a
    *  format did something to them, and a reason when there are none. */
-  const drawnSummary = (input: FlatDrawingInput, edgeNote = ''): string => {
+  const drawnSummary = (input: FlatDrawingInput, edgeNote = '', showEdges = useFlat.getState().showEdges): string => {
     const chains = input.chains ? chainCount(input.chains) : 0
     const edges = chains
       ? `${chains.toLocaleString('en-US')} edge chain${chains === 1 ? '' : 's'}${edgeNote ? ` ${edgeNote}` : ''}`
-      : useFlat.getState().showEdges
+      : showEdges
         ? 'no edges'
         : 'the edges hidden'
     const n = input.elements.length
@@ -419,46 +551,40 @@ export default function App() {
 
   /** The sheet as an SVG at true scale — for a vector editor, a laser or a
    *  print at 1:1. */
-  const handleFlatExportSvg = () => {
+  const handleFlatExportSvg = () => runExport(async () => {
     const input = flatDrawingInput()
     if (!input) return
     const name = `${flatExportStem()}-sheet.svg`
+    const summary = drawnSummary(input)
+    const { buildFlatSvg } = await import('./core/flat/svg')
     saveFile(name, new Blob([buildFlatSvg(input)], { type: 'image/svg+xml' }))
-    useStore.getState().setStatus(`Sheet exported to ${name} — ${drawnSummary(input)}.`)
-  }
+    useStore.getState().setStatus(`Sheet exported to ${name} — ${summary}.`)
+  })
 
   /** The sheet as a DXF — for CAD: millimetres by declaration, y up, the
    *  origin on the alignment, the edges thinned to a sketch's worth. */
-  const handleFlatExportDxf = () => {
+  const handleFlatExportDxf = () => runExport(async () => {
     const input = flatDrawingInput()
     if (!input) return
     const s = useFlat.getState()
+    const origin = sheetFrame(s)?.origin ?? null
+    const name = `${flatExportStem()}-sheet.dxf`
+    const { buildFlatDxf, DXF_EDGE_TOLERANCE } = await import('./core/flat/dxf')
     const tolerance = DXF_EDGE_TOLERANCE[input.unit]
     const dxf = buildFlatDxf({
       ...input,
-      origin: sheetFrame(s)?.origin ?? null,
+      origin,
       edgeTolerance: tolerance,
     })
-    const name = `${flatExportStem()}-sheet.dxf`
     saveFile(name, new Blob([dxf], { type: 'application/dxf' }))
     useStore
       .getState()
-      .setStatus(`Drawing exported to ${name} — ${drawnSummary(input, `thinned to ${tolerance} ${input.unit}`)}.`)
-  }
+      .setStatus(`Drawing exported to ${name} — ${drawnSummary(input, `thinned to ${tolerance} ${input.unit}`, s.showEdges)}.`)
+  })
 
 
 
-  const openFile = async (file: File) => {
-    if (!isMeshFile(file.name)) {
-      useStore
-        .getState()
-        .setError(
-          isStepFile(file.name)
-            ? 'A STEP file is CAD, not a scan — load it as the reference in the Deviation workspace.'
-            : 'Unsupported file type — use STL, PLY, or OBJ.',
-        )
-      return
-    }
+  const commitScan = (prepared: PreparedScan | null) => {
     const store = useStore.getState()
     clearPreview()
     // A different scan invalidates the alignment and the map measured under
@@ -482,37 +608,51 @@ export default function App() {
     // Nothing is marked on a part that is being replaced, and no gesture should
     // survive the swap.
     useMark.getState().reset()
-    store.beginLoad(file.name)
-    try {
-      const buffer = await file.arrayBuffer()
-      sources.current.scan = { name: file.name, bytes: new Uint8Array(buffer.slice(0)) }
-      const mesh = await clientRef.current!.load(file.name, buffer)
-      useStore.getState().setStatus('Building spatial index…')
-      await new Promise((r) => setTimeout(r, 30))
-      sceneRef.current?.setMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots)
-      useStore
-        .getState()
-        .finishLoad(
-          mesh.vertexCount,
-          mesh.triangleCount,
-          sceneRef.current?.modelSize() ?? 1,
-          sceneRef.current?.modelCenter() ?? [0, 0, 0],
-        )
-      // The brush is sized to the part it will be used on, in both workspaces.
+    sources.current.scan = prepared?.source ?? null
+    store.beginLoad(prepared?.source.name ?? '')
+    if (prepared) {
+      prepared.view.commit()
+      const { mesh } = prepared
+      store.finishLoad(mesh.vertexCount, mesh.triangleCount,
+        sceneRef.current?.modelSize() ?? 1, sceneRef.current?.modelCenter() ?? [0, 0, 0])
       useMark.getState().sizeToModel(sceneRef.current?.modelSize() ?? 1)
-      // How thick a wall to look for is a property of the part, so the search
-      // is sized to the one just loaded — until the user says otherwise.
       useThickness.getState().suggestMaxThickness(2 * (sceneRef.current?.modelSize() ?? 1))
-      useStore
-        .getState()
-        .setStatus(
-          mesh.triangleCount > LARGE_TRIANGLE_WARNING
-            ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
-            : 'Pick an element type in the panel to start measuring.',
-        )
-    } catch (e) {
-      useStore.getState().loadFailed(e instanceof Error ? e.message : String(e))
+      scanLoaded({ positions: mesh.positions, indices: mesh.indices, modelSize: sceneRef.current?.modelSize() ?? 1 })
+    } else {
+      sceneRef.current?.clearScan()
+      useStore.setState({ fileName: null, modelSize: 1, modelCenter: [0, 0, 0] })
+      scanLoaded(null)
     }
+    // Project restoration still has work to do; the import owns this flag.
+    useStore.setState({ busy: true })
+    clearHistory()
+  }
+
+  /** An STL is asked about first — what units it is in — unless `units` is
+   *  given: a file the instrument wrote itself, in millimetres like
+   *  everything it holds. A question dismissed leaves the file unopened. */
+  const openFile = async (file: File, units?: MeshUnits): Promise<void> => {
+    const read = units ?? (await meshUnitsFor(file.name))
+    if (!read) return
+    await runImport(imports, 'Reading file…', async () => {
+      const client = clientRef.current!
+      const prepared = await prepareScan(client, sceneRef.current!, file, useStore.getState().creaseMode, undefined, read)
+      try {
+        await client.commitImport({ scan: prepared.id })
+        commitScan(prepared)
+        const mesh = prepared.mesh
+        const creaseWord = mesh.crease.skipped === 'budget' ? ` ${creaseNote(mesh.crease, 'on')}` : ''
+        const unitsWord = read !== 'mm' ? `Read in ${unitsLabel(read).toLowerCase()} and converted to millimetres. ` : ''
+        useStore.getState().setStatus(
+          unitsWord +
+          (mesh.triangleCount > LARGE_TRIANGLE_WARNING
+            ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
+            : 'Pick an element type in the panel to start measuring.') + creaseWord)
+      } finally {
+        prepared.view.dispose()
+        await client.discardImport([prepared.id])
+      }
+    })
   }
 
   /** Re-fit an already measured element (on project load, where the fits are
@@ -525,8 +665,14 @@ export default function App() {
     kind: ElementKind,
     seeds: number[],
     selection?: Uint32Array,
+    regionsOnly = false,
   ) => {
+    const scanVersion = clientRef.current!.scanVersion
     const el = useStore.getState().elements.find((e) => e.id === elementId)
+    const alignment = useStore.getState().appliedAlignment
+    const stillCurrent = () => scanVersion === clientRef.current!.scanVersion &&
+      alignment === useStore.getState().appliedAlignment &&
+      el?.source === useStore.getState().elements.find((e) => e.id === elementId)?.source
     const settings = el?.source.type === 'fitted' ? el.source.settings : useStore.getState().settings
     // A fit confined to the drawn span is confined to it every time it runs.
     const window = fitWindow(el?.extend)
@@ -534,13 +680,15 @@ export default function App() {
       const result = selection
         ? await clientRef.current!.fitSelection(kind, selection, settings, window)
         : await clientRef.current!.fit(kind, seeds, settings, window)
+      if (!stillCurrent()) return
       // The surface goes on record before the fit does, so whatever re-reads
       // the elements on the fit landing finds the points already there.
       rememberSurface(elementId, result.region)
-      useStore.getState().resolveFit(elementId, result)
-      const el = useStore.getState().elements.find((e) => e.id === elementId)
-      if (el) sceneRef.current?.applyRegion(elementId, el.color, result.region)
+      if (!regionsOnly || !el?.fit) useStore.getState().resolveFit(elementId, result)
+      const fitted = useStore.getState().elements.find((e) => e.id === elementId)
+      if (fitted) sceneRef.current?.applyRegion(elementId, fitted.color, result.region)
     } catch (e) {
+      if (!stillCurrent()) return
       useStore.getState().failFit(elementId, e instanceof Error ? e.message : String(e))
     }
   }
@@ -653,12 +801,16 @@ export default function App() {
     // fit waits to be asked, and the measured region of an element map follows
     // the brush stroke by stroke.
     useMark.getState().setCount(count)
+    // A plugin's workspace may take the marking for its own.
+    if (activeRef.current?.paintChange?.()) return
     const dev = useDeviation.getState()
     if (dev.marking) {
       if (useShell.getState().workspace === 'deviation' && dev.source === 'element' && dev.targetScope === 'marked') {
         const marked = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
-        elementScope.current = marked
-        dev.markScope(marked.length)
+        historyAction('Deviation: mark region', () => {
+          elementScope.current = marked
+          dev.markScope(marked.length)
+        })
       }
       return
     }
@@ -701,24 +853,35 @@ export default function App() {
    *  changes, so painted regions and fit seeds stay valid. A scan→reference
    *  best fit was measured in the old frame and is invalidated along with the
    *  deviation map on it. */
-  const applyRigidToPart = async (m: Rigid) => {
-    clearPreview()
-    useStore.getState().setStatus('Aligning part — rebuilding spatial index…')
-    // Let the status paint before the synchronous BVH rebuild.
-    await new Promise((r) => setTimeout(r, 30))
-    await clientRef.current!.transform(m)
-    // The real transform goes on and the preview of it comes off in the same
-    // breath: the pose is the same either way, so the part never flinches.
-    sceneRef.current?.applyTransform(m)
-    sceneRef.current?.setAlignPreview(null)
-    useStore.getState().applyAlignment(m)
-    // The buffer and the elements have both moved: read the surfaces again.
-    surfacesMoved()
-    deviation.current = null
-    deviationRgb.current = null
-    sceneRef.current?.setFieldColors(null)
-    useDeviation.getState().clearAlign()
-  }
+  const applyRigidToPart = (m: Rigid, reset = false) => imports.run(() => historyAsync('Align part', async () => {
+    useStore.setState({ busy: true })
+    try {
+      clearPreview()
+      useStore.getState().setStatus('Aligning part — rebuilding spatial index…')
+      // Let the status paint before the synchronous BVH rebuild.
+      await new Promise((r) => setTimeout(r, 30))
+      await clientRef.current!.transform(m)
+      // The real transform goes on and the preview of it comes off together.
+      sceneRef.current?.applyTransform(m)
+      sceneRef.current?.setAlignPreview(null)
+      useStore.getState().applyAlignment(m)
+      if (reset) useStore.getState().clearAppliedAlignment()
+      // Thickness is invariant under a rigid move; its pins move with the scan.
+      const moved = new Float64Array(3)
+      useThickness.setState((s) => ({ probes: s.probes.map((probe) => {
+        rigidApply(m, ...probe.point, moved)
+        return { ...probe, point: [moved[0], moved[1], moved[2]] as Vec3 }
+      }) }))
+      surfacesMoved()
+      deviation.current = null
+      deviationRgb.current = null
+      sceneRef.current?.setFieldColors(null)
+      useDeviation.getState().clearAlign()
+    } finally { useStore.setState({ busy: false }) }
+  })).then(() => true).catch((error) => {
+    useStore.getState().setError(error instanceof Error ? error.message : String(error))
+    return false
+  })
 
   const handleStartAlignment = () => {
     clearPreview()
@@ -730,9 +893,107 @@ export default function App() {
       )
   }
 
+  /** Ask the worker what coordinate system the scan suggests and open the
+   *  alignment editor on it: the slots filled, the pose previewed on the part,
+   *  nothing applied. What the proposal rests on is said in the editor, so a
+   *  guess reads as a guess. */
+  const handleAutoAlign = async () => {
+    clearPreview()
+    const s = useStore.getState()
+    s.setError(null)
+    s.setStatus('Auto-align — reading the part’s directions off the scan…')
+    s.setWorking('READING…')
+    try {
+      const r = await clientRef.current!.autoAlign()
+      const pct = (share: number) => `${Math.round(share * 100)} %`
+      const stands = {
+        'open-side': 'the side the scan is open on',
+        face: 'its largest flat face',
+        'axis-end': 'an end of its main axis',
+        extent: 'its flattest side',
+      }[r.base]
+      const read =
+        r.method === 'principal'
+          ? 'The scan shows no face directions and no round walls, so this is the principal axes of its points — a guess.'
+          : r.method === 'axis'
+            ? `Read off the scan: the main axis from the round walls (${pct(r.wallShare)} of the surface)${
+                r.onAxis ? ', zero on that axis' : ''
+              }; ${pct(r.planeShare)} of the surface is faces square to the axes.`
+            : `Read off the scan: ${pct(r.planeShare)} of the surface is faces square to these axes${
+                r.wallShare >= 0.05 ? `, ${pct(r.wallShare)} more is wall running along them` : ''
+              }.`
+      const note = `${read} The part stands on ${stands}, its long side along X. Change a side or a direction below if it reads the part differently than you do.`
+      useStore.getState().proposeAlignment(autoAlignPicks(r, 0.2 * useStore.getState().modelSize), note)
+      useStore.getState().setStatus('Auto-align — check the previewed pose, then press Align part.')
+    } catch (e) {
+      useStore.getState().setStatus('')
+      useStore.getState().setError(e instanceof Error ? e.message : 'Auto-align failed.')
+    } finally {
+      useStore.getState().setWorking(null)
+    }
+  }
+
+  /** The pose being set up, settled on the part's symmetry plane: the plane
+   *  a Measure symmetry plane gives, or the scan searched for its own; the
+   *  pose the editor previews, or Auto-align's when it has none yet. It
+   *  comes back as a proposal — picks, like Auto-align's — so every choice
+   *  in it can still be changed and nothing moves until it is applied. */
+  const handleAlignSymmetry = async () => {
+    clearPreview()
+    const s = useStore.getState()
+    const client = clientRef.current
+    if (!client || !s.fileName) return
+    s.setError(null)
+    // Seconds of searching on a big scan, with nothing to show on the part
+    // until the pose lands: the viewport says so meanwhile, as the symmetry
+    // plane's own box does.
+    s.setWorking('SEARCHING…')
+    try {
+      const ad = s.alignDraft
+      const standing = ad ? alignmentPreview(ad, s.elements, s.modelSize, alignCenterOf(s)).preview : null
+      let pose: { axes: [Vec3, Vec3, Vec3]; origin: Vec3 }
+      if (standing) pose = poseOfRigid(standing.rigid)
+      else {
+        s.setStatus('Use symmetry — no pose set up yet, reading one off the scan first…')
+        pose = await client.autoAlign()
+      }
+      const measured = [...s.elements].reverse().find((e) => e.fit?.kind === 'plane' && e.source.type === 'constructed' && e.source.method === 'plane-symmetry')
+      let plane: { normal: Vec3; point: Vec3 }
+      let from: string
+      if (measured?.fit?.kind === 'plane') {
+        plane = { normal: measured.fit.normal, point: measured.fit.center }
+        from = measured.name
+      } else {
+        s.setStatus('Use symmetry — searching the scan for its mirror plane…')
+        const r = await client.symmetry(null)
+        if (!Number.isFinite(r.rms) || r.rms > ALIGN_SYMMETRY_MAX_RMS_MM || r.sampled === 0 || r.matched / r.sampled < SYMMETRY_MIN_MATCHED) {
+          useStore.getState().setStatus('')
+          useStore.getState().setError(`No symmetry plane found on the scan — the best mirror image stands ${Number.isFinite(r.rms) ? `${r.rms.toFixed(2)} mm` : 'far'} off it. The pose is left as it is.`)
+          return
+        }
+        plane = { normal: r.normal, point: r.point }
+        from = `the scan’s mirror plane (σ ${r.rms.toFixed(3)} mm${r.rms > SYMMETRY_MAX_RMS_MM ? ', a loose match' : ''})`
+      }
+      const settled = poseOnSymmetry(pose.axes, pose.origin, plane)
+      if (!settled) {
+        useStore.getState().setError('The symmetry plane has no direction to settle the pose on.')
+        return
+      }
+      const names = ['YZ', 'XZ', 'XY']
+      const note = `Settled on ${from}: it is the ${names[settled.axis]} plane now — ${'XYZ'[settled.axis]} turned ${settled.tiltDeg.toFixed(2)}° onto its normal, the zero point moved ${settled.shiftMm.toFixed(2)} mm onto it. The steps below are this pose as points; change a side or a direction if it reads the part differently than you do.`
+      useStore.getState().proposeAlignment(autoAlignPicks(settled, 0.2 * useStore.getState().modelSize), note)
+      useStore.getState().setStatus('Use symmetry — check the previewed pose, then press Align part.')
+    } catch (e) {
+      useStore.getState().setStatus('')
+      useStore.getState().setError(e instanceof Error ? e.message : 'The symmetry search failed.')
+    } finally {
+      useStore.getState().setWorking(null)
+    }
+  }
+
   const handleApplyAlignment = async (m: Rigid) => {
     const { rotationDeg, translation } = describeRigid(m)
-    await applyRigidToPart(m)
+    if (!await applyRigidToPart(m)) return
     useStore
       .getState()
       .setStatus(
@@ -742,7 +1003,7 @@ export default function App() {
 
   const handleApplyManual = async (m: Rigid) => {
     const { rotationDeg, translation } = describeRigid(m)
-    await applyRigidToPart(m)
+    if (!await applyRigidToPart(m)) return
     useStore
       .getState()
       .setStatus(
@@ -753,8 +1014,7 @@ export default function App() {
   const handleResetAlignment = async () => {
     const total = useStore.getState().appliedAlignment
     if (!total) return
-    await applyRigidToPart(rigidInvert(total))
-    useStore.getState().clearAppliedAlignment()
+    if (!await applyRigidToPart(rigidInvert(total), true)) return
     useStore.getState().setStatus('Alignment reset — the part is back in scan coordinates.')
   }
 
@@ -771,13 +1031,15 @@ export default function App() {
     const s = useStore.getState()
     const d = s.draft
     if (!d || d.method !== 'plane-symmetry' || d.status === 'fitting') return
-    const seedEl = d.seed != null ? s.elements.find((e) => e.id === d.seed) : undefined
+    const seedEl = d.seed != null && d.seed >= 0 ? s.elements.find((e) => e.id === d.seed) : undefined
     const seedFit = seedEl?.fit?.kind === 'plane' ? seedEl.fit : null
+    const seedBase = d.seed != null && d.seed < 0 ? baseSeedPlane(d.seed, s.modelCenter, s.modelSize) : null
+    const seedName = seedFit ? seedEl!.name : seedBase ? `the ${seedBase.name}` : null
     s.setDraftWorking('Searching the scan for its mirror plane…')
     try {
       const marked = d.selection ?? null
       const r = await clientRef.current!.symmetry(
-        seedFit ? { normal: seedFit.normal, point: seedFit.center } : null,
+        seedFit ? { normal: seedFit.normal, point: seedFit.center } : seedBase ? { normal: seedBase.normal, point: seedBase.point } : null,
         marked,
       )
       const now = useStore.getState().draft
@@ -790,7 +1052,11 @@ export default function App() {
         )} mm over ${r.matched.toLocaleString('en-US')} of ${r.sampled.toLocaleString(
           'en-US',
         )} samples, ${
-          seedFit ? `refined from ${seedEl!.name}` : `from principal plane ${r.candidate + 1}`
+          seedName
+            ? `refined from ${seedName}`
+            : r.candidate < 3
+              ? `from principal plane ${r.candidate + 1}`
+              : 'from one of the part’s face directions'
         }.${
           loose
             ? ' A loose match: the part may not be symmetric about any plane, or the seed was far off — try another seed.'
@@ -844,6 +1110,7 @@ export default function App() {
 
   const {
     openNominal,
+    commitNominal,
     runAlign,
     abortAlign,
     startPicking,
@@ -855,7 +1122,7 @@ export default function App() {
     handleClearMarking,
     handleRevertLocal,
     handleCopyReport,
-  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, sources })
+  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, sources, imports })
 
   // ---- Deviation from a fitted element -------------------------------------
 
@@ -887,7 +1154,7 @@ export default function App() {
   /** Switch the element map between measuring the whole scan and measuring a
    *  hand-marked region of it. Choosing the marked scope opens the marking
    *  tools with whatever region was chosen before back on the part. */
-  const handleScopeChange = (scope: 'all' | 'marked') => {
+  const handleScopeChange = (scope: 'all' | 'marked') => historyAction('Deviation: change region', () => {
     const dev = useDeviation.getState()
     if (scope === 'marked') {
       dev.setTargetScope('marked')
@@ -909,7 +1176,7 @@ export default function App() {
     elementScope.current = null
     dev.clearScope()
     useStore.getState().setStatus('')
-  }
+  })
 
   /** Put the marking tools away, keeping the region: the map goes on showing
    *  what was chosen, and the pointer goes back to pinning readings. */
@@ -921,12 +1188,12 @@ export default function App() {
   }
 
   /** Rub the whole region out and start marking it afresh. */
-  const handleScopeClear = () => {
+  const handleScopeClear = () => historyAction('Deviation: clear region', () => {
     sceneRef.current?.clearPaint()
     useMark.getState().setCount(0)
     elementScope.current = new Uint32Array(0)
     useDeviation.getState().markScope(0)
-  }
+  })
 
   // ---- Wall thickness workspace --------------------------------------------
 
@@ -936,13 +1203,28 @@ export default function App() {
     thicknessRgb,
   })
 
+  // Another version of the scan put in place under the session — see
+  // useScanSwap.
+  const { swapScan, remapScan, remeasureScan } = useScanSwap({
+    clientRef, sceneRef, sources, maps: host.maps, clearPreview, runFit, runDeviation, runThickness,
+  })
+
+  hostVerbs.current = { openScan: openFile, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, remapScan, remeasureScan }
+
+  useProjectHistory({ clientRef, sceneRef, elementScope, deviation, deviationRgb,
+    thickness, thicknessRgb, imports, sources, runFit, runDeviation, runThickness, swapScan, remeasureScan })
+
   /** Whichever map the workspace is showing, at a point on the scan:
    *  interpolated across the triangle the click landed in rather than snapped
    *  to a vertex, and written the way that map is written. Null where there is
    *  no map, or where the vertices around the hit carry no measurement. */
   const readingAt = (hit: PickHit): (HoverReading & { value: number }) | null => {
     const dev = useDeviation.getState()
-    const onThickness = useShell.getState().workspace === 'thickness'
+    const workspace = useShell.getState().workspace
+    // A plugin's workspace reads its own map.
+    const plugin = activeRef.current
+    if (plugin?.readingAt) return plugin.readingAt(hit)
+    const onThickness = workspace === 'thickness'
     const values = onThickness
       ? thickness.current
       : dev.source === 'element'
@@ -976,6 +1258,11 @@ export default function App() {
     // On either map a click pins the reading under it; alignment points are
     // picked in the split view, which has its own scenes.
     const workspace = useShell.getState().workspace
+    const plugin = activeRef.current
+    if (plugin?.pick) {
+      plugin.pick(hit)
+      return
+    }
     if (workspace !== 'elements') {
       const reading = readingAt(hit)
       if (!reading) return
@@ -1041,10 +1328,16 @@ export default function App() {
   /** A viewport click that landed on an existing element: hand it to whichever
    *  editor is collecting references — the dimension draft, or a construction
    *  draft's slots. Clicking an element that is already used takes it out. */
-  const handleElementPick = (id: number) => {
+  const handleElementPick = (id: number, clientX = 0, clientY = 0) => {
     const store = useStore.getState()
     const el = store.elements.find((e) => e.id === id)
     if (!el?.fit) return
+    // A plugin's workspace takes the click as it will.
+    const plugin = activeRef.current
+    if (plugin?.elementPick) {
+      plugin.elementPick(id, clientX, clientY)
+      return
+    }
     // Over an element map the elements on offer are drawn on the part precisely
     // so that one can be chosen by clicking it, which is the whole setup here.
     if (useShell.getState().workspace === 'deviation') {
@@ -1106,6 +1399,8 @@ export default function App() {
     // A new element starts from bare scan, whichever way the last one was
     // collected — the brush stays armed, but nothing is marked for it yet.
     clearPaint()
+    // The kind already in hand, pressed again, starts its box over — it is
+    // not put down.
     store.startDraft(kind)
     const draft = useStore.getState().draft!
     const method = creationMethod(kind, draft.method)
@@ -1178,6 +1473,19 @@ export default function App() {
     store.setStatus(
       mode === 'paint' ? PICK_MARK_TOOL_STATUS : 'Click a point on the surface you want to measure.',
     )
+  }
+
+  /** The box emptied and the kind kept in hand — Escape's first step on a
+   *  new draft with picks in it. */
+  const handleRestartDraft = () => {
+    const store = useStore.getState()
+    const draft = store.draft
+    if (!draft || draft.editId !== undefined) return
+    clearPreview()
+    clearPaint()
+    store.restartDraft()
+    const method = creationMethod(draft.kind, draft.method)
+    store.setStatus(method.mode === 'construct' ? 'Select the source elements in the panel.' : method.hint)
   }
 
   const handleUndoPick = () => {
@@ -1319,7 +1627,14 @@ export default function App() {
       forgetSurface(id)
       sceneRef.current?.clearElement(id)
     }
-    useStore.getState().setStatus(`${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`)
+    // The kind is still in hand after a creation — say so the first times,
+    // and where the way out is.
+    const next = useStore.getState().draft
+    useStore.getState().setStatus(
+      next
+        ? `${el?.name ?? 'Element'} created — the ${elementKindInfo(next.kind).noun} stays in hand for the next one; Esc or Cancel puts it down.`
+        : `${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`,
+    )
   }
 
   // Changing "Used points" is a change to the open draft alone: it re-fits on
@@ -1353,7 +1668,11 @@ export default function App() {
    *  whole angle so far, so the plane never drifts under a hand that goes
    *  back and forth. */
   const turnStart = useRef<{ axis: CutAxis; about: Vec3; offset: number } | null>(null)
-  const handleExtendDrag = (side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => {
+  const handleExtendDrag =(side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => {
+    // A plugin's manipulator — see PluginRuntime.gripDrag.
+    for (const r of runtimesRef.current) if (r.gripDrag?.(side, delta, phase)) return
+    // A plugin's grip no plugin took has nowhere to go.
+    if (!isCoreSide(side)) return
     const store = useStore.getState()
     // The arrow on a section plane: the drag slides it along its normal, and
     // the worker cuts again behind it — see useSections.
@@ -1479,6 +1798,7 @@ export default function App() {
     thickness,
     thicknessRgb,
     thickScale,
+    plugin: active,
     cancelDraft: handleCancelDraft,
   })
 
@@ -1497,6 +1817,7 @@ export default function App() {
     abortAlign,
     stopPicking,
     cancelDraft: handleCancelDraft,
+    restartDraft: handleRestartDraft,
     confirmDraft: handleConfirmDraft,
     cancelSection: handleCancelSection,
     confirmSection: handleConfirmSection,
@@ -1504,14 +1825,16 @@ export default function App() {
   })
 
   // Drag & drop anywhere.
-  const { saveProject, openProject } = useProject({
+  const { saveProject, openProject, recovery } = useProject({
     sources,
     clientRef,
     sceneRef,
     elementScope,
-    openFile,
-    openNominal,
-    openImage,
+    imports,
+    commitScan,
+    commitNominal,
+    commitImage,
+    runEdgeDetect,
     runFit,
     runDeviation,
     runThickness,
@@ -1563,6 +1886,8 @@ export default function App() {
               : 'for the zero point'
         return `Click the scan — point ${have + 1} of ${need} ${what} · Esc to stop picking`
       }
+      if (alignDraft.proposal)
+        return 'This is the pose the scan suggests — change a side or a direction in the panel if it is not yours, then press Align part'
       return alignDraft.primary === null && alignDraft.primaryPicks.length === 0
         ? 'The coordinate planes show where the part is going — set a face on one of them via the panel'
         : 'Add an axis (step 2) or a zero point (step 3) if you need them — then press Align part'
@@ -1759,12 +2084,14 @@ export default function App() {
   return (
     <div className="app">
       <TopBar
+        recovery={recovery}
         onSaveProject={saveProject}
         onOpenProject={openProject}
         onOpenScan={openFile}
         onOpenImage={openImage}
-        canSave={(fileName !== null && vertexCountLoaded) || flatImageName !== null}
+        canSave={(fileName !== null && vertexCountLoaded) || flatImageName !== null || runtimes.some((r) => r.canSave)}
       />
+      <RecoveryBar recovery={recovery} />
       <div className="mid">
         {onDeviation ? (
           <DeviationPanel
@@ -1793,6 +2120,8 @@ export default function App() {
             onMeasure={() => void runThickness()}
             onCopy={handleCopyThicknessReport}
           />
+        ) : active?.panel ? (
+          active.panel
         ) : onFlat ? (
           <FlatPanel
             onOpenImage={(f) => void openImage(f)}
@@ -1821,6 +2150,8 @@ export default function App() {
             onCancelSection={handleCancelSection}
             onConfirmSection={handleConfirmSection}
             onCopy={handleCopy}
+            onAutoAlign={() => void handleAutoAlign()}
+            onAlignSymmetry={() => void handleAlignSymmetry()}
             onStartAlignment={handleStartAlignment}
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
             onApplyManual={(m) => void handleApplyManual(m)}
@@ -1837,7 +2168,7 @@ export default function App() {
               its place in the tree when the split view opens for the same
               reason — it becomes the left half where it stands, rather than
               being moved into one. */}
-          <div className={splitOpen ? 'viewslot split' : 'viewslot'} hidden={picking || onFlat}>
+          <div className={splitOpen ? 'viewslot split' : 'viewslot'} hidden={picking || onFlat || Boolean(active?.hideViewport)}>
             <Viewer
               onReady={(s) => {
                 sceneRef.current = s
@@ -1895,6 +2226,7 @@ export default function App() {
               />
             </div>
           )}
+          {active?.stage}
           {picking && sceneRef.current && scanGeometry && nominalGeometry && (
             <SplitPicker
               scene={sceneRef.current}
@@ -1929,6 +2261,7 @@ export default function App() {
               }
             />
           )}
+          {!picking && active?.overlay}
           {!picking && onThickness && hasThicknessMap && (
             <MapLegend
               id="thickness"
@@ -1955,10 +2288,13 @@ export default function App() {
               ]}
             />
           )}
-          {needsModels && !picking && !onFlat && (
+          {needsModels && !picking && !onFlat && active?.startPane !== null && (
             <StartPane
+              skip={active?.startPane?.skip}
               title={
-                onDeviation
+                active?.startPane
+                  ? active.startPane.title
+                  : onDeviation
                   ? source === 'element'
                     ? 'Deviation from a fitted element'
                     : 'Deviation from a nominal part'
@@ -1967,18 +2303,20 @@ export default function App() {
                     : 'Fitting elements'
               }
               blurb={
-                onDeviation
+                active?.startPane
+                  ? active.startPane.blurb
+                  : onDeviation
                   ? source === 'element'
                     ? 'Load a scan, fit a plane, cylinder or sphere on it in the 3D Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
                     : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan as STL, PLY or OBJ in millimetres, reference as any of those or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
                     ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
-                    : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
+                      : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY or OBJ, in millimetres — everything stays in this browser.'
               }
               slots={startSlots}
             />
           )}
-          {(onDeviation || onThickness) && !picking && <HoverReadout register={registerHover} />}
+          {(onDeviation || onThickness || Boolean(active?.hoverReadout)) && !picking && <HoverReadout register={registerHover} />}
           {/* The bottom-left corner: the view bar at the very bottom, where a
               hand learns to find it, and the support card stacked above it so
               neither ever covers the other. Before the error toast below it:
@@ -1988,7 +2326,7 @@ export default function App() {
               the bar's switches to act on. */}
           <div className="stagecorner">
             {!picking && <SupportCard />}
-            {!picking && !onFlat && <ViewBar />}
+            {!picking && !onFlat && <ViewBar pluginKeys={active?.viewKeys} hideModelKeys={active?.hideModelKeys} />}
           </div>
           {/* With no card on the stage any more, the step that is still
               outstanding says so here instead — the reference that has yet to be
@@ -2049,6 +2387,7 @@ export default function App() {
       </div>
       <StatusStrip />
       <SettingsModal />
+      <UnitsModal />
       <ImprintModal />
     </div>
   )

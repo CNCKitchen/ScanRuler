@@ -32,6 +32,23 @@
 
 export type Rgb = readonly [number, number, number]
 
+/** Every field a compositor's state lives in — what exchange trades. */
+const REGION_STATE = [
+  'colors',
+  'owner',
+  'elementColors',
+  'hiddenRegions',
+  'fieldColors',
+  'previewRegion',
+  'previewRgb',
+  'sparse',
+  'paintMask',
+  'count',
+  'tintMask',
+  'scanVertices',
+  'baseColor',
+] as const
+
 export class RegionColors {
   /** The mesh's own colour buffer, three bytes per vertex — written in place. */
   private colors: Uint8Array | null = null
@@ -48,6 +65,12 @@ export class RegionColors {
   private fieldColors: Uint8Array | null = null
   private previewRegion: Uint32Array | null = null
   private previewRgb: Rgb = [255, 255, 255]
+  /** A reading at some vertices only — a live map of the scan against a
+   *  model: those vertices wear the map's
+   *  colours, every other vertex is left as the layers below leave it. A
+   *  layer above the element tints and below the preview region, put back
+   *  on top by every repaint underneath it. */
+  private sparse: { subset: Uint32Array; rgb: Uint8Array } | null = null
   /** Hand-painted surface selection: one byte per vertex, vertex indices like
    *  everything else the fitter speaks. The mesh's paint attribute — written in
    *  place, thresholded per triangle by the scan's shader. */
@@ -57,6 +80,9 @@ export class RegionColors {
    *  per vertex, the mesh's tint attribute — written in place alongside the
    *  colours, thresholded per triangle by the scan's shader. */
   private tintMask: Uint8Array | null = null
+  /** How many of the buffers' entries are the scan's own vertices; the
+   *  rest are shading copies, which nothing here is keyed by. */
+  private scanVertices = 0
 
   constructor(private baseColor: Rgb) {}
 
@@ -85,18 +111,46 @@ export class RegionColors {
   /** Adopt a new scan's colour, tint and paint buffers. Ownership, tints and
    *  marking all start empty — nothing measured on the old scan means anything
    *  on this one. */
-  attach(colors: Uint8Array, paint: Uint8Array, tint: Uint8Array): void {
+  attach(colors: Uint8Array, paint: Uint8Array, tint: Uint8Array, scanVertices = colors.length / 3): void {
     this.colors = colors
+    this.scanVertices = scanVertices
     this.owner = new Int32Array(colors.length / 3)
     this.elementColors.clear()
     this.hiddenRegions.clear()
     this.fieldColors = null
     this.previewRegion = null
+    this.sparse = null
     this.paintMask = paint
     this.paintMask.fill(0)
     this.count = 0
     this.tintMask = tint
     this.tintMask.fill(0)
+  }
+
+  /** The same scan's buffers, laid out afresh — its shading copies changed
+   *  (see core/geometry/crease.ts) and the arrays were remade around them.
+   *  Ownership, tints and the marking all stand: they are keyed by the
+   *  scan's own vertices, which the new arrays carry in the same order. The
+   *  caller has already copied what the old arrays held for those. */
+  rebind(colors: Uint8Array, paint: Uint8Array, tint: Uint8Array, scanVertices = colors.length / 3): void {
+    this.colors = colors
+    this.scanVertices = scanVertices
+    this.paintMask = paint
+    this.tintMask = tint
+  }
+
+  /** Trade everything with another compositor: its buffers, its ownership,
+   *  its layers, its marking. The viewport shows the edited copy of the scan
+   *  in the scan's place this way — see SceneManager.showEdited — without
+   *  the marking tools, which hold this compositor, having to be told. */
+  exchange(other: RegionColors): void {
+    const a = this as unknown as Record<string, unknown>
+    const b = other as unknown as Record<string, unknown>
+    for (const key of REGION_STATE) {
+      const t = a[key]
+      a[key] = b[key]
+      b[key] = t
+    }
   }
 
   /** Drop everything with the mesh it belonged to. */
@@ -107,6 +161,7 @@ export class RegionColors {
     this.hiddenRegions.clear()
     this.fieldColors = null
     this.previewRegion = null
+    this.sparse = null
     this.paintMask = null
     this.count = 0
     this.tintMask = null
@@ -218,10 +273,31 @@ export class RegionColors {
   setFieldColors(field: Uint8Array | null): boolean {
     this.fieldColors = field
     if (!this.colors) return false
-    if (field && field.length === this.colors.length) {
+    // A map is a reading per vertex of the scan, and the buffer may run on
+    // past those with the copies sharp edges were split into for shading
+    // (core/geometry/crease.ts) — which the scene brings level with their
+    // vertices by itself. Held to the buffer's whole length, a map on a
+    // part exported from CAD was taken for another scan's and never drawn.
+    if (field && field.length === this.scanVertices * 3) {
       this.colors.set(field)
       this.tintMask!.fill(1)
+      this.paintOverlays()
     } else this.repaintFromElements()
+    return true
+  }
+
+  /** Lay a reading on some vertices only — `rgb` three bytes per entry of
+   *  `subset` — or pass null to lift it. The vertices not in the subset
+   *  keep their colour; the ones that were in the last subset and are not
+   *  in this one get theirs back. Returns whether the colour buffer
+   *  changed. Under a full map the layer is recorded and waits, as the
+   *  element tints do. */
+  setSparseField(subset: Uint32Array | null, rgb: Uint8Array | null): boolean {
+    const next = subset && rgb && rgb.length === subset.length * 3 ? { subset, rgb } : null
+    if (!next && !this.sparse) return false
+    this.sparse = next
+    if (!this.colors || this.fieldColors) return false
+    this.repaintFromElements()
     return true
   }
 
@@ -264,13 +340,25 @@ export class RegionColors {
     return id > 0 && !this.hiddenRegions.has(id) && this.elementColors.has(id) ? id : null
   }
 
-  /** The layer that sits above the element tints: the preview region of a
-   *  pending auto-fit. (The marking sits above this too, but in its own mask —
-   *  a repaint underneath cannot rub it out.) */
+  /** The layers that sit above the element tints: the sparse map, then the
+   *  preview region of a pending auto-fit. (The marking sits above these
+   *  too, but in its own mask — a repaint underneath cannot rub it out.) */
   private paintOverlays(): void {
     const arr = this.colors
-    if (!arr || !this.previewRegion) return
+    if (!arr) return
     const tint = this.tintMask!
+    if (this.sparse) {
+      const { subset, rgb } = this.sparse
+      for (let i = 0; i < subset.length; i++) {
+        const v = subset[i]
+        if (v * 3 + 2 >= arr.length) continue
+        arr[v * 3] = rgb[i * 3]
+        arr[v * 3 + 1] = rgb[i * 3 + 1]
+        arr[v * 3 + 2] = rgb[i * 3 + 2]
+        tint[v] = 1
+      }
+    }
+    if (!this.previewRegion) return
     for (let i = 0; i < this.previewRegion.length; i++) {
       const v = this.previewRegion[i]
       arr[v * 3] = this.previewRgb[0]

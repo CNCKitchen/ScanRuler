@@ -67,6 +67,7 @@ import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
 import type { StepStyle } from '../core/exportStep'
+import type { CreaseMode } from '../core/geometry/crease'
 import type { CloudFormat } from '../core/exportPointCloud'
 import type {
   ElementKind,
@@ -161,9 +162,11 @@ export interface Draft {
    *  centroid is of the volume or of an open surface, how well a mirror
    *  image fitted. Draft-lifetime, for the editor to show. */
   note?: string
-  /** The plane a symmetry search starts from, by element id; null or absent
-   *  seeds it from the scan's principal planes. Draft-lifetime — the seed is
-   *  where the search began, not something the result is built on. */
+  /** The plane a symmetry search starts from, by element id — or one of
+   *  the coordinate planes, by the negative ids of core/symmetry's
+   *  BASE_PLANE_SEEDS; null or absent seeds it from the scan's principal
+   *  planes. Draft-lifetime — the seed is where the search began, not
+   *  something the result is built on. */
   seed?: number | null
   /** Set when the draft re-opens an element that already exists: the id it
    *  writes back to on confirm, instead of adding a new element. Everything
@@ -203,6 +206,18 @@ export interface AlignDraft {
   originPicks: Vec3[]
   /** The slot currently collecting clicks on the scan, or null. */
   pickSlot: AlignSlot | null
+  /** What an automatic proposal read off the scan, in a sentence — there
+   *  while the slots hold what it filled in, gone once one is filled by hand. */
+  proposal?: string
+}
+
+/** A proposed alignment as the picks of the three slots — see
+ *  core/autoAlign autoAlignPicks. */
+export interface AlignmentProposal {
+  primary: Vec3[]
+  primaryNormals: Vec3[]
+  secondary: Vec3[]
+  origin: Vec3
 }
 
 export type { AlignSlot }
@@ -278,7 +293,7 @@ export function alignmentPreview(
 /** The slot with the given element reference and its picks discarded — the
  *  two ways of filling a slot are exclusive. */
 function withSlotRef(ad: AlignDraft, slot: AlignSlot, id: number | null): AlignDraft {
-  const base = { ...ad, pickSlot: ad.pickSlot === slot ? null : ad.pickSlot }
+  const base = { ...ad, pickSlot: ad.pickSlot === slot ? null : ad.pickSlot, proposal: undefined }
   if (slot === 'primary')
     return { ...base, primary: id, primaryPicks: [], primaryPickNormals: [] }
   if (slot === 'secondary') return { ...base, secondary: id, secondaryPicks: [] }
@@ -291,10 +306,11 @@ function withSlotPicks(
   picks: Vec3[],
   normals: Vec3[] = [],
 ): AlignDraft {
+  const base = { ...ad, proposal: undefined }
   if (slot === 'primary')
-    return { ...ad, primary: null, primaryPicks: picks, primaryPickNormals: normals }
-  if (slot === 'secondary') return { ...ad, secondary: null, secondaryPicks: picks }
-  return { ...ad, origin: null, originPicks: picks }
+    return { ...base, primary: null, primaryPicks: picks, primaryPickNormals: normals }
+  if (slot === 'secondary') return { ...base, secondary: null, secondaryPicks: picks }
+  return { ...base, origin: null, originPicks: picks }
 }
 
 /** A dimension in the making. pickSlot marks a point slot waiting for a
@@ -339,6 +355,14 @@ function freshDraft(
     status: 'empty',
     ...edit,
   }
+}
+
+/** Whether the box holds work a second editor would throw away: an edit,
+ *  picks, a marked surface, a reference filled. A kind merely in hand — the
+ *  empty draft Create leaves behind for the next one — holds nothing, so
+ *  neither the row keys nor undo stand down for it. */
+export function draftHolds(d: Draft | null): boolean {
+  return d !== null && (d.editId !== undefined || d.picks.length > 0 || (d.selection?.length ?? 0) > 0 || d.refs.some((r) => r !== null))
 }
 
 /** What a draft leaves behind when it is closed unfinished: itself, if it
@@ -715,6 +739,11 @@ interface AppState {
    *  alignment — what a first alignment centres on the origin. */
   modelCenter: Vec3
   busy: boolean
+  /** A search the tool is running on the scan for the user — Auto-align
+   *  reading the part's directions, Use symmetry looking for its mirror
+   *  plane — as the word the viewport shows over the part meanwhile, or
+   *  null. The strip's status line says what is being searched for. */
+  working: string | null
   statusText: string
   errorText: string | null
   elements: Element[]
@@ -786,11 +815,17 @@ interface AppState {
    *  the same reason: which cloud format the next tool reads is how the user
    *  works, not what the part is. */
   cloudFormat: CloudFormat
+  /** Whether the scan's sharp edges are drawn sharp — split for shading, see
+   *  core/geometry/crease.ts — always, never, or only when the mesh looks
+   *  tessellated from CAD. Remembered per browser: it is a way of looking,
+   *  and the reference part is always drawn sharp regardless. */
+  creaseMode: CreaseMode
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
   setStatus: (text: string) => void
   setError: (text: string | null) => void
+  setWorking: (label: string | null) => void
   beginLoad: (name: string) => void
   finishLoad: (
     vertexCount: number,
@@ -863,6 +898,10 @@ interface AppState {
   resolveDraft: (r: FitOutput) => void
   failDraft: (message: string) => void
   cancelDraft: () => void
+  /** The box emptied and the kind kept in hand — same method, same
+   *  settings: what Create leaves behind for the next element, and Escape's
+   *  first step on a new draft with picks in it. Nothing for an edit. */
+  restartDraft: () => void
   /** Put the discarded draft back, with its marking, ready to be measured on
    *  it again — the caller paints the selection back onto the part and asks
    *  for the fit or the search. Does nothing over an open draft. */
@@ -902,6 +941,11 @@ interface AppState {
   resolveSection: (id: number, cutKey: string, cut: SectionCut) => void
   failSection: (id: number, message: string) => void
   startAlignment: () => void
+  /** Open the alignment editor on a proposal: every slot filled with its
+   *  picks — the face the part stands on facing down, X along the second
+   *  direction — and `note` saying what the proposal was read from. Nothing
+   *  moves until it is applied, and every choice can still be changed. */
+  proposeAlignment: (proposal: AlignmentProposal, note: string) => void
   cancelAlignment: () => void
   setAlignmentRef: (slot: AlignSlot, id: number | null) => void
   setAlignmentAxis: (slot: 'primary' | 'secondary', axis: AxisDir) => void
@@ -956,6 +1000,7 @@ interface AppState {
   setViewTheme: (id: string) => void
   setStepStyle: (style: StepStyle) => void
   setCloudFormat: (format: CloudFormat) => void
+  setCreaseMode: (mode: CreaseMode) => void
   openImprint: (v: boolean) => void
 }
 
@@ -963,6 +1008,7 @@ const NAV_SCHEME_KEY = 'scanruler.navscheme'
 const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
 const CLOUD_FORMAT_KEY = 'scanruler.cloudformat'
+const CREASE_KEY = 'scanruler.crease'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -998,6 +1044,15 @@ const storedCloudFormat = (): CloudFormat => {
   }
 }
 
+const storedCreaseMode = (): CreaseMode => {
+  try {
+    const v = localStorage.getItem(CREASE_KEY)
+    return v === 'on' || v === 'off' ? v : 'auto'
+  } catch {
+    return 'auto'
+  }
+}
+
 
 const freshCounters = (): Record<ElementKind, number> => ({
   point: 1,
@@ -1007,6 +1062,7 @@ const freshCounters = (): Record<ElementKind, number> => ({
   cylinder: 1,
   cone: 1,
   circle: 1,
+  torus: 1,
 })
 
 export const useStore = create<AppState>()((set, get) => ({
@@ -1016,6 +1072,7 @@ export const useStore = create<AppState>()((set, get) => ({
   modelSize: 1,
   modelCenter: [0, 0, 0],
   busy: false,
+  working: null,
   statusText: '',
   errorText: null,
   elements: [],
@@ -1043,10 +1100,12 @@ export const useStore = create<AppState>()((set, get) => ({
   viewTheme: storedViewTheme(),
   stepStyle: storedStepStyle(),
   cloudFormat: storedCloudFormat(),
+  creaseMode: storedCreaseMode(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
   setError: (errorText) => set({ errorText }),
+  setWorking: (working) => set({ working }),
 
   beginLoad: (name) =>
     set({
@@ -1443,6 +1502,13 @@ export const useStore = create<AppState>()((set, get) => ({
       dimDraft: s.dimDraft ? { ...s.dimDraft, pickSlot: null } : null,
     })),
 
+  restartDraft: () =>
+    set((s) =>
+      s.draft && s.draft.editId === undefined
+        ? { draft: freshDraft(s.draft.kind, s.draft.method, s.draft.settings), errorText: null }
+        : {},
+    ),
+
   restoreDraft: () =>
     set((s) => {
       const d = s.discarded
@@ -1458,7 +1524,7 @@ export const useStore = create<AppState>()((set, get) => ({
         draft: {
           ...d,
           ...edit,
-          seed: alive(d.seed) ? d.seed : null,
+          seed: alive(d.seed) || (d.seed != null && d.seed < 0) ? d.seed : null,
           refs: d.refs.map((r) => (alive(r) ? r : null)),
           orient: d.orient && alive(d.orient.ref) ? d.orient : undefined,
           status: 'empty',
@@ -1551,11 +1617,16 @@ export const useStore = create<AppState>()((set, get) => ({
     const id = get().nextId
     const num = get().nextNumber
     const ofKind = get().nextOfKind[d.kind]
+    // The kind stays in hand for the next one, as a sketch tool does, until
+    // Cancel or Escape puts it down — one plane is seldom the last. The
+    // point picked for a dimension slot is the exception: a one-off, and
+    // the box goes back to the dimension.
+    const forSlot = get().dimDraft?.pickSlot != null && d.kind === 'point'
     set((s) => ({
       nextId: id + 1,
       nextNumber: num + 1,
       nextOfKind: { ...s.nextOfKind, [d.kind]: ofKind + 1 },
-      draft: null,
+      draft: forSlot ? null : freshDraft(d.kind, d.method, d.settings),
       elements: reevaluateConstructions(
         [
           ...s.elements,
@@ -1604,6 +1675,28 @@ export const useStore = create<AppState>()((set, get) => ({
         origin: null,
         originPicks: [],
         pickSlot: null,
+      },
+      draft: null,
+      discarded: keptOf(s.draft),
+      dimDraft: null,
+      sectionDraft: null,
+      errorText: null,
+    })),
+
+  proposeAlignment: (proposal, note) =>
+    set((s) => ({
+      alignDraft: {
+        primary: null,
+        primaryPicks: proposal.primary,
+        primaryPickNormals: proposal.primaryNormals,
+        primaryAxis: 'z-',
+        secondary: null,
+        secondaryPicks: proposal.secondary,
+        secondaryAxis: 'x+',
+        origin: null,
+        originPicks: [proposal.origin],
+        pickSlot: null,
+        proposal: note,
       },
       draft: null,
       discarded: keptOf(s.draft),
@@ -1932,17 +2025,22 @@ export const useStore = create<AppState>()((set, get) => ({
 
   clearAppliedAlignment: () => set({ appliedAlignment: null }),
 
+  // One thing in hand at a time: a dimension closes the element draft, as
+  // an alignment or a section does, so a click in the viewport has one
+  // taker — the slot. A marked surface is kept (see `discarded`).
   startDimension: (type) =>
-    set({
+    set((s) => ({
       dimDraft: {
         type,
         refs: dimensionTypeInfo(type).slots.map(() => null),
         anchor: 'center',
         pickSlot: null,
       },
+      draft: null,
+      discarded: keptOf(s.draft),
       alignDraft: null,
       sectionDraft: null,
-    }),
+    })),
 
   editDimension: (id) =>
     set((s) => {
@@ -1959,6 +2057,8 @@ export const useStore = create<AppState>()((set, get) => ({
           limit: d.limit,
           basic: d.basic,
         },
+        draft: null,
+        discarded: keptOf(s.draft),
         alignDraft: null,
         sectionDraft: null,
       }
@@ -2106,7 +2206,10 @@ export const useStore = create<AppState>()((set, get) => ({
         ],
         nextDimensionId: s.nextDimensionId + 1,
         nextOfDimGroup: { ...s.nextOfDimGroup, [key]: n + 1 },
-        dimDraft: null,
+        // The box stays open for the next one of the same type, its slots
+        // empty — the way the sketch's Dimension tool stays in hand — until
+        // Cancel or Escape closes it.
+        dimDraft: { type: dd.type, refs: info.slots.map(() => null), anchor: 'center', pickSlot: null },
       }
     }),
 
@@ -2170,6 +2273,14 @@ export const useStore = create<AppState>()((set, get) => ({
       // Same as above: the export still goes out in the form that was asked for.
     }
     set({ cloudFormat })
+  },
+  setCreaseMode: (creaseMode) => {
+    try {
+      localStorage.setItem(CREASE_KEY, creaseMode)
+    } catch {
+      // Same as above: the scan is still redrawn as asked for this session.
+    }
+    set({ creaseMode })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

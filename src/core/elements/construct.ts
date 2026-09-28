@@ -263,6 +263,15 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     slots: [],
     params: [],
   },
+  {
+    id: 'fit',
+    kind: 'torus',
+    mode: 'fit',
+    label: 'Fit to scan',
+    hint: 'Click a point on the middle of a round — a fillet, a bend, an O-ring seat — in the 3D view.',
+    slots: [],
+    params: [],
+  },
   // ---- Circle ----------------------------------------------------------------
   {
     id: 'circle-points',

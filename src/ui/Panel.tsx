@@ -2,7 +2,7 @@
 // The left faceplate: everything the operator sets, and every number the tool
 // reports. Controls at the top, readouts below, in the order the work happens.
 
-import { useStore, type SelectMode } from '../state/store'
+import { draftHolds, useStore, type SelectMode } from '../state/store'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS, elementKindInfo } from '../core/elements/kinds'
@@ -20,9 +20,22 @@ import { ToleranceSection } from './ToleranceSection'
 import { DraftEditor } from './DraftEditor'
 import { ShowAllButton } from './ShowAllButton'
 import { ElementRow } from './ElementRow'
+import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { SectionEditor } from './SectionEditor'
+
+/** The picture on each element type's key. */
+const KIND_ICON: Record<(typeof ELEMENT_KINDS)[number]['id'], IconName> = {
+  point: 'elPoint',
+  line: 'elLine',
+  plane: 'elPlane',
+  sphere: 'elSphere',
+  cylinder: 'elCylinder',
+  cone: 'elCone',
+  circle: 'elCircle',
+  torus: 'elTorus',
+}
 
 export function Panel({
   onOpenScan,
@@ -43,6 +56,8 @@ export function Panel({
   onCancelSection,
   onConfirmSection,
   onCopy,
+  onAutoAlign,
+  onAlignSymmetry,
   onStartAlignment,
   onApplyAlignment,
   onApplyManual,
@@ -79,6 +94,8 @@ export function Panel({
   onCancelSection: () => void
   onConfirmSection: () => void
   onCopy: () => void
+  onAutoAlign: () => void
+  onAlignSymmetry: () => void
   onStartAlignment: () => void
   /** Bake the computed datum alignment into the part. */
   onApplyAlignment: (m: Rigid) => void
@@ -129,8 +146,9 @@ export function Panel({
 
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
+  // A kind merely in hand, its box still empty, is not in the way.
   const editorOpen =
-    draft !== null || dimDraft !== null || alignDraft !== null || sectionDraft !== null
+    draftHolds(draft) || dimDraft !== null || alignDraft !== null || sectionDraft !== null
 
   // Elements currently referenced by the dimension, construction, alignment
   // or section being built — marked in the list to mirror their glow in the
@@ -169,13 +187,15 @@ export function Panel({
       </div>
 
       <AlignmentSection
+        onAutoAlign={onAutoAlign}
+        onAlignSymmetry={onAlignSymmetry}
         onStartAlignment={onStartAlignment}
         onApplyAlignment={onApplyAlignment}
         onApplyManual={onApplyManual}
         onResetAlignment={onResetAlignment}
       />
 
-      {draft === null && sectionDraft === null && (
+      {sectionDraft === null && (
         <div className="group">
           <div className="sec-head">
             Create element
@@ -195,21 +215,32 @@ export function Panel({
                 Which of those a kind offers appears as <i>Created</i> once you choose it.
               </p>
               <p>
+                The kind stays in hand after <b>Create</b>, ready for the next one, as a sketch
+                tool does — <b>Cancel</b> or <b>Esc</b> puts it down; on a box with picks in it,
+                <b> Esc</b> first empties the box.
+              </p>
+              <p>
                 <b>Section</b> is not an element but a cut: the scan sliced with a plane taken
                 across an element&apos;s direction, to be measured on the sheet of the 2D Measure
                 workspace.
               </p>
             </InfoDot>
           </div>
-          <div className={pulseKind && !busy ? 'kindrow pulse' : 'kindrow'}>
+          <div className={pulseKind && !busy ? 'kindrow featurekeys three pulse' : 'kindrow featurekeys three'}>
             {ELEMENT_KINDS.map((k) => (
+              // The kind in hand is shown pressed, as the sketch's tools are;
+              // while an element is being edited, its box is the one thing
+              // open and the row stands down.
               <button
                 key={k.id}
                 data-test={`fit-${k.id}`}
-                disabled={!fileName || busy}
+                className={draft?.kind === k.id && draft.editId === undefined ? 'on' : undefined}
+                aria-pressed={draft?.kind === k.id && draft.editId === undefined}
+                disabled={!fileName || busy || draft?.editId !== undefined}
                 onClick={() => onStartDraft(k.id)}
               >
-                {k.label}
+                <Icon name={KIND_ICON[k.id]} />
+                <span>{k.label}</span>
               </button>
             ))}
             <button
@@ -218,7 +249,8 @@ export function Panel({
               title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
               onClick={onStartSection}
             >
-              Section
+              <Icon name="section" />
+              <span>Section</span>
             </button>
           </div>
         </div>

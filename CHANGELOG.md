@@ -5,6 +5,172 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## 0.4.4 — 2026-09-28
+
+- **Workspaces can come from plugins** (2026-09-27). The app finds them in
+  `plugins/<id>/` when it is built and gives each its tab, panel and part of
+  the viewport, its own key in the project file, its share of undo and redo
+  and of the mesh worker, and its notices in the imprint — all through the
+  interfaces in `src/plugins/api.ts`, with nothing in `src/` naming a
+  plugin. The open-source build has none; a project saved by a build with
+  one opens in it with that plugin's part set aside and saved back
+  unchanged.
+
+- **The Measure workspace is 3D Measure** (2026-09-25). Its tab in the top
+  bar says so, beside 2D Measure, and so do the undo history, the
+  Deviation workspace's pointer to it (*Go to 3D Measure…*) and the README,
+  which still called it Elements.
+
+- **The kind stays in hand after Create in both Measure workspaces**
+  (2026-09-23). Creating a plane, a circle, a dimension left the box closed
+  and the next one wanted the key pressed again. Now Create leaves an empty box of the same
+  kind, on the same method and settings, ready for the next one, and Add
+  dimension the same for its type; Cancel or Esc puts the kind down, and
+  Esc on a box with picks in it empties the box first. The Create element row
+  stays on screen with the kind in hand pressed, and pressed again it
+  starts the box over. A kind merely in hand, its box empty, no longer
+  disables the row keys or undo, and does not count as unsaved work for the
+  leave-page warning; a dimension started closes the element draft, as an
+  alignment or a section always did, and its key stands down while that
+  draft holds picks, as the row keys do. Tests: `toolInHand`, `flatStore`,
+  `history`; `e2e-flat`, `e2e-spline`, `e2e-circle` and `e2e-history`
+  drive it.
+
+- **Use symmetry and Auto-align say so in the viewport while they search**
+  (2026-09-23). Seconds of searching on a big scan showed nothing but a
+  line in the strip; the busy card over the part now reads SEARCHING… or
+  READING… with that line under it, as the symmetry plane's own box does
+  while it looks.
+
+- **Opening an STL asks what units it is in** (2026-09-23). The format
+  carries none — a 1 in the file is whatever wrote it meant — and a part
+  read at the wrong scale measures wrong in every number after. A window
+  now asks, offering millimetres, centimetres, metres and inches, the last
+  answer first, and the file is read in millimetres like everything
+  measured here (the worker scales the coordinates before the mesh is
+  welded, so fits, readings and exports all see millimetres; the status
+  line says when a file was converted). **Don't ask again** on the window
+  makes the answer stand for every STL; **Settings → Files** brings the
+  question back and holds the units assumed meanwhile. The scan and the
+  Deviation reference both ask; a PLY or OBJ is read in millimetres as
+  before, a STEP file says its own units, and the sample bracket — the
+  instrument's own file — does not ask. A project remembers the units its scan and reference were read
+  in (`units` on the scan and reference entries, only when not mm) and
+  reads them the same way again, as does the worker after a restart.
+  Tests: the scale in `workerImport`, the manifest field and its
+  validation in `project`, the question's flow in `meshUnits`; the e2e
+  harness switches the question off before the app starts, and
+  `e2e-import` turns it on to drive the window.
+
+- **Auto-align** — the Alignment group proposes the part's coordinate system
+  from the scan alone and opens *Align part* filled in with it: the pose
+  previewed against the coordinate planes, nothing applied, the side that is
+  down and the way X runs still a dropdown each. The directions come from a
+  vote of the surface's normals (core/autoAlign.ts): an area-weighted
+  histogram over directions with a normal and its opposite in one bin, its
+  peaks the directions the faces are square to, the pole of the remaining
+  normals the axis of a turned or extruded part; frames built from those
+  candidates are scored by the surface they explain (faces on an axis, walls
+  along one at half worth, the bounding box between equals) and the winner is
+  settled on the normals themselves by the best rotation (Horn's closed form
+  on directions), so drafted walls average onto the direction they lean
+  about; a main axis is set square to its walls instead. It needs no closed
+  mesh. Normals are averaged over their neighbourhood against scan noise,
+  never across an edge, and the triangles on an edge vertex — all of them, on
+  a twelve-triangle cube out of CAD — vote with their own normal. What is
+  missing from the scan is read too: its open edges are taken loop by loop
+  (the open edges of a loop, run the way their triangles do, sum to the
+  vector area the loop spans, so no loop is walked in order), and a loop
+  that lies in a plane — the rim of a housing, the cut where a part stood on
+  the table — votes as the face that would close it, with the area it spans.
+  On a housing scanned from above (block-marius.ply: a missing base a
+  quarter of the surface, 45° chamfers larger than the side walls) that is
+  what keeps the chamfers from winning the frame. Up is the side worth most:
+  the flat face lying on it as a share of the surface, plus half of how much
+  of that side of the box the scan's openings cover — the scan's vector area,
+  Σ area · normal, seen along that side — so a side wholly open outweighs
+  any face, wherever in the box its ragged edge lies; a turned part chooses
+  between the ends of its axis the same way; the side already nearest to
+  down wins between equals; the long side runs along X; zero lies on the standing face under
+  the middle of the box, or on the common axis of the round walls. With no
+  face directions and no round walls it falls back on the principal axes and
+  says it is a guess. 1.4 s on 1.9 million triangles, in the mesh worker.
+  Tests: autoAlign (a noisy block to 0.05°, an open scan, a shaft with zero
+  on its axis, a lug that turns the principal axes, coarse CAD meshes,
+  drafted walls, an open housing whose slopes would win the frame without
+  its rim, a ragged opening, a ball, the proposal as a 3-2-1 alignment and in the store);
+  e2e-auto-align aligns a block lying at an odd angle and is then proposed
+  the pose it is in (0°, 0 mm).
+
+- **Find symmetry plane is several times faster** — most of its time went
+  into the two principal planes that lose: a plane the part is not symmetric
+  about never lets the mirror registration settle, so it ran every iteration
+  of every pass. Candidates are now settled and judged on a sixth of the
+  samples with a loose registration first, and only the winner (and a
+  runner-up within a quarter of it) goes on to the full sample and the tight
+  registration; after a pass has shown how far the mirror images lie from
+  the scan, the next searches only a few times that far, which shortens the
+  facing-aware closest-point search. The part's face directions from
+  Auto-align stand beside the principal planes as candidates. The unseeded
+  searches of the test suite went from 2.8 s to 0.4 s with the same planes to
+  the same tolerances.
+
+- **Drawn icons on the keys.** One set drawn for the tool (`ui/icons.tsx`,
+  92 pictures) to four rules: ink is what is there, blue is what the key
+  makes or changes, dashed is what goes or is only referred to, dots are
+  the scan. Keys that start something carry the picture over their word —
+  the element types of Measure and 2D Measure. The marking tools
+  (Navigate, Pick points, Window, Brush, Lasso, Erase), the pencil, eye
+  and bin at the end of every list row, Hide all, the view bar's keys,
+  the workspace tabs (on a wide window), Save, Load and Settings, the 2D
+  sheet's Rotate and Mirror carry theirs beside the word, in place of the ✥ ▭ ● ⌇ ◑ ✎ ◉ ✕ ↺ ↔ ⚙ ⇅
+  characters that stood there.
+
+- **Support card in ⚙ Settings** — a switch that keeps the thank-you card in
+  the corner of the stage from coming up at all. Its × still closes it for
+  the visit only; the switch is remembered per browser like the rest.
+
+- **Fixed: a deviation or thickness map was not drawn on a part with
+  sharp edges drawn sharp.** The colour buffer of such a part runs past the
+  scan's vertices with the copies split off for shading, and the map — one
+  reading per vertex of the scan — was refused for not being the buffer's
+  length, so the figures were right and the part stayed bare. Found on the
+  sample part, which is flat-faced.
+
+## 0.4.3 — 2026-09-14
+
+- **Sharp edges drawn sharp** (issue #5) — a mesh exported from CAD rather
+  than scanned, a low-poly STL out of OpenSCAD or a slicer, used to shade
+  like a pillow: the viewer had one normal per welded vertex, so a box's
+  corner pointed out of the corner and every flat face ran a gradient from
+  it, and a bored hole read as a dent. At every edge sharper than 30° the
+  two faces now get their own normals — the vertex is drawn twice, once per
+  side, with the copies kept after the mesh's own vertices so nothing
+  measured, marked or mapped moves — and a box has six flat faces. A scan
+  stays smooth, which is what a scanned surface is: drawing its noise sharp
+  would speckle it and double its vertex list. **Sharp edges** in
+  ⚙ Settings decides: **Auto**, the default, tells a tessellation from a
+  scan by the mesh itself (a CAD part is full of dead-flat edges between
+  coplanar triangles, a scan has practically none), **Always sharp** and
+  **Always smooth** overrule it and take effect on the loaded scan at once,
+  with the status line saying what was done. However it is set, a split
+  that would add more vertices than the scan has is not made. The reference
+  part is CAD and is always drawn sharp.
+- **Fit to edge in 2D Measure** — the 2D twin of the fit from a click on
+  the scan: Line and Circle gain a *Fit to edge* method that takes one
+  click anywhere on a detected edge and grows the fit along it from there,
+  refitting as it goes, until the edge bends away — at a corner, or where a
+  fillet runs out into the side it joins. A click on one side of a part
+  takes that side and stops at its fillets, a click on a fillet takes the
+  fillet, and a click on a hole's rim takes the hole all the way round. The
+  noise band and every sanity check are scaled by the chain's own scatter,
+  so the same rule serves a 600 dpi scan in pixels and a section in
+  millimetres. A line clicked on a curve, or a circle clicked on a straight
+  edge, is refused with the reason in the box rather than fitted to
+  whatever was there. A second click adds another stretch of the same edge.
+  On a section, whose outline is one clean chain, **Line** and **Circle**
+  open with the fit to edge rather than with hand picking.
+
 ## 0.4.2 — 2026-09-13
 
 - **Symmetry plane and centroid of the scan** — two constructions that read

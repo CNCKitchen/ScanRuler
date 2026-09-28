@@ -5,7 +5,7 @@
 // the pending fit, then create / save, undo, cancel. Renders nothing
 // without a draft.
 
-import { flatMethod, flatMethodsForKind } from '../core/flat/construct'
+import { collectsEdgePoints, flatMethod, flatMethodsForKind } from '../core/flat/construct'
 import { datumFrame, fitInFrame } from '../core/flat/datum'
 import { FLAT_KIND_LABELS, flatPicksNeeded } from '../core/flat/elements'
 import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
@@ -52,16 +52,25 @@ export function FlatDraftEditor() {
 
   // What to do next, in one line — the method's own hint until the first
   // pick lands, then where the fit stands.
+  // A click that collected nothing on a fit-to-edge draft leaves its
+  // reason on the draft; with a fit already standing, the hint is where it
+  // shows, since the readout keeps the fit.
   const pickHint =
     method.mode === 'construct'
       ? method.hint
-      : picks === 0
-        ? method.hint
-        : method.mode === 'edge'
-          ? draft.fit
-            ? `Click another edge or drag another box to add more edge points, or ${saveWord}.`
-            : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; click a longer edge or drag a bigger box.`
-          : draft.kind === 'point'
+      : method.mode === 'seed' && draft.fit && draft.error
+        ? draft.error
+        : picks === 0
+          ? method.hint
+          : method.mode === 'seed'
+            ? draft.fit
+              ? `Click another stretch of the same edge to add it — the far side of a slot, a hole that breaks it — or ${saveWord}.`
+              : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; click a longer stretch of edge.`
+            : method.mode === 'edge'
+              ? draft.fit
+                ? `Click another edge or drag another box to add more edge points, or ${saveWord}.`
+                : `${picks.toLocaleString('en-US')} edge points — not enough for a fit yet; click a longer edge or drag a bigger box.`
+              : draft.kind === 'point'
             ? `Drag the pin to move it, click to place it again, or ${saveWord}.`
             : isSpline
               ? picks < minPicks
@@ -152,7 +161,7 @@ export function FlatDraftEditor() {
           <span>Preview</span>
           {method.mode !== 'construct' && (
             <span data-test="flat-draft-picks">
-              {method.mode === 'edge'
+              {collectsEdgePoints(method)
                 ? `${picks.toLocaleString('en-US')} edge points`
                 : `${picks} pick${picks === 1 ? '' : 's'}`}
             </span>
@@ -197,7 +206,7 @@ export function FlatDraftEditor() {
       <div className="toolrow">
         {method.mode !== 'construct' && (
           <button data-test="flat-draft-undo" disabled={picks === 0} onClick={undoDraftPick}>
-            {method.mode === 'edge' ? 'Clear points' : 'Undo point'}
+            {collectsEdgePoints(method) ? 'Clear points' : 'Undo point'}
           </button>
         )}
         {isSpline && (

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { MeshGraph, ParsedMesh } from './types'
+import type { MeshGraph, ParsedMesh, Vec3 } from './types'
 import type { WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
@@ -8,6 +8,7 @@ import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { wireSlots } from './geometry/wireSlots'
+import { creaseFor, splitCreases, type CreaseMode } from './geometry/crease'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
 import {
@@ -23,7 +24,12 @@ import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thic
 import { sliceMesh } from './section/slice'
 import { meshCentroid } from './geometry/centroid'
 import { trianglesWithin } from './geometry/region'
+import { floodByNormal } from './fit/regionGrow'
+import { meanCurvature } from './geometry/curvature'
 import { findSymmetryPlane } from './symmetry'
+import { autoAlign } from './autoAlign'
+import { workerPlugins } from './workerPlugins'
+import type { WorkerContext } from './workerPluginApi'
 import type { MeshBVH } from 'three-mesh-bvh'
 
 let graph: MeshGraph | null = null
@@ -38,10 +44,59 @@ let scanSolid: MeshBVH | null = null
 /** The scan prepared for closest-point queries, for the symmetry search —
  *  the same structure a reference gets. Built on first use, and remembered
  *  with the graph it describes so a new scan or moved vertices drop it. */
-let scanSurface: { graph: MeshGraph; surface: NominalSurface } | null = null
+let scanSurfaces = new WeakMap<MeshGraph, NominalSurface>()
+const stagedScans = new Map<number, MeshGraph>()
+const stagedNominals = new Map<number, NominalSurface>()
 
 function post(msg: WorkerResponse, transfer: Transferable[] = []): void {
   ;(self as unknown as { postMessage(m: unknown, t: Transferable[]): void }).postMessage(msg, transfer)
+}
+
+/** Hand the render thread the scan's geometry: its own copies of positions,
+ *  normals and indices, with the sharp edges split for shading as `crease`
+ *  asks. The worker keeps its index buffer — the fitting pipeline has no use
+ *  for it, but a wall thickness ray does, and re-deriving it from the file
+ *  would mean parsing and welding the whole scan again. The mesh mode's
+ *  corner slots ride along: they come off the adjacency the graph already
+ *  holds, and the render thread has no adjacency. */
+function postScan(
+  requestId: number,
+  g: MeshGraph,
+  crease: CreaseMode,
+  progress: (t: string) => void,
+): void {
+  const slotsOwn = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
+  if (crease !== 'off') progress('Finding sharp edges…')
+  const { split, report } = creaseFor(crease, g.positions, g.indices, slotsOwn)
+  const positions = split ? split.positions : g.positions.slice()
+  const indices = split ? split.indices : g.indices.slice()
+  const normals = split ? split.normals : g.normals.slice()
+  const slots = split ? split.wireSlots : slotsOwn
+  const copyOf = split ? split.copyOf : new Uint32Array(0)
+  post(
+    {
+      type: 'loaded',
+      requestId,
+      positions,
+      indices,
+      normals,
+      wireSlots: slots,
+      copyOf,
+      crease: report,
+      vertexCount: g.vertexCount,
+      triangleCount: indices.length / 3,
+    },
+    [positions.buffer, indices.buffer, normals.buffer, slots.buffer, copyOf.buffer],
+  )
+}
+
+/** A file in other units brought to millimetres, before anything is built on
+ *  it — the welded graph, the normals, the fits all see millimetres only. */
+function scaleToMm(parsed: ParsedMesh, scale: number | undefined): void {
+  if (scale === undefined || scale === 1) return
+  if (!Number.isFinite(scale) || scale <= 0) throw new Error('Invalid unit scale.')
+  const p = parsed.positions
+  for (let i = 0; i < p.length; i++) p[i] *= scale
 }
 
 function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) => void): ParsedMesh {
@@ -82,9 +137,13 @@ function parseNominal(
  */
 let alignRun: { steps: Steps<AlignResult>; requestId: number } | null = null
 let alignAborted = false
-/** Requests that arrived while a fit was in flight. The worker's contract is
- *  that it answers one thing at a time, and slicing the fit must not quietly
- *  break it: everything but the abort waits its turn. */
+/** A plugin's request that awaits — a library loading, say. Nothing may run
+ *  inside the wait: a scan committed in the gap would be worked on as the
+ *  scan it replaced. */
+let holding = false
+/** Requests that arrived while a fit or a held request was in flight. The
+ *  worker's contract is that it answers one thing at a time, and slicing the
+ *  fit must not quietly break it: everything but the abort waits its turn. */
 const queued: Exclude<WorkerRequest, { type: 'align-abort' }>[] = []
 /** How long a slice of the fit may hold the worker before it goes back to the
  *  inbox. Long enough that the slicing costs nothing measurable, short enough
@@ -99,7 +158,7 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     alignAborted = true
     return
   }
-  if (alignRun) {
+  if (alignRun || holding) {
     queued.push(msg)
     return
   }
@@ -107,46 +166,101 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
 }
 
 /** Whatever came in while the fit had the floor, now that it does not. Requests
- *  are taken one at a time, and a fit among them takes the floor again — the
- *  rest keep waiting, in the order they arrived. */
+ *  are taken one at a time, and a fit or a held request among them takes the
+ *  floor again — the rest keep waiting, in the order they arrived. */
 function drainQueue(): void {
-  while (queued.length > 0 && !alignRun) handle(queued.shift()!)
+  while (queued.length > 0 && !alignRun && !holding) handle(queued.shift()!)
 }
+
+/** The scan prepared for closest-point queries — the same structure a
+ *  reference gets — built on first use and kept until the scan or its
+ *  vertices change. */
+function scanSurfaceOf(g: MeshGraph, progress: (t: string) => void, why: string): NominalSurface {
+  let surface = scanSurfaces.get(g)
+  if (!surface) {
+    progress(why)
+    surface = new NominalSurface(g.positions, g.indices)
+    scanSurfaces.set(g, surface)
+  }
+  return surface
+}
+
+/** The scan was replaced or taken away: the plugins let go of what they made
+ *  of the one before. */
+const scanReplaced = () => {
+  for (const p of workerPlugins) p.scanReplaced?.()
+}
+
+/** What the worker lends a plugin's request. */
+const contextOf = (progress: (t: string) => void): WorkerContext => ({
+  scan: () => graph,
+  takeStaged: (id) => {
+    const g = stagedScans.get(id)
+    stagedScans.delete(id)
+    return g
+  },
+  progress,
+  surfaceOf: (g, why) => scanSurfaceOf(g, progress, why),
+})
 
 function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   const progress = (text: string) => post({ type: 'progress', text })
 
+  if (msg.type === 'discard-import') {
+    for (const id of msg.ids) { stagedScans.delete(id); stagedNominals.delete(id) }
+    post({ type: 'import-ok', requestId: msg.requestId })
+    return
+  }
+  if (msg.type === 'commit-import') {
+    const nextScan = typeof msg.scan === 'number' ? stagedScans.get(msg.scan) : null
+    const nextNominal = typeof msg.nominal === 'number' ? stagedNominals.get(msg.nominal) : null
+    if (
+      (typeof msg.scan === 'number' && !nextScan) ||
+      (typeof msg.nominal === 'number' && !nextNominal)
+    ) {
+      post({ type: 'error', requestId: msg.requestId, message: 'The prepared import is no longer available.' })
+      return
+    }
+    if (msg.scan !== undefined) {
+      graph = nextScan ?? null
+      scanSolid = null
+      if (typeof msg.scan === 'number') stagedScans.delete(msg.scan)
+      scanReplaced()
+    }
+    if (msg.nominal !== undefined) {
+      nominal = nextNominal ?? null
+      if (typeof msg.nominal === 'number') stagedNominals.delete(msg.nominal)
+    }
+    post({ type: 'import-ok', requestId: msg.requestId })
+    return
+  }
+
   if (msg.type === 'load') {
     try {
       const parsed = parseByName(msg.name, msg.buffer, progress)
-      graph = buildMeshGraph(parsed, progress)
-      scanSolid = null
-      // The render thread gets its own copies of positions, normals and
-      // indices. The worker keeps its index buffer — the fitting pipeline has
-      // no use for it, but a wall thickness ray does, and re-deriving it from
-      // the file would mean parsing and welding the whole scan again.
-      const indices = graph.indices.slice()
-      const positions = graph.positions.slice()
-      const normals = graph.normals.slice()
-      // The mesh mode's corner slots ride along: they come off the adjacency
-      // the graph already holds, and the render thread has no adjacency.
-      const slots = wireSlots(graph.adjOffsets, graph.adjList, graph.vertexCount)
-      post(
-        {
-          type: 'loaded',
-          requestId: msg.requestId,
-          positions,
-          indices,
-          normals,
-          wireSlots: slots,
-          vertexCount: graph.vertexCount,
-          triangleCount: indices.length / 3,
-        },
-        [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
-      )
+      scaleToMm(parsed, msg.scale)
+      const candidate = buildMeshGraph(parsed, progress)
+      if (msg.transform) {
+        rigidApplyToPoints(msg.transform, candidate.positions)
+        rigidRotateVectors(msg.transform, candidate.normals)
+      }
+      postScan(msg.requestId, candidate, msg.crease, progress)
+      if (msg.staged) stagedScans.set(msg.requestId, candidate)
+      else { graph = candidate; scanSolid = null; scanReplaced() }
     } catch (e) {
-      graph = null
-      scanSolid = null
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
+    return
+  }
+
+  if (msg.type === 'recrease') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      postScan(msg.requestId, graph, msg.crease, progress)
+    } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
     return
@@ -197,17 +311,23 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   if (msg.type === 'load-nominal') {
     try {
       const { parsed, step } = parseNominal(msg.name, msg.buffer, progress)
+      scaleToMm(parsed, msg.scale)
       // The nominal goes through the same welding as a scan: the pseudonormals
       // that give a signed distance its sign are sums over the faces meeting at
       // a vertex or an edge, and an unwelded triangle soup has no such thing.
       // A STEP import is welded already, so this only pays for a pass over it.
       const g = buildMeshGraph(parsed, progress)
       progress('Indexing reference geometry…')
-      nominal = new NominalSurface(g.positions, g.indices)
-      const positions = g.positions.slice()
-      const indices = g.indices.slice()
-      const normals = g.normals.slice()
-      const slots = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
+      const candidate = new NominalSurface(g.positions, g.indices)
+      // The reference is CAD, so its sharp edges are always drawn sharp —
+      // see geometry/crease.ts. Only the picture is split: the surface the
+      // distances are measured to is the welded one above.
+      const slotsOwn = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
+      const split = splitCreases(g.positions, g.indices, slotsOwn)
+      const positions = split ? split.positions : g.positions.slice()
+      const indices = split ? split.indices : g.indices.slice()
+      const normals = split ? split.normals : g.normals.slice()
+      const slots = split ? split.wireSlots : slotsOwn
       post(
         {
           type: 'nominal-loaded',
@@ -218,13 +338,14 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           wireSlots: slots,
           vertexCount: g.vertexCount,
           triangleCount: g.triangleCount,
-          bboxDiagonal: nominal.bboxDiagonal,
+          bboxDiagonal: candidate.bboxDiagonal,
           step,
         },
         [positions.buffer, indices.buffer, normals.buffer, slots.buffer],
       )
+      if (msg.staged) stagedNominals.set(msg.requestId, candidate)
+      else nominal = candidate
     } catch (e) {
-      nominal = null
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
     return
@@ -292,12 +413,34 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     // new frame. Rigid, so the adjacency graph and bbox diagonal still hold.
     rigidApplyToPoints(msg.transform, graph.positions)
     rigidRotateVectors(msg.transform, graph.normals)
+    // What the plugins keep in the scan's frame stays in it.
+    for (const p of workerPlugins) p.transformed?.(msg.transform)
     // The vertices moved, so the tree built over them no longer describes
     // them. Thickness itself is unaffected — it is a property of the part, not
     // of where the part sits.
     scanSolid = null
-    scanSurface = null
+    scanSurfaces = new WeakMap()
     post({ type: 'transform-ok', requestId: msg.requestId })
+    return
+  }
+
+  if (msg.type === 'flood') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const vertices = floodByNormal(graph, msg.seed, msg.maxAngleDeg, msg.limit)
+    post({ type: 'flood-ok', requestId: msg.requestId, vertices }, [vertices.buffer])
+    return
+  }
+
+  if (msg.type === 'curvature') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const values = meanCurvature(graph)
+    post({ type: 'curvature-ok', requestId: msg.requestId, values }, [values.buffer])
     return
   }
 
@@ -340,17 +483,69 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
         progress('Preparing the marked surface for the symmetry search…')
         surface = new NominalSurface(graph.positions, marked)
       } else {
-        if (!scanSurface || scanSurface.graph !== graph) {
-          progress('Preparing the scan for the symmetry search…')
-          scanSurface = { graph, surface: new NominalSurface(graph.positions, graph.indices) }
+        surface = scanSurfaceOf(graph, progress, 'Preparing the scan for the symmetry search…')
+      }
+      // Without a seed the part's own face directions stand beside the
+      // principal planes as candidates: a lug or a patch the scanner missed
+      // turns the principal axes, not the faces. A part that names none
+      // simply adds none.
+      let directions: Vec3[] | undefined
+      if (!msg.seed) {
+        progress('Reading the part’s directions…')
+        try {
+          directions = autoAlign(graph).axes
+        } catch {
+          directions = undefined
         }
-        surface = scanSurface.surface
       }
       const result = findSymmetryPlane(surface, graph.positions, graph.normals, msg.seed, {
         onProgress: progress,
         vertices: msg.vertices,
+        directions,
       })
       post({ type: 'symmetry-ok', requestId: msg.requestId, result })
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
+    return
+  }
+
+  if (msg.type === 'plugin') {
+    const plugin = workerPlugins.find((p) => p.id === msg.plugin)
+    const fail = (e: unknown) => post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    if (!plugin) {
+      fail(new Error(`No worker part for the plugin "${msg.plugin}".`))
+      return
+    }
+    try {
+      const reply = plugin.handle(msg.op, msg.payload, contextOf(progress))
+      if (!(reply instanceof Promise)) {
+        post({ type: 'plugin-ok', requestId: msg.requestId, result: reply.result }, reply.transfer ?? [])
+        return
+      }
+      // An answer that awaits holds the queue until it settles.
+      holding = true
+      reply
+        .then((r) => post({ type: 'plugin-ok', requestId: msg.requestId, result: r.result }, r.transfer ?? []))
+        .catch(fail)
+        .finally(() => {
+          holding = false
+          drainQueue()
+        })
+    } catch (e) {
+      fail(e)
+    }
+    return
+  }
+
+  if (msg.type === 'auto-align') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      progress('Reading the part’s directions…')
+      post({ type: 'auto-align-ok', requestId: msg.requestId, result: autoAlign(graph) })
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }

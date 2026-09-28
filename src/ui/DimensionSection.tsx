@@ -13,7 +13,7 @@ import {
   type SphereAnchor,
 } from '../core/dimensions'
 import type { FitData } from '../core/types'
-import { useStore } from '../state/store'
+import { draftHolds, useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { surfaceSource, useSurfaces } from '../app/surfaces'
 import { ValueWindow } from './DroValue'
@@ -36,6 +36,9 @@ export function DimensionSection({
   const elements = useStore((s) => s.elements)
   const dimensions = useStore((s) => s.dimensions)
   const dimDraft = useStore((s) => s.dimDraft)
+  // An element box with work in it stands the key down, as it does the row
+  // keys: a dimension started closes that box. A kind merely in hand does not.
+  const draftBusy = useStore((s) => draftHolds(s.draft))
   const startDimension = useStore((s) => s.startDimension)
   const editDimension = useStore((s) => s.editDimension)
   const setDimensionName = useStore((s) => s.setDimensionName)
@@ -108,6 +111,10 @@ export function DimensionSection({
             Between two spheres you can also measure the surface gap or the outer span instead of
             centre to centre — a ball-bar length is centre to centre.
           </p>
+          <p>
+            <b>Add dimension</b> leaves the box open for the next one of the same type, its
+            slots empty; <b>Cancel</b> or <b>Esc</b> closes it.
+          </p>
         </InfoDot>
         {own.length > 0 && <b>{own.length}</b>}
       </div>
@@ -117,7 +124,7 @@ export function DimensionSection({
           <button
             className={pulseNew ? 'block pulse' : 'block'}
             data-test="new-dimension"
-            disabled={elements.every((e) => !e.fit) || dimDraft !== null}
+            disabled={elements.every((e) => !e.fit) || dimDraft !== null || draftBusy}
             onClick={() => startDimension('dist-point-point')}
           >
             New dimension

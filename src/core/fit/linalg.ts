@@ -7,6 +7,46 @@ import { cross } from '../vec'
 export { cross, dot } from '../vec'
 
 /** Gaussian elimination with partial pivoting; a is n×n row-major, mutated. */
+/**
+ * Solve a symmetric positive-definite system by Cholesky — half the work
+ * of elimination with pivoting, and the inner loops run along rows, which
+ * is what makes it fast on a couple of hundred unknowns. `a` is read, not
+ * written. Null when a pivot comes out at or below `tiny`, which for a
+ * matrix scaled to unit diagonal means it is not positive definite after
+ * all; the caller falls back to elimination or damps harder.
+ */
+export function choleskySolve(n: number, a: Float64Array, b: Float64Array, tiny = 1e-12): Float64Array | null {
+  const L = new Float64Array(n * n)
+  for (let j = 0; j < n; j++) {
+    const rj = j * n
+    let d = a[rj + j]
+    for (let k = 0; k < j; k++) d -= L[rj + k] * L[rj + k]
+    if (!(d > tiny)) return null
+    const ljj = Math.sqrt(d)
+    L[rj + j] = ljj
+    for (let i = j + 1; i < n; i++) {
+      const ri = i * n
+      let s = a[ri + j]
+      for (let k = 0; k < j; k++) s -= L[ri + k] * L[rj + k]
+      L[ri + j] = s / ljj
+    }
+  }
+  const y = new Float64Array(n)
+  for (let i = 0; i < n; i++) {
+    const ri = i * n
+    let s = b[i]
+    for (let k = 0; k < i; k++) s -= L[ri + k] * y[k]
+    y[i] = s / L[ri + i]
+  }
+  const x = new Float64Array(n)
+  for (let i = n - 1; i >= 0; i--) {
+    let s = y[i]
+    for (let k = i + 1; k < n; k++) s -= L[k * n + i] * x[k]
+    x[i] = s / L[i * n + i]
+  }
+  return x
+}
+
 export function solveLinear(n: number, a: Float64Array, b: Float64Array): Float64Array | null {
   let maxAbs = 0
   for (let i = 0; i < n * n; i++) maxAbs = Math.max(maxAbs, Math.abs(a[i]))

@@ -46,11 +46,11 @@ export interface AxialWindow {
   end: number
 }
 
-export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'cone' | 'circle'
+export type ElementKind = 'point' | 'line' | 'plane' | 'sphere' | 'cylinder' | 'cone' | 'circle' | 'torus'
 
 /** The kinds that are measured by fitting to the scan surface. Points are
- *  picked, lines only constructed; these four run the worker pipeline. */
-export type FittedElementKind = 'sphere' | 'cylinder' | 'cone' | 'plane'
+ *  picked, lines only constructed; these five run the worker pipeline. */
+export type FittedElementKind = 'sphere' | 'cylinder' | 'cone' | 'plane' | 'torus'
 
 export interface Sphere {
   cx: number
@@ -92,6 +92,21 @@ export interface Cone {
   az: number
   r: number
   phi: number
+}
+
+/** A torus: a tube of radius r round the circle of radius R about the axis
+ *  through c — the shape of a fillet's round or a bend. */
+export interface Torus {
+  cx: number
+  cy: number
+  cz: number
+  ax: number
+  ay: number
+  az: number
+  /** The spine circle's radius. */
+  R: number
+  /** The tube's radius. */
+  r: number
 }
 
 /** What every fit reports regardless of geometry: the RMS form deviation and
@@ -174,6 +189,21 @@ export interface ConeFit extends FitBase {
   coverage: number
 }
 
+export interface TorusFit extends FitBase {
+  kind: 'torus'
+  /** The centre of the spine circle. */
+  center: Vec3
+  axis: Vec3
+  /** The spine circle's radius and the tube's. */
+  majorRadius: number
+  minorRadius: number
+  /** Degrees of the tube's cross section the fitted surface wraps, and of
+   *  the spine it reaches round — a fillet is a quarter of the one over
+   *  a stretch of the other. */
+  tubeCoverage: number
+  spineCoverage: number
+}
+
 export interface PlaneFit extends FitBase {
   kind: 'plane'
   /** Middle of the fitted patch (lies in the plane). */
@@ -198,7 +228,7 @@ export interface CircleFit extends FitBase {
 
 /** The geometry of one element — everything except the (large) list of mesh
  *  vertices a fitted one was measured on. */
-export type FitData = SphereFit | CylinderFit | ConeFit | PlaneFit | PointFit | LineFit | CircleFit
+export type FitData = SphereFit | CylinderFit | ConeFit | PlaneFit | PointFit | LineFit | CircleFit | TorusFit
 
 /** How an element came to be, and what is needed to rebuild it: fitted
  *  elements re-fit from their seeds with their own fit settings, picked
@@ -234,3 +264,4 @@ interface WithRegion {
 export type FitOutput = FitData & WithRegion
 
 export type SphereFitOutput = SphereFit & WithRegion
+export type TorusFitOutput = TorusFit & WithRegion

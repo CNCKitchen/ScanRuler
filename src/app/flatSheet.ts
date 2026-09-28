@@ -8,7 +8,7 @@
 // the picks. This module is the one place that conversion happens on the
 // way out.
 
-import { flatMethod } from '../core/flat/construct'
+import { collectsEdgePoints, flatMethod } from '../core/flat/construct'
 import { datumFrame, fitInFrame, sheetPose, type FlatFrame, type SheetPose } from '../core/flat/datum'
 import { evaluateFlatDimensions, type FlatDimension } from '../core/flat/dimensions'
 import type { FlatElement } from '../core/flat/elements'
@@ -209,16 +209,19 @@ export function sheetDraft(
   s: Pick<SheetSource, 'pxPerMm' | 'draft' | 'elements' | 'nextId'>,
 ): SheetDraft {
   const picks = (s.draft?.picks ?? []).map((p) => pxToDoc(s, p))
-  // A region-collected draft carries thousands of points — a dot cloud, not
-  // numbered pins.
-  const isEdgeDraft = s.draft ? flatMethod(s.draft.method).mode === 'edge' : false
+  // A draft of collected edge points — a region's, or a click's grown
+  // stretch — carries thousands of them: a dot cloud, not numbered pins.
+  // Only the region tool takes the plain drag for its box; a fit-to-edge
+  // draft leaves it to pan, as the 3D fit from a click leaves it to orbit.
+  const method = s.draft ? flatMethod(s.draft.method) : null
+  const isEdgeDraft = method ? collectsEdgePoints(method) : false
   const fit = s.draft?.fit ?? null
   return {
     pins: isEdgeDraft ? [] : picks,
     fit,
     cloud: isEdgeDraft ? picks : undefined,
     color: flatDraftColorOf(s),
-    regionMode: isEdgeDraft,
+    regionMode: method?.mode === 'edge',
     handles: fit?.kind === 'spline' ? splineHandles(fit) : [],
   }
 }

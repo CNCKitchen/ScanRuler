@@ -8,7 +8,10 @@ import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
 import { runSteps, type Steps } from './steps'
 import type { NominalSurface } from './surface'
 
-export type AlignSource = 'auto' | 'points' | 'local'
+/** How the scan came to lie on the reference: a best fit of one of three
+ *  kinds — or none at all, `built`, for a reference modelled on this very
+ *  scan, which is in its frame already. */
+export type AlignSource = 'auto' | 'points' | 'local' | 'built'
 
 export interface AlignResult {
   /** Carries scan coordinates into the nominal's frame. The scan itself is
@@ -38,6 +41,14 @@ export interface AlignResult {
    *  patch fixes the distance across itself and nothing else, so the fit is
    *  free to slide along it. Local fits only. */
   underconstrained?: boolean
+}
+
+/** The alignment of a reference built on the scan, in the scan's own frame:
+ *  none. No best fit is run — it would hide exactly the offset a comparison
+ *  with such a reference is there to show — so the figures a fit would
+ *  report stay at zero and the panel reads the source instead. */
+export function builtAlignment(): AlignResult {
+  return { transform: identityRigid(), source: 'built', rms: 0, meanDistance: 0, iterations: 0, matched: 0, sampled: 0, ambiguous: false }
 }
 
 export interface AlignOptions {

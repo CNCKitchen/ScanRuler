@@ -10,7 +10,7 @@ export type RefRole = 'point' | 'axis' | 'plane'
 
 export const ROLE_PROVIDERS: Record<RefRole, readonly ElementKind[]> = {
   point: ['point', 'sphere', 'circle'],
-  axis: ['line', 'cylinder', 'cone', 'circle'],
+  axis: ['line', 'cylinder', 'cone', 'circle', 'torus'],
   plane: ['plane'],
 }
 
@@ -21,7 +21,7 @@ export function providesRole(kind: ElementKind, role: RefRole): boolean {
 /** The one role an element kind plays in a measurement. */
 export function roleOf(kind: ElementKind): RefRole {
   if (kind === 'plane') return 'plane'
-  if (kind === 'line' || kind === 'cylinder' || kind === 'cone') return 'axis'
+  if (kind === 'line' || kind === 'cylinder' || kind === 'cone' || kind === 'torus') return 'axis'
   return 'point'
 }
 
@@ -64,6 +64,9 @@ export function refAxis(fit: FitData): AxisRef | null {
   if (fit.kind === 'cylinder' || fit.kind === 'cone')
     return { origin: fit.center, dir: fit.axis, halfLength: fit.length / 2 }
   if (fit.kind === 'line') return { origin: fit.center, dir: fit.dir, halfLength: fit.length / 2 }
+  // A torus's axis is the ring's; the tube radius stands in for its reach
+  // along the axis, as the circle's radius does.
+  if (fit.kind === 'torus') return { origin: fit.center, dir: fit.axis, halfLength: fit.minorRadius }
   // A circle's axis is its normal through the center. The radius stands in for
   // the measured extent — the circle was measured in its own plane, so a foot
   // landing much further out than that along the axis deserves the warning.

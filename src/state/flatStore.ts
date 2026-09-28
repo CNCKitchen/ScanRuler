@@ -11,7 +11,7 @@
 
 import { create } from 'zustand'
 import { distanceCalibration, diameterCalibration } from '../core/flat/calibration'
-import { flatMethod } from '../core/flat/construct'
+import { collectsEdgePoints, flatMethod } from '../core/flat/construct'
 import {
   evaluateFlatElements,
   evaluateFlatSource,
@@ -31,6 +31,7 @@ import {
   type FlatDimensionGroup,
 } from '../core/flat/dimensions'
 import { FitError } from '../core/fit/errors'
+import { growFromSeed } from '../core/flat/grow'
 import type { PixelsPerMm } from '../core/flat/image'
 import { snapPick, snapRadiusPx, thinEdgePoints, type EdgeIndex, type PickMeta } from '../core/flat/snap'
 import { nearestSplineSegment, type HandleEnd } from '../core/flat/spline'
@@ -148,17 +149,26 @@ export function toolOf<K extends FlatTool['kind']>(
   return s.tool.kind === kind ? (s.tool as ToolOf<K>) : null
 }
 
+/** Whether the box holds work a second editor would throw away: an edit,
+ *  picks, a reference filled. A kind merely in hand — the empty draft
+ *  Create leaves behind for the next one — holds nothing, so neither the
+ *  row keys nor undo stand down for it. */
+export function flatDraftHolds(d: FlatDraft | null): boolean {
+  return d !== null && (d.editId !== undefined || d.picks.length > 0 || d.refs.some((r) => r !== null))
+}
+
 /** Whether anything is being assembled — a stage tool, an element or a
  *  dimension draft — so the row keys that would re-open a second thing
  *  stand down. The datum and calibration tools do not count: their editors
- *  live in their own groups and do not fight the element list. */
+ *  live in their own groups and do not fight the element list. Nor does a
+ *  kind merely in hand, with nothing in its box yet. */
 export function flatEditorOpen(s: {
   tool: FlatTool
   draft: FlatDraft | null
   dimDraft: FlatDimDraft | null
 }): boolean {
   return (
-    s.draft !== null || s.dimDraft !== null || s.tool.kind === 'count' || s.tool.kind === 'note'
+    flatDraftHolds(s.draft) || s.dimDraft !== null || s.tool.kind === 'count' || s.tool.kind === 'note'
   )
 }
 
@@ -491,6 +501,10 @@ interface FlatState extends SheetState {
    *  references back on the sheet, writing back over it on save. */
   editElement: (id: number) => void
   cancelDraft: () => void
+  /** The box emptied and the kind kept in hand, on the same method: what
+   *  Create leaves behind for the next element, and Escape's first step on
+   *  a new draft with picks in it. Nothing for an edit. */
+  restartDraft: () => void
   addDraftPick: (px: Vec2) => void
   /** A pick put into the sequence before the one at `index` — a click on a
    *  spline's curve, between the points it runs between. */
@@ -511,8 +525,13 @@ interface FlatState extends SheetState {
   freeDraftTangents: () => void
   /** Whether the spline closes on itself. */
   setDraftClosed: (closed: boolean) => void
-  /** A dragged region's worth of edge points, all at once. */
+  /** A dragged region's worth of edge points, or a click's grown stretch
+   *  of them, all at once. */
   addDraftPoints: (px: Vec2[]) => void
+  /** A click that collected nothing — no edge under it, or an edge of the
+   *  wrong shape — leaves its reason in the draft for the box to show,
+   *  until the next change to the draft. */
+  noteDraftError: (message: string) => void
   undoDraftPick: () => void
   setDraftRef: (slot: number, id: number | null) => void
   setDraftMethod: (method: string) => void
@@ -714,7 +733,28 @@ export const useFlat = create<FlatState>()((set, get) => ({
         break
     }
     if (!s.draft) return
-    if (flatMethod(s.draft.method).mode === 'edge') {
+    const mode = flatMethod(s.draft.method).mode
+    if (mode === 'seed') {
+      // A fit-to-edge tool grows the line or circle along the detected edge
+      // from the point clicked, and stops where the edge bends away — the
+      // 2D twin of the fit from a click on the scan. A click that lands on
+      // no edge, or on an edge of the wrong shape, says so in the box and
+      // leaves what was collected before alone.
+      const hit = edges?.chainHit(px[0], px[1], radius)
+      if (!hit) {
+        s.noteDraftError('No detected edge under the click — click on one of the detected edge lines.')
+        return
+      }
+      try {
+        const kind = s.draft.kind === 'circle' ? 'circle' : 'line'
+        s.addDraftPoints(thinEdgePoints(growFromSeed(kind, hit.chain, hit.index)))
+      } catch (e) {
+        if (!(e instanceof FitError)) throw e
+        s.noteDraftError(e.message)
+      }
+      return
+    }
+    if (mode === 'edge') {
       // An edge tool reads a click as the whole detected edge under it.
       const chain = edges?.chainNear(px[0], px[1], radius)
       if (chain) s.addDraftPoints(thinEdgePoints(chain))
@@ -778,6 +818,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   retreat: () => {
     const s = get()
+    // A new draft with picks in it is emptied first and the kind kept in
+    // hand, as a sketch tool's half-placed points go before the tool; an
+    // empty one, or an edit, is closed.
+    const backOutOfDraft = () =>
+      s.draft!.editId === undefined && flatDraftHolds(s.draft) ? s.restartDraft() : s.cancelDraft()
     switch (s.tool.kind) {
       case 'calibrate':
         s.cancelCalibration()
@@ -791,14 +836,14 @@ export const useFlat = create<FlatState>()((set, get) => ({
         return true
       case 'count':
         // The element draft outranks an open tally, as it does for a click.
-        if (s.draft) s.cancelDraft()
+        if (s.draft) backOutOfDraft()
         else s.cancelCount()
         return true
       case 'none':
         break
     }
     if (s.draft) {
-      s.cancelDraft()
+      backOutOfDraft()
       return true
     }
     if (s.dimDraft) {
@@ -813,8 +858,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
   nextDimId: 1,
   dimCounts: {},
 
+  // One thing in hand at a time: a dimension closes the element draft, so a
+  // click on the sheet has one taker.
   startDimDraft: () =>
     set({
+      draft: null,
       dimDraft: {
         type: FLAT_DIMENSION_TYPES[0].id,
         refs: FLAT_DIMENSION_TYPES[0].slots.map(() => null),
@@ -881,7 +929,10 @@ export const useFlat = create<FlatState>()((set, get) => ({
       }
       return {
         dimensions: [...s.dimensions, dim],
-        dimDraft: null,
+        // The box stays open for the next one of the same type, its slots
+        // empty — as the sketch's Dimension tool stays in hand — until
+        // Cancel or Escape closes it.
+        dimDraft: { type: dd.type, refs: flatDimensionTypeInfo(dd.type).slots.map(() => null) },
         nextDimId: s.nextDimId + 1,
         dimCounts: { ...s.dimCounts, [group]: n },
       }
@@ -1030,6 +1081,8 @@ export const useFlat = create<FlatState>()((set, get) => ({
     }),
 
   cancelDraft: () => set({ draft: null }),
+  restartDraft: () =>
+    set((s) => (s.draft && s.draft.editId === undefined ? { draft: freshDraft(s.draft.kind, s.draft.method) } : {})),
 
   addDraftPick: (px) =>
     set((s) => {
@@ -1107,18 +1160,22 @@ export const useFlat = create<FlatState>()((set, get) => ({
 
   addDraftPoints: (px) =>
     set((s) => {
-      if (!s.draft || flatMethod(s.draft.method).mode !== 'edge' || px.length === 0) return {}
+      if (!s.draft || !collectsEdgePoints(flatMethod(s.draft.method)) || px.length === 0) return {}
       const draft = { ...s.draft, picks: [...s.draft.picks, ...px] }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
 
+  noteDraftError: (message) =>
+    set((s) => (s.draft ? { draft: { ...s.draft, error: message } } : {})),
+
   // For an edge draft this clears the lot: the unit of input was the dragged
-  // region, and un-clicking one of its thousand points would mean nothing.
+  // region or the clicked stretch, and un-clicking one of its thousand
+  // points would mean nothing.
   undoDraftPick: () =>
     set((s) => {
       if (!s.draft) return {}
       const picks =
-        flatMethod(s.draft.method).mode === 'edge' ? [] : s.draft.picks.slice(0, -1)
+        collectsEdgePoints(flatMethod(s.draft.method)) ? [] : s.draft.picks.slice(0, -1)
       const draft = { ...s.draft, picks, tangents: tangentsFor(picks.length, s.draft.tangents) }
       return { draft: { ...draft, ...evaluateDraft(draft, s.elements, s.pxPerMm) } }
     }),
@@ -1177,9 +1234,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
       error: null,
       visible: true,
     }
+    // The kind stays in hand for the next one, as a sketch tool does, until
+    // Cancel or Escape puts it down — one circle is seldom the last.
     set({
       elements: [...s.elements, element],
-      draft: null,
+      draft: freshDraft(s.draft.kind, s.draft.method),
       nextId: id + 1,
       nameCounts: { ...s.nameCounts, [s.draft.kind]: count },
     })

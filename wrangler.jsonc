@@ -10,5 +10,9 @@
     // There is only index.html — anything else that misses is a stale asset
     // URL from an old deploy, and reloading into the app beats a bare 404.
     "not_found_handling": "single-page-application"
-  }
+  },
+  // Workers Builds deploys a branch other than main with `wrangler preview`,
+  // which needs this block to exist; empty, a preview takes the settings
+  // above.
+  "previews": {}
 }

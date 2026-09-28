@@ -11,6 +11,7 @@ import type { EdgeChains } from '../core/flat/edges'
 import { splineMidpoint, splinePolyline, type HandleEnd, type SplineHandle } from '../core/flat/spline'
 import type { FlatFit, Vec2 } from '../core/flat/types'
 import type { PixelsPerMm } from '../core/flat/image'
+import { dimStrokes, type DimShape } from '../core/flat/dimStrokes'
 import { EDGE_LINE_DEFAULT, SHEET_LINE_DEFAULT } from './lineWidths'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
@@ -32,6 +33,21 @@ import type { ViewTheme } from './viewThemes'
  */
 /** An axis-aligned box in document units. */
 type DocBox = { x0: number; y0: number; x1: number; y1: number }
+
+/** A sketch dimension for setSketchDimensions: what it measures and where
+ *  its number sits, the number as written, and the id its edits go under. */
+export interface SketchDimensionItem {
+  shape: DimShape
+  value: string
+  edit: { id: number; value: number }
+}
+
+/** An arrowhead of a sketch dimension, screen pixels: slim, as a drawing's. */
+const DIM_ARROW_PX = { length: 11, half: 2.6 }
+
+/** How wide a dimension's number is written, screen pixels — the gap its
+ *  dimension line leaves for it (12.5 px monospace digits, as its label is styled). */
+const dimTextPx = (value: string) => value.length * 7.6
 
 export class FlatScene {
   private viewport: OrthoViewport
@@ -75,9 +91,29 @@ export class FlatScene {
   private gridExtentDrawn: DocBox | null = null
   /** Measured elements and the draft being built, in document units. */
   private elementGroup = new THREE.Group()
+  /** Translucent fills — the closed regions of a sketch. */
+  private fillGroup = new THREE.Group()
+  private fillCleanup: (() => void)[] = []
+  /** Round dots of a fixed size on screen — where a sketch's pieces end. */
+  private dotGroup = new THREE.Group()
+  private dotCleanup: (() => void)[] = []
+  private dotTexture: THREE.Texture | null = null
+  /** The cursor the sheet wears when nothing under the hand says otherwise
+   *  — a crosshair while a drawing tool is armed. */
+  private baseCursor = ''
+  private sheetDragging: { moved: boolean } | null = null
+  /** Something the owner would drag lies under the cursor — a sketch piece:
+   *  the navigator steps aside for the press, as it does for a pin. */
+  private dragHover = false
   private elementCleanup: (() => void)[] = []
   private dimensionGroup = new THREE.Group()
   private dimensionCleanup: (() => void)[] = []
+  /** A sketch's dimensions as they were last set — see setSketchDimensions:
+   *  their lines and arrowheads are sized in screen pixels, so they are made
+   *  again when the zoom moves off `px`. */
+  private sketchDims: { items: readonly SketchDimensionItem[]; color: number; px: number } | null = null
+  private dimStrokeGroup = new THREE.Group()
+  private dimStrokeCleanup: (() => void)[] = []
   private draftGroup = new THREE.Group()
   private draftCleanup: (() => void)[] = []
   /** Fitted geometry and callouts draw as screen-space fat lines (a WebGL
@@ -117,13 +153,26 @@ export class FlatScene {
   })
 
   /** A click on the sheet, in document millimetres — with whether Alt was
-   *  held (a raw, unsnapped pick) and the scale of the moment, so the caller
-   *  can turn "a few screen pixels" into document units. */
-  onPick: ((p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
+   *  held (a raw, unsnapped pick in the 2D workspace) or Ctrl (the same in
+   *  the sketch, as Fusion has it) and the scale of the moment, so the
+   *  caller can turn "a few screen pixels" into document units. */
+  onPick: ((p: Vec2, meta: { alt: boolean; shift?: boolean; ctrl?: boolean; unitsPerScreenPx: number }) => void) | null = null
   /** A dragged region (document units), while region mode is armed. */
   onRegion: ((min: Vec2, max: Vec2) => void) | null = null
-  /** The cursor over the sheet (document units) or off it — for the loupe. */
-  onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number) => void) | null = null
+  /** The cursor over the sheet (document units) or off it — for the loupe,
+   *  and for a sketch tool's rubber band; `alt` and `ctrl` say whether the
+   *  modifier is held — the 2D workspace's and the sketch's way,
+   *  respectively, of asking for no snapping. */
+  onHoverPoint: ((p: Vec2 | null, clientX: number, clientY: number, alt?: boolean, ctrl?: boolean) => void) | null = null
+  /** A press on the bare sheet that the owner may take for a drag of its
+   *  own — a sketch piece under the hand. Returning true starts the drag:
+   *  every move then comes through onSheetDrag and the release through
+   *  onSheetDragEnd, while a press let go where it landed is a plain click,
+   *  reported through onPick. Returning false leaves the press to the
+   *  navigator. */
+  onSheetDown: ((p: Vec2, meta: { alt: boolean; ctrl: boolean; unitsPerScreenPx: number }) => boolean) | null = null
+  onSheetDrag: ((p: Vec2, meta: { alt: boolean; ctrl: boolean; unitsPerScreenPx: number }) => void) | null = null
+  onSheetDragEnd: ((meta: { alt: boolean; ctrl: boolean; unitsPerScreenPx: number }) => void) | null = null
   /** A draft pick being dragged to a new place on the sheet, by index. */
   onPickDrag: ((index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void) | null = null
   /** A draft pin clicked without being dragged — the store decides what that
@@ -139,6 +188,12 @@ export class FlatScene {
   onNoteDrag: ((id: number, p: Vec2) => void) | null = null
   /** A text note clicked without being dragged — to open it for typing. */
   onNoteSelect: ((id: number) => void) | null = null
+  /** A dimension's value typed into its label on the sheet — see
+   *  setFlatDimensions' `edit`. */
+  onDimensionEdit: ((id: number, value: number) => void) | null = null
+  /** A sketch dimension's number dragged to a sheet point; `begin` on the
+   *  first step of the drag. */
+  onDimensionMove: ((id: number, p: Vec2, begin: boolean) => void) | null = null
 
   /** Left-drag selects a region (and a plain click picks a whole edge)
    *  instead of panning while an edge tool is collecting. */
@@ -146,13 +201,34 @@ export class FlatScene {
   private bandStart: { x: number; y: number } | null = null
   private bandDiv: HTMLDivElement | null = null
 
-  constructor(private container: HTMLDivElement, theme: ViewTheme) {
+  /** The view moved — a pan, a zoom, a framing, a resize: what is under the
+   *  screen centre now, in document units, and the units per screen pixel.
+   *  What a viewport laid under this one follows. */
+  onViewChange: ((centre: Vec2, unitsPerScreenPx: number) => void) | null = null
+  private viewKey = ''
+
+  constructor(
+    private container: HTMLDivElement,
+    theme: ViewTheme,
+    opts: {
+      /** No stage of its own: a see-through canvas laid over another view. */
+      transparent?: boolean
+    } = {},
+  ) {
     this.viewport = new OrthoViewport(container, {
       theme,
+      transparent: opts.transparent,
       navTargets: () => (this.sheet.visible ? [this.sheet] : []),
       onClick: (x, y, e) => {
         const p = this.pick(x, y)
-        if (p) this.onPick?.(p, { alt: e?.altKey ?? false, unitsPerScreenPx: this.unitsPerScreenPx() })
+        if (p) {
+          this.onPick?.(p, {
+            alt: e?.altKey ?? false,
+            shift: e?.shiftKey ?? false,
+            ctrl: e?.ctrlKey ?? false,
+            unitsPerScreenPx: this.unitsPerScreenPx(),
+          })
+        }
       },
       onPointerDown: (e) => {
         if (e.button !== 0 || !this.sheet.visible) return false
@@ -168,6 +244,15 @@ export class FlatScene {
           this.beginPinDrag(pin, e)
           return true
         }
+        // Ctrl is the sketch's "no snapping" and has to be able to start a
+        // drag; Shift and Meta are left to the navigator's chords.
+        if (this.onSheetDown && !e.shiftKey && !e.metaKey) {
+          const p = this.pick(e.clientX, e.clientY)
+          if (p && this.onSheetDown(p, { alt: e.altKey, ctrl: e.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() })) {
+            this.beginSheetDrag(e)
+            return true
+          }
+        }
         if (!this.regionMode) return false
         this.beginBand(e)
         return true
@@ -177,6 +262,7 @@ export class FlatScene {
         // or a pan carried the view off the patch a bare sheet's grid was
         // ruled over.
         if (this.gridFrame && this.gridStale()) this.rebuildGrid()
+        if (this.sketchDims && Math.abs(this.unitsPerScreenPx() / this.sketchDims.px - 1) > 0.01) this.rebuildDimStrokes()
         // Fat lines are sized in screen pixels and need to know the canvas.
         const el = this.viewport.renderer.domElement
         const w = el.clientWidth || 1
@@ -186,6 +272,15 @@ export class FlatScene {
           for (const m of this.lineMaterials.keys()) m.resolution.copy(this.lineResolution)
           this.edgeMaterial.resolution.copy(this.lineResolution)
           this.viewport.invalidate()
+        }
+        if (this.onViewChange) {
+          const cam = this.viewport.camera
+          const key = `${cam.position.x},${cam.position.y},${cam.zoom},${w},${h}`
+          if (key !== this.viewKey) {
+            this.viewKey = key
+            const v = this.sheetView()
+            this.onViewChange(v.centre, v.unitsPerScreenPx)
+          }
         }
       },
     })
@@ -202,25 +297,34 @@ export class FlatScene {
     this.viewport.scene.add(this.countGroup)
     this.viewport.scene.add(this.noteGroup)
     this.viewport.scene.add(this.edgeGroup)
+    this.viewport.scene.add(this.fillGroup)
     this.viewport.scene.add(this.elementGroup)
+    this.viewport.scene.add(this.dotGroup)
     this.viewport.scene.add(this.dimensionGroup)
+    this.viewport.scene.add(this.dimStrokeGroup)
     this.viewport.scene.add(this.draftGroup)
   }
 
   /** The measured dimensions on the sheet: a callout line with its value for
-   *  a distance, two rays and a swept arc for an angle. */
+   *  a distance, two rays and a swept arc for an angle. A title of '' leaves
+   *  the label the bare value. An item with `edit` is a number to type over:
+   *  a click on its label opens a field there, and Enter (or leaving the
+   *  field) hands the new number to onDimensionEdit under the item's id.
+   *  `style` is for a sheet whose stage is not paper — the sketch's, laid
+   *  over the part: the colour of the callout lines and a class for the
+   *  labels. */
   setFlatDimensions(
     items: readonly {
       title: string
       value: string
       segment?: [Vec2, Vec2]
       arc?: { vertex: Vec2; dirA: Vec2; dirB: Vec2 }
+      edit?: { id: number; value: number }
     }[],
+    style: { color?: number; className?: string } = {},
   ): void {
-    for (const dispose of this.dimensionCleanup) dispose()
-    this.dimensionCleanup = []
-    this.dimensionGroup.clear()
-    const callout = 0x666e79
+    this.clearDimensions()
+    const callout = style.color ?? 0x666e79
     for (const item of items) {
       if (item.segment) {
         this.addPolylines(this.dimensionGroup, this.dimensionCleanup, [item.segment], callout, 0.85, 0.16, 2.5)
@@ -228,6 +332,8 @@ export class FlatScene {
           [(item.segment[0][0] + item.segment[1][0]) / 2, (item.segment[0][1] + item.segment[1][1]) / 2],
           item.title,
           item.value,
+          style.className,
+          item.edit,
         )
       } else if (item.arc) {
         const R = this.sheetDiag() * 0.05
@@ -254,23 +360,164 @@ export class FlatScene {
           [vertex[0] + Math.cos(mid) * R * 0.95, vertex[1] + Math.sin(mid) * R * 0.95],
           item.title,
           item.value,
+          style.className,
+          item.edit,
         )
       }
     }
     this.viewport.invalidate()
   }
 
-  private addDimLabel(at: Vec2, title: string, value: string): void {
+  private clearDimensions(): void {
+    for (const dispose of this.dimensionCleanup) dispose()
+    this.dimensionCleanup = []
+    this.dimensionGroup.clear()
+    this.sketchDims = null
+    this.clearDimStrokes()
+  }
+
+  private clearDimStrokes(): void {
+    for (const dispose of this.dimStrokeCleanup) dispose()
+    this.dimStrokeCleanup = []
+    this.dimStrokeGroup.clear()
+  }
+
+  /** A sketch's dimensions, drawn as a drawing carries them — extension
+   *  lines, a dimension line with filled arrowheads, the number written
+   *  along it (core/re/dimLayout). A click on a number opens it for typing
+   *  (onDimensionEdit); a drag moves it (onDimensionMove). */
+  setSketchDimensions(items: readonly SketchDimensionItem[], style: { color?: number; className?: string } = {}): void {
+    this.clearDimensions()
+    const px = this.unitsPerScreenPx()
+    this.sketchDims = { items, color: style.color ?? 0x666e79, px }
+    for (const item of items) {
+      const s = dimStrokes(item.shape, px, dimTextPx(item.value))
+      this.addDimLabel(s.text, '', item.value, style.className, item.edit, s.textAngle)
+    }
+    this.rebuildDimStrokes()
+  }
+
+  private rebuildDimStrokes(): void {
+    this.clearDimStrokes()
+    const dims = this.sketchDims
+    if (!dims) return
+    dims.px = this.unitsPerScreenPx()
+    const lines: Vec2[][] = []
+    const corners: number[] = []
+    for (const item of dims.items) {
+      const s = dimStrokes(item.shape, dims.px, dimTextPx(item.value))
+      lines.push(...s.lines)
+      for (const { tip, dir } of s.arrows) {
+        const l = DIM_ARROW_PX.length * dims.px
+        const w = DIM_ARROW_PX.half * dims.px
+        const bx = tip[0] - dir[0] * l
+        const by = tip[1] - dir[1] * l
+        corners.push(tip[0], tip[1], 0.16, bx - dir[1] * w, by + dir[0] * w, 0.16, bx + dir[1] * w, by - dir[0] * w, 0.16)
+      }
+    }
+    this.addPolylines(this.dimStrokeGroup, this.dimStrokeCleanup, lines, dims.color, 0.9, 0.16, 1.5)
+    if (corners.length > 0) {
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(corners, 3))
+      const mat = new THREE.MeshBasicMaterial({ color: dims.color, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthTest: false })
+      const heads = new THREE.Mesh(geo, mat)
+      heads.renderOrder = 4
+      this.dimStrokeGroup.add(heads)
+      this.dimStrokeCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
+    this.viewport.invalidate()
+  }
+
+  private addDimLabel(at: Vec2, title: string, value: string, className?: string, edit?: { id: number; value: number }, turn?: number): void {
     const div = document.createElement('div')
-    div.className = 'viewport-label distance-label'
-    const t = document.createElement('div')
-    t.className = 'label-title'
-    t.textContent = title
-    div.append(t)
+    div.className = 'viewport-label distance-label' + (className ? ` ${className}` : '')
+    if (title !== '') {
+      const t = document.createElement('div')
+      t.className = 'label-title'
+      t.textContent = title
+      div.append(t)
+    }
     const v = document.createElement('div')
     v.className = 'label-value'
     v.textContent = value
+    // Written along its dimension line. The label itself is placed by the
+    // label renderer's transform, so the turn goes on the number inside.
+    if (turn !== undefined && Math.abs(turn) > 1e-6) v.style.transform = `rotate(${(-turn * 180) / Math.PI}deg)`
     div.append(v)
+    if (edit) {
+      // The label layer takes no pointer events, so a label that is typed
+      // into asks for them itself — and keeps them from the navigator under
+      // it, which would take the press for a pan.
+      div.classList.add('editable')
+      div.dataset.test = `flat-dimension-${edit.id}`
+      const stop = (e: Event) => e.stopPropagation()
+      div.addEventListener('wheel', stop)
+      const open = () => {
+        if (div.querySelector('input')) return
+        const shown = String(Math.round(edit.value * 1000) / 1000)
+        const input = document.createElement('input')
+        input.type = 'number'
+        input.step = 'any'
+        input.value = shown
+        let done = false
+        const close = (commit: boolean) => {
+          if (done) return
+          done = true
+          const n = Number(input.value)
+          input.replaceWith(v)
+          if (commit && input.value.trim() !== '' && Number.isFinite(n) && input.value !== shown) this.onDimensionEdit?.(edit.id, n)
+        }
+        input.addEventListener('keydown', (ev) => {
+          ev.stopPropagation()
+          if (ev.key === 'Enter') close(true)
+          else if (ev.key === 'Escape') close(false)
+        })
+        input.addEventListener('blur', () => close(true))
+        v.replaceWith(input)
+        input.focus()
+        input.select()
+      }
+      if (turn === undefined) {
+        div.addEventListener('pointerdown', stop)
+        div.addEventListener('pointerup', stop)
+        div.addEventListener('click', (e) => {
+          e.stopPropagation()
+          open()
+        })
+      } else {
+        // A sketch's number: a press that moves is a drag of the number, one
+        // that does not is the click that opens it. The label is made again
+        // under the hand at every step, so the drag listens on the document.
+        div.addEventListener('click', stop)
+        div.addEventListener('pointerdown', (e) => {
+          e.stopPropagation()
+          if (e.button !== 0 || e.target instanceof HTMLInputElement) return
+          e.preventDefault()
+          if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+          const start = { x: e.clientX, y: e.clientY }
+          let moved = false
+          const move = (ev: PointerEvent) => {
+            if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return
+            const p = this.pick(ev.clientX, ev.clientY)
+            if (!p) return
+            this.onDimensionMove?.(edit.id, p, !moved)
+            moved = true
+          }
+          const up = () => {
+            document.removeEventListener('pointermove', move)
+            document.removeEventListener('pointerup', up)
+            document.removeEventListener('pointercancel', up)
+            if (!moved) open()
+          }
+          document.addEventListener('pointermove', move)
+          document.addEventListener('pointerup', up)
+          document.addEventListener('pointercancel', up)
+        })
+      }
+    }
     const label = new CSS2DObject(div)
     label.position.set(at[0], at[1], 0.2)
     this.dimensionGroup.add(label)
@@ -409,14 +656,78 @@ export class FlatScene {
    *  is armed or a pin is under the cursor — the same hand-off the 3D brush
    *  and the extend grips use. */
   private claimDrag(): void {
-    this.viewport.nav.setPaintMode(this.regionMode || this.pinHover)
+    this.viewport.nav.setPaintMode(this.regionMode || this.pinHover || this.dragHover)
+  }
+
+  /** Say whether the cursor is over something the owner would take a press
+   *  on (see onSheetDown): the navigator lets the plain left-drag go while
+   *  it is, and the hand shows it can grab. */
+  setDragHover(on: boolean): void {
+    if (this.dragHover === on) return
+    this.dragHover = on
+    this.claimDrag()
+    if (!this.pinHover && !this.dragging && !this.handleDragging && !this.sheetDragging) {
+      this.container.style.cursor = on ? 'grab' : this.baseCursor
+    }
   }
 
   private setPinHover(on: boolean): void {
     if (this.pinHover === on) return
     this.pinHover = on
     this.claimDrag()
-    this.container.style.cursor = on ? 'grab' : ''
+    this.container.style.cursor = on ? 'grab' : this.baseCursor
+  }
+
+  /** The cursor the sheet wears at rest — a crosshair for a drawing tool, a
+   *  hand over something that can be dragged, nothing for the plain sheet.
+   *  A pin under the hand or a drag in progress still says its own. */
+  setCursor(css: string): void {
+    if (this.baseCursor === css) return
+    this.baseCursor = css
+    if (!this.pinHover && !this.dragHover && !this.dragging && !this.handleDragging && !this.sheetDragging) {
+      this.container.style.cursor = css
+    }
+  }
+
+  /** The grid's spacing at the current zoom, document units — what a
+   *  sketch snaps to. */
+  gridStep(): number {
+    return gridSpacing(this.unitsPerScreenPx())
+  }
+
+  /** A drag the owner asked for on the bare sheet — see onSheetDown. The
+   *  same hand-off as a pin drag: the navigator never sees the press. */
+  private beginSheetDrag(e: PointerEvent): void {
+    this.sheetDragging = { moved: false }
+    const start = { x: e.clientX, y: e.clientY }
+    const move = (ev: PointerEvent) => {
+      const d = this.sheetDragging
+      if (!d) return
+      if (!d.moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return
+      const p = this.pick(ev.clientX, ev.clientY)
+      if (!p) return
+      if (!d.moved) this.container.style.cursor = 'grabbing'
+      d.moved = true
+      this.onSheetDrag?.(p, { alt: ev.altKey, ctrl: ev.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+    }
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener('pointermove', move)
+      document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointercancel', up)
+      const d = this.sheetDragging
+      this.sheetDragging = null
+      this.container.style.cursor = this.pinHover || this.dragHover ? 'grab' : this.baseCursor
+      const meta = { alt: ev.altKey, shift: ev.shiftKey, ctrl: ev.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() }
+      if (d?.moved) this.onSheetDragEnd?.(meta)
+      else {
+        const p = this.pick(start.x, start.y)
+        if (p) this.onPick?.(p, meta)
+      }
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', up)
+    e.preventDefault()
   }
 
   private hoverMove = (e: PointerEvent): void => {
@@ -429,7 +740,7 @@ export class FlatScene {
     }
     if (!this.onHoverPoint) return
     const p = this.sheet.visible ? this.pick(e.clientX, e.clientY) : null
-    this.onHoverPoint(p, e.clientX, e.clientY)
+    this.onHoverPoint(p, e.clientX, e.clientY, e.altKey, e.ctrlKey)
   }
 
   /** Document spots on screen, in client pixels — for hit-testing the marks
@@ -502,7 +813,7 @@ export class FlatScene {
       document.removeEventListener('pointercancel', up)
       const clicked = this.handleDragging !== null && !this.handleDragging.moved
       this.handleDragging = null
-      this.container.style.cursor = this.pinHover ? 'grab' : ''
+      this.container.style.cursor = this.pinHover ? 'grab' : this.baseCursor
       if (clicked) this.onHandleReset?.(index)
     }
     document.addEventListener('pointermove', move)
@@ -535,7 +846,7 @@ export class FlatScene {
       document.removeEventListener('pointercancel', up)
       const clicked = this.dragging !== null && !this.dragging.moved
       this.dragging = null
-      this.container.style.cursor = this.pinHover ? 'grab' : ''
+      this.container.style.cursor = this.pinHover ? 'grab' : this.baseCursor
       if (clicked) {
         this.onPinClick?.(index)
         // The pin under the hand may be gone; the next move re-checks.
@@ -601,6 +912,15 @@ export class FlatScene {
     this.bandDiv?.remove()
     this.bandDiv = null
     this.bandStart = null
+  }
+
+  /** What is under the screen centre, in document units, and the scale —
+   *  the view as another viewport would follow it. The camera looks at the
+   *  sheet face on with no turn or mirror when this is asked, so its
+   *  position over the sheet is the point at the centre. */
+  sheetView(): { centre: Vec2; unitsPerScreenPx: number } {
+    const cam = this.viewport.camera
+    return { centre: [cam.position.x, cam.position.y], unitsPerScreenPx: this.unitsPerScreenPx() }
   }
 
   /** Document units per screen pixel at the current zoom — what turns a snap
@@ -734,13 +1054,15 @@ export class FlatScene {
   /** The measured elements, rebuilt wholesale when anything about them
    *  changes — same policy as the 3D overlays. */
   setFlatElements(
-    items: readonly { fit: FlatFit; color: string; name: string; value: string }[],
+    items: readonly { fit: FlatFit; color: string; name: string; value: string; label?: boolean; width?: number }[],
   ): void {
     for (const dispose of this.elementCleanup) dispose()
     this.elementCleanup = []
     this.elementGroup.clear()
     for (const item of items) {
-      this.addPolylines(this.elementGroup, this.elementCleanup, this.fitPolyline(item.fit), item.color, 0.95, 0.15)
+      this.addPolylines(this.elementGroup, this.elementCleanup, this.fitPolyline(item.fit), item.color, 0.95, 0.15, item.width)
+      // A sketch's pieces carry no readings: they are drawn without a tag.
+      if (item.label === false) continue
       this.addLabel(
         this.elementGroup,
         this.elementCleanup,
@@ -753,6 +1075,101 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
+  /** Translucent fills on the sheet — the closed regions of a sketch, so a
+   *  profile that closes reads as a face and one that does not reads as
+   *  lines. Polygons in document units, holes cut out. */
+  setFlatFills(items: readonly { polygon: readonly Vec2[]; holes: readonly (readonly Vec2[])[]; color: string; opacity: number }[]): void {
+    for (const dispose of this.fillCleanup) dispose()
+    this.fillCleanup = []
+    this.fillGroup.clear()
+    for (const item of items) {
+      if (item.polygon.length < 3) continue
+      const shape = new THREE.Shape(item.polygon.map(([x, y]) => new THREE.Vector2(x, y)))
+      for (const h of item.holes) {
+        if (h.length >= 3) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))))
+      }
+      const geo = new THREE.ShapeGeometry(shape)
+      const mat = new THREE.MeshBasicMaterial({
+        color: item.color,
+        transparent: true,
+        opacity: item.opacity,
+        depthTest: false,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+      const mesh = new THREE.Mesh(geo, mat)
+      // Above the sheet and the edge chains, under the pieces.
+      mesh.position.z = 0.12
+      mesh.renderOrder = 1
+      this.fillGroup.add(mesh)
+      this.fillCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
+    this.viewport.invalidate()
+  }
+
+  /** Dots on the sheet, the same size at any zoom — the ends of a sketch's
+   *  pieces, so it can be seen where one stops and the next begins. Drawn
+   *  over the pieces; `size` is the diameter in pixels. */
+  setFlatDots(items: readonly { at: Vec2; color: string; size: number }[]): void {
+    for (const dispose of this.dotCleanup) dispose()
+    this.dotCleanup = []
+    this.dotGroup.clear()
+    const bySize = new Map<number, typeof items[number][]>()
+    for (const item of items) bySize.set(item.size, [...(bySize.get(item.size) ?? []), item])
+    for (const [size, dots] of bySize) {
+      const positions = new Float32Array(dots.length * 3)
+      const colors = new Float32Array(dots.length * 3)
+      const c = new THREE.Color()
+      dots.forEach((d, i) => {
+        positions.set([d.at[0], d.at[1], 0.18], i * 3)
+        c.set(d.color)
+        colors.set([c.r, c.g, c.b], i * 3)
+      })
+      const geo = new THREE.BufferGeometry()
+      geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+      const mat = new THREE.PointsMaterial({
+        size: size * window.devicePixelRatio,
+        sizeAttenuation: false,
+        vertexColors: true,
+        map: this.roundDot(),
+        alphaTest: 0.5,
+        transparent: true,
+        depthTest: false,
+      })
+      const points = new THREE.Points(geo, mat)
+      points.renderOrder = 5
+      // The dots move with every drag; a bounding sphere a frame old must
+      // not cull them.
+      points.frustumCulled = false
+      this.dotGroup.add(points)
+      this.dotCleanup.push(() => {
+        geo.dispose()
+        mat.dispose()
+      })
+    }
+    this.viewport.invalidate()
+  }
+
+  /** A filled disc, the sprite every dot is drawn with. */
+  private roundDot(): THREE.Texture {
+    if (this.dotTexture) return this.dotTexture
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 32
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.fillStyle = '#fff'
+      ctx.beginPath()
+      ctx.arc(16, 16, 15, 0, 2 * Math.PI)
+      ctx.fill()
+    }
+    this.dotTexture = new THREE.CanvasTexture(canvas)
+    return this.dotTexture
+  }
+
   /** The draft on its way to an element: numbered pins on hand picks (which
    *  can be dragged), a dot cloud for region-collected points (thousands of
    *  pins would be thousands of DOM nodes), the pending fit drawn in the
@@ -760,7 +1177,7 @@ export class FlatScene {
    *  through every pick, its two ends draggable, in the tool amber. */
   setDraftMarks(
     picks: readonly Vec2[],
-    fit: FlatFit | null,
+    fit: FlatFit | readonly FlatFit[] | null,
     cloud?: readonly Vec2[],
     color = '#8b95a3',
     handles: readonly SplineHandle[] = [],
@@ -850,8 +1267,11 @@ export class FlatScene {
         2.5,
       )
     }
-    if (fit) {
-      this.addPolylines(this.draftGroup, this.draftCleanup, this.fitPolyline(fit), color, 0.9, 0.18)
+    // The ghost of what the picks are about to make — one shape, or the
+    // several a rubber-banded rectangle is.
+    const fits = fit === null ? [] : Array.isArray(fit) ? (fit as readonly FlatFit[]) : [fit as FlatFit]
+    for (const f of fits) {
+      this.addPolylines(this.draftGroup, this.draftCleanup, this.fitPolyline(f), color, 0.9, 0.18)
     }
     this.viewport.invalidate()
   }
@@ -935,14 +1355,18 @@ export class FlatScene {
    *  onNoteDrag; a press released in place selects it. The navigator never
    *  sees the press — the label sits above the canvas — so the sheet stays
    *  put under the drag. */
-  setNotes(items: readonly { id: number; text: string; at: Vec2; editing: boolean }[]): void {
+  setNotes(items: readonly { id: number; text: string; at: Vec2; editing: boolean; className?: string; tip?: string }[]): void {
     for (const dispose of this.noteCleanup) dispose()
     this.noteCleanup = []
     this.noteGroup.clear()
     for (const item of items) {
       const div = document.createElement('div')
-      div.className = 'viewport-label note-label' + (item.editing ? ' editing' : '')
+      div.className = 'viewport-label note-label' + (item.editing ? ' editing' : '') + (item.className ? ` ${item.className}` : '')
       div.dataset.test = `flat-note-${item.id}`
+      // A word shown beside the note the moment the cursor is over it (the
+      // stylesheet draws `data-tip`): a glyph's name, which a title's delay
+      // would make the hand wait for.
+      if (item.tip) div.dataset.tip = item.tip
       div.textContent = item.text.trim() === '' ? 'Text' : item.text
       if (item.text.trim() === '') div.classList.add('empty')
       const down = (e: PointerEvent) => {
@@ -1211,7 +1635,16 @@ export class FlatScene {
     if (!this.sheet.visible) return null
     this.viewport.setPickRay(clientX, clientY)
     const hit = this.viewport.raycaster.intersectObject(this.sheet, false)[0]
-    return hit ? [hit.point.x, hit.point.y] : null
+    if (hit) return [hit.point.x, hit.point.y]
+    // A blank sheet is a plane to draw on, not a page with an edge: the
+    // card is sized round what is on it for the framing's sake, and a click
+    // past it — a rectangle drawn wider than the slice — lands on the plane
+    // all the same. An image's sheet does end where the image does.
+    if (this.texture) return null
+    const ray = this.viewport.raycaster.ray
+    if (Math.abs(ray.direction.z) < 1e-12) return null
+    const t = -ray.origin.z / ray.direction.z
+    return [ray.origin.x + ray.direction.x * t, ray.origin.y + ray.direction.y * t]
   }
 
   /** Match the main viewport's buttons — minus orbiting, which planar mode
@@ -1235,6 +1668,14 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
+  /** The colour of the edge chains — the sketch draws its slice in one
+   *  that reads against the cut part under it. */
+  setEdgeColor(color: THREE.ColorRepresentation, opacity = 0.85): void {
+    this.edgeMaterial.color.set(color)
+    this.edgeMaterial.opacity = opacity
+    this.viewport.invalidate()
+  }
+
   /** How heavy the edge chains are drawn, in pixels (Settings → Lines) —
    *  independent of the curves fitted to them. */
   setEdgeWidth(px: number): void {
@@ -1249,6 +1690,9 @@ export class FlatScene {
     this.dropBand()
     this.setGrid(null)
     this.setCalibrationPicks([])
+    this.setFlatFills([])
+    this.setFlatDots([])
+    this.dotTexture?.dispose()
     this.setCounts([])
     this.setNotes([])
     this.setFlatElements([])

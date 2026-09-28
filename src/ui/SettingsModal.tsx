@@ -8,6 +8,8 @@
 // in the corner of the stage.
 
 import { useEffect } from 'react'
+import type { CreaseMode } from '../core/geometry/crease'
+import { MESH_UNITS, type MeshUnits } from '../core/meshUnits'
 import { useHintPrefs } from '../state/hintStore'
 import { UI_THEMES, usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
@@ -26,10 +28,18 @@ export function SettingsModal() {
   const setSheetLines = usePrefs((s) => s.setSheetLines)
   const edgeLines = usePrefs((s) => s.edgeLines)
   const setEdgeLines = usePrefs((s) => s.setEdgeLines)
+  const supportCard = usePrefs((s) => s.supportCard)
+  const setSupportCard = usePrefs((s) => s.setSupportCard)
+  const askStlUnits = usePrefs((s) => s.askStlUnits)
+  const setAskStlUnits = usePrefs((s) => s.setAskStlUnits)
+  const stlUnits = usePrefs((s) => s.stlUnits)
+  const setStlUnits = usePrefs((s) => s.setStlUnits)
   const navScheme = useStore((s) => s.navScheme)
   const setNavScheme = useStore((s) => s.setNavScheme)
   const viewTheme = useStore((s) => s.viewTheme)
   const setViewTheme = useStore((s) => s.setViewTheme)
+  const creaseMode = useStore((s) => s.creaseMode)
+  const setCreaseMode = useStore((s) => s.setCreaseMode)
   const hintsOn = useHintPrefs((s) => s.on)
   const setHintsOn = useHintPrefs((s) => s.setOn)
 
@@ -116,6 +126,25 @@ export function SettingsModal() {
             tints and the deviation ramp are the same in both.
           </small>
         </div>
+        <div className="setting">
+          <label htmlFor="crease">Sharp edges</label>
+          <select
+            id="crease"
+            data-test="crease-mode"
+            value={creaseMode}
+            onChange={(e) => setCreaseMode(e.target.value as CreaseMode)}
+          >
+            <option value="auto">Auto — sharp on a CAD-like mesh</option>
+            <option value="on">Always sharp</option>
+            <option value="off">Always smooth</option>
+          </select>
+          <small>
+            Whether an edge sharper than 30° on the scan is shaded as a crease, each face with
+            its own normal, or smoothed across so a box looks pillowed. <b>Auto</b> draws the
+            creases only on a mesh that reads as a tessellation of CAD — on a real scan the noise
+            would speckle, so that stays smooth. A reference part is always drawn sharp.
+          </small>
+        </div>
 
         <h3>Navigation</h3>
         <div className="setting">
@@ -128,6 +157,41 @@ export function SettingsModal() {
             ))}
           </select>
           <small className="navhint">{scheme.hint}</small>
+        </div>
+
+        <h3>Files</h3>
+        <label className="checkrow settings-check">
+          <input
+            type="checkbox"
+            data-test="toggle-ask-stl-units"
+            checked={askStlUnits}
+            onChange={(e) => setAskStlUnits(e.target.checked)}
+          />
+          <span>
+            <b>Ask what units an STL is in</b> — the format carries none, and a part read at the
+            wrong scale measures wrong in every number after. Off, every STL is read in the units
+            below without asking.
+          </span>
+        </label>
+        <div className="setting">
+          <label htmlFor="stlunits">STL units</label>
+          <select
+            id="stlunits"
+            data-test="stl-units"
+            value={stlUnits}
+            onChange={(e) => setStlUnits(e.target.value as MeshUnits)}
+          >
+            {MESH_UNITS.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.label}
+              </option>
+            ))}
+          </select>
+          <small>
+            What an STL is read in when the question is off, and the answer the question offers
+            first — the last one given. A PLY or OBJ is always read in millimetres; a STEP file
+            says its own.
+          </small>
         </div>
 
         <h3>Lines</h3>
@@ -202,6 +266,21 @@ export function SettingsModal() {
           <span>
             <b>Guided hints</b> — ring the control to press next, until you have been through
             a workspace twice. Switching it back on starts the guidance over.
+          </span>
+        </label>
+
+        <h3>Support</h3>
+        <label className="checkrow settings-check">
+          <input
+            type="checkbox"
+            data-test="toggle-support-card"
+            checked={supportCard}
+            onChange={(e) => setSupportCard(e.target.checked)}
+          />
+          <span>
+            <b>Support card</b> — the thank-you in the corner of the stage, with the ways to
+            give something back. Its × closes it for this visit; switched off here it stays
+            away.
           </span>
         </label>
       </div>

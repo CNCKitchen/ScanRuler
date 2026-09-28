@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import type { Cone, Cylinder, MeshGraph, Plane, Sphere } from '../types'
+import type { Cone, Cylinder, MeshGraph, Plane, Sphere, Torus } from '../types'
 import { acquireStamps } from '../geometry/scratch'
 import { coneNormalAlign, coneResidual, fitConeClipped } from './cone'
 import { cylinderResidual, fitCylinderClipped } from './cylinder'
 import { fitPlaneClipped, planeResidual } from './plane'
 import { fitSphereClipped } from './sphere'
+import { fitTorusClipped, torusNormalAlign, torusResidual } from './torus'
 
 /** Vertices whose fit uses a strided subsample beyond this size; the region
  *  itself is still complete, only the per-round solve is capped. */
@@ -45,6 +46,37 @@ export function collectPatch(g: MeshGraph, seeds: ArrayLike<number>, limit: numb
     for (let e = g.adjOffsets[v]; e < end; e++) {
       const nb = g.adjList[e]
       if (stamp[nb] === gen) continue
+      stamp[nb] = gen
+      queue.push(nb)
+      if (queue.length >= limit) break
+    }
+  }
+  return Uint32Array.from(queue)
+}
+
+/** Flood from a seed over every edge whose two vertex normals turn by less
+ *  than `maxAngleDeg` — QuickSurface's click-and-grow, with the angle as the
+ *  slider. Unlike the model-guided growing below, nothing is fitted and
+ *  nothing peeled: the region is whatever the surface reaches without a
+ *  crease, which on a tessellated part is exactly one face and on a scan is
+ *  a patch the angle bounds. `limit` caps the flood so a degree set wide
+ *  cannot take the whole part before the hand can react. */
+export function floodByNormal(g: MeshGraph, seed: number, maxAngleDeg: number, limit = g.vertexCount): Uint32Array {
+  if (seed < 0 || seed >= g.vertexCount) return new Uint32Array(0)
+  const cosMin = Math.cos((Math.max(0, maxAngleDeg) * Math.PI) / 180)
+  const n = g.normals
+  const { stamp, gen } = acquireStamps(g, g.vertexCount)
+  const queue: number[] = [seed]
+  stamp[seed] = gen
+  let head = 0
+  while (head < queue.length && queue.length < limit) {
+    const v = queue[head++]
+    const vx = n[v * 3], vy = n[v * 3 + 1], vz = n[v * 3 + 2]
+    const end = g.adjOffsets[v + 1]
+    for (let e = g.adjOffsets[v]; e < end; e++) {
+      const nb = g.adjList[e]
+      if (stamp[nb] === gen) continue
+      if (vx * n[nb * 3] + vy * n[nb * 3 + 1] + vz * n[nb * 3 + 2] < cosMin) continue
       stamp[nb] = gen
       queue.push(nb)
       if (queue.length >= limit) break
@@ -302,6 +334,28 @@ export function growCylinderRegion(
     refit: (positions, idx, c) => {
       const fit = fitCylinderClipped(positions, idx, c, 3)
       return fit && { model: fit.cylinder, sigma: fit.sigma }
+    },
+  })
+}
+
+/** Grow the toroidal surface around the seed — a fillet's round, a bend.
+ *  The band floor hangs off the tube radius, the smaller of the two, since
+ *  that is the curvature the scan resolves the surface against. */
+export function growTorusRegion(
+  g: MeshGraph,
+  seeds: ArrayLike<number>,
+  init: Torus,
+  initSigma: number,
+  initCount: number,
+): GrowResult<Torus> | null {
+  return growRegion(g, seeds, init, initSigma, initCount, {
+    cosMax: COS_CYLINDER_MAX,
+    band: (t, sigma) => Math.max(3.5 * sigma, 0.004 * t.r),
+    residual: torusResidual,
+    align: torusNormalAlign,
+    refit: (positions, idx, t) => {
+      const fit = fitTorusClipped(positions, idx, 3, t)
+      return fit && { model: fit.torus, sigma: fit.sigma }
     },
   })
 }

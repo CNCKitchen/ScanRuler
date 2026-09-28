@@ -8,11 +8,21 @@
 // with the workspace. What is set once and left — the colour mode, the mouse
 // controls — is in Settings instead.
 
+import type { ReactNode } from 'react'
 import { useDeviation } from '../state/deviationStore'
 import { useShell } from '../state/shellStore'
 import { useStore } from '../state/store'
+import { Icon } from './icons'
 
-export function ViewBar() {
+export function ViewBar({
+  pluginKeys,
+  hideModelKeys = false,
+}: {
+  /** The keys of a plugin's workspace, when one is on screen. */
+  pluginKeys?: ReactNode
+  /** No model on the stage: its keys go. */
+  hideModelKeys?: boolean
+}) {
   const showLabels = useStore((s) => s.showLabels)
   const setShowLabels = useStore((s) => s.setShowLabels)
   const showBackfaces = useStore((s) => s.showBackfaces)
@@ -56,6 +66,7 @@ export function ViewBar() {
             onClick={() => setShowLabels(!showLabels)}
             title="Show the name tags and readouts on the part. The fitted elements, the sections and the dimension lines stay either way — Hide all in the list is for those"
           >
+            <Icon name="labels" size={16} />
             Labels
           </button>
         </div>
@@ -75,6 +86,7 @@ export function ViewBar() {
                   : 'Load both the scan and the reference to compare them side by side'
               }
             >
+              <Icon name="splitView" size={16} />
               Split view
             </button>
           )}
@@ -90,12 +102,15 @@ export function ViewBar() {
                 : 'Nothing measured yet — the colour plot appears with the map'
             }
           >
+            <Icon name="colourPlot" size={16} />
             Colour plot
           </button>
         </div>
       )}
+      {pluginKeys}
       {/* About the models, in every viewport that shows one, and never about
-          what has been measured. */}
+          what has been measured. Not with the sheet alone on the stage. */}
+      {!hideModelKeys && (
       <div className="keys">
         <button
           className={translucent ? 'on' : undefined}
@@ -104,6 +119,7 @@ export function ViewBar() {
           onClick={() => setTranslucent(!translucent)}
           title="See through the parts — the reference inside the scan, the fitted elements and the pinned readings show instead of hiding behind the surface in front of them"
         >
+          <Icon name="transparent" size={16} />
           Transparent
         </button>
         <button
@@ -113,6 +129,7 @@ export function ViewBar() {
           onClick={() => setWireframe(!wireframe)}
           title="Draw the triangle edges on the parts, to see how fine the scan is and where it is patchy. The mesh comes up as you zoom in: from a distance the triangles are smaller than a pixel, and the edges fade out rather than turning the part black"
         >
+          <Icon name="mesh" size={16} />
           Mesh
         </button>
         <button
@@ -122,9 +139,11 @@ export function ViewBar() {
           onClick={() => setShowBackfaces(!showBackfaces)}
           title="Colour the far side of every triangle — holes in the scan and inverted normals stop looking like solid part"
         >
+          <Icon name="backfaces" size={16} />
           Backfaces
         </button>
       </div>
+      )}
     </div>
   )
 }

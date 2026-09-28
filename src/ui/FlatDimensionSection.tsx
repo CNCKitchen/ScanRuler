@@ -13,7 +13,7 @@ import {
 } from '../core/flat/dimensions'
 import { FLAT_ROLE_PROVIDERS } from '../core/flat/refs'
 import type { FlatFit } from '../core/flat/types'
-import { useFlat } from '../state/flatStore'
+import { flatDraftHolds, useFlat } from '../state/flatStore'
 import { DimensionRow, WarningNote } from './DimensionRow'
 import { ShowAllButton } from './ShowAllButton'
 import { ValueWindow } from './DroValue'
@@ -29,6 +29,9 @@ export function FlatDimensionSection({
   const elements = useFlat((s) => s.elements)
   const dimensions = useFlat((s) => s.dimensions)
   const dimDraft = useFlat((s) => s.dimDraft)
+  // An element box with work in it stands the key down, as it does the row
+  // keys: a dimension started closes that box. A kind merely in hand does not.
+  const draftBusy = useFlat((s) => flatDraftHolds(s.draft))
   const startDimDraft = useFlat((s) => s.startDimDraft)
   const editDimension = useFlat((s) => s.editDimension)
   const setDimName = useFlat((s) => s.setDimName)
@@ -64,6 +67,10 @@ export function FlatDimensionSection({
             or recalibrate and every dimension updates.
           </p>
           <p>Distances and angles between elements never change under an alignment.</p>
+          <p>
+            <b>Add dimension</b> leaves the box open for the next one of the same type, its
+            slots empty; <b>Cancel</b> or <b>Esc</b> closes it.
+          </p>
         </InfoDot>
         {dimensions.length > 0 && <b>{dimensions.length}</b>}
       </div>
@@ -73,7 +80,7 @@ export function FlatDimensionSection({
           <button
             className="block"
             data-test="flat-new-dimension"
-            disabled={measurable < 2}
+            disabled={measurable < 2 || draftBusy}
             onClick={startDimDraft}
           >
             New dimension

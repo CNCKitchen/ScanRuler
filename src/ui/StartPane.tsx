@@ -81,10 +81,14 @@ export function StartPane({
   title,
   blurb,
   slots,
+  skip,
 }: {
   title: string
   blurb: string
   slots: StartSlot[]
+  /** A way past the door for a workspace that can work with no model at
+   *  all, from a blank stage. */
+  skip?: { label: string; title: string; onClick: () => void }
 }) {
   // A workspace that wants two models can have the second one dropped first —
   // a STEP file can only ever be the reference — so the prompt says what is
@@ -106,6 +110,13 @@ export function StartPane({
       <div className="startfoot">
         Drag &amp; drop works anywhere in the window — the first empty slot takes it.
       </div>
+      {skip && (
+        <div className="startskip">
+          <button className="ghost" data-test="start-skip" title={skip.title} onClick={skip.onClick}>
+            {skip.label}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

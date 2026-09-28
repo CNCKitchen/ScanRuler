@@ -86,7 +86,7 @@ export function TargetSection({
             choice is the same either way.
           </p>
           <p>
-            The map is measured over the element <b>as it is drawn</b> — extend it in the Measure
+            The map is measured over the element <b>as it is drawn</b> — extend it in the 3D Measure
             workspace with the grips and the measured region grows with it, which is how a plane
             fitted on one pad becomes a flatness map of the whole face it belongs to.
           </p>
@@ -108,7 +108,7 @@ export function TargetSection({
             data-test="target-goto-measure"
             onClick={onGoToMeasure}
           >
-            Go to Measure…
+            Go to 3D Measure…
           </button>
         </>
       ) : (

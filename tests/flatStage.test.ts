@@ -148,6 +148,38 @@ describe('a click on the sheet', () => {
     useFlat.getState().stageRegion([20, 30], [30, 50], edges())
     expect(useFlat.getState().draft!.picks.length).toBe(101)
   })
+
+  it('grows a fit-to-edge draft along the edge from the click', () => {
+    useFlat.getState().startDraft('line', 'flat-line-seed')
+    // A click just off the edge lands on it, and the line takes the whole
+    // straight chain from there.
+    useFlat.getState().stageClick([50, 40.3], meta, edges())
+    const draft = useFlat.getState().draft!
+    expect(draft.picks.length).toBe(801)
+    expect(draft.fit?.kind).toBe('line')
+    expect(draft.error).toBeNull()
+    if (draft.fit?.kind === 'line') {
+      expect(draft.fit.length).toBeCloseTo(80, 6)
+      expect(draft.fit.center[1]).toBeCloseTo(40, 6)
+    }
+    // A click on no edge says so and keeps what was collected.
+    useFlat.getState().stageClick([50, 10], meta, edges())
+    expect(useFlat.getState().draft!.picks.length).toBe(801)
+    expect(useFlat.getState().draft!.error).toMatch(/No detected edge/)
+    // The next change to the draft clears the note.
+    useFlat.getState().undoDraftPick()
+    expect(useFlat.getState().draft!.picks.length).toBe(0)
+    expect(useFlat.getState().draft!.error).toBeNull()
+  })
+
+  it('refuses a circle clicked on a straight edge, with the reason', () => {
+    useFlat.getState().startDraft('circle', 'flat-circle-seed')
+    useFlat.getState().stageClick([50, 40.3], meta, edges())
+    const draft = useFlat.getState().draft!
+    expect(draft.picks.length).toBe(0)
+    expect(draft.fit).toBeNull()
+    expect(draft.error).toMatch(/straight/)
+  })
 })
 
 describe('confirm and retreat', () => {

@@ -6,6 +6,8 @@ dist/
 
 # Local test scan files
 /*.stl
+/*.ply
+/*.obj
 
 # Generated e2e screenshots
 /e2e-*.png

@@ -23,8 +23,21 @@
 // Without a seed the candidates are the scan's three principal planes: for a
 // mirror-symmetric cloud the mirror normal is always one of the principal
 // axes, since reflecting the cloud onto itself leaves its scatter unchanged.
-// A seed plane — a midplane of two faces, a fitted face — replaces them when
-// the part's detail makes the principal choice ambiguous.
+// The caller may add directions of its own — the part's face directions from
+// core/autoAlign, which a lug or a missing patch does not turn the way it
+// turns the principal axes. A seed plane — a midplane of two faces, a fitted
+// face — replaces them all when the part's detail makes the choice ambiguous.
+//
+// Most of the work would go into the candidates that lose: a plane the part
+// is not symmetric about never lets the registration settle, so it burns
+// every iteration of every pass. The search therefore runs in two stages.
+// Each candidate is first settled on a small sample with a loose registration
+// — enough to bring a plane that is a few degrees out to within a fraction of
+// one — and judged there; only the winner, and a runner-up that is close, go
+// on to the full sample and the tight registration the reported plane needs.
+// Once a pass has shown how far the mirror images really lie from the scan,
+// the next one searches no further than a few times that, which is what
+// keeps the facing-aware closest-point search — the expensive one — short.
 //
 // What comes back is a plane and how symmetric the part is about it: the
 // RMS distance of the matched mirrored samples from the scan, with no rigid
@@ -43,6 +56,28 @@ export interface SeedPlane {
   point: Vec3
 }
 
+/** The coordinate planes as seeds, beside the plane elements: on a part
+ *  that was aligned first the mirror plane is usually one of them, and
+ *  naming it settles which of several symmetries is meant. The ids are
+ *  negative so they never meet an element's. */
+export const BASE_PLANE_SEEDS: readonly { id: number; name: string; normal: Vec3 }[] = [
+  { id: -1, name: 'XY plane', normal: [0, 0, 1] },
+  { id: -2, name: 'YZ plane', normal: [1, 0, 0] },
+  { id: -3, name: 'ZX plane', normal: [0, 1, 0] },
+]
+
+/** A coordinate plane as the seed of a search: the plane itself where it
+ *  cuts through the part, and its parallel through the part's centre where
+ *  it does not — a scan fresh from the scanner sits anywhere, and a mirror
+ *  plane that misses the part mirrors it into thin air. */
+export function baseSeedPlane(id: number, center: Vec3, size: number): (SeedPlane & { name: string }) | null {
+  const base = BASE_PLANE_SEEDS.find((p) => p.id === id)
+  if (!base) return null
+  const off = dot(center, base.normal)
+  const cuts = Math.abs(off) <= Math.max(size, 0) / 2
+  return { name: base.name, normal: base.normal, point: cuts ? [0, 0, 0] : center }
+}
+
 export interface SymmetryPlane {
   normal: Vec3
   point: Vec3
@@ -52,9 +87,24 @@ export interface SymmetryPlane {
   /** How many samples found their mirror image on the scan, of how many. */
   matched: number
   sampled: number
-  /** Which candidate won: the index of the principal plane, or −1 for a
-   *  given seed. */
+  /** Which candidate won: 0–2 a principal plane, 3 and up one of the
+   *  directions the caller added, −1 a given seed. */
   candidate: number
+}
+
+/** The mirror image may stand off the scan by this much, RMS, and the part
+ *  still count as symmetric — the line Measure's symmetry plane calls a
+ *  loose match beyond. A scan's own noise is a few hundredths. */
+export const SYMMETRY_MAX_RMS_MM = 0.1
+
+/** The share of the samples that must find their mirror image. A part
+ *  symmetric in its body but for a hook or a boss still passes; a plane
+ *  that mirrors half the part into thin air does not. */
+export const SYMMETRY_MIN_MATCHED = 0.5
+
+/** Whether a search's answer is a symmetry worth defaulting to. */
+export function symmetryAccepted(r: Pick<SymmetryPlane, 'rms' | 'matched' | 'sampled'>): boolean {
+  return Number.isFinite(r.rms) && r.rms <= SYMMETRY_MAX_RMS_MM && r.sampled > 0 && r.matched / r.sampled >= SYMMETRY_MIN_MATCHED
 }
 
 export interface SymmetryOptions {
@@ -64,8 +114,12 @@ export interface SymmetryOptions {
    *  fixture or a broken patch takes no part. The surface the mirror images
    *  are matched against is the caller's to confine the same way. */
   vertices?: Uint32Array
-  /** Reflect-register-bisect passes per candidate. */
+  /** Reflect-register-bisect passes on the full sample. */
   rounds?: number
+  /** Normals of further candidate planes, tried through the centroid beside
+   *  the principal ones when no seed is given. One within a few degrees of a
+   *  candidate already there is dropped. */
+  directions?: Vec3[]
   onProgress?: (text: string) => void
 }
 
@@ -227,6 +281,9 @@ export function findSymmetryPlane(
   const diag = surface.bboxDiagonal
   const reach = diag * 0.1
 
+  // The small sample the candidates are settled and judged on first.
+  const coarse = samples.count > 1200 ? sampleScan(pos, nrm, Math.max(600, Math.round(samples.count / 6))) : samples
+
   let candidates: SeedPlane[]
   if (seed) {
     const normal = normalize(seed.normal)
@@ -235,33 +292,37 @@ export function findSymmetryPlane(
   } else {
     const frame = principalFrame(samples.xyz)
     candidates = frame.axes.map((axis) => ({ normal: axis, point: frame.centroid }))
+    const cosSame = Math.cos((3 * Math.PI) / 180)
+    for (const d of opts.directions ?? []) {
+      const normal = normalize(d)
+      if (!normal || candidates.some((c) => Math.abs(dot(c.normal, normal)) > cosSame)) continue
+      candidates.push({ normal, point: frame.centroid })
+    }
   }
 
-  let best: (SymmetryPlane & { capped: number }) | null = null
-  const moved = new Float64Array(samples.count * 3)
+  /** Passes of reflect, register, bisect from a starting plane. `fine` is
+   *  the full sample and the tight registration; without it, the quick look. */
   const out = new Float64Array(3)
-  candidates.forEach((cand, ci) => {
-    let n = cand.normal
-    let p = cand.point
-    for (let round = 0; round < rounds; round++) {
-      opts.onProgress?.(
-        seed
-          ? `Finding the symmetry plane — pass ${round + 1}…`
-          : `Finding the symmetry plane — principal plane ${ci + 1} of ${candidates.length}, pass ${round + 1}…`,
-      )
-      const mirrored = reflect(samples, n, p)
+  const settle = (s: ScanSamples, start: SeedPlane, passes: number, fine: boolean, say: (pass: number) => string): SeedPlane => {
+    let n = start.normal
+    let p = start.point
+    let search = reach
+    const moved = new Float64Array(s.count * 3)
+    for (let pass = 0; pass < passes; pass++) {
+      opts.onProgress?.(say(pass))
+      const mirrored = reflect(s, n, p)
       const res = icp(surface, mirrored, identityRigid(), {
-        maxIterations: 40,
+        maxIterations: fine ? 40 : 15,
         rejectMedianFactor: REJECT_MEDIAN_FACTOR,
         minNormalDot: 0.5,
         facingSearch: true,
-        maxPairDistance: reach,
-        tolerance: diag * 1e-7,
+        maxPairDistance: search,
+        tolerance: diag * (fine ? 1e-7 : 1e-5),
       })
       // A mirror image that finds almost no surface is not a symmetry, and
       // a plane read off it would be noise.
-      if (res.matched < 0.2 * samples.count) break
-      for (let i = 0; i < samples.count; i++) {
+      if (res.matched < 0.2 * s.count) break
+      for (let i = 0; i < s.count; i++) {
         const j = i * 3
         rigidApply(res.transform, mirrored.xyz[j], mirrored.xyz[j + 1], mirrored.xyz[j + 2], out)
         moved[j] = out[0]
@@ -270,9 +331,9 @@ export function findSymmetryPlane(
       }
       // Only the samples whose registered mirror image actually lies on the
       // scan say where the plane is.
-      const d = distances(surface, moved, samples.count, reach)
+      const d = distances(surface, moved, s.count, search)
       const thr = matchThreshold(d)
-      const next = bisector(samples.xyz, moved, (i) => d[i] <= thr, samples.count, n)
+      const next = bisector(s.xyz, moved, (i) => d[i] <= thr, s.count, n)
       if (!next) break
       const turned = Math.acos(Math.min(1, Math.abs(dot(next.normal, n))))
       const shifted = Math.abs(
@@ -280,8 +341,35 @@ export function findSymmetryPlane(
       )
       n = next.normal
       p = next.point
-      if (turned < 1e-7 && shifted < 1e-6) break
+      // What matched lay within `thr`; the next pass has no business further
+      // out than a few times that.
+      search = Math.min(reach, Math.max(diag * 0.01, 4 * thr))
+      if (fine ? turned < 1e-7 && shifted < 1e-6 : turned < 1e-4 && shifted < diag * 1e-5) break
     }
+    return { normal: n, point: p }
+  }
+
+  // Stage one: every candidate on the small sample, judged where it settles.
+  const COARSE_PASSES = 3
+  let field = candidates.map((cand, ci) => ({ plane: cand, ci, capped: 0 }))
+  if (coarse !== samples) {
+    for (const c of field) {
+      c.plane = settle(coarse, c.plane, COARSE_PASSES, false, (pass) =>
+        seed
+          ? `Finding the symmetry plane — a first look, pass ${pass + 1}…`
+          : `Finding the symmetry plane — trying plane ${c.ci + 1} of ${candidates.length}…`,
+      )
+      c.capped = residual(surface, coarse, c.plane.normal, c.plane.point, reach).capped
+    }
+    // The winner goes on, and a runner-up too close to call on so few points.
+    field.sort((a, b) => a.capped - b.capped)
+    field = field.filter((c, i) => i === 0 || (i === 1 && c.capped <= 1.25 * field[0].capped))
+  }
+
+  // Stage two: the full sample and the tight registration.
+  let best: (SymmetryPlane & { capped: number }) | null = null
+  for (const c of field) {
+    const { normal: n, point: p } = settle(samples, c.plane, rounds, true, (pass) => `Finding the symmetry plane — refining, pass ${pass + 1}…`)
     const r = residual(surface, samples, n, p, reach)
     if (!best || r.capped < best.capped) {
       best = {
@@ -290,11 +378,11 @@ export function findSymmetryPlane(
         rms: r.rms,
         matched: r.matched,
         sampled: samples.count,
-        candidate: seed ? -1 : ci,
+        candidate: seed ? -1 : c.ci,
         capped: r.capped,
       }
     }
-  })
+  }
   if (!best) throw new Error('No symmetry plane could be found.')
   const { capped: _capped, ...plane } = best as SymmetryPlane & { capped: number }
   return plane
