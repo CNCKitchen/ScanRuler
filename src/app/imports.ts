@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { MeshWorkerClient, LoadedScan, LoadedNominal } from '../core/workerClient'
-import type { CreaseMode } from '../core/geometry/crease'
+import type { CreaseSetting } from '../core/geometry/crease'
 import type { Rigid } from '../core/deviation/rigid'
 import type { SceneManager } from '../viewer/SceneManager'
 import { grayscaleOf } from '../core/flat/edgeClient'
@@ -55,7 +55,7 @@ export function runImport(
 /** `units` is what the file's coordinates are in; the worker reads it in
  *  millimetres, and the source remembers the units so a project or a worker
  *  restart reads the same bytes the same way. */
-export async function prepareScan(client: MeshWorkerClient, scene: SceneManager, file: File, crease: CreaseMode, transform?: Rigid, units: MeshUnits = 'mm'): Promise<PreparedScan> {
+export async function prepareScan(client: MeshWorkerClient, scene: SceneManager, file: File, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm'): Promise<PreparedScan> {
   if (!isMeshFile(file.name)) throw new Error(isStepFile(file.name)
     ? 'A STEP file is CAD, not a scan — load it as the reference in the Deviation workspace.'
     : 'Unsupported file type — use STL, PLY, or OBJ.')

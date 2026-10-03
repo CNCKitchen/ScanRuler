@@ -3,8 +3,7 @@
 // analytic STEP, and the scan itself as an STL or a point cloud in the pose
 // it is shown in.
 import type { RefObject } from 'react'
-import { applyAssumed } from '../core/elements/assumed'
-import { applyExtension } from '../core/elements/extend'
+import { drawnFit } from '../core/elements/assumed'
 import type { StepSection } from '../core/exportStep'
 import { buildBinaryStl } from '../core/exportStl'
 import type { CloudFormat } from '../core/exportPointCloud'
@@ -77,7 +76,7 @@ export const exportElementsStep = () => runExport(async () => {
     // assumed diameter swapped in wherever the user gave one.
     els.map((e) => ({
       name: e.name,
-      fit: applyExtension(applyAssumed(e.fit!, e.assumed), e.extend),
+      fit: drawnFit(e.fit!, e.assumed, e.extend),
     })),
     store.fileName ?? 'scan',
     new Date().toISOString().slice(0, 19),

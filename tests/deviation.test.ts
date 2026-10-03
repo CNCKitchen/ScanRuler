@@ -12,12 +12,11 @@ import {
 } from '../src/core/deviation/deviation'
 import { fieldHistogram, niceCeil, niceFloor } from '../src/core/field/stats'
 import {
-  jet,
+  colormapById,
   paintField,
   quantize,
+  rampColor,
   UNMEASURED_RGB,
-  RED_CAP_RGB,
-  BLUE_CAP_RGB,
 } from '../src/core/field/colormap'
 import {
   identityRigid,
@@ -254,6 +253,9 @@ describe('scale and statistics', () => {
 })
 
 describe('the colour ramp', () => {
+  const JET = colormapById('jet')
+  const jet = (t: number, out: [number, number, number]) => rampColor(JET, t, out)
+
   it('puts a saturated green on nominal and the primaries at the ends', () => {
     const c: [number, number, number] = [0, 0, 0]
     jet(0.5, c)
@@ -287,10 +289,10 @@ describe('the colour ramp', () => {
   it('separates in range, off scale, and unmatched', () => {
     const values = Float32Array.from([0, 2, -2, 50, NaN])
     const out = new Uint8Array(15)
-    paintField(values, deviationScale(1, 10, null), out)
+    paintField(values, deviationScale(1, 10, null), JET, out)
     expect(Array.from(out.slice(0, 3))).toEqual([0, 200, 0])
-    expect(Array.from(out.slice(3, 6))).toEqual([...RED_CAP_RGB])
-    expect(Array.from(out.slice(6, 9))).toEqual([...BLUE_CAP_RGB])
+    expect(Array.from(out.slice(3, 6))).toEqual([130, 0, 0])
+    expect(Array.from(out.slice(6, 9))).toEqual([0, 0, 110])
     expect(Array.from(out.slice(9, 12))).toEqual([...UNMEASURED_RGB])
     // A vertex the search never reached is not a measurement either.
     expect(Array.from(out.slice(12, 15))).toEqual([...UNMEASURED_RGB])

@@ -45,7 +45,7 @@ describe('worker lifecycle', () => {
   it('restores the mesh before retrying a measurement, sharing one recovery between callers', async () => {
     vi.stubGlobal('Worker', FakeWorker)
     const client = new MeshWorkerClient()
-    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: 'off', transform: null }, nominal: null })
+    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
     FakeWorker.instances[0].crash()
     const one = client.centroid()
     const two = client.curvature()
@@ -62,9 +62,9 @@ describe('worker lifecycle', () => {
   it('puts a plugin’s own models back after the scan, before the request that found the worker gone', async () => {
     vi.stubGlobal('Worker', FakeWorker)
     const client = new MeshWorkerClient()
-    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: 'off', transform: null }, nominal: null })
+    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
     const stop = client.onRestore(async (channel) => {
-      const id = await channel.loadStaged('copy.ply', new Uint8Array([2]), 'off', null)
+      const id = await channel.loadStaged('copy.ply', new Uint8Array([2]), { mode: 'off', angleDeg: 30 }, null)
       await channel.call('plugin-x', 'adopt', { staged: id })
     })
     FakeWorker.instances[0].crash()

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // End-to-end test of picking a construction's point straight on the scan:
-// fits one ball of ballbar.stl, opens a line through two points, takes the
-// sphere for Point A and "+ Pick point on scan…" for Point B, clicks the
-// scan, and checks that a Point element appeared, filled the slot, and the
+// fits one ball of ballbar.stl, opens a line through two points — its slots
+// pick by themselves — takes the sphere for Point A, clicks the scan for
+// Point B, and checks that a Point element appeared, filled the slot, and the
 // line was created through both.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
@@ -34,11 +34,14 @@ if (!ball) fail('sphere not fitted')
 
 await click(page, '[data-test="fit-line"]')
 await selectByLabel(page, '[data-test="draft-method"]', 'Through two points')
+// A construction of points alone asks for its points itself: the first slot
+// is picking from the start, and filling it hands the pick to the next.
+const first = await page.$eval('[data-test="draft-ref-0"]', (e) => e.options[e.selectedIndex].text)
+check(first.startsWith('Picking'), `the first slot picks from the start: "${first}"`)
 await selectByLabel(page, '[data-test="draft-ref-0"]', 'Sphere 1')
-await selectByLabel(page, '[data-test="draft-ref-1"]', '+ Pick point on scan…')
 await sleep(100)
 const picking = await page.$eval('[data-test="draft-ref-1"]', (e) => e.options[e.selectedIndex].text)
-check(picking.startsWith('Picking'), `slot shows it is picking: "${picking}"`)
+check(picking.startsWith('Picking'), `the next slot picks once the first is filled: "${picking}"`)
 const hint = await page.$eval('.hintchip', (e) => e.textContent).catch(() => '')
 console.log('stage hint:', hint)
 

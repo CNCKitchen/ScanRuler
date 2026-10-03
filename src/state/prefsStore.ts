@@ -12,6 +12,7 @@
 // something this version cannot read.
 
 import { create } from 'zustand'
+import { colormapById, type ColormapId } from '../core/field/colormap'
 import { meshUnitsOf, type MeshUnits } from '../core/meshUnits'
 import {
   EDGE_LINE_DEFAULT,
@@ -30,6 +31,7 @@ export const UI_THEMES: { id: UiTheme; label: string }[] = [
 ]
 
 const UI_THEME_KEY = 'scanruler.uitheme'
+const COLORMAP_KEY = 'scanruler.colormap'
 const SECTION_LINES_KEY = 'scanruler.sectionlines'
 const SHEET_LINES_KEY = 'scanruler.sheetlines'
 const EDGE_LINES_KEY = 'scanruler.edgelines'
@@ -76,6 +78,9 @@ interface PrefsState {
   /** What the theme comes to right now — the one thing the stylesheet and
    *  the scenes actually read. Derived, never set directly. */
   dark: boolean
+  /** The ramp every map on the part is painted in, and every legend beside
+   *  one drawn in. Jet until another is chosen. */
+  colormap: ColormapId
   /** Section cuts on the part in 3D, in pixels. */
   sectionLines: number
   /** Fitted curves over a flatbed scan in 2D Measure, in pixels. */
@@ -100,6 +105,7 @@ interface PrefsState {
   stlUnits: MeshUnits
   settingsOpen: boolean
   setUiTheme: (theme: UiTheme) => void
+  setColormap: (id: ColormapId) => void
   setSectionLines: (px: number) => void
   setSheetLines: (px: number) => void
   setEdgeLines: (px: number) => void
@@ -115,6 +121,7 @@ export const usePrefs = create<PrefsState>()((set) => {
   return {
     uiTheme,
     dark: resolveDark(uiTheme),
+    colormap: colormapById(read(COLORMAP_KEY)).id,
     sectionLines: clampLineWidth(read(SECTION_LINES_KEY), SECTION_LINE_DEFAULT),
     sheetLines: clampLineWidth(read(SHEET_LINES_KEY), SHEET_LINE_DEFAULT),
     edgeLines: clampLineWidth(read(EDGE_LINES_KEY), EDGE_LINE_DEFAULT),
@@ -127,6 +134,11 @@ export const usePrefs = create<PrefsState>()((set) => {
     setUiTheme: (theme) => {
       write(UI_THEME_KEY, theme)
       set({ uiTheme: theme, dark: resolveDark(theme) })
+    },
+    setColormap: (id) => {
+      const colormap = colormapById(id).id
+      write(COLORMAP_KEY, colormap)
+      set({ colormap })
     },
     setSectionLines: (px) => {
       const sectionLines = clampLineWidth(px, SECTION_LINE_DEFAULT)

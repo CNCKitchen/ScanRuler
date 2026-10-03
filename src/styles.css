@@ -2340,6 +2340,64 @@ button.x:disabled {
   font-size: 12px;
 }
 
+/* The colour maps, each shown as the ramp it paints — a dropdown can only
+   name them. The label sits by the first row rather than the middle of three. */
+.setting.colormaps > span {
+  align-self: start;
+  padding-top: 7px;
+}
+
+.cmaps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.cmaps button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 5px 6px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  color: var(--dim);
+  background: var(--well);
+  box-shadow: var(--inset);
+}
+
+.cmaps button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.cmaps button.on,
+.cmaps button.on:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* Cap, ramp, cap — as the scale beside a map stacks them, laid on its side. */
+.cmap-ramp {
+  display: flex;
+  height: 14px;
+  border-radius: 2px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+
+.cmap-ramp i {
+  flex: 0 0 7px;
+}
+
+.cmap-ramp i:nth-child(2) {
+  flex: 1 1 auto;
+  margin: 0 1px;
+}
+
 .range {
   display: flex;
   align-items: center;

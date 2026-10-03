@@ -40,10 +40,10 @@ export function AssumedField({ fit }: { fit: SizedFit }) {
               for you.
             </p>
             <p>
-              Nothing measured changes: the element, its readouts and every dimension keep the
-              fitted diameter. Only the STEP export writes this value instead of the measured one,
-              so CAD receives the feature as designed. Elements without one are exported as
-              measured.
+              The element is drawn at this diameter, and the STEP export writes it instead of the
+              measured one, so CAD receives the feature as designed. Nothing measured changes: the
+              readouts, every dimension and every deviation map keep the fitted diameter. Elements
+              without one are drawn and exported as measured.
             </p>
           </InfoDot>
         </span>

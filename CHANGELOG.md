@@ -5,6 +5,78 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## 0.4.5 — 2026-10-03
+
+- **A plane through three points is clicked on the part** (2026-10-02). A
+  construction made of points alone — the plane through three points, the
+  line through two, the midpoint of two — asks for its points itself, one
+  after the other, the moment its method is chosen: a click on the scan
+  drops a picked point into the waiting slot, a click on a point, a sphere
+  or a circle takes its centre, and the next slot waits in turn. Only the
+  elements that can stand for a point take a click while one waits; a click
+  on any other goes through it to the scan. The dropdowns still choose too,
+  and Escape closes the box as before, without first stopping the picking.
+  Tests: `editing` (a plane picked point by point, a slot let go asks
+  again, a mixed construction waits to be asked); `e2e-pick-slot`.
+
+- **Colour maps** (2026-10-02). ⚙ Settings → **Colour map** chooses the
+  ramp every map on the part is painted in, and every scale beside one is
+  drawn in, from previews of each: **Jet**, the ramp the tool has always
+  used and still its default, or one of the eight of the R package viridis —
+  **Viridis**, **Magma**, **Plasma**, **Inferno**, **Cividis**, **Mako**,
+  **Rocket** and **Turbo**, from viridisLite's tables colour for colour. A
+  reading past either end of the scale wears that map's own cap, a colour
+  its ramp never uses, where jet's dark red and dark blue would have been
+  lost against turbo's dark red end or viridis' dark purple start. Remembered
+  per browser. Tests: `colormap` (the published ends of every table; jet as
+  it was; every cap far from its ramp, from the bare grey and from the other
+  cap; the caps of a reversed scale; the legend in the chosen map; the
+  preference); `e2e-thickness` switches the map on a measured part and back.
+
+- **Sharp edges are drawn sharp by default** (2026-10-02). ⚙ Settings →
+  Sharp edges starts at **Always sharp**, from 30°, in place of Auto: on a
+  scan the rim of a bore and the edge of a step are drawn as edges, and its
+  noise — which seldom tips triangles that far: a few hundred vertices split
+  on a scan of several hundred thousand — stays smooth. A browser where
+  Auto or Always smooth was chosen keeps it.
+
+- **Sharp edges from an angle of your choosing** (2026-10-02). ⚙ Settings →
+  Sharp edges has a **Sharp from** slider, 5° to 120°: the angle between two
+  faces from which their edge is shaded sharp, 30° as before until it is
+  moved. Noise tips a scan's triangles a few degrees, seldom tens, so a real
+  scan set to **Always sharp** from 50° or 60° has the rim of a bore and the
+  edge of a step drawn sharp, instead of streaked down the wall, and its
+  noise left smooth. The scan — and a mesh shown in its place — is split
+  again once the slider stops, and the status line says from what angle.
+  Tests: `crease` (a noisy box's edges split from 60° and nothing from 120°;
+  the layout at the angle asked; a stored angle out of range).
+
+- **An assumed Ø is drawn** (2026-10-02). An element given an **Assumed Ø**
+  is drawn at it in the viewport — the preview as soon as the value is
+  entered — as the STEP export already wrote it, so what is on screen is
+  what CAD receives. Every readout, dimension and deviation map still reads
+  the measurement.
+
+- **Escape works with a field focused** (2026-10-02). With the focus in a
+  number field or a list of a box or a tool, Escape did nothing; it now
+  leaves the field and closes what the field is in, as it does with the
+  focus anywhere else. A field that takes Escape for itself — a number
+  being typed over, a note being written — keeps it. And the labels on the
+  2D sheet say when the cursor is on them, for a workspace to light what a
+  note or a dimension stands for.
+
+- **Workspaces can lend each other solids** (2026-10-02). A workspace that
+  models closed bodies offers them through `src/app/solids.ts` — named,
+  versioned, and meshed in the scan's frame when asked for — and another
+  lists them and asks for one, neither naming the other. The open-source
+  build offers none.
+
+- **The Align part box ends in Confirm alignment** (2026-10-02). The pose
+  is previewed on the part from the first choice on — and after Auto-align
+  or Use symmetry before anything is pressed at all — so the button that
+  keeps it no longer says *Align part*, as if the aligning were still to
+  come. The hints and the status bar name it the same.
+
 ## 0.4.4 — 2026-09-28
 
 - **Workspaces can come from plugins** (2026-09-27). The app finds them in

@@ -340,7 +340,7 @@ export function DraftEditor({
           </div>
 
           {/* The design value behind the measurement, for the kinds defined by
-              a diameter — what an assumed-dimension STEP export writes. */}
+              a diameter — what the element is drawn and exported at. */}
           {draft.status === 'ready' && hasDiameter(draft.fit) && <AssumedField fit={draft.fit} />}
 
           {/* The designed relation to a reference plane, for the kinds with a

@@ -15,7 +15,7 @@ import { useEffect } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { evaluateDimension } from '../core/dimensions'
 import type { FitData } from '../core/types'
-import { draftHolds, sectionDraftReady, useStore } from '../state/store'
+import { draftHolds, picksItsPoints, sectionDraftReady, useStore } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useFlat } from '../state/flatStore'
@@ -38,6 +38,10 @@ const VIEW_KEYS: Record<string, StandardView> = {
   '6': 'right',
 }
 
+/** The arrow keys, as steps through what lies under the cursor: down and
+ *  right go further back, up and left come forward again. */
+const ARROW_STEPS: Record<string, 1 | -1> = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }
+
 export function useGlobalShortcuts({
   stopMarking,
   abortAlign,
@@ -48,6 +52,7 @@ export function useGlobalShortcuts({
   cancelSection,
   confirmSection,
   viewFrom,
+  cycleUnderCursor,
 }: {
   /** Close the deviation workspace's local fine fit marking session. */
   stopMarking: () => void
@@ -64,6 +69,9 @@ export function useGlobalShortcuts({
   confirmSection: () => void
   /** Turn the 3D viewport's camera to a standard view. */
   viewFrom: (view: StandardView) => void
+  /** Step through what lies under the cursor in the 3D viewport — see
+   *  SceneManager.cycleUnderCursor. True when something was stepped to. */
+  cycleUnderCursor: (step: 1 | -1) => boolean
 }) {
   useEffect(() => {
     // Mirrors the "Add dimension" button: every slot filled and the preview
@@ -91,7 +99,15 @@ export function useGlobalShortcuts({
     }
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
-      if (target && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable)) return
+      if (target && (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable)) {
+        // Escape in a field of a box or a tool leaves the field and goes on
+        // to close what it is in, as it does with the focus anywhere else —
+        // a box set up by typing into it would otherwise not close on the
+        // key at all. Not where the field took the key for itself (a number
+        // typed over, put back), nor from a text being written.
+        if (e.key !== 'Escape' || e.defaultPrevented || target.tagName === 'TEXTAREA' || target.isContentEditable) return
+        target.blur()
+      }
       // One press, one step. A key held down auto-repeats, and Escape backs
       // out of a marking session in steps — a repeat would carry straight on
       // from standing the gesture down to discarding the draft, marking and
@@ -115,6 +131,17 @@ export function useGlobalShortcuts({
         if (plugins().some((p) => p.keyboard?.holdsViewKeys?.())) return
         viewFrom(view)
         return
+      }
+      // The arrow keys step through what lies under the cursor in the 3D
+      // viewport, one behind another — a face behind the one in front, a
+      // body behind another — for the click to take. Only over something
+      // that has more than one thing there; a list or a picker that took
+      // the key for itself keeps it.
+      if (ARROW_STEPS[e.key] && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && !e.defaultPrevented) {
+        if (cycleUnderCursor(ARROW_STEPS[e.key])) {
+          e.preventDefault()
+          return
+        }
       }
       // A plugin's workspace has the keys first.
       if (pluginKeys()?.keydown?.(e, { confirmButton })) return
@@ -167,7 +194,9 @@ export function useGlobalShortcuts({
           if (marked && useMark.getState().gesture !== null) useMark.getState().setGesture(null)
           // Likewise a construction slot waiting for a click on the scan: the
           // first Escape stops the picking, the second discards the draft.
-          else if (store.draft.pickSlot != null) store.cancelDraftPick()
+          // Not where the slots ask for their picks themselves (a plane
+          // through three points): there the picking is the editor.
+          else if (store.draft.pickSlot != null && !picksItsPoints(store.draft)) store.cancelDraftPick()
           // A new draft with picks in it is emptied first and the kind kept
           // in hand, as a sketch tool's half-placed points go before the
           // tool. Not a marked surface: that draft closes and keeps it (see

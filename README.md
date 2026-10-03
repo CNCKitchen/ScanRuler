@@ -194,20 +194,25 @@ of a bad scan all show up in that highlight long before they show up in matt
 shading. Every viewport follows — the reference half of the split view and both
 halves of the point picker with it.
 
-A mesh exported from CAD rather than scanned — a low-poly STL out of OpenSCAD
-or a slicer, a part to be measured before it is even made — is drawn with its
-edges sharp: at every edge sharper than 30° the two faces get their own
-normals, so a box has six flat faces instead of shading like a pillow and a
-bored hole reads as a hole instead of a dent. A scan is shaded smooth, which is
-what a scanned surface is; drawing its noise sharp would speckle it and double
-its vertex list. **Sharp edges** in ⚙ Settings decides which treatment the scan
-gets. **Auto**, the default, tells the two apart by the mesh itself: a
-tessellation of exact surfaces is full of dead-flat edges between coplanar
-triangles, a scan has practically none. **Always sharp** and **Always smooth**
-overrule it either way, for a mesh Auto reads wrong — it says so in the status
-line — and take effect on the loaded scan at once. However it is set, a split
-that would add more vertices than the scan has is not made, so a noisy mesh
-forced sharp cannot run the viewport out of memory. The reference part is CAD
+The scan is drawn with its edges sharp: at every edge sharper than 30° the
+two faces get their own normals. On a mesh exported from CAD rather than
+scanned — a low-poly STL out of OpenSCAD or a slicer, a part to be measured
+before it is even made — a box then has six flat faces instead of shading like
+a pillow, and a bored hole reads as a hole instead of a dent; on a scan the
+rim of a bore and the edge of a step are drawn as edges, not smeared down the
+wall below them. Noise tips a scan's triangles a few degrees, seldom tens, so
+it stays smooth: a real scan of a few hundred thousand vertices has a few
+hundred split, at its edges and its odd spike. **Sharp edges** in ⚙ Settings
+decides the treatment: **Always sharp**, the default; **Auto**, which draws
+the edges sharp only on a mesh that reads as a tessellation of exact surfaces
+— full of dead-flat edges between coplanar triangles, where a scan has
+practically none — and a scan smooth all over; and **Always smooth**. Each
+takes effect on the loaded scan at once, and says in the status line what it
+did. **Sharp from** beside it says from what angle between two faces an edge
+counts as sharp, 30° unless it is moved — 50° or 60° on a scan whose noise
+still shows. However it is set, a split that would add more vertices than the
+scan has is not made, so a noisy mesh drawn sharp cannot run the viewport out
+of memory. The reference part is CAD
 and is always drawn sharp. None of this touches what is measured: the split is
 in the picture only, and every fit, region and marking is on the scan's own
 vertices.
@@ -246,10 +251,24 @@ remembered per browser and none of it saved with a project:
   tints, the deviation and thickness ramps and the axis colours are the same
   on both.
 - **Colour mode** — Studio grey or Scanner blue, as [above](#how-the-part-is-shown).
+- **Colour map** — the ramp every map on the part is painted in, and every
+  scale beside one drawn in, each shown as a preview to pick from. **Jet**,
+  the default, is the inspection classic, a saturated green pinned in the
+  middle. The other eight are those of the R package
+  [viridis](https://cran.r-project.org/web/packages/viridis/vignettes/intro-to-viridis.html),
+  colour for colour: **Viridis**, **Magma**, **Plasma**, **Inferno**,
+  **Cividis**, **Mako** and **Rocket** are perceptually uniform — an even
+  step in the reading is an even step in colour, with no bands the part does
+  not have — and legible with colour blindness; **Turbo** is a smooth
+  rainbow, jet without its bands. Each has two caps of its own for a reading
+  past either end of the scale, in colours its ramp never uses: blue below
+  and red above where the ramp leaves them free, as on jet.
 - **Sharp edges** — whether the scan's creases are shaded sharp, as
-  [above](#how-the-part-is-shown): **Auto** does it only on a mesh that reads
-  as CAD, **Always sharp** and **Always smooth** do as they say. The reference
-  part is always drawn sharp.
+  [above](#how-the-part-is-shown): **Always sharp**, the default, and **Always
+  smooth** do as they say, **Auto** draws them sharp only on a mesh that reads
+  as CAD, and **Sharp from** sets the angle an edge is sharp from (5° to 120°,
+  30° to start). The
+  reference part is always drawn sharp, from 30°.
 - **Mouse controls** — the CAD tool whose buttons the viewport should answer
   to, with a line under the dropdown saying which button does what.
 - **Ask what units an STL is in** — whether opening an STL puts the question
@@ -289,6 +308,12 @@ choice of creation methods:
 | **Sphere, Cylinder** | fit to the scan |
 | **Torus** | fit to the scan — one click on a round: a fillet, a bend, an O-ring seat. Reads the tube radius (the fillet's R) and the ring's; its axis is an axis wherever one is asked for |
 | **Circle** | through **3 or more picked points** (three give the exact circle, more refine a best fit — a hole rim, a boss edge) · intersection of a plane with a cylinder or a sphere · typed-in diameter + normal + center |
+
+A construction made of points alone — through three points, through two,
+the midpoint of two — is clicked together on the part: its slots ask for
+their points one after the other from the moment the method is chosen, a
+click on the scan picking a new point and a click on a point, a sphere or a
+circle taking its centre.
 
 Anywhere a *point* is asked for, a sphere or a circle stands in with its
 center; anywhere an *axis* is asked for, a cylinder stands in with its axis —
@@ -561,10 +586,11 @@ through.
 
 Like an extension, the assumed dimension is carried **beside** the fit, never
 in it: every readout, dimension and deviation map keeps the measured
-diameter. It is used in exactly one place — the STEP export writes an element
-that was given one at its assumed Ø and every other element as measured —
-and the copied summary reports it beside the measurement whenever the two
-differ.
+diameter. It is used where the element is a shape rather than a number — the
+viewport draws it at its assumed Ø, the preview as soon as the value is
+entered, and the STEP export writes it at that Ø and every other element as
+measured — and the copied summary reports it beside the measurement whenever
+the two differ.
 
 ### Changing what you have made
 
@@ -1128,7 +1154,7 @@ Reading the map:
 | Control | Unit | What it does |
 | --- | --- | --- |
 | **Range ±** | mm | Half-width of the colour scale. Defaults to the rounded 95th percentile of the absolute deviation, so a handful of outliers on a fixture edge cannot flatten the whole part to green — and never opens wider than **±1 mm** on its own, so a great many of them cannot either. A part that really is further out than that says so in the dark end caps; widen the scale by hand to read it. |
-| **Bands** | — | Continuous jet, or quantised into bands when you want iso-deviation contours. |
+| **Bands** | — | Continuous, or quantised into bands when you want iso-deviation contours. |
 | **Histogram** | — | The distribution, drawn beside the scale and sharing its axis, plus min / max / mean / RMS / sigma. |
 | **Max search distance** | mm | How far a scan point may look for reference surface. Beyond it there is nothing to deviate from, so the surface is left plain grey and kept out of the statistics. Display only — it never affects the alignment, and moving it re-colours instantly. |
 | **Tolerance ±** | mm | The band the *within ± x mm* figure under the scale counts. It does not change the colours. |
@@ -1136,7 +1162,9 @@ Reading the map:
 
 The ramp is jet — blue through cyan, green, yellow to red — pinned so that
 **zero is a saturated green**, with dark caps beyond each end so a reading that
-is off-scale is never mistaken for one that is merely large.
+is off-scale is never mistaken for one that is merely large. Any of the
+viridis maps can stand in for it, under ⚙ Settings → [Colour map](#settings);
+zero is then the middle of that ramp, and the caps are that map's own.
 
 Validated against the included test pair (`side bracket left.stl` as nominal,
 `block-marius.stl` as the scan, 1.43 M triangles): the fit converges to
@@ -1297,8 +1325,9 @@ Everything down to **Max. deviation of normals** shapes the search, so changing
 it means measuring again; everything below it is display, and takes effect as
 you turn it.
 
-The ramp is the same jet as the deviation map but **reversed: red is thin, blue
-is thick**. Thickness has no signed zero to sit in the middle, and the end that
+The ramp is the deviation map's, in whichever [colour map](#settings) is
+chosen, but **reversed: its hot end is thin** — on jet, red is thin and blue is
+thick. Thickness has no signed zero to sit in the middle, and the end that
 needs to shout is the thin one.
 
 ## 2D Measure: flatbed scans
@@ -1669,7 +1698,10 @@ otherwise forbids, and is in only because it is ours as well: a commercial
 exception for this app covers it too.
 
 The bundled fonts are third-party under SIL OFL 1.1 (license files alongside
-them in [public/fonts/](public/fonts/)). The project name and the CNC Kitchen
+them in [public/fonts/](public/fonts/)). The colour maps but jet are the tables
+of [viridisLite](https://github.com/sjmgarnier/viridisLite), MIT, © 2015 Simon
+Garnier — the notice is in
+[src/core/field/colormapData.ts](src/core/field/colormapData.ts). The project name and the CNC Kitchen
 name and logo are trademarks and not covered by the code license.
 
 By [CNC Kitchen](https://www.cnckitchen.com).

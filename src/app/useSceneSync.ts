@@ -7,12 +7,14 @@ import { useEffect, useMemo, useRef } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
 import { isDeviationTarget } from '../core/deviation/elementField'
-import { applyExtension, isExtendable } from '../core/elements/extend'
+import { isExtendable } from '../core/elements/extend'
+import { drawnFit } from '../core/elements/assumed'
 import { evaluateDimensions, pinNotes, type EvaluatedDimension } from '../core/dimensions'
 import { liftFlatFit } from '../core/section/lift'
 import { surfaceSource, useSurfaces } from './surfaces'
 import {
   alignCenterOf,
+  blockedRefs,
   alignmentPreview,
   draftColorOf,
   sectionDraftColorOf,
@@ -30,12 +32,13 @@ import { schemeById } from '../viewer/navSchemes'
 import { usePrefs } from '../state/prefsStore'
 import { sceneTheme } from '../viewer/viewThemes'
 import { formatSigned } from '../ui/format'
+import { providersFor } from '../ui/RefSelect'
 import { MARK_COLOR, useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
-import { paintField, type FieldScale } from '../core/field/colormap'
+import { colormapById, paintField, type FieldScale } from '../core/field/colormap'
 import { fieldHistogram } from '../core/field/stats'
 import { deviationScale, deviationStats } from '../core/deviation/deviation'
 import { thicknessStats } from '../core/thickness/thickness'
@@ -83,6 +86,7 @@ export function useSceneSync({
   const measuredDraftFit = useStore((s) => (s.draft?.status === 'ready' ? s.draft.fit : undefined))
   const draftOrient = useStore((s) => s.draft?.orient)
   const draftExtend = useStore((s) => s.draft?.extend)
+  const draftAssumed = useStore((s) => s.draft?.assumed)
   const elementsForOrient = useStore((s) => (s.draft?.orient ? s.elements : null))
   // An aligned draft is shown turned onto its reference plane — what it will
   // be created as.
@@ -93,12 +97,13 @@ export function useSceneSync({
         : measuredDraftFit,
     [measuredDraftFit, draftOrient, elementsForOrient],
   )
-  // What the ghost is: the fit, carrying however far past its measured surface
-  // it has been extended. Recomputed rather than stored, so the fit under it
-  // stays the measurement.
+  // What the ghost is: the fit, at the diameter it is assumed to have been
+  // designed at and carrying however far past its measured surface it has
+  // been extended. Recomputed rather than stored, so the fit under it stays
+  // the measurement.
   const shownDraftFit = useMemo(
-    () => (draftFit ? applyExtension(draftFit, draftExtend) : null),
-    [draftFit, draftExtend],
+    () => (draftFit ? drawnFit(draftFit, draftAssumed, draftExtend) : null),
+    [draftFit, draftAssumed, draftExtend],
   )
   useEffect(() => {
     sceneRef.current?.setPreview(shownDraftFit)
@@ -251,15 +256,16 @@ export function useSceneSync({
             // that cannot be answered.
             candidates && e.visible && isDeviationTarget(e.fit),
       )
-      // Drawn at whatever length or size it was extended to — the fit itself
-      // stays the measured surface, and everything that reports a number goes
-      // on reading that. For the element a map is measured against, that drawn
-      // size is also exactly the region the map covers.
+      // Drawn at whatever length or size it was extended to, and at its
+      // assumed diameter — the fit itself stays the measured surface, and
+      // everything that reports a number goes on reading that. For the
+      // element a map is measured against, that drawn length is also exactly
+      // the region the map covers.
       .map((e) => ({
         id: e.id,
         name: e.name,
         color: e.color,
-        fit: applyExtension(e.fit!, e.extend),
+        fit: drawnFit(e.fit!, e.assumed, e.extend),
         // On bare scan every element is a body. Over a map the one being
         // measured against is reduced to its border, and the others stay bodies
         // so there is something to aim a click at — until the map itself is
@@ -308,7 +314,7 @@ export function useSceneSync({
       return [
         {
           at: r.value.anchor,
-          fit: applyExtension(feature.fit, feature.extend),
+          fit: drawnFit(feature.fit, feature.assumed, feature.extend),
           title: r.dim.name,
           value: r.value.value!,
           ...verdictOf(r),
@@ -548,12 +554,33 @@ export function useSceneSync({
         sectionDraft !== null ||
         (alignDraft !== null && alignDraft.pickSlot === null)) &&
         draft === null) ||
-        (draft !== null &&
-          draft.pickSlot == null &&
-          creationMethod(draft.kind, draft.method).mode === 'construct')))
+        (draft !== null && creationMethod(draft.kind, draft.method).mode === 'construct')))
   useEffect(() => {
     sceneRef.current?.setElementPickEnabled(wantsElementPicks)
   }, [wantsElementPicks])
+  // A point slot waiting for a click on the scan takes a point element too —
+  // a sphere's centre, a point measured before. Only those are clickable
+  // then; a click on any other element goes through it to the scan, where
+  // it picks a new point.
+  const pointSlot =
+    elementsWorkspace && draft !== null && draft.pickSlot != null
+      ? creationMethod(draft.kind, draft.method).slots[draft.pickSlot] ?? null
+      : null
+  const draftEditId = draft?.editId
+  const pointOffers = useMemo(
+    () =>
+      pointSlot
+        ? new Set(
+            providersFor([pointSlot.role], elements, blockedRefs(draftEditId, elements), pointSlot.kinds).map(
+              (e) => e.id,
+            ),
+          )
+        : null,
+    [pointSlot, elements, draftEditId],
+  )
+  useEffect(() => {
+    sceneRef.current?.setElementPickOnly(pointOffers)
+  }, [pointOffers])
 
   // Re-colour the scan whenever the map or the way it is read changes. This is
   // ~700k vertices of work, but it is a few milliseconds and it keeps the
@@ -604,6 +631,8 @@ export function useSceneSync({
   // scale, the hover label and the pins are unaffected, which is why this gates
   // the paint below and not shownField itself.
   const showMap = useDeviation((s) => s.showMap)
+  // Whatever the map, it is painted in the ramp chosen in the settings.
+  const colormap = usePrefs((s) => s.colormap)
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
@@ -621,7 +650,7 @@ export function useSceneSync({
       rgb = new Uint8Array(values.length * 3)
       rgbRef.current = rgb
     }
-    paintField(values, scale, rgb)
+    paintField(values, scale, colormapById(colormap), rgb)
     scene.setFieldColors(rgb)
   }, [
     workspace,
@@ -632,6 +661,7 @@ export function useSceneSync({
     maxDistance,
     bands,
     showMap,
+    colormap,
     thickVersion,
     thickScaleShown,
     pluginFieldVersion,

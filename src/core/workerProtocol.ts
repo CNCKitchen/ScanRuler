@@ -5,7 +5,7 @@ import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, Vec3 } from './types'
 import type { MeshCentroid } from './geometry/centroid'
-import type { CreaseMode, CreaseReport } from './geometry/crease'
+import type { CreaseReport, CreaseSetting } from './geometry/crease'
 import type { SeedPlane, SymmetryPlane } from './symmetry'
 import type { AutoAlignResult } from './autoAlign'
 
@@ -15,7 +15,7 @@ export type WorkerRequest =
   /** `scale` is millimetres per unit of the file — an STL in inches is
    *  25.4 — applied to the coordinates before anything is built on them.
    *  Absent or 1, the file is taken in millimetres. */
-  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseMode; staged?: boolean; transform?: Rigid; scale?: number }
+  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number }
   /** Staged imports leave the current scan/reference available until all
    * members and their render resources have been prepared. Omitted keeps a
    * slot; null clears it; a number selects a staged load's request id. */
@@ -25,7 +25,7 @@ export type WorkerRequest =
   | { type: 'discard-import'; requestId: number; ids: number[] }
   /** The loaded scan's render geometry again, split for sharp edges as
    *  `crease` now says — the setting changed under a loaded scan. */
-  | { type: 'recrease'; requestId: number; crease: CreaseMode }
+  | { type: 'recrease'; requestId: number; crease: CreaseSetting }
   | {
       type: 'fit'
       requestId: number

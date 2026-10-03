@@ -497,7 +497,11 @@ export function FlatPanel({
               onChange={(e) => flat.getState().setNoteText(editedNote.id, e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') flat.getState().finishNote()
-                if (e.key === 'Escape') flat.getState().finishNote()
+                if (e.key === 'Escape') {
+                  // The note's own: it finishes the note and goes no further.
+                  e.preventDefault()
+                  flat.getState().finishNote()
+                }
               }}
             />
           </label>

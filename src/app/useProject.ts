@@ -10,6 +10,7 @@ import type { ElementKind } from '../core/types'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
+import { creaseSetting } from '../core/geometry/crease'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
@@ -117,7 +118,7 @@ export function useProject({
       // the worker's current scan/reference. Any member may still fail here.
       // A member saved in other units is read in millimetres from them again,
       // the way it was when it came in; the manifest checked the value.
-      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, scanFile, useStore.getState().creaseMode, alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm')
+      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, scanFile, creaseSetting(useStore.getState()), alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm')
       if (nominalFile) nominal = await prepareNominal(meshClient, sceneRef.current!, nominalFile, meshUnitsOf(ref?.units) ?? 'mm')
       if (imageFile) image = await prepareImage(imageFile)
 

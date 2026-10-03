@@ -16,6 +16,7 @@ import {
   repoFile,
   shotPath,
   sleep,
+  withSettings,
 } from './e2e-lib.mjs'
 
 const SCAN = process.env.SCAN ?? repoFile('block-marius.stl')
@@ -110,6 +111,62 @@ if ((await readNumber('[data-test=thickness-high]')) !== tightened) {
   fail('re-measuring threw away the scale the user had dialled in')
 }
 await page.screenshot({ path: shotPath('thickness-tight-scale.png') })
+
+// ---- the colour map ---------------------------------------------------------
+// Chosen in the settings, it repaints the map on the part and the scale beside
+// it at once. The scale is read off the legend's gradient; the part off the
+// average colour of what is painted on it — the grey around a map stays grey
+// whatever the ramp, so only the painted pixels count.
+const legendRamp = () =>
+  page.$eval('[data-test=thickness-legend] .devramp-bar', (el) => el.style.background)
+const stageMean = async () => {
+  const shot = await page.screenshot({ encoding: 'base64' })
+  return page.evaluate(async (b64) => {
+    const img = new Image()
+    img.src = 'data:image/png;base64,' + b64
+    await img.decode()
+    const c = document.createElement('canvas')
+    c.width = img.width
+    c.height = img.height
+    const ctx = c.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    const r = document.querySelector('.viewslot canvas').getBoundingClientRect()
+    const { data } = ctx.getImageData(r.x, r.y, r.width, r.height)
+    const sum = [0, 0, 0]
+    let n = 0
+    for (let i = 0; i < data.length; i += 4) {
+      if (Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]) <= 45) continue
+      for (let k = 0; k < 3; k++) sum[k] += data[i + k]
+      n++
+    }
+    return sum.map((s) => s / Math.max(n, 1))
+  }, shot)
+}
+const jetRamp = await legendRamp()
+const jetMean = await stageMean()
+const tiles = await withSettings(page, async () => {
+  const ids = await page.$$eval('[data-test^=colormap-]', (els) => els.map((e) => e.dataset.test))
+  await page.screenshot({ path: shotPath('thickness-colormaps.png') })
+  await page.click('[data-test=colormap-viridis]')
+  await sleep(300)
+  return ids
+})
+console.log('colour maps offered:', tiles.join(', '))
+if (tiles.length !== 9 || tiles[0] !== 'colormap-jet') fail('the settings do not offer jet and the eight viridis maps')
+await sleep(400)
+const viridisRamp = await legendRamp()
+const viridisMean = await stageMean()
+await page.screenshot({ path: shotPath('thickness-viridis.png') })
+// Thickness runs the ramp reversed, so viridis' yellow end sits at the bottom.
+if (viridisRamp === jetRamp || !/rgb\(253, 231, 37\) 0%/.test(viridisRamp)) {
+  fail(`the legend was not redrawn in viridis: ${viridisRamp.slice(0, 80)}`)
+}
+const moved = Math.hypot(...viridisMean.map((v, k) => v - jetMean[k]))
+console.log(`painted mean colour: jet ${jetMean.map(Math.round)} -> viridis ${viridisMean.map(Math.round)}`)
+if (!(moved > 20)) fail('the map on the part did not change with the colour map')
+await withSettings(page, () => page.click('[data-test=colormap-jet]'))
+await sleep(400)
+if ((await legendRamp()) !== jetRamp) fail('switching back to jet did not restore the legend')
 
 // ---- hover reading and pinning --------------------------------------------
 const stage = await page.$eval('.viewslot canvas', (el) => {

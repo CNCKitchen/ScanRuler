@@ -23,7 +23,7 @@ describe('worker import transactions', () => {
     scope.onmessage!({ data: msg })
     return replies.at(-1)!
   }
-  const load = (id: number, x: number, staged = false) => send({ type: 'load', requestId: id, name: 'scan.obj', buffer: triangle(x), crease: 'off', staged })
+  const load = (id: number, x: number, staged = false) => send({ type: 'load', requestId: id, name: 'scan.obj', buffer: triangle(x), crease: { mode: 'off', angleDeg: 30 }, staged })
   const center = () => {
     const reply = send({ type: 'centroid', requestId: 100 })
     if (reply.type !== 'centroid-ok') throw new Error(JSON.stringify(reply))
@@ -40,7 +40,7 @@ describe('worker import transactions', () => {
 
   it('preserves the old scan after parsing a broken replacement', () => {
     load(1, 0)
-    expect(send({ type: 'load', requestId: 2, name: 'broken.obj', buffer: new ArrayBuffer(0), crease: 'off', staged: true }).type).toBe('error')
+    expect(send({ type: 'load', requestId: 2, name: 'broken.obj', buffer: new ArrayBuffer(0), crease: { mode: 'off', angleDeg: 30 }, staged: true }).type).toBe('error')
     expect(center()).toBeCloseTo(1 / 3)
   })
 
@@ -68,7 +68,7 @@ describe('worker import transactions', () => {
   it('prepares the saved alignment in both render and measurement geometry', () => {
     const transform = identityRigid()
     transform.t[0] = 10
-    const reply = send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: 'off', staged: true, transform })
+    const reply = send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, staged: true, transform })
     expect(reply.type).toBe('loaded')
     if (reply.type === 'loaded') expect(reply.positions[0]).toBe(10)
     send({ type: 'commit-import', requestId: 2, scan: 1 })
@@ -76,7 +76,7 @@ describe('worker import transactions', () => {
   })
 
   it('reads a file in other units as millimetres, in both render and measurement geometry', () => {
-    const reply = send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: 'off', staged: true, scale: 25.4 })
+    const reply = send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, staged: true, scale: 25.4 })
     expect(reply.type).toBe('loaded')
     if (reply.type === 'loaded') expect(reply.positions[3]).toBeCloseTo(25.4)
     send({ type: 'commit-import', requestId: 2, scan: 1 })
@@ -87,8 +87,8 @@ describe('worker import transactions', () => {
   })
 
   it('refuses a unit scale that is not a positive number', () => {
-    expect(send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: 'off', scale: 0 }).type).toBe('error')
-    expect(send({ type: 'load', requestId: 2, name: 'scan.obj', buffer: triangle(0), crease: 'off', scale: NaN }).type).toBe('error')
+    expect(send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, scale: 0 }).type).toBe('error')
+    expect(send({ type: 'load', requestId: 2, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, scale: NaN }).type).toBe('error')
   })
 
   it('leaves the active reference intact after a failed staged reference', () => {

@@ -67,7 +67,7 @@ import { PALETTE } from './palette'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
 import type { StepStyle } from '../core/exportStep'
-import type { CreaseMode } from '../core/geometry/crease'
+import { creaseAngleOf, type CreaseMode } from '../core/geometry/crease'
 import type { CloudFormat } from '../core/exportPointCloud'
 import type {
   ElementKind,
@@ -105,8 +105,8 @@ export interface Element {
   extend?: Extension
   /** The diameter the feature is assumed to have been designed at, for the
    *  kinds that have one (sphere, cylinder, circle). Kept beside the fit like
-   *  an extension and written out only by the assumed-dimension STEP export —
-   *  see core/elements/assumed. */
+   *  an extension: the element is drawn and exported at it, and read as
+   *  measured — see core/elements/assumed. */
   assumed?: number
   /** The reference plane this element takes its direction from, if any —
    *  see core/elements/orient. `fit` is then the aligned geometry, and
@@ -151,7 +151,7 @@ export interface Draft {
    *  changing the outlier cut-off never quietly resizes what is on screen. */
   extend?: Extension
   /** The assumed diameter as typed. Undefined means none was given — the
-   *  element then goes out as measured. */
+   *  element is then drawn and goes out as measured. */
   assumed?: number
   /** The reference plane the draft aligns its direction to, once one is
    *  chosen. The draft's `fit` stays the measurement; the aligned geometry is
@@ -344,7 +344,7 @@ function freshDraft(
   edit?: Pick<Draft, 'editId' | 'name'>,
 ): Draft {
   const m = creationMethod(kind, method)
-  return {
+  const d: Draft = {
     kind,
     method,
     picks: [],
@@ -355,6 +355,24 @@ function freshDraft(
     status: 'empty',
     ...edit,
   }
+  return { ...d, pickSlot: nextPointPick(d) }
+}
+
+/** The slot a construction made of points alone waits on: the first one
+ *  still empty, or null. Such a construction is clicked together on the part
+ *  — a plane through three points is three clicks, on the scan or on point
+ *  elements — so its slots ask for their picks themselves, one after the
+ *  other, rather than through each dropdown in turn. */
+function nextPointPick(d: Draft): number | null {
+  if (!picksItsPoints(d)) return null
+  const empty = d.refs.findIndex((r) => r === null)
+  return empty >= 0 ? empty : null
+}
+
+/** Whether the draft is a construction of points alone — see nextPointPick. */
+export function picksItsPoints(d: Pick<Draft, 'kind' | 'method'>): boolean {
+  const m = creationMethod(d.kind, d.method)
+  return m.mode === 'construct' && m.slots.length > 0 && m.slots.every((sl) => sl.role === 'point' && !sl.kinds)
 }
 
 /** Whether the box holds work a second editor would throw away: an edit,
@@ -816,10 +834,14 @@ interface AppState {
    *  works, not what the part is. */
   cloudFormat: CloudFormat
   /** Whether the scan's sharp edges are drawn sharp — split for shading, see
-   *  core/geometry/crease.ts — always, never, or only when the mesh looks
-   *  tessellated from CAD. Remembered per browser: it is a way of looking,
-   *  and the reference part is always drawn sharp regardless. */
+   *  core/geometry/crease.ts — always (unless told otherwise), never, or only
+   *  when the mesh looks tessellated from CAD. Remembered per browser: it is
+   *  a way of looking, and the reference part is always drawn sharp
+   *  regardless. */
   creaseMode: CreaseMode
+  /** From what angle between two faces, in degrees, an edge of the scan is
+   *  drawn sharp when its sharp edges are — remembered with the mode. */
+  creaseAngle: number
   /** Imprint & privacy dialog, opened from the status strip. */
   imprintOpen: boolean
 
@@ -1001,6 +1023,7 @@ interface AppState {
   setStepStyle: (style: StepStyle) => void
   setCloudFormat: (format: CloudFormat) => void
   setCreaseMode: (mode: CreaseMode) => void
+  setCreaseAngle: (deg: number) => void
   openImprint: (v: boolean) => void
 }
 
@@ -1009,6 +1032,7 @@ const VIEW_THEME_KEY = 'scanruler.viewtheme'
 const STEP_STYLE_KEY = 'scanruler.stepstyle'
 const CLOUD_FORMAT_KEY = 'scanruler.cloudformat'
 const CREASE_KEY = 'scanruler.crease'
+const CREASE_ANGLE_KEY = 'scanruler.creaseangle'
 
 /** Falls back to the built-in default when storage is unavailable (private
  *  mode, blocked cookies) or holds an id that no longer exists. */
@@ -1047,9 +1071,17 @@ const storedCloudFormat = (): CloudFormat => {
 const storedCreaseMode = (): CreaseMode => {
   try {
     const v = localStorage.getItem(CREASE_KEY)
-    return v === 'on' || v === 'off' ? v : 'auto'
+    return v === 'auto' || v === 'off' ? v : 'on'
   } catch {
-    return 'auto'
+    return 'on'
+  }
+}
+
+const storedCreaseAngle = (): number => {
+  try {
+    return creaseAngleOf(localStorage.getItem(CREASE_ANGLE_KEY))
+  } catch {
+    return creaseAngleOf(null)
   }
 }
 
@@ -1101,6 +1133,7 @@ export const useStore = create<AppState>()((set, get) => ({
   stepStyle: storedStepStyle(),
   cloudFormat: storedCloudFormat(),
   creaseMode: storedCreaseMode(),
+  creaseAngle: storedCreaseAngle(),
   imprintOpen: false,
 
   setStatus: (statusText) => set({ statusText }),
@@ -1349,7 +1382,12 @@ export const useStore = create<AppState>()((set, get) => ({
       // built on it.
       if (id !== null && blockedRefs(s.draft.editId, s.elements).has(id)) return {}
       const refs = s.draft.refs.map((r, i) => (i === slot ? id : r))
-      return { draft: evalConstructDraft({ ...s.draft, refs }, s.elements, s.modelSize) }
+      const draft = evalConstructDraft({ ...s.draft, refs }, s.elements, s.modelSize)
+      // A slot filled from the list or by a click on an element hands the
+      // pick on to the next empty one, as a click on the scan does.
+      const waiting = s.draft.pickSlot
+      const pickSlot = waiting != null && refs[waiting] === null ? waiting : nextPointPick(draft)
+      return { draft: { ...draft, pickSlot } }
     }),
 
   beginDraftPick: (slot) =>
@@ -1391,12 +1429,13 @@ export const useStore = create<AppState>()((set, get) => ({
         },
       ]
       const refs = s.draft.refs.map((r, i) => (i === slot ? id : r))
+      const draft = evalConstructDraft({ ...s.draft, refs, pickSlot: null }, elements, s.modelSize)
       return {
         nextId: id + 1,
         nextNumber: num + 1,
         nextOfKind: { ...s.nextOfKind, point: ofKind + 1 },
         elements,
-        draft: evalConstructDraft({ ...s.draft, refs, pickSlot: null }, elements, s.modelSize),
+        draft: { ...draft, pickSlot: nextPointPick(draft) },
       }
     })
     return id
@@ -2281,6 +2320,15 @@ export const useStore = create<AppState>()((set, get) => ({
       // Same as above: the scan is still redrawn as asked for this session.
     }
     set({ creaseMode })
+  },
+  setCreaseAngle: (deg) => {
+    const creaseAngle = creaseAngleOf(deg)
+    try {
+      localStorage.setItem(CREASE_ANGLE_KEY, String(creaseAngle))
+    } catch {
+      // Same as above: the scan is still redrawn as asked for this session.
+    }
+    set({ creaseAngle })
   },
   openImprint: (imprintOpen) => set({ imprintOpen }),
 }))

@@ -278,12 +278,20 @@ export class SceneManager {
   /** While on, a click resolves to the element under the cursor (overlay
    *  shape or painted region) before falling back to a plain surface pick. */
   private elementPickEnabled = false
+  /** The only elements a click may resolve to, or null for any. The others
+   *  are not there for the pick: a click on one goes through it to the scan
+   *  beneath — a point slot of a construction that asks for a point takes a
+   *  point element, and a click anywhere else on the part a new one. */
+  private elementPickOnly: ReadonlySet<number> | null = null
   /** Whether the element under the cursor lights while element picking is
    *  on — for a pick that asks for an element, or a click that selects one —
    *  and which one is lit. The Measure workspace's pickers say what is
    *  pickable by other means and leave this off. */
   private elementHoverLights = false
   private hoveredElement: number | null = null
+  /** Whether each layer was covered under the cursor at the last hover —
+   *  where a first arrow-key step starts from (cycleUnderCursor). */
+  private hoverCovered = new WeakMap<SceneLayer, boolean>()
 
   /** Back-face tinting, shared by every material of this view that opts in.
    *  The split view's reference half keeps a pair of its own and is driven
@@ -610,6 +618,9 @@ export class SceneManager {
   /** A click that survived the drag threshold: whatever of the layers' and
    *  the viewport's own takes it, else a surface pick. */
   private handleClick(x: number, y: number, ctrlKey = false): void {
+    // What the arrow keys stepped to under the cursor takes the click first.
+    const stepped = this.cyclingLayer({ x, y })
+    if (stepped?.click?.(x, y, ctrlKey)) return
     for (const click of this.clickSteps()) if (click(x, y, ctrlKey)) return
     // Nothing selectable was there: the scan, or empty space.
     if (!ctrlKey) for (const layer of this.layers) layer.clickedAway?.(x, y)
@@ -621,8 +632,8 @@ export class SceneManager {
    *  own — the grips, which never light while a marking gesture is armed
    *  (both plain drags are the brush's then), and a measured element on
    *  offer. */
-  private hoverSteps(): { covers: boolean; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] {
-    const steps: { order: number; covers: boolean; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] = [
+  private hoverSteps(): { covers: boolean; layer?: SceneLayer; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] {
+    const steps: { order: number; covers: boolean; layer?: SceneLayer; hover: (at: { x: number; y: number } | null, covered: boolean) => boolean }[] = [
       {
         order: LAYER_ORDER.grips,
         covers: true,
@@ -632,9 +643,41 @@ export class SceneManager {
         },
       },
       { order: LAYER_ORDER.elements, covers: false, hover: (at, covered) => this.hoverElement(covered ? null : at) },
-      ...this.layers.flatMap((layer) => (layer.hover ? [{ order: layer.order, covers: Boolean(layer.covers), hover: layer.hover }] : [])),
+      ...this.layers.flatMap((layer) => (layer.hover ? [{ order: layer.order, covers: Boolean(layer.covers), layer, hover: layer.hover }] : [])),
     ]
     return steps.sort((a, b) => a.order - b.order)
+  }
+
+  /** The layer holding a step the arrow keys took under the cursor at
+   *  `at`, if one does — see SceneLayer.cycling. */
+  private cyclingLayer(at: { x: number; y: number } | null): SceneLayer | null {
+    return this.layers.find((layer) => layer.cycling?.(at)) ?? null
+  }
+
+  /**
+   * The arrow keys over the part: step to the next of what lies under the
+   * cursor — the face behind the one in front, the edge behind a body, a
+   * body behind another — or back, as CAD's "select other" does. The
+   * layers are asked in their order; the first that has more than one thing
+   * there takes the step. True when one did.
+   */
+  cycleUnderCursor(step: 1 | -1): boolean {
+    const at = this.hoverAt
+    if (!at) return false
+    // A measured element before the layer would take the click: the
+    // layer's first is then a step behind it, not the start.
+    const element = this.elementPickEnabled && this.elementAt(at.x, at.y) !== null
+    const layers = [...this.layers].sort((a, b) => a.order - b.order)
+    for (const layer of layers) {
+      if (!layer.cycle) continue
+      const behind = (this.hoverCovered.get(layer) ?? false) || (element && LAYER_ORDER.elements < layer.order)
+      if (layer.cycle(at, step, behind)) {
+        this.hoverDirty = true
+        this.invalidate()
+        return true
+      }
+    }
+    return false
   }
 
   /** An element on offer lights under the cursor the way a sketch region
@@ -684,8 +727,12 @@ export class SceneManager {
     // region, over what lies behind — and nothing lights under the gizmo
     // corner, which is a button first.
     let covered = axis !== null
+    // A step the arrow keys took lights alone: every other layer is covered.
+    const stepped = this.cyclingLayer(this.hoverAt)
     for (const step of this.hoverSteps()) {
-      if (step.hover(this.hoverAt, covered) && step.covers) covered = true
+      const under = stepped ? step.layer !== stepped : covered
+      if (step.layer) this.hoverCovered.set(step.layer, under)
+      if (step.hover(this.hoverAt, under) && step.covers) covered = true
     }
     if (!this.hoverEnabled) return
     const at = this.hoverAt
@@ -872,6 +919,26 @@ export class SceneManager {
       this.resplitShown(positions, indices, normals, wireSlots, copyOf)
     } finally {
       if (shown) this.swapSlots()
+    }
+  }
+
+  /** The edited copy's render geometry laid out again — its sharp edges
+   *  split as the setting now says — as resplitScan lays out the scan's,
+   *  whether the copy is on screen or waiting. Nothing without a copy. */
+  resplitEdited(
+    positions: Float32Array,
+    indices: Uint32Array,
+    normals: Float32Array,
+    wireSlots: Uint8Array | undefined,
+    copyOf: Uint32Array,
+  ): void {
+    const shown = this.editedShown
+    if (!shown && !this.other) return
+    if (!shown) this.swapSlots()
+    try {
+      this.resplitShown(positions, indices, normals, wireSlots, copyOf)
+    } finally {
+      if (!shown) this.swapSlots()
     }
   }
 
@@ -1447,6 +1514,13 @@ export class SceneManager {
     this.hoverDirty = true
   }
 
+  /** Narrow element picking to the given elements (null: any) — see
+   *  elementPickOnly. */
+  setElementPickOnly(ids: ReadonlySet<number> | null): void {
+    this.elementPickOnly = ids
+    this.hoverDirty = true
+  }
+
   /** Whether the element under the cursor lights while element picking is
    *  on. */
   setElementHoverLights(on: boolean): void {
@@ -1505,10 +1579,12 @@ export class SceneManager {
     const targets = this.overlays.pickTargets()
     if (this.mesh?.visible) targets.push(this.mesh)
     const hits = this.raycaster.intersectObjects(targets, false)
+    const only = this.elementPickOnly
+    const offered = (id: unknown): id is number => typeof id === 'number' && (!only || only.has(id))
     for (const hit of hits) {
       if (hit.object !== this.mesh) {
         const id = hit.object.userData.elementId
-        if (typeof id === 'number') return id
+        if (offered(id)) return id
         continue
       }
       // On the scan the element is the owner of the nearest triangle corner.
@@ -1528,7 +1604,7 @@ export class SceneManager {
       )
       const nearest = weights.indexOf(Math.max(...weights))
       const owner = this.regions.visibleOwnerAt(vertices[nearest])
-      if (owner !== null) return owner
+      if (owner !== null && offered(owner)) return owner
       // Bare scan occludes what is behind it — but not the element lying *on*
       // it. A fitted plane's shell is the scan's own face to within the fit,
       // the ray meets the two at the same distance, and which sorts first is
@@ -1539,7 +1615,7 @@ export class SceneManager {
       for (const next of hits) {
         if (next.object === this.mesh || next.distance > hit.distance + slack) continue
         const id = next.object.userData.elementId
-        if (typeof id === 'number') return id
+        if (offered(id)) return id
       }
       return null
     }

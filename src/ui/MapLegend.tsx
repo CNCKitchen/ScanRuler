@@ -7,8 +7,9 @@
 // differ only in what they hand it: the scale, how a number is written, and
 // which figures belong under it.
 
-import { legendGradient, type FieldScale } from '../core/field/colormap'
+import { colormapById, cssRgb, legendGradient, scaleCaps, type FieldScale } from '../core/field/colormap'
 import type { FieldHistogram } from '../core/field/stats'
+import { usePrefs } from '../state/prefsStore'
 
 const TICKS = 9
 
@@ -26,10 +27,6 @@ export interface LegendStat {
 export interface LegendEnds {
   high: string
   low: string
-}
-
-function rgb(c: readonly [number, number, number]): string {
-  return `rgb(${c[0]},${c[1]},${c[2]})`
 }
 
 export function MapLegend({
@@ -58,6 +55,10 @@ export function MapLegend({
    *  reading and a small one need no explaining. */
   ends?: LegendEnds
 }) {
+  // Drawn in the same ramp as the map it stands beside — the one chosen in
+  // the settings.
+  const map = colormapById(usePrefs((s) => s.colormap))
+  const caps = scaleCaps(scale, map)
   const ticks = Array.from({ length: TICKS }, (_, i) => {
     const fraction = i / (TICKS - 1)
     return { value: scale.low + (scale.high - scale.low) * fraction, fraction }
@@ -93,16 +94,16 @@ export function MapLegend({
         <div className="devramp">
           <div
             className="devramp-cap"
-            style={{ background: rgb(scale.capHigh) }}
+            style={{ background: cssRgb(caps.high) }}
             title="Beyond the top of the scale"
           />
           <div
             className="devramp-bar"
-            style={{ background: legendGradient(scale.bands, scale.reversed) }}
+            style={{ background: legendGradient(map, scale.bands, scale.reversed) }}
           />
           <div
             className="devramp-cap"
-            style={{ background: rgb(scale.capLow) }}
+            style={{ background: cssRgb(caps.low) }}
             title="Beyond the bottom of the scale"
           />
         </div>

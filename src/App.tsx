@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useProjectHistory } from './app/useProjectHistory'
 import { clearHistory, historyAction, historyAsync } from './state/historyStore'
 import { MeshWorkerClient } from './core/workerClient'
-import type { CreaseMode, CreaseReport } from './core/geometry/crease'
+import { creaseSetting, type CreaseReport, type CreaseSetting } from './core/geometry/crease'
 import { buildSummary } from './core/summary'
 import { baseSeedPlane } from './core/symmetry'
 import { IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
@@ -46,6 +46,7 @@ import {
   alignSlotPicks,
   blockedRefs,
   draftColorOf,
+  picksItsPoints,
   sectionDraftReady,
   useStore,
   type SelectMode,
@@ -119,20 +120,24 @@ const LARGE_TRIANGLE_WARNING = 5_000_000
 /** What a plugin without a hook adds: nothing. */
 const NO_RUNTIME: PluginRuntime = {}
 
+/** How long the sharp-edge setting has to stand still before the scan is
+ *  split for it again, ms: a slider dragged across splits it once. */
+const CREASE_SETTLE_MS = 250
+
 /** What became of the sharp-edge split, for the status line. Null when it
  *  went as asked and there is nothing to add. */
-function creaseNote(report: CreaseReport, mode: CreaseMode): string | null {
+function creaseNote(report: CreaseReport, crease: CreaseSetting): string | null {
   if (report.skipped === 'budget') {
-    return 'Sharp edges are shaded smooth: drawing them sharp would add more vertices than the scan has.'
+    return `Sharp edges are shaded smooth: drawing every edge from ${crease.angleDeg}° on sharp would add more vertices than the scan has — try a larger angle.`
   }
   if (report.skipped === 'scan') {
-    return 'This mesh reads as a scan, so its edges are shaded smooth — set Sharp edges to Always to split them regardless.'
+    return 'This mesh reads as a scan, so its edges are shaded smooth — set Sharp edges to Always to split them regardless, from an angle the noise does not reach.'
   }
   if (report.skipped === 'off') return 'Sharp edges shaded smooth.'
   if (report.added === 0) {
-    return mode === 'on' ? 'No sharp edges to split on this mesh.' : 'Sharp edges drawn sharp.'
+    return crease.mode === 'on' ? `No edges of ${crease.angleDeg}° or more to split on this mesh.` : 'Sharp edges drawn sharp.'
   }
-  return `Sharp edges drawn sharp — ${report.added.toLocaleString('en-US')} vertices split.`
+  return `Edges from ${crease.angleDeg}° on drawn sharp — ${report.added.toLocaleString('en-US')} vertices split.`
 }
 
 export default function App() {
@@ -213,7 +218,7 @@ export default function App() {
     clientRef.current!.restoreState = () => ({
       scan: sources.current.scan ? {
         ...sources.current.scan,
-        crease: useStore.getState().creaseMode,
+        crease: creaseSetting(useStore.getState()),
         transform: useStore.getState().appliedAlignment,
       } : null,
       nominal: sources.current.reference,
@@ -229,22 +234,26 @@ export default function App() {
 
   // The sharp-edge setting changed under a loaded scan: the worker lays the
   // render geometry out again as it now says, and the scene swaps it in
-  // under everything measured on it. A scan still loading takes the setting
-  // as it stands when the load began, and is left to it.
+  // under everything measured on it — once the angle has stopped moving, so
+  // a slider dragged across does not split the scan at every step. A scan
+  // still loading takes the setting as it stands when the load began, and
+  // is left to it.
   const creaseMode = useStore((s) => s.creaseMode)
+  const creaseAngle = useStore((s) => s.creaseAngle)
   const creaseSettled = useRef(false)
   useEffect(() => {
     if (!creaseSettled.current) {
       creaseSettled.current = true
       return
     }
-    const store = useStore.getState()
-    if (!store.fileName || store.busy || !sceneRef.current?.scanGeometry()) return
-    const scanVersion = clientRef.current!.scanVersion
+    const crease: CreaseSetting = { mode: creaseMode, angleDeg: creaseAngle }
     let stale = false
-    void (async () => {
+    const timer = setTimeout(async () => {
+      const store = useStore.getState()
+      if (!store.fileName || store.busy || !sceneRef.current?.scanGeometry()) return
+      const scanVersion = clientRef.current!.scanVersion
       try {
-        const mesh = await clientRef.current!.recrease(creaseMode)
+        const mesh = await clientRef.current!.recrease(crease)
         if (stale || scanVersion !== clientRef.current!.scanVersion) return
         sceneRef.current?.resplitScan(
           mesh.positions,
@@ -253,15 +262,16 @@ export default function App() {
           mesh.wireSlots,
           mesh.copyOf,
         )
-        useStore.getState().setStatus(creaseNote(mesh.crease, creaseMode) ?? 'Sharp edges drawn sharp.')
+        useStore.getState().setStatus(creaseNote(mesh.crease, crease) ?? 'Sharp edges drawn sharp.')
       } catch (e) {
         useStore.getState().setStatus(e instanceof Error ? e.message : String(e))
       }
-    })()
+    }, CREASE_SETTLE_MS)
     return () => {
       stale = true
+      clearTimeout(timer)
     }
-  }, [creaseMode])
+  }, [creaseMode, creaseAngle])
 
   const clearPreview = () => {
     draftSeq.current++
@@ -636,12 +646,13 @@ export default function App() {
     if (!read) return
     await runImport(imports, 'Reading file…', async () => {
       const client = clientRef.current!
-      const prepared = await prepareScan(client, sceneRef.current!, file, useStore.getState().creaseMode, undefined, read)
+      const crease = creaseSetting(useStore.getState())
+      const prepared = await prepareScan(client, sceneRef.current!, file, crease, undefined, read)
       try {
         await client.commitImport({ scan: prepared.id })
         commitScan(prepared)
         const mesh = prepared.mesh
-        const creaseWord = mesh.crease.skipped === 'budget' ? ` ${creaseNote(mesh.crease, 'on')}` : ''
+        const creaseWord = mesh.crease.skipped === 'budget' ? ` ${creaseNote(mesh.crease, crease)}` : ''
         const unitsWord = read !== 'mm' ? `Read in ${unitsLabel(read).toLowerCase()} and converted to millimetres. ` : ''
         useStore.getState().setStatus(
           unitsWord +
@@ -924,7 +935,7 @@ export default function App() {
               }.`
       const note = `${read} The part stands on ${stands}, its long side along X. Change a side or a direction below if it reads the part differently than you do.`
       useStore.getState().proposeAlignment(autoAlignPicks(r, 0.2 * useStore.getState().modelSize), note)
-      useStore.getState().setStatus('Auto-align — check the previewed pose, then press Align part.')
+      useStore.getState().setStatus('Auto-align — check the previewed pose, then press Confirm alignment.')
     } catch (e) {
       useStore.getState().setStatus('')
       useStore.getState().setError(e instanceof Error ? e.message : 'Auto-align failed.')
@@ -982,7 +993,7 @@ export default function App() {
       const names = ['YZ', 'XZ', 'XY']
       const note = `Settled on ${from}: it is the ${names[settled.axis]} plane now — ${'XYZ'[settled.axis]} turned ${settled.tiltDeg.toFixed(2)}° onto its normal, the zero point moved ${settled.shiftMm.toFixed(2)} mm onto it. The steps below are this pose as points; change a side or a direction if it reads the part differently than you do.`
       useStore.getState().proposeAlignment(autoAlignPicks(settled, 0.2 * useStore.getState().modelSize), note)
-      useStore.getState().setStatus('Use symmetry — check the previewed pose, then press Align part.')
+      useStore.getState().setStatus('Use symmetry — check the previewed pose, then press Confirm alignment.')
     } catch (e) {
       useStore.getState().setStatus('')
       useStore.getState().setError(e instanceof Error ? e.message : 'The symmetry search failed.')
@@ -1822,6 +1833,7 @@ export default function App() {
     cancelSection: handleCancelSection,
     confirmSection: handleConfirmSection,
     viewFrom: (view) => sceneRef.current?.viewFrom(view),
+    cycleUnderCursor: (step) => sceneRef.current?.cycleUnderCursor(step) ?? false,
   })
 
   // Drag & drop anywhere.
@@ -1887,15 +1899,17 @@ export default function App() {
         return `Click the scan — point ${have + 1} of ${need} ${what} · Esc to stop picking`
       }
       if (alignDraft.proposal)
-        return 'This is the pose the scan suggests — change a side or a direction in the panel if it is not yours, then press Align part'
+        return 'This is the pose the scan suggests — change a side or a direction in the panel if it is not yours, then press Confirm alignment'
       return alignDraft.primary === null && alignDraft.primaryPicks.length === 0
         ? 'The coordinate planes show where the part is going — set a face on one of them via the panel'
-        : 'Add an axis (step 2) or a zero point (step 3) if you need them — then press Align part'
+        : 'Add an axis (step 2) or a zero point (step 3) if you need them — then press Confirm alignment'
     }
     if (draft && draftMode === 'construct') {
       const method = creationMethod(draft.kind, draft.method)
       if (draft.pickSlot != null)
-        return `Click the scan to pick “${method.slots[draft.pickSlot].label}” · Esc to stop picking`
+        return picksItsPoints(draft)
+          ? `Click the scan or a point element for “${method.slots[draft.pickSlot].label}”`
+          : `Click the scan to pick “${method.slots[draft.pickSlot].label}” · Esc to stop picking`
       const empty = draft.refs.findIndex((r) => r === null)
       if (empty < 0) return null
       return `Click an element in the viewport for “${method.slots[empty].label}” — or choose it in the panel`

@@ -16,6 +16,7 @@ import type { ScanMaps } from '../plugins/api'
 import { useDeviation } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
+import { creaseSetting } from '../core/geometry/crease'
 import { useThickness } from '../state/thicknessStore'
 import type { SceneManager } from '../viewer/SceneManager'
 import type { SourceFiles } from './project'
@@ -55,7 +56,7 @@ export function useScanSwap({
     const { id, mesh } = await client.prepareScan(
       source.name,
       source.bytes.slice().buffer,
-      useStore.getState().creaseMode,
+      creaseSetting(useStore.getState()),
       transform ?? undefined,
       source.units ?? 'mm',
     )

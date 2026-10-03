@@ -23,7 +23,7 @@
 import * as THREE from 'three'
 import { MeshBVH, SAH } from 'three-mesh-bvh'
 import { fieldPercentiles, fieldStats, niceCeil, niceFloor, type FieldStats } from '../field/stats'
-import { BLUE_CAP_RGB, RED_CAP_RGB, type FieldScale } from '../field/colormap'
+import type { FieldScale } from '../field/colormap'
 
 /** Ray down the normal, or the sphere inscribed across what it crossed. */
 export type ThicknessMethod = 'ray' | 'sphere'
@@ -267,9 +267,10 @@ export function thicknessStats(values: Float32Array, limit: number): ThicknessSt
  * How a thickness field is read as colour.
  *
  * Reversed against the deviation ramp on purpose: thickness has no signed zero
- * to sit in the middle, and the end that needs to shout is the thin one. Red
- * is thin, blue is thick, and a wall thinner than the bottom of the scale gets
- * the dark red cap rather than quietly bottoming out.
+ * to sit in the middle, and the end that needs to shout is the thin one. The
+ * ramp's hot end is thin — red on jet, and blue thick — and a wall thinner
+ * than the bottom of the scale gets the cap past that end rather than quietly
+ * bottoming out.
  */
 export function thicknessScale(low: number, high: number, bands: number | null): FieldScale {
   return {
@@ -279,8 +280,6 @@ export function thicknessScale(low: number, high: number, bands: number | null):
     validMin: 0,
     validMax: Infinity,
     reversed: true,
-    capLow: RED_CAP_RGB,
-    capHigh: BLUE_CAP_RGB,
   }
 }
 

@@ -36,6 +36,23 @@ const setCrease = async (mode) => {
   await page.waitForFunction(() => !document.querySelector('[data-test="settings-modal"]'))
   await sleep(800)
 }
+/** Move the Sharp from slider, as a drag would, and let the split land. */
+const setAngle = async (deg) => {
+  await click(page, '[data-test="open-settings"]')
+  await page.waitForSelector('[data-test="crease-angle"]')
+  await page.$eval(
+    '[data-test="crease-angle"]',
+    (el, v) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      set.call(el, String(v))
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    },
+    deg,
+  )
+  await page.keyboard.press('Escape')
+  await page.waitForFunction(() => !document.querySelector('[data-test="settings-modal"]'))
+  await sleep(800)
+}
 // The vertex count the top bar shows — the scan's own, whatever the render
 // arrays carry.
 const fileInfo = () =>
@@ -44,8 +61,17 @@ const fileInfo = () =>
 await loadScan(page, LOWPOLY)
 await sleep(400)
 const infoAuto = await fileInfo()
-console.log('status after auto load:', await status())
+console.log('status after load:', await status())
 await page.screenshot({ path: shotPath('crease-auto.png') })
+// Always sharp is where a browser that was never told otherwise starts.
+await click(page, '[data-test="open-settings"]')
+await page.waitForSelector('[data-test="crease-mode"]')
+const startMode = await page.$eval('[data-test="crease-mode"]', (el) => el.value)
+await page.keyboard.press('Escape')
+await page.waitForFunction(() => !document.querySelector('[data-test="settings-modal"]'))
+check(startMode === 'on', `the sharp edges start as Always sharp (${startMode})`)
+const startCopies = await page.evaluate(() => window.__scanruler.scene().copyOf.length)
+check(startCopies > 0, `and the block is loaded with its edges split (${startCopies} copies)`)
 
 await setCrease('off')
 const offStatus = await status()
@@ -59,6 +85,17 @@ const onStatus = await status()
 console.log('status after Always sharp:', onStatus)
 check(/drawn sharp — [\d,]+ vertices split/.test(onStatus), 'sharp status names the split')
 await page.screenshot({ path: shotPath('crease-on.png') })
+
+// The angle an edge is sharp from: past the block's right angles nothing
+// is, and back at 30° the split is as it was.
+await setAngle(120)
+const wide = await status()
+console.log('status from 120°:', wide)
+check(/No edges of 120° or more/.test(wide), 'nothing is sharp from 120° on a block of right angles')
+await setAngle(30)
+const back = await status()
+console.log('status from 30° again:', back)
+check(back === onStatus, 'back at 30° the split is what it was')
 
 // Mark by hand on the split mesh: the brush lands on the scan's own
 // vertices, so the count is bounded by them, and the marked triangles tint.
@@ -108,7 +145,7 @@ await page.screenshot({ path: shotPath('crease-scan.png') })
 await setCrease('on')
 const forced = await status()
 console.log('status after forcing the scan sharp:', forced)
-check(/vertices split|shaded smooth|No sharp edges/.test(forced), 'forced scan says what it did')
+check(/vertices split|shaded smooth|No edges of/.test(forced), 'forced scan says what it did')
 await page.screenshot({ path: shotPath('crease-scan-forced.png') })
 await setCrease('auto')
 const backToAuto = await status()

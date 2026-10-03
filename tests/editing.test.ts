@@ -356,6 +356,42 @@ describe('picking a point on the scan for a construction slot', () => {
     store().startDraft('line')
     store().setDraftMethod('line-plane-plane')
     store().beginDraftPick(0)
-    expect(store().draft?.pickSlot).toBeUndefined()
+    expect(store().draft?.pickSlot).toBeNull()
+  })
+
+  it('a construction of points alone picks them one after the other by itself', () => {
+    store().startDraft('plane')
+    store().setDraftMethod('plane-three-points')
+    expect(store().draft?.pickSlot).toBe(0)
+    const a = store().pickDraftPoint([0, 0, 0])
+    expect(store().draft?.pickSlot).toBe(1)
+    // An existing point clicked (or chosen in the list) fills the waiting
+    // slot and hands the pick on, as a click on the scan does.
+    const b = pickPointElsewhere([10, 0, 0])
+    store().setDraftRef(1, b)
+    expect(store().draft?.pickSlot).toBe(2)
+    const c = store().pickDraftPoint([0, 10, 0])
+    expect(store().draft?.refs).toEqual([a, b, c])
+    expect(store().draft?.pickSlot).toBeNull()
+    expect(store().draft?.status).toBe('ready')
+    expect(store().draft?.fit?.kind).toBe('plane')
+    // Letting a point go asks for it again.
+    store().setDraftRef(0, null)
+    expect(store().draft?.pickSlot).toBe(0)
+  })
+
+  it('a construction that mixes roles waits to be asked', () => {
+    store().startDraft('point')
+    store().setDraftMethod('point-line-plane')
+    expect(store().draft?.pickSlot).toBeNull()
   })
 })
+
+/** A picked point made while another draft is open, the way the element list
+ *  would offer one: committed straight into the elements. */
+function pickPointElsewhere(center: Vec3): number {
+  const open = store().draft
+  const id = pickPoint(center)
+  useStore.setState({ draft: open })
+  return id
+}

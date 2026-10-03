@@ -8,7 +8,7 @@ import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { wireSlots } from './geometry/wireSlots'
-import { creaseFor, splitCreases, type CreaseMode } from './geometry/crease'
+import { scanRender, splitCreases, type CreaseSetting } from './geometry/crease'
 import { getFitter, getSelectionFitter } from './elements/registry'
 import { NominalSurface } from './deviation/surface'
 import {
@@ -62,17 +62,11 @@ function post(msg: WorkerResponse, transfer: Transferable[] = []): void {
 function postScan(
   requestId: number,
   g: MeshGraph,
-  crease: CreaseMode,
+  crease: CreaseSetting,
   progress: (t: string) => void,
 ): void {
-  const slotsOwn = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
-  if (crease !== 'off') progress('Finding sharp edges…')
-  const { split, report } = creaseFor(crease, g.positions, g.indices, slotsOwn)
-  const positions = split ? split.positions : g.positions.slice()
-  const indices = split ? split.indices : g.indices.slice()
-  const normals = split ? split.normals : g.normals.slice()
-  const slots = split ? split.wireSlots : slotsOwn
-  const copyOf = split ? split.copyOf : new Uint32Array(0)
+  if (crease.mode !== 'off') progress('Finding sharp edges…')
+  const { positions, indices, normals, wireSlots: slots, copyOf, crease: report } = scanRender(g, crease)
   post(
     {
       type: 'loaded',

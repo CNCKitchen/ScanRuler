@@ -4,10 +4,11 @@
 //
 // Like an extension, an assumed dimension is never folded into the fit — the
 // fit stays the measurement, with its sigma and its form error, and the
-// assumed value is carried beside it. It is applied in exactly one place: the
-// STEP export, where an element that was given one goes out at it and every
-// other element goes out as measured, so CAD can receive the part as designed
-// while every readout in the tool keeps reporting what was actually measured.
+// assumed value is carried beside it. It is applied where the element is
+// shown or handed on as a shape: drawn in the viewport at it, and written at
+// it by the STEP export, where every other element goes out as measured — so
+// what is on screen is what CAD receives, the part as designed, while every
+// readout in the tool keeps reporting what was actually measured.
 //
 // Nothing is ever suggested: the field starts empty, and only a value the
 // user typed counts as assumed. A guess at the design value would travel
@@ -18,6 +19,7 @@
 // was measured (and is the extension's business), and a point has no size.
 
 import type { CircleFit, CylinderFit, FitData, SphereFit } from '../types'
+import { applyExtension, type Extension } from './extend'
 
 /** The kinds whose defining size is a diameter — the ones an assumed
  *  dimension exists for. */
@@ -58,6 +60,13 @@ export function applyAssumed(fit: FitData, assumed: number | undefined): FitData
   if (!Number.isFinite(assumed) || assumed <= 0) return fit
   const radius = assumed / 2
   return radius === fit.radius ? fit : { ...fit, radius }
+}
+
+/** The element as it is drawn and exported: at its assumed diameter where
+ *  it was given one, and out as far as it was extended. Every number read
+ *  off it stays with the fit. */
+export function drawnFit(fit: FitData, assumed: number | undefined, extend: Extension | undefined): FitData {
+  return applyExtension(applyAssumed(fit, assumed), extend)
 }
 
 function fmt(v: number): string {

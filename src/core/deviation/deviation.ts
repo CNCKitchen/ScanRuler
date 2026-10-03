@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { BLUE_CAP_RGB, RED_CAP_RGB, type FieldScale } from '../field/colormap'
+import type { FieldScale } from '../field/colormap'
 import { fieldPercentiles, fieldStats, niceCeil, type FieldStats } from '../field/stats'
 import { rigidApply, type Rigid } from './rigid'
 import { emptyHit, type NominalSurface } from './surface'
@@ -13,8 +13,9 @@ export interface DeviationStats extends FieldStats {
   tolerance: number
 }
 
-/** How a deviation field is read as colour: symmetric about zero, blue below
- *  and red above, with everything past the search distance left bare. */
+/** How a deviation field is read as colour: symmetric about zero, the low
+ *  end of the ramp below and the high end above — blue and red on jet — with
+ *  everything past the search distance left bare. */
 export function deviationScale(
   range: number,
   maxDistance: number,
@@ -26,8 +27,6 @@ export function deviationScale(
     bands,
     validMin: -maxDistance,
     validMax: maxDistance,
-    capLow: BLUE_CAP_RGB,
-    capHigh: RED_CAP_RGB,
   }
 }
 

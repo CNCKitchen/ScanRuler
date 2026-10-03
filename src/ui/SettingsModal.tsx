@@ -8,7 +8,8 @@
 // in the corner of the stage.
 
 import { useEffect } from 'react'
-import type { CreaseMode } from '../core/geometry/crease'
+import { COLORMAPS, colormapById, cssRgb, legendGradient } from '../core/field/colormap'
+import { CREASE_ANGLE_DEG, CREASE_ANGLE_MAX, CREASE_ANGLE_MIN, CREASE_ANGLE_STEP, type CreaseMode } from '../core/geometry/crease'
 import { MESH_UNITS, type MeshUnits } from '../core/meshUnits'
 import { useHintPrefs } from '../state/hintStore'
 import { UI_THEMES, usePrefs } from '../state/prefsStore'
@@ -22,6 +23,8 @@ export function SettingsModal() {
   const close = usePrefs((s) => s.openSettings)
   const uiTheme = usePrefs((s) => s.uiTheme)
   const setUiTheme = usePrefs((s) => s.setUiTheme)
+  const colormap = usePrefs((s) => s.colormap)
+  const setColormap = usePrefs((s) => s.setColormap)
   const sectionLines = usePrefs((s) => s.sectionLines)
   const setSectionLines = usePrefs((s) => s.setSectionLines)
   const sheetLines = usePrefs((s) => s.sheetLines)
@@ -40,6 +43,8 @@ export function SettingsModal() {
   const setViewTheme = useStore((s) => s.setViewTheme)
   const creaseMode = useStore((s) => s.creaseMode)
   const setCreaseMode = useStore((s) => s.setCreaseMode)
+  const creaseAngle = useStore((s) => s.creaseAngle)
+  const setCreaseAngle = useStore((s) => s.setCreaseAngle)
   const hintsOn = useHintPrefs((s) => s.on)
   const setHintsOn = useHintPrefs((s) => s.setOn)
 
@@ -60,6 +65,7 @@ export function SettingsModal() {
   if (!open) return null
   const scheme = schemeById(navScheme)
   const theme = themeById(viewTheme)
+  const map = colormapById(colormap)
   return (
     <div className="modalback" onClick={() => close(false)}>
       <div
@@ -126,6 +132,36 @@ export function SettingsModal() {
             tints and the deviation ramp are the same in both.
           </small>
         </div>
+        <div className="setting colormaps">
+          <span id="colormap-label">Colour map</span>
+          <div className="cmaps" role="radiogroup" aria-labelledby="colormap-label">
+            {COLORMAPS.map((m) => (
+              <button
+                key={m.id}
+                role="radio"
+                aria-checked={colormap === m.id}
+                className={colormap === m.id ? 'on' : undefined}
+                data-test={`colormap-${m.id}`}
+                title={m.hint}
+                onClick={() => setColormap(m.id)}
+              >
+                {/* The ramp as a legend shows it, low end on the left, with
+                    the two caps a reading off either end of the scale wears. */}
+                <span className="cmap-ramp" aria-hidden="true">
+                  <i style={{ background: cssRgb(m.under) }} />
+                  <i style={{ background: legendGradient(m, null, false, 'right') }} />
+                  <i style={{ background: cssRgb(m.over) }} />
+                </span>
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <small>
+            <b>{map.label}.</b> {map.hint}. Every map painted on the part, and the scale beside
+            it, is drawn in it; the block at either end is what a reading past that end of the
+            scale wears.
+          </small>
+        </div>
         <div className="setting">
           <label htmlFor="crease">Sharp edges</label>
           <select
@@ -134,15 +170,33 @@ export function SettingsModal() {
             value={creaseMode}
             onChange={(e) => setCreaseMode(e.target.value as CreaseMode)}
           >
-            <option value="auto">Auto — sharp on a CAD-like mesh</option>
             <option value="on">Always sharp</option>
+            <option value="auto">Auto — sharp on a CAD-like mesh</option>
             <option value="off">Always smooth</option>
           </select>
+          <label htmlFor="creaseangle">Sharp from</label>
+          <div className="range">
+            <input
+              id="creaseangle"
+              data-test="crease-angle"
+              type="range"
+              min={CREASE_ANGLE_MIN}
+              max={CREASE_ANGLE_MAX}
+              step={CREASE_ANGLE_STEP}
+              value={creaseAngle}
+              disabled={creaseMode === 'off'}
+              onChange={(e) => setCreaseAngle(Number(e.target.value))}
+            />
+            <output htmlFor="creaseangle">{creaseAngle}°</output>
+          </div>
           <small>
-            Whether an edge sharper than 30° on the scan is shaded as a crease, each face with
-            its own normal, or smoothed across so a box looks pillowed. <b>Auto</b> draws the
-            creases only on a mesh that reads as a tessellation of CAD — on a real scan the noise
-            would speckle, so that stays smooth. A reference part is always drawn sharp.
+            Whether an edge of the scan is shaded as a crease, each face with its own normal, or
+            smoothed across so a box looks pillowed — and from what angle between its two faces an
+            edge counts as sharp. <b>Always sharp</b> draws a CAD mesh's faces flat and a scan's
+            real edges — the rim of a bore, a step — as edges; noise seldom tips a scan's triangles
+            that far, and if it still shows, a larger angle, 50° or 60°, leaves it smooth.{' '}
+            <b>Auto</b> draws the creases only on a mesh that reads as a tessellation of CAD, a scan
+            smooth all over. A reference part is always drawn sharp, from {CREASE_ANGLE_DEG}°.
           </small>
         </div>
 

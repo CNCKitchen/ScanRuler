@@ -149,6 +149,10 @@ check(
   (await page.$('[data-test=assumed-warning]')) === null,
   'a believable assumed value clears the warning',
 )
+// The ghost is drawn at the assumed Ø as soon as it is entered; the readout
+// above it stays the measurement.
+const ghostRadius = await page.evaluate(() => window.__scanruler.scene().overlays.previewFit?.radius ?? null)
+check(ghostRadius === 6.25, `the preview is drawn at the assumed Ø 12.5 (radius ${ghostRadius})`)
 await click(page, '[data-test=create-element]')
 await sleep(400)
 let rows = await rowTexts(page)

@@ -16,7 +16,7 @@
 // it all but cancels over a patch — so the raw reading is averaged over the
 // neighbours a few times, and what is left is the shape.
 
-import { BLUE_CAP_RGB, RED_CAP_RGB, type FieldScale } from '../field/colormap'
+import type { FieldScale } from '../field/colormap'
 
 /** Passes of neighbour averaging over the raw reading. Four reach about two
  *  rings, enough to put a scan's scatter under a 2 mm round without washing
@@ -151,9 +151,10 @@ export function curvatureRange(values: Float32Array, size: number): number {
 }
 
 /** How a curvature map is read as colour: about zero like a deviation, the
- *  flats on the ramp's green, a convex round towards red and a hollow
- *  towards blue, whatever is sharper than the range in the dark caps. The
+ *  flats in the middle of the ramp — jet's green — a convex round towards
+ *  its high end and a hollow towards its low, whatever is sharper than the
+ *  range in the caps. The
  *  rim of an open scan is NaN and stays bare. */
 export function curvatureScale(range: number): FieldScale {
-  return { low: -range, high: range, bands: null, validMin: -Infinity, validMax: Infinity, capLow: BLUE_CAP_RGB, capHigh: RED_CAP_RGB }
+  return { low: -range, high: range, bands: null, validMin: -Infinity, validMax: Infinity }
 }

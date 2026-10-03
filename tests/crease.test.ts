@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import {
   coplanarShare,
+  creaseAngleOf,
   creaseBudget,
   creaseFor,
+  creaseSetting,
   looksTessellated,
+  scanRender,
   splitCreases,
   type CreaseSplit,
 } from '../src/core/geometry/crease'
@@ -163,5 +166,42 @@ describe('telling a tessellation from a scan', () => {
     const off = creaseFor('off', cad.graph.positions, cad.graph.indices, cad.slots)
     expect(off.split).toBeNull()
     expect(off.report).toEqual({ added: 0, skipped: 'off' })
+  })
+})
+
+describe('the angle an edge is sharp from', () => {
+  // A scan of a box: noise tips its triangles some degrees against each
+  // other everywhere, its own edges stand at 90°. Twelve edges of 19 inner
+  // vertices, each parted once, and eight corners, each into three.
+  const edges = 12 * 19 + 8 * 2
+
+  it('splits a scan’s own edges and leaves its noise smooth from an angle the noise does not reach', () => {
+    const scan = welded(boxMesh(10, 20, 0.05))
+    const at = (deg: number) => creaseFor('on', scan.graph.positions, scan.graph.indices, scan.slots, deg).report.added
+    expect(at(60)).toBe(edges)
+    expect(at(30)).toBeGreaterThanOrEqual(edges)
+    // Well past the box's own edges nothing is sharp.
+    expect(at(120)).toBe(0)
+  })
+
+  it('lays the scan out at the angle asked for', () => {
+    const scan = welded(boxMesh(10, 20, 0.05))
+    const r = scanRender(scan.graph, creaseSetting({ creaseMode: 'on', creaseAngle: 60 }))
+    expect(r.copyOf.length).toBe(edges)
+    expect(r.positions.length).toBe((scan.graph.vertexCount + edges) * 3)
+    expect(r.crease).toEqual({ added: edges, skipped: null })
+    const off = scanRender(scan.graph, { mode: 'off', angleDeg: 60 })
+    expect(off.copyOf.length).toBe(0)
+    expect(off.indices).toEqual(scan.graph.indices)
+  })
+
+  it('takes a stored angle in range, and the default for anything that is not one', () => {
+    expect(creaseAngleOf(null)).toBe(30)
+    expect(creaseAngleOf('')).toBe(30)
+    expect(creaseAngleOf('abc')).toBe(30)
+    expect(creaseAngleOf('45')).toBe(45)
+    expect(creaseAngleOf(60)).toBe(60)
+    expect(creaseAngleOf(1)).toBe(5)
+    expect(creaseAngleOf(500)).toBe(120)
   })
 })

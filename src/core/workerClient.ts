@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { WorkerRpc } from './workerRpc'
 import type { MeshCentroid } from './geometry/centroid'
-import type { CreaseMode, CreaseReport } from './geometry/crease'
+import type { CreaseSetting, CreaseReport } from './geometry/crease'
 import type { SeedPlane, SymmetryPlane } from './symmetry'
 import type { AutoAlignResult } from './autoAlign'
 import type { AlignResult, PointPair } from './deviation/align'
@@ -53,7 +53,7 @@ export interface ThicknessResult {
  *  to put it back after a restart — see MeshWorkerClient.onRestore. */
 export interface RestoreChannel {
   /** Load a file as a staged import, as prepareScan does; its number back. */
-  loadStaged(name: string, bytes: Uint8Array, crease: CreaseMode, transform: Rigid | null, units?: MeshUnits): Promise<number>
+  loadStaged(name: string, bytes: Uint8Array, crease: CreaseSetting, transform: Rigid | null, units?: MeshUnits): Promise<number>
   /** Ask a plugin's part of the worker, as pluginCall does. */
   call(plugin: string, op: string, payload: unknown): Promise<unknown>
 }
@@ -75,7 +75,7 @@ export class MeshWorkerClient {
   private rpc: WorkerRpc
   private recovering: Promise<void> | null = null
   restoreState: (() => {
-    scan: { name: string; bytes: Uint8Array; crease: CreaseMode; transform: Rigid | null; units?: MeshUnits } | null
+    scan: { name: string; bytes: Uint8Array; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits } | null
     nominal: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
   }) | null = null
   /** What the plugins put back after a restart, once the scan and the
@@ -139,12 +139,12 @@ export class MeshWorkerClient {
     return this.rpc.request<T>(msg, transfer)
   }
 
-  async load(name: string, buffer: ArrayBuffer, crease: CreaseMode): Promise<LoadedScan> {
+  async load(name: string, buffer: ArrayBuffer, crease: CreaseSetting): Promise<LoadedScan> {
     const requestId = this.nextId++
     return this.request<LoadedScan>({ type: 'load', requestId, name, buffer, crease }, [buffer])
   }
 
-  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseMode, transform?: Rigid, units: MeshUnits = 'mm'): Promise<{ id: number; mesh: LoadedScan }> {
+  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm'): Promise<{ id: number; mesh: LoadedScan }> {
     const id = this.nextId++
     const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: mmPerUnit(units) }, [buffer])
     return { id, mesh }
@@ -186,7 +186,7 @@ export class MeshWorkerClient {
 
   /** The loaded scan's render geometry again, with its sharp edges split as
    *  `crease` now says. */
-  async recrease(crease: CreaseMode): Promise<LoadedScan> {
+  async recrease(crease: CreaseSetting): Promise<LoadedScan> {
     const requestId = this.nextId++
     return this.request<LoadedScan>({ type: 'recrease', requestId, crease })
   }

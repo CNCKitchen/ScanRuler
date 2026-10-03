@@ -194,6 +194,15 @@ export class FlatScene {
   /** A sketch dimension's number dragged to a sheet point; `begin` on the
    *  first step of the drag. */
   onDimensionMove: ((id: number, p: Vec2, begin: boolean) => void) | null = null
+  /** The cursor onto a note's label, by the note's id, and off it (null) —
+   *  for what the note stands for to be lit while it is pointed at. */
+  onNoteHover: ((id: number | null) => void) | null = null
+  /** The same for a dimension's number that can be typed into. */
+  onDimensionHover: ((id: number | null) => void) | null = null
+  /** The note and the dimension under the cursor — said off again when
+   *  their labels are made anew under it, which no pointer event says. */
+  private hoveredNote: number | null = null
+  private hoveredDimension: number | null = null
 
   /** Left-drag selects a region (and a plain click picks a whole edge)
    *  instead of panning while an edge tool is collecting. */
@@ -369,6 +378,10 @@ export class FlatScene {
   }
 
   private clearDimensions(): void {
+    if (this.hoveredDimension !== null) {
+      this.hoveredDimension = null
+      this.onDimensionHover?.(null)
+    }
     for (const dispose of this.dimensionCleanup) dispose()
     this.dimensionCleanup = []
     this.dimensionGroup.clear()
@@ -455,6 +468,15 @@ export class FlatScene {
       div.dataset.test = `flat-dimension-${edit.id}`
       const stop = (e: Event) => e.stopPropagation()
       div.addEventListener('wheel', stop)
+      div.addEventListener('pointerenter', () => {
+        this.hoveredDimension = edit.id
+        this.onDimensionHover?.(edit.id)
+      })
+      div.addEventListener('pointerleave', () => {
+        if (this.hoveredDimension !== edit.id) return
+        this.hoveredDimension = null
+        this.onDimensionHover?.(null)
+      })
       const open = () => {
         if (div.querySelector('input')) return
         const shown = String(Math.round(edit.value * 1000) / 1000)
@@ -1356,6 +1378,10 @@ export class FlatScene {
    *  sees the press — the label sits above the canvas — so the sheet stays
    *  put under the drag. */
   setNotes(items: readonly { id: number; text: string; at: Vec2; editing: boolean; className?: string; tip?: string }[]): void {
+    if (this.hoveredNote !== null) {
+      this.hoveredNote = null
+      this.onNoteHover?.(null)
+    }
     for (const dispose of this.noteCleanup) dispose()
     this.noteCleanup = []
     this.noteGroup.clear()
@@ -1398,6 +1424,17 @@ export class FlatScene {
         document.addEventListener('pointercancel', up)
       }
       div.addEventListener('pointerdown', down)
+      const enter = () => {
+        this.hoveredNote = item.id
+        this.onNoteHover?.(item.id)
+      }
+      const leave = () => {
+        if (this.hoveredNote !== item.id) return
+        this.hoveredNote = null
+        this.onNoteHover?.(null)
+      }
+      div.addEventListener('pointerenter', enter)
+      div.addEventListener('pointerleave', leave)
       const label = new CSS2DObject(div)
       // Anchored at its lower-left: the spot clicked is where the text begins.
       label.center.set(0, 1)
@@ -1405,6 +1442,8 @@ export class FlatScene {
       this.noteGroup.add(label)
       this.noteCleanup.push(() => {
         div.removeEventListener('pointerdown', down)
+        div.removeEventListener('pointerenter', enter)
+        div.removeEventListener('pointerleave', leave)
         div.remove()
       })
     }

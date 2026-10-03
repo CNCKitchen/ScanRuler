@@ -10,7 +10,7 @@ import {
   thicknessStats,
   type ThicknessOptions,
 } from '../src/core/thickness/thickness'
-import { paintField, RED_CAP_RGB, BLUE_CAP_RGB, UNMEASURED_RGB } from '../src/core/field/colormap'
+import { colormapById, paintField, UNMEASURED_RGB } from '../src/core/field/colormap'
 import { boxMesh } from './helpers'
 
 /** Wall thickness of a soup, measured the way the worker measures it. The
@@ -251,11 +251,12 @@ describe('wall thickness', () => {
   it('paints thin red and thick blue, the opposite way round to deviation', () => {
     const values = Float32Array.from([0.5, 3.5, 2, NaN])
     const out = new Uint8Array(12)
-    paintField(values, thicknessScale(1, 3, null), out)
+    const jet = colormapById('jet')
+    paintField(values, thicknessScale(1, 3, null), jet, out)
     // Under the thin end and over the thick end get the caps of the ramp they
     // ran off — red for thin, blue for thick.
-    expect(Array.from(out.slice(0, 3))).toEqual([...RED_CAP_RGB])
-    expect(Array.from(out.slice(3, 6))).toEqual([...BLUE_CAP_RGB])
+    expect(Array.from(out.slice(0, 3))).toEqual([...jet.over])
+    expect(Array.from(out.slice(3, 6))).toEqual([...jet.under])
     // Mid-scale is the ramp's green, as on any map here.
     expect(Array.from(out.slice(6, 9))).toEqual([0, 200, 0])
     expect(Array.from(out.slice(9, 12))).toEqual([...UNMEASURED_RGB])

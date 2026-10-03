@@ -87,6 +87,18 @@ export interface SceneLayer {
    *  null off the canvas; `covered` while something before this layer is lit
    *  under it. True when the layer lit something. */
   hover?(at: { x: number; y: number } | null, covered: boolean): boolean
+  /** The arrow keys with the cursor at `at`, over things that lie one
+   *  behind another: step to the next of what the layer has under the
+   *  cursor (`step` 1) — the face behind the one in front — or back (−1).
+   *  `behind`: something before this layer would take a click there, so a
+   *  first step lands on this layer's own first. True when the layer took
+   *  the step; it then lights what it stepped to. */
+  cycle?(at: { x: number; y: number }, step: 1 | -1, behind: boolean): boolean
+  /** Whether a step taken with `cycle` still holds with the cursor at `at`
+   *  (null: off the canvas) — it does until the cursor moves off the spot.
+   *  While it holds, the layer alone lights under the cursor and takes the
+   *  next click, ahead of every layer before it. */
+  cycling?(at: { x: number; y: number } | null): boolean
   /** Every frame, before it is drawn, with the canvas's size in pixels. */
   tick?(width: number, height: number): void
   themeChanged?(theme: ViewTheme): void

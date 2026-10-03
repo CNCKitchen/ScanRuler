@@ -326,7 +326,7 @@ export function AlignmentSection({
               <p>
                 Three steps, and only the first is required. The coordinate planes in the viewport
                 are where the part is going; it moves live with every choice, and nothing is
-                applied until <b>Align part</b> is pressed.
+                applied until <b>Confirm alignment</b> is pressed.
               </p>
               <p>
                 <b>1 · Set on a plane</b> — use a measured plane or cylinder, or pick 3 points
@@ -441,7 +441,7 @@ export function AlignmentSection({
             className="block"
             data-test="align-symmetry"
             disabled={busy || alignDraft.pickSlot !== null}
-            title="Find the part’s mirror plane on the scan — or use a symmetry plane already measured — and settle this pose on it: the axis nearest its normal turned onto it, the zero point put on it. With nothing set up yet, Auto-align’s pose is the start. Nothing is applied until Align part is pressed"
+            title="Find the part’s mirror plane on the scan — or use a symmetry plane already measured — and settle this pose on it: the axis nearest its normal turned onto it, the zero point put on it. With nothing set up yet, Auto-align’s pose is the start. Nothing is applied until Confirm alignment is pressed"
             onClick={onAlignSymmetry}
           >
             Use symmetry
@@ -453,7 +453,7 @@ export function AlignmentSection({
             disabled={!alignReady || busy}
             onClick={() => alignReady && onApplyAlignment(alignReady.rigid)}
           >
-            Align part
+            Confirm alignment
           </button>
           <div className="toolrow">
             {alignDraft.pickSlot !== null && (

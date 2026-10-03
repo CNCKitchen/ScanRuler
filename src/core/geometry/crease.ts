@@ -22,25 +22,56 @@
  * order, which is what every region, marking and field is keyed by. Only the
  * index buffer names copies, and `copyOf` says which vertex each copy is.
  *
- * Two guards keep this off a scan where it would do harm. A noisy scan has
- * sharp edges everywhere — every triangle that noise has tipped past the
- * angle against its neighbour — and splitting them all speckles the surface
- * and multiplies the vertex list. So the scan is only split when it looks
- * like a tessellation (see looksTessellated), unless the operator says
- * otherwise; and whatever they say, a split that would add more than the
+ * A scan is split too, by default. Noise tips its triangles against each
+ * other a few degrees, seldom tens: a real scan of a few hundred thousand
+ * vertices has a few hundred split from 30°, at its edges — the rim of a
+ * bore, a step — and its odd spike, and its noise stays smooth. Where noise
+ * does pass the angle, splitting it speckles the surface and multiplies the
+ * vertex list, so the operator says from what angle an edge is sharp — 50°
+ * or 60° leaves a rough scan's noise smooth — or asks for Auto, which splits
+ * only a mesh that looks like a tessellation (see looksTessellated), or for
+ * none at all. And whatever they say, a split that would add more than the
  * budget is not made at all.
  */
 
+import type { MeshGraph } from '../types'
 import { computeVertexNormals } from './normals'
+import { wireSlots } from './wireSlots'
 
-/** What the operator asked for the scan: split when it looks like CAD, always,
- *  or never. The reference is always split — it is CAD. */
+/** What the operator asked for the scan: split always — the default — only
+ *  when it looks like CAD, or never. The reference is always split — it is
+ *  CAD. */
 export type CreaseMode = 'auto' | 'on' | 'off'
 
 /** The dihedral angle from which an edge counts as sharp, in degrees. The
  *  default of every modelling tool's auto-smooth; a 12° step between the
  *  facets of a coarse cylinder stays smooth, a 45° chamfer breaks. */
 export const CREASE_ANGLE_DEG = 30
+
+/** The angles the operator may set it to, in degrees, and the step. */
+export const CREASE_ANGLE_MIN = 5
+export const CREASE_ANGLE_MAX = 120
+export const CREASE_ANGLE_STEP = 5
+
+/** What the operator asked for the scan's sharp edges: when they are split,
+ *  and from what angle on an edge is sharp. */
+export interface CreaseSetting {
+  mode: CreaseMode
+  angleDeg: number
+}
+
+/** The setting as the store holds it, in one piece for a load. */
+export function creaseSetting(s: { creaseMode: CreaseMode; creaseAngle: number }): CreaseSetting {
+  return { mode: s.creaseMode, angleDeg: s.creaseAngle }
+}
+
+/** A stored or typed angle as one the setting takes: in range, or the
+ *  default when it is no angle at all. */
+export function creaseAngleOf(value: unknown): number {
+  const v = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+  if (!Number.isFinite(v)) return CREASE_ANGLE_DEG
+  return Math.min(Math.max(v, CREASE_ANGLE_MIN), CREASE_ANGLE_MAX)
+}
 
 /** The share of a mesh's edges that must be dead flat for it to count as a
  *  tessellation — see looksTessellated. */
@@ -312,20 +343,49 @@ export function splitCreases(
 
 /**
  * The split a load makes, given what the operator asked for: `on` splits,
- * `off` does not, and `auto` splits only a mesh that looks tessellated. Null
- * with the reason when no split was made.
+ * `off` does not, and `auto` splits only a mesh that looks tessellated — at
+ * edges from `angleDeg` on. Null with the reason when no split was made.
  */
 export function creaseFor(
   mode: CreaseMode,
   positions: Float32Array,
   indices: Uint32Array,
   wireSlots: Uint8Array,
+  angleDeg = CREASE_ANGLE_DEG,
 ): { split: CreaseSplit | null; report: CreaseReport } {
   if (mode === 'off') return { split: null, report: { added: 0, skipped: 'off' } }
   if (mode === 'auto' && !looksTessellated(positions, indices)) {
     return { split: null, report: { added: 0, skipped: 'scan' } }
   }
-  const split = splitCreases(positions, indices, wireSlots)
+  const split = splitCreases(positions, indices, wireSlots, angleDeg)
   if (!split) return { split: null, report: { added: 0, skipped: 'budget' } }
   return { split, report: { added: split.copyOf.length, skipped: null } }
+}
+
+/** A scan's render arrays, laid out for the viewport: its own copies of the
+ *  positions, normals and indices, the corners the mesh mode draws its edges
+ *  from, and whatever copies a split for sharp edges appended. */
+export interface ScanRender {
+  positions: Float32Array
+  indices: Uint32Array
+  normals: Float32Array
+  wireSlots: Uint8Array
+  copyOf: Uint32Array
+  crease: CreaseReport
+}
+
+/** The render arrays of a welded mesh, its sharp edges split as `crease`
+ *  asks — for a scan when it loads and whenever the setting changes, and
+ *  for any other mesh shown in a scan's place. */
+export function scanRender(g: MeshGraph, crease: CreaseSetting): ScanRender {
+  const slotsOwn = wireSlots(g.adjOffsets, g.adjList, g.vertexCount)
+  const { split, report } = creaseFor(crease.mode, g.positions, g.indices, slotsOwn, crease.angleDeg)
+  return {
+    positions: split ? split.positions : g.positions.slice(),
+    indices: split ? split.indices : g.indices.slice(),
+    normals: split ? split.normals : g.normals.slice(),
+    wireSlots: split ? split.wireSlots : slotsOwn,
+    copyOf: split ? split.copyOf : new Uint32Array(0),
+    crease: report,
+  }
 }
