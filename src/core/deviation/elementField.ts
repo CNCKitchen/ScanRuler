@@ -31,6 +31,7 @@
 // pure display control that can be dragged either way without recomputing.
 
 import type { CylinderFit, FitData, PlaneFit, SphereFit, TorusFit } from '../types'
+import { writeDirection } from './deflection'
 
 /** The kinds a signed deviation can be measured against: the three with a
  *  surface and therefore two sides. A point and a line have neither — the
@@ -61,6 +62,9 @@ export interface ElementFieldOptions {
    *  the selection tools. Everything else reads as unmeasured, exactly like a
    *  vertex outside the element's own bounds. Null measures the whole scan. */
   subset?: Uint32Array | null
+  /** Filled, when given (three per vertex), with the direction each reading
+   *  was taken along — see deflection.ts. Left zero where there is none. */
+  directions?: Int8Array | null
 }
 
 /** Where one scan vertex sits relative to the element. Filled in place: this is
@@ -226,7 +230,7 @@ export function computeElementDeviation(
   fit: ElementTarget,
   positions: Float32Array,
   normals: Float32Array,
-  { side, maxNormalDeviation, subset }: ElementFieldOptions,
+  { side, maxNormalDeviation, subset, directions }: ElementFieldOptions,
 ): Float32Array {
   const n = positions.length / 3
   const values = new Float32Array(n)
@@ -244,7 +248,14 @@ export function computeElementDeviation(
     const facing =
       side *
       (normals[v * 3] * probe.ox + normals[v * 3 + 1] * probe.oy + normals[v * 3 + 2] * probe.oz)
-    values[v] = facing >= minFacing ? side * probe.offset : NaN
+    if (!(facing >= minFacing)) {
+      values[v] = NaN
+      return
+    }
+    values[v] = side * probe.offset
+    // The reading is along that same normal: extra material stands off the
+    // element on the material's side.
+    if (directions) writeDirection(directions, v, side * probe.ox, side * probe.oy, side * probe.oz)
   }
 
   if (subset) {

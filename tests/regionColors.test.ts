@@ -253,6 +253,70 @@ describe('the marking layer', () => {
     rc.setPaintedVertices(Uint32Array.of(5, 5, 99))
     expect(Array.from(rc.paintedVertices())).toEqual([5])
   })
+
+  // A strip of six triangles over the eight vertices, top row even, bottom
+  // row odd:  0 2 4 6
+  //           1 3 5 7
+  const STRIP = [0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5, 4, 5, 6, 6, 5, 7]
+  const same = (v: number) => v
+  /** The triangles that show as marked — all three corners in the mask. */
+  const shown = (paint: Uint8Array, index: number[]) => {
+    const out: number[] = []
+    for (let f = 0; f < index.length; f += 3) {
+      if (paint[index[f]] && paint[index[f + 1]] && paint[index[f + 2]]) out.push(f / 3)
+    }
+    return out
+  }
+
+  it('invertPaint swaps marked and bare, never overlapping what was marked', () => {
+    const { rc, paint } = setup()
+    rc.setPaintedVertices(Uint32Array.of(0, 1, 2, 3))
+    expect(shown(paint, STRIP)).toEqual([0, 1])
+
+    expect(rc.invertPaint(STRIP, same)).toBe(true)
+    expect(Array.from(rc.paintedVertices())).toEqual([4, 5, 6, 7])
+    expect(rc.paintCount).toBe(4)
+    // Triangles 2 and 3 straddle the border and show bare both ways; none of
+    // the triangles marked before is marked after.
+    expect(shown(paint, STRIP)).toEqual([4, 5])
+
+    // And back: inverting twice is exactly where it started.
+    rc.invertPaint(STRIP, same)
+    expect(Array.from(rc.paintedVertices())).toEqual([0, 1, 2, 3])
+    expect(shown(paint, STRIP)).toEqual([0, 1])
+  })
+
+  it('invertPaint leaves a point on no triangle bare', () => {
+    const { rc } = setup()
+    // The strip's first four triangles, which never reach 6 or 7.
+    rc.invertPaint(STRIP.slice(0, 12), same)
+    expect(Array.from(rc.paintedVertices())).toEqual([0, 1, 2, 3, 4, 5])
+  })
+
+  it('invertPaint keys the marking by the scan vertex behind a render index', () => {
+    // Eight scan vertices and one shading copy past them: render vertex 8 is
+    // vertex 2 again.
+    const colors = new Uint8Array(9 * 3)
+    const paint = new Uint8Array(9)
+    const rc = new RegionColors(BASE)
+    rc.attach(colors, paint, new Uint8Array(9), 8)
+    const own = (v: number) => (v === 8 ? 2 : v)
+    expect(rc.invertPaint([0, 1, 8, 2, 1, 3], own)).toBe(true)
+    // The copy wears what its vertex wears, and is not counted twice.
+    expect(paint[8]).toBe(1)
+    expect(rc.paintCount).toBe(4)
+    expect(Array.from(rc.paintedVertices())).toEqual([0, 1, 2, 3])
+    rc.invertPaint([0, 1, 8, 2, 1, 3], own)
+    expect(paint[2]).toBe(0)
+    expect(paint[8]).toBe(0)
+    expect(rc.paintCount).toBe(0)
+  })
+
+  it('invertPaint has nothing to turn once the scan is gone', () => {
+    const { rc } = setup()
+    rc.detach()
+    expect(rc.invertPaint(STRIP, same)).toBe(false)
+  })
 })
 
 describe('the bare-surface colour', () => {

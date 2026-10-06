@@ -31,11 +31,15 @@ import {
 import { hasDiameter } from '../core/elements/assumed'
 import {
   isOrientable,
+  isOrientRef,
   OrientError,
   orientFit,
+  referenceNormal,
+  refThroughMotion,
   type Orient,
   type OrientRelation,
 } from '../core/elements/orient'
+import { basePlaneOf } from '../core/basePlanes'
 import {
   ALIGN_PICK_COUNT,
   AlignmentError,
@@ -154,8 +158,9 @@ export interface Draft {
    *  element is then drawn and goes out as measured. */
   assumed?: number
   /** The reference plane the draft aligns its direction to, once one is
-   *  chosen. The draft's `fit` stays the measurement; the aligned geometry is
-   *  derived from the two — see orientedDraft. */
+   *  chosen — a plane element or a coordinate plane. The draft's `fit` stays
+   *  the measurement; the aligned geometry is derived from the two — see
+   *  orientedDraft. */
   orient?: Orient
   message?: string
   /** How the numbers a search on the scan handed back were got — whether a
@@ -573,12 +578,12 @@ export function orientedDraft(
 ): { fit: FitData | undefined; deviationDeg: number; warning: string | null } {
   if (!d?.fit) return { fit: undefined, deviationDeg: 0, warning: null }
   if (!d.orient || !isOrientable(d.fit)) return { fit: d.fit, deviationDeg: 0, warning: null }
-  const ref = elements.find((e) => e.id === d.orient!.ref)?.fit
-  if (ref?.kind !== 'plane') {
+  const normal = referenceNormal(d.orient.ref, (id) => elements.find((e) => e.id === id)?.fit)
+  if (!normal) {
     return { fit: d.fit, deviationDeg: 0, warning: 'The reference plane is unavailable.' }
   }
   try {
-    return orientFit(d.fit, ref, d.orient.relation)
+    return orientFit(d.fit, { normal }, d.orient.relation)
   } catch (e) {
     return {
       fit: d.fit,
@@ -595,11 +600,11 @@ function orientElement(el: Element, byId: ReadonlyMap<number, FitData>): Element
   if (!el.orient) return el
   const measured = el.measured ?? el.fit
   if (!measured) return el
-  const ref = byId.get(el.orient.ref)
+  const normal = referenceNormal(el.orient.ref, (id) => byId.get(id))
   let fit = measured
-  if (ref?.kind === 'plane' && isOrientable(measured)) {
+  if (normal && isOrientable(measured)) {
     try {
-      fit = orientFit(measured, ref, el.orient.relation).fit
+      fit = orientFit(measured, { normal }, el.orient.relation).fit
     } catch {
       fit = measured
     }
@@ -1507,10 +1512,10 @@ export const useStore = create<AppState>()((set, get) => ({
       const d = s.draft
       if (!d) return {}
       if (ref === null) return { draft: { ...d, orient: undefined } }
-      // Only a plane can be aligned to, and not one that builds on the
-      // element being edited — that would close a loop.
-      const el = s.elements.find((e) => e.id === ref)
-      if (el?.kind !== 'plane' || blockedRefs(d.editId, s.elements).has(ref)) return {}
+      // Only a plane can be aligned to — a coordinate plane or a plane
+      // element, and not one that builds on the element being edited: that
+      // would close a loop.
+      if (!isOrientRef(ref, s.elements) || blockedRefs(d.editId, s.elements).has(ref)) return {}
       return { draft: { ...d, orient: { ref, relation: d.orient?.relation ?? 'normal' } } }
     }),
 
@@ -1565,7 +1570,10 @@ export const useStore = create<AppState>()((set, get) => ({
           ...edit,
           seed: alive(d.seed) || (d.seed != null && d.seed < 0) ? d.seed : null,
           refs: d.refs.map((r) => (alive(r) ? r : null)),
-          orient: d.orient && alive(d.orient.ref) ? d.orient : undefined,
+          orient:
+            d.orient && (alive(d.orient.ref) || basePlaneOf(d.orient.ref) !== undefined)
+              ? d.orient
+              : undefined,
           status: 'empty',
           fit: undefined,
           message: undefined,
@@ -1600,9 +1608,7 @@ export const useStore = create<AppState>()((set, get) => ({
     // plus the recipe; the aligned geometry is computed from the two on the
     // way in, and again whenever the reference moves.
     const orient =
-      isOrientable(d.fit) &&
-      d.orient &&
-      get().elements.some((e) => e.id === d.orient!.ref && e.kind === 'plane')
+      isOrientable(d.fit) && d.orient && isOrientRef(d.orient.ref, get().elements)
         ? d.orient
         : undefined
     const measured = orient ? d.fit : undefined
@@ -2049,12 +2055,21 @@ export const useStore = create<AppState>()((set, get) => ({
         appliedAlignment: s.appliedAlignment ? rigidCompose(m, s.appliedAlignment) : m,
         modelCenter: [moved[0], moved[1], moved[2]] as Vec3,
         elements: reevaluateConstructions(
-          s.elements.map((el) => ({
-            ...el,
-            source: transformSource(el.source, m),
-            fit: el.fit ? transformFit(el.fit, m) : el.fit,
-            measured: el.measured ? transformFit(el.measured, m) : el.measured,
-          })),
+          s.elements.map((el) => {
+            const out: Element = {
+              ...el,
+              source: transformSource(el.source, m),
+              fit: el.fit ? transformFit(el.fit, m) : el.fit,
+              measured: el.measured ? transformFit(el.measured, m) : el.measured,
+            }
+            if (!out.orient) return out
+            // A coordinate plane does not move with the part: the alignment
+            // goes to the one its old plane was turned onto, or comes off.
+            const ref = refThroughMotion(out.orient.ref, (v) => turn(v)!)
+            return ref === null
+              ? { ...out, orient: undefined, fit: out.measured ?? out.fit, measured: undefined }
+              : { ...out, orient: { ...out.orient, ref } }
+          }),
           s.modelSize,
         ),
         sections: s.sections.map(moveSection),

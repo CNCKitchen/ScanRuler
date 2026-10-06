@@ -36,6 +36,7 @@ export function buildDeviationReport(
   stats: DeviationStats,
   range: number,
   maxDistance: number,
+  facingDeg: number | null,
 ): string {
   return [
     'ScanRuler — deviation from nominal',
@@ -75,6 +76,7 @@ export function buildDeviationReport(
     ...statLines(stats),
     '',
     `  max search distance  ${maxDistance} mm`,
+    `  facing limit         ${facingDeg === null ? 'off — the nearest surface counts, whatever it faces' : `${facingDeg}°`}`,
     `  colour scale         ±${range} mm`,
     '',
   ].join('\n')

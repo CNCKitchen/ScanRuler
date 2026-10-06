@@ -139,6 +139,7 @@ export function validateProjectParts(raw: unknown): void {
   fields(d, 'localMaxDistance range maxDistance tolerance nextProbeId targetSide', 'number', 'deviation')
   fields(d, 'rangeAuto maxDistanceAuto showElement showHistogram showNominal showScan showMap split', 'boolean', 'deviation')
   if (!['reference', 'element'].includes(d.source as string) || !['all', 'marked'].includes(d.targetScope as string)) invalid('deviation source or scope')
+  if (d.mapFacingDeg !== undefined && d.mapFacingDeg !== null && typeof d.mapFacingDeg !== 'number') invalid('deviation.mapFacingDeg')
   file(d.reference, 'deviation.reference')
   array(d.pairs, 'deviation.pairs')
   entries(d.probes, 'deviation.probes')

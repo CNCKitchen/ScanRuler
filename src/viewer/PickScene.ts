@@ -199,6 +199,11 @@ export class PickScene {
     this.marking?.clearPaint()
   }
 
+  /** Turn the marking inside out, reported through onPaintChange. */
+  invertPaint(): void {
+    this.marking?.invertPaint()
+  }
+
   /** One pointer test per frame, and only when the answer could have changed —
    *  a mouse emits hundreds of moves a second and only the last is on screen. */
   private updateHover(): void {

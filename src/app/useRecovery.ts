@@ -101,7 +101,7 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
     const unsub = [
       watch(useStore, ['fileName', 'busy', 'appliedAlignment', 'elements', 'dimensions', 'nextId', 'nextNumber', 'nextOfKind', 'nextDimensionId', 'nextOfDimGroup', 'settings', 'selectMode', 'showLabels', 'showBackfaces', 'sections', 'nextSectionNumber']),
       watch(useFlat, ['imageName', 'imageVersion', 'pxPerMm', 'calSource', 'splitAxes', 'edgeSensitivity', 'showEdges', 'snapToEdge', 'showGrid', 'elements', 'nextId', 'nameCounts', 'dimensions', 'nextDimId', 'dimCounts', 'datum', 'counts', 'nextCountId', 'notes', 'nextNoteId', 'turns', 'mirror', 'subject', 'sheets']),
-      watch(useDeviation, ['source', 'nominalName', 'align', 'globalAlign', 'pairs', 'localMaxDistance', 'targetId', 'targetSide', 'targetFacingDeg', 'targetScope', 'scopeVersion', 'showElement', 'range', 'rangeAuto', 'maxDistance', 'maxDistanceAuto', 'bands', 'tolerance', 'showHistogram', 'showNominal', 'showScan', 'showMap', 'split', 'probes', 'nextProbeId']),
+      watch(useDeviation, ['source', 'nominalName', 'align', 'globalAlign', 'pairs', 'localMaxDistance', 'targetId', 'targetSide', 'targetFacingDeg', 'mapFacingDeg', 'targetScope', 'scopeVersion', 'showElement', 'range', 'rangeAuto', 'maxDistance', 'maxDistanceAuto', 'bands', 'tolerance', 'showHistogram', 'showNominal', 'showScan', 'showMap', 'split', 'probes', 'nextProbeId']),
       watch(useThickness, ['status', 'method', 'maxThickness', 'maxThicknessAuto', 'coneRays', 'coneAngleDeg', 'normalDeviationDeg', 'low', 'high', 'scaleAuto', 'bands', 'limit', 'showHistogram', 'probes', 'nextProbeId']),
       watch(useShell, ['workspace']),
       // Drafts need a leave-page warning, but aren't in the project format.

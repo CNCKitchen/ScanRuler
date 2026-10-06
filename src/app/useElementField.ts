@@ -54,6 +54,7 @@ export function useElementField({
   elementField,
   elementRgb,
   elementScope,
+  fieldDirections,
 }: {
   sceneRef: RefObject<SceneManager | null>
   elementField: RefObject<Float32Array | null>
@@ -62,6 +63,8 @@ export function useElementField({
    *  so — held in a ref like the field itself, because it is one large typed
    *  array only this computation reads. */
   elementScope: RefObject<Uint32Array | null>
+  /** The direction each map's readings were taken along, keyed by the map. */
+  fieldDirections: WeakMap<Float32Array, Int8Array>
 }) {
   const targetId = useDeviation((s) => s.targetId)
   const targetSide = useDeviation((s) => s.targetSide)
@@ -110,14 +113,17 @@ export function useElementField({
     const scan = scanArrays(sceneRef.current)
     if (!scan) return
 
+    const directions = new Int8Array(scan.positions.length)
     const values = computeElementDeviation(target, scan.positions, scan.normals, {
       side: targetSide,
       maxNormalDeviation: targetFacingDeg === null ? null : (targetFacingDeg * Math.PI) / 180,
       // A marked scope with nothing marked yet is an empty map, not the whole
       // scan: the hint in the panel says to mark, and the map follows the brush.
       subset: targetScope === 'marked' ? (elementScope.current ?? new Uint32Array(0)) : null,
+      directions,
     })
     elementField.current = values
+    fieldDirections.set(values, directions)
     elementRgb.current = null
     useDeviation.getState().resolveElementMap(
       suggestRange(values, useDeviation.getState().maxDistance),

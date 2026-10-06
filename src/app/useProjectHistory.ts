@@ -88,7 +88,10 @@ export function useProjectHistory(options: {
               ? o.runFit(el.id, el.kind, el.source.seeds, el.source.selection, true) : Promise.resolve()))
           }
           const moved = patch.measure && patch.measure.appliedAlignment !== previous.measure.appliedAlignment
-          if (moved || (patch.deviation && patch.deviation.align !== previous.deviation.align)) {
+          // The facing limit decides which surface each reading is taken off,
+          // so the map under it is measured again just as for a new pose.
+          const refaced = patch.deviation && patch.deviation.mapFacingDeg !== previous.deviation.mapFacingDeg
+          if (moved || refaced || (patch.deviation && patch.deviation.align !== previous.deviation.align)) {
             o.deviation.current = null
             o.deviationRgb.current = null
             const d = useDeviation.getState()

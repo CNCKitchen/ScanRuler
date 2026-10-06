@@ -22,6 +22,16 @@ const TYPE_SIZE: Record<string, number> = {
   float: 4, float32: 4, double: 8, float64: 8,
 }
 
+/**
+ * The header comment by which a PLY says its triangles already face the way
+ * they are meant to — written by ScanRuler for a mesh it read once and had
+ * the winding of settled then. Read back, the winding is kept as written
+ * instead of guessed again (see geometry/normals): a piece of a part, open
+ * on every side — the top of a round wall with its inner face — can look
+ * inside-out to the guess although it is not.
+ */
+export const PLY_KEEP_WINDING = 'ScanRuler: keep winding'
+
 function readScalar(dv: DataView, off: number, type: string, little: boolean): number {
   switch (type) {
     case 'char': case 'int8': return dv.getInt8(off)
@@ -51,11 +61,14 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   const header = new TextDecoder().decode(bytes.subarray(0, endTag))
 
   let format = ''
+  let keepWinding = false
   const elements: PlyElement[] = []
   for (const rawLine of header.split('\n')) {
     const parts = rawLine.trim().split(/\s+/)
     if (parts[0] === 'format') format = parts[1]
-    else if (parts[0] === 'element') {
+    else if (parts[0] === 'comment') {
+      if (parts.slice(1).join(' ') === PLY_KEEP_WINDING) keepWinding = true
+    } else if (parts[0] === 'element') {
       elements.push({ name: parts[1], count: parseInt(parts[2], 10), props: [] })
     } else if (parts[0] === 'property') {
       const el = elements[elements.length - 1]
@@ -75,10 +88,13 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     throw new Error('This PLY contains no faces — point clouds are not supported yet.')
   }
 
-  if (format === 'ascii') return parseAsciiBody(bytes, bodyStart, elements, onProgress)
   const little = format === 'binary_little_endian'
-  if (!little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
-  return parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
+  if (format !== 'ascii' && !little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
+  const mesh = format === 'ascii'
+    ? parseAsciiBody(bytes, bodyStart, elements, onProgress)
+    : parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
+  if (keepWinding) mesh.keepWinding = true
+  return mesh
 }
 
 function indexOfAscii(bytes: Uint8Array, needle: string, limit: number): number {

@@ -7,6 +7,8 @@
 
 import { useShallow } from 'zustand/react/shallow'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
+import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
+import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
 import { useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
@@ -43,6 +45,7 @@ export function DeviationPanel({
   onStopAlign,
   onPickPoints,
   onMeasure,
+  onMapFacing,
   onStartMarking,
   onStopMarking,
   onClearMarking,
@@ -63,6 +66,9 @@ export function DeviationPanel({
   onStopAlign: () => void
   onPickPoints: () => void
   onMeasure: () => void
+  /** Set the reference map's facing limit — it decides which surface each
+   *  point is measured against, so the map is measured again under it. */
+  onMapFacing: (deg: number | null) => void
   /** Bring the marking tools out, and put them away again. */
   onStartMarking: () => void
   onStopMarking: () => void
@@ -100,12 +106,15 @@ export function DeviationPanel({
       alignMessage: s.alignMessage,
       alignStatus: s.alignStatus,
       alignStopping: s.alignStopping,
+      animate: s.animate,
+      animScale: s.animScale,
       bands: s.bands,
       clearProbes: s.clearProbes,
       elementStatus: s.elementStatus,
       flipTargetSide: s.flipTargetSide,
       globalAlign: s.globalAlign,
       localMaxDistance: s.localMaxDistance,
+      mapFacingDeg: s.mapFacingDeg,
       mapStatus: s.mapStatus,
       marking: s.marking,
       maxDistance: s.maxDistance,
@@ -118,6 +127,8 @@ export function DeviationPanel({
       removeProbe: s.removeProbe,
       scopeCount: s.scopeCount,
       targetScope: s.targetScope,
+      setAnimate: s.setAnimate,
+      setAnimScale: s.setAnimScale,
       setBands: s.setBands,
       setLocalMaxDistance: s.setLocalMaxDistance,
       setMaxDistance: s.setMaxDistance,
@@ -631,6 +642,80 @@ export function DeviationPanel({
           </div>
 
           <div className={aside}>
+            <div className="sec-head">
+              Deformation
+              <InfoDot title="Animated deformation">
+                <p>
+                  Plays the map as motion, the way an FE package animates a deformed shape: the part
+                  moves from the shape it should have to the shape it was measured at, with the
+                  deviation multiplied by the <b>scale</b>, and back again, on a loop.
+                </p>
+                <p>
+                  Each point moves along the line its deviation was measured on —{' '}
+                  {onElement ? 'straight off the element' : 'straight off the reference surface'} —
+                  so a warp, a twist or a wall leaning in shows as the part bending that way.
+                </p>
+                <p>
+                  What is exaggerated is how the part as a whole has deformed. The motion is
+                  smoothed over about a hundredth of the part’s size, so the scanner’s
+                  noise and the edges of holes stay at their true size and ride along instead of
+                  being blown up into fur. A reading past the end of the <b>colour scale</b> moves
+                  only as far as the end, and points with no reading, the grey ones, stay where
+                  they are — widen the range to let more of the part move.
+                </p>
+                <p>
+                  The scale starts where the end of the colour scale moves by about a twentieth of
+                  the part, and follows the range until you set one. At <b>1×</b> the part moves
+                  exactly as far as it is out.
+                </p>
+                <p>
+                  Only the picture moves. The colours, the figures, the hover reading and the pins
+                  are the part as measured, and so is an exported scan.
+                </p>
+              </InfoDot>
+            </div>
+            <button
+              className={d.animate ? 'block on' : 'block'}
+              data-test="animate-deformation"
+              // The marking tools work on the scan where it is; the motion
+              // waits until they are put away.
+              disabled={d.marking}
+              onClick={() => d.setAnimate(!d.animate)}
+            >
+              {d.animate ? 'Stop the animation' : 'Animate the deformation'}
+            </button>
+            <input
+              className="slider"
+              type="range"
+              data-test="anim-scale-slider"
+              min={Math.log10(MIN_DEFLECTION_SCALE)}
+              max={3}
+              step={0.01}
+              // Logarithmic for the same reason as the colour range: a warp of
+              // millimetres wants a few times, a print true to hundredths wants
+              // hundreds.
+              value={Math.log10(d.animScale)}
+              onChange={(e) => d.setAnimScale(Number((10 ** Number(e.target.value)).toPrecision(2)))}
+            />
+            <NumberField
+              label="Scale"
+              testId="anim-scale"
+              value={d.animScale}
+              step={1}
+              min={MIN_DEFLECTION_SCALE}
+              unit="×"
+              onCommit={(v) => d.setAnimScale(Math.min(v, MAX_DEFLECTION_SCALE))}
+              hint="How many times the deviation is exaggerated at the far end of the loop. 1× is the part as measured; 20× moves a 0.1 mm deviation by 2 mm."
+            />
+            {d.animate && !d.showScan && (
+              <p className="hint">
+                The scan is hidden, so there is nothing to watch move — switch <b>Show scan</b> back
+                on.
+              </p>
+            )}
+          </div>
+
+          <div className={aside}>
             <div className="sec-head">What counts as measured</div>
             <NumberField
               label="Max search distance"
@@ -701,6 +786,51 @@ export function DeviationPanel({
                     unit="°"
                     onCommit={(v) => d.setTargetFacing(v)}
                     hint="How far the scan may be from facing the way the element faces and still count. Wide enough to keep a genuinely warped surface, tight enough to leave the other side of a wall out."
+                  />
+                )}
+              </>
+            )}
+            {!onElement && (
+              <>
+                <label className="checkrow">
+                  <input
+                    type="checkbox"
+                    data-test="toggle-map-facing"
+                    disabled={busy}
+                    checked={d.mapFacingDeg !== null}
+                    onChange={(e) => onMapFacing(e.target.checked ? DEFAULT_MAP_FACING_DEG : null)}
+                  />
+                  <span>Reference must face the same way</span>
+                  <InfoDot title="Reference must face the same way">
+                    <p>
+                      The nearest reference surface is not always the one a point came off. Across
+                      a thin wall, a point sunk more than half the wall's thickness is nearer the
+                      far side of the wall than its own — and reads too small, or with the wrong
+                      sign once it is through.
+                    </p>
+                    <p>
+                      With this on, reference surface facing away from the scan at that point is
+                      stepped over, and the point is measured against the nearest surface that
+                      faces its way. A point with no such surface anywhere near is left grey.
+                    </p>
+                    <p>
+                      Everywhere else the reading is the plain closest point, as before. Which way
+                      the scan faces is read off its own normals. Changing this measures the map
+                      again.
+                    </p>
+                  </InfoDot>
+                </label>
+                {d.mapFacingDeg !== null && (
+                  <NumberField
+                    label="Max. deviation of normals"
+                    testId="map-facing-deg"
+                    value={d.mapFacingDeg}
+                    step={5}
+                    min={1}
+                    unit="°"
+                    disabled={busy}
+                    onCommit={(v) => onMapFacing(v)}
+                    hint="How far the reference surface may be from facing the way the scan does and still be measured against. 90° steps over only surface facing away. Tighter also re-reads the steep sides of edges the scan has rounded over, against the face beside the nearest one."
                   />
                 )}
               </>

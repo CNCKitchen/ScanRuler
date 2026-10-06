@@ -165,6 +165,9 @@ export interface DeviationPart {
   targetId: number | null
   targetSide: MaterialSide
   targetFacingDeg: number | null
+  /** The reference map's facing limit. Absent in projects saved before it
+   *  existed. */
+  mapFacingDeg?: number | null
   targetScope: 'all' | 'marked'
   /** The hand-marked scan region an element map is restricted to. */
   scope: number[] | null

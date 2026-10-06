@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // End-to-end test of aligning an element to a reference plane: fits one plane
-// on the block, then a second one elsewhere, aligns the second to the first
-// in the draft box and checks that the panel reports how far off the
-// measurement was, that the relation can be switched, that a relation the
-// feature was never made to draws the warning, and that the element is
-// created aligned.
+// on the block and reads it against the coordinate planes, offered before
+// any plane element exists, then fits a second one elsewhere, aligns the
+// second to the first in the draft box and checks that the panel reports how
+// far off the measurement was, that the relation can be switched, that a
+// relation the feature was never made to draws the warning, and that the
+// element is created aligned.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-orient.mjs
@@ -62,7 +63,28 @@ if (!first) {
   await browser.close()
   process.exit(1)
 }
-check(!(await exists('[data-test="orient-ref"]')), 'with no other plane there is nothing to align to')
+// No plane element yet, but the coordinate planes are there to align to.
+check(await exists('[data-test="orient-ref"]'), 'the align dropdown is there from the first element on')
+const offered = await page.$$eval('[data-test="orient-ref"] option', (os) => os.map((o) => o.textContent))
+check(
+  ['XY plane', 'YZ plane', 'ZX plane'].every((n) => offered.includes(n)),
+  `the coordinate planes are offered (${JSON.stringify(offered)})`,
+)
+const baseDevs = []
+for (const name of ['XY plane', 'YZ plane', 'ZX plane']) {
+  await selectByLabel(page, '[data-test="orient-ref"]', name)
+  await sleep(150)
+  const t = await text('[data-test="orient-deviation"]')
+  baseDevs.push(parseFloat(t?.match(/([\d.]+)°/)?.[1] ?? 'NaN'))
+}
+console.log(`off the coordinate planes: ${baseDevs.join('°, ')}°`)
+check(baseDevs.every(Number.isFinite), 'each coordinate plane reports how far off the face is')
+check(
+  (await exists('[data-test="orient-unaligned"]')) === true,
+  'on a part not yet aligned, the note says the coordinate planes are the scan’s own',
+)
+await page.select('[data-test="orient-ref"]', '')
+await sleep(150)
 await click(page, '[data-test="create-element"]')
 await sleep(200)
 
@@ -81,7 +103,6 @@ if (!second) {
   process.exit(1)
 }
 const measuredNote = await text('.draftbox .dro-note')
-check(await exists('[data-test="orient-ref"]'), 'the align dropdown appears once a plane exists')
 check(!(await exists('[data-test="orient-relation"]')), 'no relation is offered before a reference is chosen')
 
 await selectByLabel(page, '[data-test="orient-ref"]', 'Plane 1')

@@ -2,6 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useDeviation } from '../src/state/deviationStore'
 import { identityRigid } from '../src/core/deviation/rigid'
+import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../src/core/deviation/deflection'
 import type { AlignResult } from '../src/core/deviation/align'
 
 function doneAlign(): AlignResult {
@@ -174,11 +175,61 @@ describe('measuring against a reference part or an element', () => {
     expect(s().targetFacingDeg).toBeNull()
   })
 
+  it('keeps the reference map its own facing limit, clamped the same way', () => {
+    s().setTargetFacing(30)
+    s().setMapFacing(200)
+    expect(s().mapFacingDeg).toBe(90)
+    s().setMapFacing(0)
+    expect(s().mapFacingDeg).toBe(1)
+    s().setMapFacing(null)
+    expect(s().mapFacingDeg).toBeNull()
+    expect(s().targetFacingDeg).toBe(30)
+  })
+
   it('flips the material side', () => {
     s().setTarget(7, 1)
     s().flipTargetSide()
     expect(s().targetSide).toBe(-1)
     s().flipTargetSide()
     expect(s().targetSide).toBe(1)
+  })
+})
+
+describe('the deformation animation', () => {
+  const s = () => useDeviation.getState()
+  beforeEach(() => useDeviation.setState({ animate: false, animScale: 10, animScaleAuto: true }))
+
+  it('follows the suggested scale until the user sets one', () => {
+    s().suggestAnimScale(50)
+    expect(s().animScale).toBe(50)
+    s().setAnimScale(25)
+    expect(s().animScaleAuto).toBe(false)
+    s().suggestAnimScale(80)
+    expect(s().animScale).toBe(25)
+  })
+
+  it('keeps the scale within its bounds', () => {
+    s().setAnimScale(0.2)
+    expect(s().animScale).toBe(MIN_DEFLECTION_SCALE)
+    s().setAnimScale(1e9)
+    expect(s().animScale).toBe(MAX_DEFLECTION_SCALE)
+  })
+
+  it('stops for the marking tools and the point picker, which work on the scan where it is', () => {
+    s().setAnimate(true)
+    s().startMarking()
+    expect(s().animate).toBe(false)
+    s().stopMarking()
+    s().setAnimate(true)
+    s().startPicking()
+    expect(s().animate).toBe(false)
+  })
+
+  it('stops with a new reference, and goes on through a new alignment', () => {
+    s().setAnimate(true)
+    s().resolveAlign(doneAlign())
+    expect(s().animate).toBe(true)
+    s().beginNominalLoad('other.stl')
+    expect(s().animate).toBe(false)
   })
 })

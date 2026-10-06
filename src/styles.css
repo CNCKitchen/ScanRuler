@@ -781,10 +781,11 @@ select:disabled {
   padding: 6px 8px;
 }
 
-/* A latching key in the panel — the erase switch of the surface brush. It has
-   to read as held down, not merely hovered. */
+/* A latching key in the panel — the erase switch of the surface brush, the
+   deformation animation. It has to read as held down, not merely hovered. */
 .moderow button.on,
-.toolrow button.on {
+.toolrow button.on,
+button.block.on {
   color: var(--accent-d);
   border-color: var(--accent);
   background: var(--accent-soft);
@@ -1635,6 +1636,19 @@ button.x:disabled {
   background: rgba(232, 163, 61, 0.08);
   pointer-events: none;
   z-index: 4;
+}
+
+/* A selection box, told apart as CAD tells them: a window, dragged
+   rightward — what lies wholly inside — solid; a crossing box, dragged
+   leftward — what it touches too — dashed. */
+.flat-band.box.window {
+  border: 1px solid #3cb371;
+  background: rgba(60, 179, 113, 0.12);
+}
+
+.flat-band.box.crossing {
+  border: 1px dashed #4db8ff;
+  background: rgba(77, 184, 255, 0.12);
 }
 
 .loupe {

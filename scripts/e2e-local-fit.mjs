@@ -2,8 +2,8 @@
 // End-to-end test for the local fine fit: drives the real app in headless
 // Chrome — loads both models, runs the global best fit and the map, then
 // brings out the marking tools and exercises all three gestures (window,
-// brush, lasso), the erase switch and the back-face option, and finally runs
-// the fit on the marked surface and takes it back off again.
+// brush, lasso), the erase switch, the back-face option and invert, and
+// finally runs the fit on the marked surface and takes it back off again.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-local-fit.mjs
@@ -224,6 +224,20 @@ check(
   throughOn - beforeThrough > throughOff,
   'marking through the part takes more than the facing surface alone',
 )
+
+// ---- invert ---------------------------------------------------------------
+// Inverting marks the rest of the part instead, and inverting again gives the
+// marking back point for point — so the fit below runs on the window as
+// before.
+await page.click('[data-test=mark-invert]')
+await sleep(300)
+const inverted = await marked()
+console.log(`invert: ${throughOff} -> ${inverted} points`)
+check(inverted > 0 && inverted !== throughOff, 'inverting marks the rest of the part')
+await page.screenshot({ path: shotPath('local-06-inverted.png') })
+await page.click('[data-test=mark-invert]')
+await sleep(300)
+check((await marked()) === throughOff, 'inverting again gives the marking back')
 
 // ---- the fit itself -------------------------------------------------------
 const count = await marked()

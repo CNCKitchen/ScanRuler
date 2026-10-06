@@ -41,10 +41,19 @@ import { useThickness } from '../state/thicknessStore'
 import { colormapById, paintField, type FieldScale } from '../core/field/colormap'
 import { fieldHistogram } from '../core/field/stats'
 import { deviationScale, deviationStats } from '../core/deviation/deviation'
+import {
+  DEFLECTION_SMOOTHING,
+  deflectionVectors,
+  suggestDeflectionScale,
+} from '../core/deviation/deflection'
 import { thicknessStats } from '../core/thickness/thickness'
 import { rigidToColumnMajor } from '../core/deviation/rigid'
 import type { RefObject } from 'react'
 import type { PluginRuntime } from '../plugins/api'
+
+/** How long the inputs to the deformation animation must hold still before
+ *  its motion is worked out again — see the effect at the end. */
+const DEFLECTION_SETTLE_MS = 150
 
 export function useSceneSync({
   sceneRef,
@@ -52,6 +61,7 @@ export function useSceneSync({
   deviationRgb,
   elementField,
   elementRgb,
+  fieldDirections,
   thickness,
   thicknessRgb,
   thickScale,
@@ -65,6 +75,9 @@ export function useSceneSync({
    *  part so switching between them loses neither. */
   elementField: RefObject<Float32Array | null>
   elementRgb: RefObject<Uint8Array | null>
+  /** The direction each deviation map's readings were taken along, keyed by
+   *  the map — what playing one as motion moves the scan along. */
+  fieldDirections: WeakMap<Float32Array, Int8Array>
   thickness: RefObject<Float32Array | null>
   thicknessRgb: RefObject<Uint8Array | null>
   /** Held stable across renders by App, because it is what tells the repaint
@@ -177,6 +190,19 @@ export function useSceneSync({
     markGesture,
     markBackfaces,
   ])
+
+  // Inverting is asked for in a panel and done here — unless the split-screen
+  // picker is open, which turns the same mask through its own viewport. The
+  // scene only turns a marking a session has armed, and reports the result
+  // like a gesture's, so the panel that asked hears it the usual way.
+  useEffect(
+    () =>
+      useMark.subscribe((s, prev) => {
+        if (s.inverts === prev.inverts || useDeviation.getState().picking) return
+        sceneRef.current?.invertPaint()
+      }),
+    [sceneRef],
+  )
 
   // Which way the surface faces, shown on the surface itself.
   const showBackfaces = useStore((s) => s.showBackfaces)
@@ -817,4 +843,46 @@ export function useSceneSync({
   useEffect(() => {
     sceneRef.current?.setHoverEnabled(hasMap && !picking)
   }, [hasMap, picking])
+
+  // The deviation map played as motion — see core/deviation/deflection.ts.
+  // Only while the scan is on screen to be watched, and never under the
+  // marking tools or the picker: both work on the scan where it is.
+  const animate = useDeviation((s) => s.animate)
+  const animScale = useDeviation((s) => s.animScale)
+  const playing = workspace === 'deviation' && animate && hasDeviationMap && showScan && !marking && !picking
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const showing = playing ? shownField() : null
+    const directions = showing ? fieldDirections.get(showing.values) : undefined
+    if (!showing || !directions) {
+      scene.setDeflection(null)
+      return
+    }
+    // The motion goes as far as the end of the colour scale, and is averaged
+    // over the space around each point — a pass over the whole scan, a moment
+    // on a large one. So it is put off until whatever moved has come to rest:
+    // a range dragged along its slider is one new motion, not one per step,
+    // and the loop plays the last one meanwhile.
+    const timer = setTimeout(() => {
+      // The scale first, so a loop that is starting starts from the scan as
+      // it is on screen rather than wherever the old scale put it.
+      const dev = useDeviation.getState()
+      if (dev.animScaleAuto) dev.suggestAnimScale(suggestDeflectionScale(range, 2 * modelSize))
+      scene.setDeflectionScale(useDeviation.getState().animScale)
+      scene.setDeflection(
+        deflectionVectors(showing.values, directions, {
+          limit: range,
+          maxDistance,
+          positions: scene.scanPositions(),
+          smoothing: DEFLECTION_SMOOTHING * 2 * modelSize,
+        }),
+      )
+    }, DEFLECTION_SETTLE_MS)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, source, mapVersion, elementVersion, range, maxDistance, modelSize])
+  useEffect(() => {
+    sceneRef.current?.setDeflectionScale(animScale)
+  }, [animScale])
 }

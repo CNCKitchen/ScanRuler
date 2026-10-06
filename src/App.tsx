@@ -198,6 +198,11 @@ export default function App() {
   // scan is measured against without either map losing what it had.
   const elementField = useRef<Float32Array | null>(null)
   const elementRgb = useRef<Uint8Array | null>(null)
+  // The direction each reading of a deviation map was taken along, for playing
+  // the map as motion (core/deviation/deflection.ts) — keyed by the map's own
+  // array, so a direction can never be read against a map it was not measured
+  // with, and goes when the map does.
+  const fieldDirections = useMemo(() => new WeakMap<Float32Array, Int8Array>(), [])
   // The hand-marked scan region an element map can be restricted to. A snapshot
   // rather than the live paint mask, so the region survives the paint layer
   // being cleared by other workflows — the map keeps showing what was chosen.
@@ -1127,17 +1132,18 @@ export default function App() {
     startPicking,
     stopPicking,
     runDeviation,
+    setMapFacing,
     runLocalAlign,
     handleStartMarking,
     handleStopMarking,
     handleClearMarking,
     handleRevertLocal,
     handleCopyReport,
-  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, sources, imports })
+  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, fieldDirections, sources, imports })
 
   // ---- Deviation from a fitted element -------------------------------------
 
-  useElementField({ sceneRef, elementField, elementRgb, elementScope })
+  useElementField({ sceneRef, elementField, elementRgb, elementScope, fieldDirections })
 
   /** Measure against this element. The material side is read off the scan as the
    *  element is chosen — see detectMaterialSide for why it is decided here and
@@ -1806,6 +1812,7 @@ export default function App() {
     deviationRgb,
     elementField,
     elementRgb,
+    fieldDirections,
     thickness,
     thicknessRgb,
     thickScale,
@@ -2115,6 +2122,7 @@ export default function App() {
             onStopAlign={abortAlign}
             onPickPoints={startPicking}
             onMeasure={() => void runDeviation()}
+            onMapFacing={setMapFacing}
             onStartMarking={handleStartMarking}
             onStopMarking={handleStopMarking}
             onClearMarking={handleClearMarking}

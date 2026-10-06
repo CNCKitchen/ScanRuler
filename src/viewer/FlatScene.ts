@@ -35,11 +35,26 @@ import type { ViewTheme } from './viewThemes'
 type DocBox = { x0: number; y0: number; x1: number; y1: number }
 
 /** A sketch dimension for setSketchDimensions: what it measures and where
- *  its number sits, the number as written, and the id its edits go under. */
+ *  its number sits, the number as written, and the id its edits go under —
+ *  without one the number is only shown, and a click goes through it to the
+ *  sheet. */
 export interface SketchDimensionItem {
   shape: DimShape
   value: string
-  edit: { id: number; value: number }
+  edit?: { id: number; value: number }
+}
+
+/** A selection box dragged over the sheet — see setBoxSelect. */
+export interface SheetBox {
+  /** The screen rectangle laid on the sheet: its corners in document
+   *  units, in order round it — turned with the view when the view is. */
+  corners: [Vec2, Vec2, Vec2, Vec2]
+  /** Dragged leftward: a crossing box, which takes whatever it touches.
+   *  Dragged rightward it is a window, which takes only what lies wholly
+   *  inside it — as CAD reads a box. */
+  crossing: boolean
+  /** Ctrl or Shift held: what the box takes joins the selection. */
+  additive: boolean
 }
 
 /** An arrowhead of a sketch dimension, screen pixels: slim, as a drawing's. */
@@ -108,6 +123,8 @@ export class FlatScene {
   private elementCleanup: (() => void)[] = []
   private dimensionGroup = new THREE.Group()
   private dimensionCleanup: (() => void)[] = []
+  /** What opens each sketch dimension's number for typing, by its id. */
+  private dimensionOpeners = new Map<number, { div: HTMLElement; open: () => void }>()
   /** A sketch's dimensions as they were last set — see setSketchDimensions:
    *  their lines and arrowheads are sized in screen pixels, so they are made
    *  again when the zoom moves off `px`. */
@@ -159,6 +176,12 @@ export class FlatScene {
   onPick: ((p: Vec2, meta: { alt: boolean; shift?: boolean; ctrl?: boolean; unitsPerScreenPx: number }) => void) | null = null
   /** A dragged region (document units), while region mode is armed. */
   onRegion: ((min: Vec2, max: Vec2) => void) | null = null
+  /** A selection box being dragged, while box selection is on: at every
+   *  move, so what it would take can be lit, and null once it is let go or
+   *  dropped. */
+  onBoxDrag: ((box: SheetBox | null) => void) | null = null
+  /** A selection box let go — what it takes is the owner's to work out. */
+  onBoxSelect: ((box: SheetBox) => void) | null = null
   /** The cursor over the sheet (document units) or off it — for the loupe,
    *  and for a sketch tool's rubber band; `alt` and `ctrl` say whether the
    *  modifier is held — the 2D workspace's and the sketch's way,
@@ -209,6 +232,10 @@ export class FlatScene {
   private regionMode = false
   private bandStart: { x: number; y: number } | null = null
   private bandDiv: HTMLDivElement | null = null
+  /** Left-drag on the bare sheet draws a selection box instead of panning
+   *  — see setBoxSelect — and the box in hand, if one is. */
+  private boxSelect = false
+  private box: { end: () => void } | null = null
 
   /** The view moved — a pan, a zoom, a framing, a resize: what is under the
    *  screen centre now, in document units, and the units per screen pixel.
@@ -262,10 +289,20 @@ export class FlatScene {
             return true
           }
         }
-        if (!this.regionMode) return false
-        this.beginBand(e)
-        return true
+        if (this.regionMode) {
+          this.beginBand(e)
+          return true
+        }
+        // A chord the user's scheme still gives the camera — Ctrl+left in
+        // Tinkercad's — stays the camera's.
+        if (this.boxSelect && !e.metaKey && !this.viewport.nav.navigates(e)) {
+          this.beginBox(e)
+          return true
+        }
+        return false
       },
+      // A second finger is the navigator's: a box the first began is dropped.
+      onMultiTouch: () => this.dropBox(),
       onTick: () => {
         // Zoom walked the grid onto a different rung of its spacing ladder,
         // or a pan carried the view off the patch a bare sheet's grid was
@@ -384,6 +421,7 @@ export class FlatScene {
     }
     for (const dispose of this.dimensionCleanup) dispose()
     this.dimensionCleanup = []
+    this.dimensionOpeners.clear()
     this.dimensionGroup.clear()
     this.sketchDims = null
     this.clearDimStrokes()
@@ -408,6 +446,20 @@ export class FlatScene {
       this.addDimLabel(s.text, '', item.value, style.className, item.edit, s.textAngle)
     }
     this.rebuildDimStrokes()
+  }
+
+  /** Open a sketch dimension's number for typing, as a click on it does —
+   *  once its label is on the page, which the next frame sees to. */
+  openDimension(id: number): void {
+    let frames = 0
+    const tryOpen = () => {
+      // Asked again each frame: the labels may have been made anew since.
+      const target = this.dimensionOpeners.get(id)
+      if (!target) return
+      if (target.div.isConnected) target.open()
+      else if (++frames < 10) requestAnimationFrame(tryOpen)
+    }
+    tryOpen()
   }
 
   private rebuildDimStrokes(): void {
@@ -538,6 +590,7 @@ export class FlatScene {
           document.addEventListener('pointerup', up)
           document.addEventListener('pointercancel', up)
         })
+        this.dimensionOpeners.set(edit.id, { div, open })
       }
     }
     const label = new CSS2DObject(div)
@@ -678,7 +731,22 @@ export class FlatScene {
    *  is armed or a pin is under the cursor — the same hand-off the 3D brush
    *  and the extend grips use. */
   private claimDrag(): void {
-    this.viewport.nav.setPaintMode(this.regionMode || this.pinHover || this.dragHover)
+    // A selection box takes Shift+drag too, to add to the selection.
+    this.viewport.nav.setPaintMode(this.regionMode || this.boxSelect || this.pinHover || this.dragHover, this.boxSelect)
+  }
+
+  /** Let a left-drag on the bare sheet draw a selection box, as a CAD
+   *  sketcher's does, instead of panning — with Shift or Ctrl held, one
+   *  that adds to the selection. The navigator lets go of the left button
+   *  as it does for a region tool, so the right button still pans, and
+   *  whatever the scheme gives the middle one. A press the owner takes
+   *  (onSheetDown) is still the owner's, and a press let go where it
+   *  landed is still a click, reported through onPick. */
+  setBoxSelect(on: boolean): void {
+    if (this.boxSelect === on) return
+    this.boxSelect = on
+    this.claimDrag()
+    if (!on) this.dropBox()
   }
 
   /** Say whether the cursor is over something the owner would take a press
@@ -934,6 +1002,85 @@ export class FlatScene {
     this.bandDiv?.remove()
     this.bandDiv = null
     this.bandStart = null
+  }
+
+  /** Draw a selection box from the press: rightward a window, drawn solid,
+   *  leftward a crossing box, drawn dashed — read again at every move, so
+   *  the box changes as the hand crosses back over where it started. Only
+   *  the pointer that pressed moves it; a release within the click
+   *  threshold is a click. */
+  private beginBox(e: PointerEvent): void {
+    this.dropBox()
+    const id = e.pointerId
+    const start = { x: e.clientX, y: e.clientY }
+    const div = document.createElement('div')
+    div.className = 'flat-band box'
+    let moved = false
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return
+      if (!moved && Math.abs(ev.clientX - start.x) + Math.abs(ev.clientY - start.y) <= 6) return
+      if (!moved) this.container.appendChild(div)
+      moved = true
+      const box = this.sheetBox(start, ev)
+      div.classList.toggle('window', !box?.crossing)
+      div.classList.toggle('crossing', !!box?.crossing)
+      this.layoutBox(div, start, ev.clientX, ev.clientY)
+      if (box) this.onBoxDrag?.(box)
+    }
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== id) return
+      const box = moved ? this.sheetBox(start, ev) : null
+      this.dropBox()
+      if (box) this.onBoxSelect?.(box)
+      else if (!moved) {
+        // The navigator never saw the press, so the click is said from here.
+        const p = this.pick(start.x, start.y)
+        if (p) this.onPick?.(p, { alt: ev.altKey, shift: ev.shiftKey, ctrl: ev.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+      }
+    }
+    const cancel = (ev: PointerEvent) => {
+      if (ev.pointerId === id) this.dropBox()
+    }
+    document.addEventListener('pointermove', move)
+    document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', cancel)
+    this.box = {
+      end: () => {
+        document.removeEventListener('pointermove', move)
+        document.removeEventListener('pointerup', up)
+        document.removeEventListener('pointercancel', cancel)
+        div.remove()
+        if (moved) this.onBoxDrag?.(null)
+      },
+    }
+    e.preventDefault()
+  }
+
+  /** The box from the press to the pointer, laid on the document plane —
+   *  past the edge of an image too, which a box may well reach over. */
+  private sheetBox(start: { x: number; y: number }, e: PointerEvent): SheetBox | null {
+    const corners = [
+      this.planeAt(start.x, start.y),
+      this.planeAt(e.clientX, start.y),
+      this.planeAt(e.clientX, e.clientY),
+      this.planeAt(start.x, e.clientY),
+    ]
+    if (corners.some((c) => c === null)) return null
+    return { corners: corners as SheetBox['corners'], crossing: e.clientX < start.x, additive: e.ctrlKey || e.shiftKey }
+  }
+
+  private layoutBox(div: HTMLDivElement, start: { x: number; y: number }, x: number, y: number): void {
+    const rect = this.container.getBoundingClientRect()
+    div.style.left = `${Math.min(start.x, x) - rect.x}px`
+    div.style.top = `${Math.min(start.y, y) - rect.y}px`
+    div.style.width = `${Math.abs(x - start.x)}px`
+    div.style.height = `${Math.abs(y - start.y)}px`
+  }
+
+  private dropBox(): void {
+    const box = this.box
+    this.box = null
+    box?.end()
   }
 
   /** What is under the screen centre, in document units, and the scale —
@@ -1680,6 +1827,12 @@ export class FlatScene {
     // past it — a rectangle drawn wider than the slice — lands on the plane
     // all the same. An image's sheet does end where the image does.
     if (this.texture) return null
+    return this.planeAt(clientX, clientY)
+  }
+
+  /** Where a client point falls on the document plane, sheet or no sheet. */
+  private planeAt(clientX: number, clientY: number): Vec2 | null {
+    this.viewport.setPickRay(clientX, clientY)
     const ray = this.viewport.raycaster.ray
     if (Math.abs(ray.direction.z) < 1e-12) return null
     const t = -ray.origin.z / ray.direction.z
@@ -1738,6 +1891,7 @@ export class FlatScene {
     this.setFlatDimensions([])
     this.setDraftMarks([], null)
     this.setEdgeChains(null)
+    this.dropBox()
     this.edgeMaterial.dispose()
     this.texture?.dispose()
     this.material.dispose()

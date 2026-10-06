@@ -10,7 +10,7 @@ import {
   isExtended,
   type Extension,
 } from './elements/extend'
-import { directionOf, isOrientable, relationWord, type Orient } from './elements/orient'
+import { directionOf, isOrientable, referenceName, relationWord, type Orient } from './elements/orient'
 import { acuteAngle } from './vec'
 
 export const SIGMA_LABELS: Record<SigmaPreset, string> = {
@@ -234,7 +234,7 @@ export function buildSummary(
       const off =
         m && isOrientable(m) ? `, measured ${acuteAngle(directionOf(m), directionOf(f)).toFixed(3)}° off` : ''
       lines.push(
-        `  aligned ${relationWord(f.kind, el.orient.relation)} to ${nameOf(el.orient.ref)}${off}`,
+        `  aligned ${relationWord(f.kind, el.orient.relation)} to ${referenceName(el.orient.ref, elements)}${off}`,
       )
     }
     // The diameter an assumed-dimension export writes, when it is not simply

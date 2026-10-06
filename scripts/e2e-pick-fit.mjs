@@ -236,6 +236,24 @@ const painted = await partShare('[data-test=split-picker] .splithalf:first-child
 check(painted.marked > 0.005, `and the selection shows on the part (${painted.marked})`)
 await page.screenshot({ path: shotPath('pick-fit-2-selected.png') })
 
+// Inverting selects the rest of the scan instead, through this half — the
+// main viewport stands aside while the picker is open — and inverting again
+// gives the selection back point for point.
+const points = (text) => parseInt(text.replace(/[^\d]/g, ''), 10)
+await page.click('[data-test=pick-invert]')
+await sleep(300)
+const inverted = await countText()
+check(
+  /points selected/.test(inverted) && points(inverted) !== points(selected),
+  `inverting selects the rest of the scan (${inverted})`,
+)
+const invertedShare = await partShare('[data-test=split-picker] .splithalf:first-child .splitview')
+check(invertedShare.marked > 0.005, `and the inverted selection shows on the part (${invertedShare.marked})`)
+await page.screenshot({ path: shotPath('pick-fit-2b-inverted.png') })
+await page.click('[data-test=pick-invert]')
+await sleep(300)
+check((await countText()) === selected, 'inverting again gives the selection back')
+
 // Escape stands the gesture down without touching what it took — the same
 // retreat every marking session makes.
 await page.keyboard.press('Escape')

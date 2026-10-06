@@ -48,6 +48,13 @@ describe('scan normal orientation', () => {
     expect(signedVolume6(graph.positions, graph.indices)).toBeGreaterThan(0)
   })
 
+  it('keeps the winding of a mesh whose file says it is settled', () => {
+    const mesh: ParsedMesh = { kind: 'indexed', positions: TETRA_POSITIONS, indices: TETRA_INWARD, keepWinding: true }
+    const graph = buildMeshGraph(mesh)
+    expect(Array.from(graph.indices)).toEqual(Array.from(TETRA_INWARD))
+    expect(graph.normals[3 * 3 + 2]).toBeLessThan(0)
+  })
+
   it('leaves an open sheet exactly as wound', () => {
     // A flat quad wound so its normals face -z. There is no enclosed volume,
     // so there is nothing to decide by — the winding stands.

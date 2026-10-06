@@ -57,7 +57,10 @@ export function computeVertexNormals(positions: Float32Array, indices: Uint32Arr
  * The test is the signed volume about the centroid: origin-independent for a
  * closed mesh, and anchoring at the centroid keeps an open scan's spurious
  * contribution small. A scan too open to give a decisive signal (a single
- * sheet has none) is left exactly as wound.
+ * sheet has none) is left exactly as wound. It is still a guess: a strip
+ * open on every side that curves round its own inside can give a decisive
+ * signal the wrong way, so a file that says its winding is settled is not
+ * put through it (see parsers/ply).
  */
 export function orientNormalsOutward(
   positions: Float32Array,

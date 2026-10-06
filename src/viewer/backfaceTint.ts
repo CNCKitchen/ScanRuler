@@ -30,9 +30,10 @@ export function backfaceUniforms(color: number): BackfaceUniforms {
 /** Declarations for a fragment shader that wants the flag. */
 export const BACKFACE_GLSL_PREAMBLE = 'uniform float uBackfaceTint;\nuniform vec3 uBackfaceColor;\n'
 
-/** The line that does it, to be spliced in after `<color_fragment>`. Last word
- *  over anything else written into diffuseColor: a tinted back face is a
- *  warning, not a surface. */
+/** The line that does it, to be spliced in after `<color_fragment>`. Over
+ *  anything else written into diffuseColor — a tinted back face is a warning,
+ *  not a surface — except the hand marking, which goes on top of it: marking
+ *  taken through the part has to show on the far wall too. */
 export const BACKFACE_GLSL_FRAGMENT =
   'if ( uBackfaceTint > 0.5 && ! gl_FrontFacing ) diffuseColor.rgb = uBackfaceColor;'
 

@@ -43,7 +43,7 @@ export function buildMeshGraph(parsed: ParsedMesh, onProgress?: (text: string) =
   const { offsets, list } = buildAdjacency(indices, vertexCount)
   onProgress?.('Computing normals…')
   const normals = computeVertexNormals(positions, indices)
-  orientNormalsOutward(positions, indices, normals)
+  if (!parsed.keepWinding) orientNormalsOutward(positions, indices, normals)
 
   let minX = Infinity, minY = Infinity, minZ = Infinity
   let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity

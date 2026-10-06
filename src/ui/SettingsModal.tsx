@@ -211,6 +211,11 @@ export function SettingsModal() {
             ))}
           </select>
           <small className="navhint">{scheme.hint}</small>
+          <small>
+            A <b>3Dconnexion SpaceMouse</b> works beside any of these, in Chrome and Edge: push or
+            pull the puck to zoom, slide it to pan, tilt and twist it to turn the part. It connects
+            the first time you touch it, and drives the view the mouse was last over.
+          </small>
         </div>
 
         <h3>Files</h3>

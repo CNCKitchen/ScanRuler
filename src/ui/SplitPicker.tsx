@@ -134,6 +134,15 @@ function Half({
     })
   }, [marks, brushDiameter, markErase, markGesture, markBackfaces])
 
+  // Inverting the selection is done through this half while the picker is
+  // open — the main viewport stands aside, as it does for every gesture.
+  useEffect(() => {
+    if (!marks) return
+    return useMark.subscribe((s, prev) => {
+      if (s.inverts !== prev.inverts) sceneRef.current?.invertPaint()
+    })
+  }, [marks])
+
   return (
     <div className={'splithalf' + (active ? ' active' : '')}>
       <div className="splithead">
@@ -221,6 +230,14 @@ function PickTools({ onClear }: { onClear: () => void }) {
           </button>
         </>
       )}
+      <button
+        data-test="pick-invert"
+        disabled={m.count === 0}
+        title="Select everything that is not selected and drop what is — to fit on all but a fixture or a riser, select it and invert"
+        onClick={m.invert}
+      >
+        Invert selection
+      </button>
       <button data-test="pick-clear" disabled={m.count === 0} onClick={onClear}>
         Clear selection
       </button>

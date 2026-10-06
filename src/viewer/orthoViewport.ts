@@ -13,6 +13,13 @@ import { spreadLabels } from './labelSpread'
 import type { LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
+import {
+  aimSpaceMouse,
+  listenForSpaceMouse,
+  readSpaceMouse,
+  releaseSpaceMouse,
+  spaceMouseAttached,
+} from './spaceMouse'
 import type { ViewTheme } from './viewThemes'
 
 /** Breathing room around a framed part. One value for every viewport: the
@@ -181,6 +188,13 @@ export class OrthoViewport {
     this.nav.onChange = this.invalidate
     this.controls.addEventListener('change', this.invalidate)
 
+    // A SpaceMouse drives one viewport at a time: the one the mouse is over,
+    // and until it has been over one, the one that opened last — see
+    // spaceMouse.ts.
+    listenForSpaceMouse()
+    aimSpaceMouse(this)
+    this.renderer.domElement.addEventListener('pointermove', () => aimSpaceMouse(this))
+
     const rc = this.raycaster as THREE.Raycaster & { firstHitOnly?: boolean }
     rc.firstHitOnly = true
 
@@ -229,6 +243,8 @@ export class OrthoViewport {
 
     const animate = (): void => {
       this.rafId = requestAnimationFrame(animate)
+      // Ahead of the pause, so that a paused viewport lets go of the puck.
+      if (spaceMouseAttached()) this.stepSpaceMouse()
       if (this.paused) return
       // These run every tick, rendered or not: a turn under way moves the
       // camera a step, the clip planes track the camera (and let the
@@ -255,6 +271,16 @@ export class OrthoViewport {
     // mid-constructor here, and its tick hooks reach for modules it has not
     // built yet. The first frame is one rAF away either way.
     this.rafId = requestAnimationFrame(animate)
+  }
+
+  /** One frame of the SpaceMouse. A viewport that is paused or hidden — the 3D
+   *  view behind the 2D workspace — lets go of it, so it passes to one in
+   *  view. The puck takes the camera back from a turn under way, as a hand on
+   *  the canvas does. */
+  private stepSpaceMouse(): void {
+    const m = readSpaceMouse(this, !this.paused && this.container.clientWidth > 0)
+    if (m) this.flight = null
+    this.nav.stepSpaceMouse(m)
   }
 
   /** A finger leaving the glass. The multi-touch latch only lifts once the last
@@ -414,17 +440,7 @@ export class OrthoViewport {
    * mirrored by looking at it from behind this way, in place.
    */
   lookFrom(dir: THREE.Vector3, up: THREE.Vector3): void {
-    const rect = this.renderer.domElement.getBoundingClientRect()
-    const pivot = this.nav.surfaceAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
-    if (!pivot) {
-      const axis = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
-      const depth = new THREE.Vector3()
-        .subVectors(this.clipSphere.center, this.camera.position)
-        .dot(axis)
-      this.controls.target.copy(this.camera.position).addScaledVector(axis, depth)
-    } else {
-      this.controls.target.copy(pivot)
-    }
+    this.controls.target.copy(this.nav.centrePivot())
     // Where along the new axis the camera sits makes no difference to a
     // parallel projection; the clip planes are re-derived from the model each
     // frame. The framing distance is as good a place as any.
@@ -586,6 +602,7 @@ export class OrthoViewport {
 
   dispose(): void {
     cancelAnimationFrame(this.rafId)
+    releaseSpaceMouse(this)
     this.resizeObserver.disconnect()
     // The navigator listens on the document so drags can leave the canvas;
     // nothing else takes those down with the container.

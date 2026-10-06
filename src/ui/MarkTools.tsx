@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The surface marking controls — gesture row, brush width, back faces, erase
-// and clear — as one block, so both places that mark scan surface by hand offer
-// the same tools and the same escape route: an element fitted to exactly the
-// triangles the user chose, and the local fine fit in the deviation workspace.
+// The surface marking controls — gesture row, brush width, back faces, erase,
+// invert and clear — as one block, so both places that mark scan surface by
+// hand offer the same tools and the same escape route: an element fitted to
+// exactly the triangles the user chose, and the local fine fit in the
+// deviation workspace.
 //
 // The reason this is shared rather than written twice: a marking gesture takes
 // both plain mouse drags away from the camera while it is live, and a tool that
@@ -148,6 +149,16 @@ export function MarkTools({
         >
           <Icon name="erase" size={16} />
           {m.erase ? 'Erasing' : 'Erase'}
+        </button>
+        <button
+          className="withicon"
+          data-test="mark-invert"
+          disabled={m.count === 0}
+          onClick={m.invert}
+          title="Mark everything that is not marked and rub out what is — to take all but a small piece, mark the piece and invert"
+        >
+          <Icon name="markInvert" size={16} />
+          Invert
         </button>
         <button data-test="mark-clear" disabled={m.count === 0} onClick={onClear}>
           Clear marking

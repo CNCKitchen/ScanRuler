@@ -2,7 +2,8 @@
 // End-to-end smoke test for the deviation workspace: drives the real app in
 // headless Chrome — loads the scan through the top bar, switches workspace,
 // loads the nominal part, runs the automatic best fit, measures the deviation
-// map, and exercises the scale controls and the split-screen point picker.
+// map, and exercises the scale controls, the deformation animation and the
+// split-screen point picker.
 //
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node scripts/e2e-deviation.mjs
@@ -13,6 +14,7 @@ import {
   finish,
   launchApp,
   loadScan,
+  pixelDiff,
   repoFile,
   requireFixture,
   shotPath,
@@ -93,6 +95,42 @@ const coloured = await colouredFraction(page)
 console.log(`coloured stage: ${(coloured * 100).toFixed(1)} %`)
 if (coloured < 0.05) fail('the deviation map does not appear to be painted on the scan')
 
+// ---- the facing limit -----------------------------------------------------
+// On by default at 90°: a point whose nearest reference surface faces away
+// from it is measured against one facing its way. Switching it off measures
+// the map again off the nearest surface, whatever it faces — a different map
+// at the scan's rims — and switching it back on brings back exactly the map
+// there was.
+const facingOn = await page.$eval('[data-test=toggle-map-facing]', (el) => el.checked)
+if (!facingOn) fail('the facing limit is not on by default')
+const facingDeg = await page.$eval('[data-test=map-facing-deg]', (el) => el.value)
+if (facingDeg !== '90') fail(`the facing limit defaults to ${facingDeg}°, not 90°`)
+const statsText = () => page.$eval('[data-test=deviation-stats]', (el) => el.textContent)
+/** Flip the switch and wait for the map measured under the new setting: the
+ *  measure key stands in for the map's sections while it runs. */
+async function flipFacing(on) {
+  await page.click('[data-test=toggle-map-facing]')
+  await page.waitForSelector('[data-test=measure-deviation]', { timeout: 10_000 })
+  await page.waitForFunction(
+    (on) => {
+      const toggle = document.querySelector('[data-test=toggle-map-facing]')
+      return toggle && toggle.checked === on && !document.querySelector('[data-test=measure-deviation]')
+    },
+    { timeout: 120_000 },
+    on,
+  )
+  await sleep(300)
+  return statsText()
+}
+const facedStats = await statsText()
+const plainStats = await flipFacing(false)
+console.log('stats without the facing limit:', plainStats)
+if (plainStats === facedStats) fail('switching the facing limit off did not change the map')
+const refacedStats = await flipFacing(true)
+if (refacedStats !== facedStats) {
+  fail(`switching the facing limit back on did not give the same map (${refacedStats})`)
+}
+
 // ---- scale controls -------------------------------------------------------
 await page.click('[data-test=toggle-histogram]')
 await page.waitForSelector('[data-test=deviation-histogram]')
@@ -114,6 +152,48 @@ const after = await page.$eval('[data-test=range-value]', (el) => el.value)
 console.log(`range: ${before} -> ${after}`)
 if (before === after) fail('the range slider did not change the scale')
 await page.screenshot({ path: shotPath('deviation-tight-range.png') })
+
+// ---- the map played as motion ---------------------------------------------
+// Playing, the part moves from one frame to the next; stopped, it is the scan
+// as measured again and holds still. The picture is what is compared: the
+// motion lives in the shader, where nothing else can see it.
+const viewClip = await page.$eval('.viewslot canvas', (el) => {
+  const r = el.getBoundingClientRect()
+  return { x: r.x, y: r.y, width: r.width, height: r.height }
+})
+const frame = () => page.screenshot({ clip: viewClip, encoding: 'base64' })
+const atRest = await frame()
+await page.click('[data-test=animate-deformation]')
+await sleep(300)
+const suggested = Number(await page.$eval('[data-test=anim-scale]', (el) => el.value))
+console.log(`animation scale suggested: ${suggested}×`)
+if (!(suggested >= 1)) fail(`no animation scale was suggested (${suggested})`)
+const playingA = await frame()
+await sleep(450)
+const moved = await pixelDiff(page, playingA, await frame())
+console.log(`animation: ${moved.toFixed(2)} % of the view changed in 450 ms`)
+if (moved < 1) fail('the deformation animation does not move the part')
+await page.screenshot({ path: shotPath('deviation-animating.png') })
+
+// A scale typed in is the user's, and holds.
+await page.$eval('[data-test=anim-scale]', (el) => {
+  el.focus()
+  el.value = '5'
+  el.blur()
+})
+await sleep(300)
+const typed = await page.$eval('[data-test=anim-scale]', (el) => el.value)
+if (typed !== '5') fail(`the typed animation scale did not hold (${typed})`)
+
+await page.click('[data-test=animate-deformation]')
+await sleep(500)
+const stopped = await frame()
+await sleep(450)
+const drift = await pixelDiff(page, stopped, await frame())
+const back = await pixelDiff(page, stopped, atRest)
+console.log(`stopped: ${drift.toFixed(3)} % still changing, ${back.toFixed(3)} % off the scan at rest`)
+if (drift > 0.01) fail('the part keeps moving after the animation was stopped')
+if (back > 0.01) fail('the part is not back as measured after the animation was stopped')
 
 // ---- hover reading and pinning --------------------------------------------
 const stage = await page.$eval('.viewslot canvas', (el) => {

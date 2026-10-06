@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { FieldScale } from '../field/colormap'
 import { fieldPercentiles, fieldStats, niceCeil, type FieldStats } from '../field/stats'
-import { rigidApply, type Rigid } from './rigid'
+import { writeDirection } from './deflection'
+import { rigidApply, rigidRotate, type Rigid } from './rigid'
 import { emptyHit, type NominalSurface } from './surface'
 
 /** A deviation map's numbers: the shared ones, plus the tolerance band an
@@ -31,6 +32,43 @@ export function deviationScale(
 }
 
 /**
+ * How far a scan point whose nearest reference surface faces away from it
+ * looks for one that faces its way, as a fraction of the reference's
+ * bounding-box diagonal. The search is otherwise unbounded, but a point with
+ * nothing facing it anywhere near — on scan spray, or on a feature the
+ * reference does not have — would open most of the tree looking, and anything
+ * this far off is past every search distance worth reading a map at.
+ */
+export const FACING_REACH = 0.1
+
+/**
+ * The reference map's facing limit until the user sets another: surface facing
+ * away from the scan, and nothing short of that. A tighter limit also re-reads
+ * points their nearest surface is merely steep to — the inside of a sharp edge
+ * the scan has rounded over, measured against the neighbouring face instead —
+ * and moves the closest-point reading an inspection is read against at every
+ * edge of the part. On the bracket test pair 60° re-reads twenty times as many
+ * points as this, and opens the map's extremes by two millimetres.
+ */
+export const DEFAULT_MAP_FACING_DEG = 90
+
+export interface DeviationOptions {
+  onProgress?: (fraction: number) => void
+  /** Filled with the direction each reading was taken along, three per
+   *  vertex, in the scan's own coordinates — see deflection.ts. It comes
+   *  almost free here, from the closest point already in hand, and nowhere
+   *  else is that point known. */
+  directions?: Int8Array
+  /** The scan's own vertex normals, three per vertex, in its own frame. Read
+   *  for the facing limit and nothing else. */
+  normals?: Float32Array
+  /** How far, in radians, the reference surface a point is measured against
+   *  may be from facing the way the scan faces there. Null, or no `normals`,
+   *  takes the nearest surface whatever it faces. */
+  maxNormalDeviation?: number | null
+}
+
+/**
  * Signed distance from every scan vertex to the nominal surface.
  *
  * The scan is queried against the nominal and never the other way round: the
@@ -41,26 +79,115 @@ export function deviationScale(
  *
  * The search is unbounded, so the display's max search distance stays a pure
  * display control: it can be moved either way afterwards without recomputing.
+ *
+ * The nearest surface is not always the one a point came off. Across a thin
+ * wall, a point sunk more than half the wall's thickness is nearer the far
+ * side than its own, and reads short — or, once it is through, with the sign
+ * the wrong way round. With a facing limit, a point whose nearest surface
+ * faces away from it is measured against the nearest one that faces its way
+ * instead (the same facing-aware search the alignment pairs marked points
+ * with), and left unmeasured when there is none within FACING_REACH. The
+ * plain query still goes first: nearly every point passes, and only the ones
+ * that fail pay for the second, slower search.
  */
 export function computeDeviation(
   surface: NominalSurface,
   scanPositions: Float32Array,
   transform: Rigid,
-  onProgress?: (fraction: number) => void,
+  { onProgress, directions, normals, maxNormalDeviation = null }: DeviationOptions = {},
 ): Float32Array {
   const n = scanPositions.length / 3
   const values = new Float32Array(n)
   const hit = emptyHit()
   const p = new Float64Array(3)
+  const sn = new Float64Array(3)
+  const r = transform.r
   const chunk = Math.max(1, Math.floor(n / 50))
+  const minFacing = normals && maxNormalDeviation !== null ? Math.cos(maxNormalDeviation) : null
+  const reach = surface.bboxDiagonal * FACING_REACH
+  const outward = minFacing === null ? 1 : normalsSign(surface, scanPositions, normals!, transform)
 
   for (let v = 0; v < n; v++) {
     rigidApply(transform, scanPositions[v * 3], scanPositions[v * 3 + 1], scanPositions[v * 3 + 2], p)
-    values[v] = surface.closest(p[0], p[1], p[2], hit) ? hit.signed : NaN
+    let found = surface.closest(p[0], p[1], p[2], hit)
+    if (found && minFacing !== null) {
+      // The scan's own normal, carried into the reference's frame.
+      rigidRotate(
+        transform,
+        outward * normals![v * 3],
+        outward * normals![v * 3 + 1],
+        outward * normals![v * 3 + 2],
+        sn,
+      )
+      if (sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minFacing) {
+        found =
+          surface.closestFacing(p[0], p[1], p[2], sn[0], sn[1], sn[2], minFacing, hit, reach) &&
+          // The search filters on each face's own normal, while the reading's
+          // sign comes off the pseudonormal of the feature the point lands on
+          // — and a seam's is the average of the faces meeting there, so on
+          // the rim of a sheet or a knife edge it can still face away. Such a
+          // reading is no better than the one it was meant to replace.
+          sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz >= minFacing
+      }
+    }
+    if (!found) {
+      values[v] = NaN
+    } else {
+      values[v] = hit.signed
+      if (directions) {
+        // From the closest point to the scan point, over the signed reading so
+        // that it points off the outside of the reference either way. A point
+        // lying on the surface has no such line; the side it would leave by is
+        // the one the sign is read off.
+        let dx = hit.nx, dy = hit.ny, dz = hit.nz
+        if (Math.abs(hit.signed) > 1e-9) {
+          dx = (p[0] - hit.px) / hit.signed
+          dy = (p[1] - hit.py) / hit.signed
+          dz = (p[2] - hit.pz) / hit.signed
+        }
+        // Back into the scan's frame: the transpose of the fit's rotation.
+        writeDirection(
+          directions,
+          v,
+          r[0] * dx + r[3] * dy + r[6] * dz,
+          r[1] * dx + r[4] * dy + r[7] * dz,
+          r[2] * dx + r[5] * dy + r[8] * dz,
+        )
+      }
+    }
     if (onProgress && v % chunk === 0) onProgress(v / n)
   }
   onProgress?.(1)
   return values
+}
+
+/**
+ * Which way the scan's normals point: 1 out of the material, -1 into it. A
+ * scan too open for its winding to be settled on loading can come in either
+ * way round, and read inside-out the facing test would step over the very
+ * surface each point came off. Nearly every point lies nearest the surface it
+ * came off, so the sign of their summed agreement with it is the scan's — and
+ * a couple of thousand of them settle it.
+ */
+function normalsSign(
+  surface: NominalSurface,
+  positions: Float32Array,
+  normals: Float32Array,
+  transform: Rigid,
+): 1 | -1 {
+  const n = positions.length / 3
+  const step = Math.max(1, Math.floor(n / 2000))
+  const hit = emptyHit()
+  const p = new Float64Array(3)
+  const sn = new Float64Array(3)
+  let agreement = 0
+  for (let v = 0; v < n; v += step) {
+    rigidApply(transform, positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2], p)
+    if (!surface.closest(p[0], p[1], p[2], hit)) continue
+    rigidRotate(transform, normals[v * 3], normals[v * 3 + 1], normals[v * 3 + 2], sn)
+    agreement += sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz
+  }
+  return agreement < 0 ? -1 : 1
 }
 
 export function deviationStats(

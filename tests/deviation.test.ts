@@ -5,11 +5,14 @@ import { mulberry32 } from '../src/core/fit/ransac'
 import { absoluteOrientation } from '../src/core/deviation/absoluteOrientation'
 import { NominalSurface, emptyHit } from '../src/core/deviation/surface'
 import {
+  computeDeviation,
+  DEFAULT_MAP_FACING_DEG,
   deviationScale,
   deviationStats,
   MAX_AUTO_RANGE,
   suggestRange,
 } from '../src/core/deviation/deviation'
+import { buildDeviationReport } from '../src/core/deviation/report'
 import { fieldHistogram, niceCeil, niceFloor } from '../src/core/field/stats'
 import {
   colormapById,
@@ -25,6 +28,7 @@ import {
   rigidDisagreement,
   rigidFromAxisAngle,
   rigidInvert,
+  rigidRotate,
   reorthonormalize,
 } from '../src/core/deviation/rigid'
 import { boxMesh } from './helpers'
@@ -186,6 +190,153 @@ describe('signed distance to the nominal', () => {
     const hit = emptyHit()
     expect(surface.closest(1000, 0, 0, hit, 5)).toBe(false)
     expect(surface.closest(1000, 0, 0, hit)).toBe(true)
+  })
+})
+
+describe('the facing limit across a thin wall', () => {
+  // A 20 × 20 mm plate a millimetre thick, top face at z = +0.5: the cube
+  // squashed, which keeps its winding outward.
+  const plate = boxMesh(1, 8)
+  for (let i = 0; i < plate.length; i += 3) {
+    plate[i] *= 20
+    plate[i + 1] *= 20
+  }
+  const graph = buildMeshGraph({ kind: 'soup', positions: plate })
+  const surface = new NominalSurface(graph.positions, graph.indices)
+
+  // Scan points off the top face, each with the normal of the surface it
+  // stands for, in the reference's frame.
+  const up: Vec3 = [0, 0, 1]
+  const points: { at: Vec3; normal: Vec3 }[] = [
+    { at: [1, 2, 0.6], normal: up }, // 0.1 proud — the near face is its own
+    { at: [-3, 1, -0.2], normal: up }, // sunk 0.7: nearer the underside
+    { at: [2, -4, -0.7], normal: up }, // sunk 1.2: through the wall
+    { at: [0, 0, 0.8], normal: [1, 0, 0] }, // a sprue's side: nothing faces it
+    // Steep to the top face, not facing away from it: the inside of an edge
+    // the scan has rounded over.
+    { at: [5, 5, 0.6], normal: [Math.sin(1.22), 0, Math.cos(1.22)] },
+  ]
+  // And the rest of the top face, where scan and reference agree — as over
+  // nearly all of any real scan.
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) points.push({ at: [i * 3 - 7.5, j * 3 - 7.5, 0.52], normal: up })
+  }
+  // The scan stands in a frame of its own, as it does in the app.
+  const fit = rigidFromAxisAngle([0.3, -0.5, 0.8], 0.9)
+  fit.t[0] = 4
+  fit.t[1] = -7
+  fit.t[2] = 2.5
+  const toScan = rigidInvert(fit)
+  const positions = new Float32Array(points.length * 3)
+  const normals = new Float32Array(points.length * 3)
+  const q = new Float64Array(3)
+  points.forEach(({ at, normal }, i) => {
+    rigidApply(toScan, at[0], at[1], at[2], q)
+    positions.set(q, i * 3)
+    rigidRotate(toScan, normal[0], normal[1], normal[2], q)
+    normals.set(q, i * 3)
+  })
+  const byDefault = (DEFAULT_MAP_FACING_DEG * Math.PI) / 180
+  const tight = (60 * Math.PI) / 180
+
+  it('measures the plain map off the nearest surface, whatever it faces', () => {
+    const plain = computeDeviation(surface, positions, fit)
+    expect(plain[0]).toBeCloseTo(0.1, 5)
+    expect(plain[1]).toBeCloseTo(-0.3, 5)
+    expect(plain[2]).toBeCloseTo(0.2, 5)
+    // Switched off, the limit is no limit — normals given or not.
+    const off = computeDeviation(surface, positions, fit, { normals, maxNormalDeviation: null })
+    expect([...off]).toEqual([...plain])
+  })
+
+  it('measures a point sunk past the middle of the wall off its own face', () => {
+    const values = computeDeviation(surface, positions, fit, {
+      normals,
+      maxNormalDeviation: byDefault,
+    })
+    expect(values[0]).toBeCloseTo(0.1, 5)
+    expect(values[1]).toBeCloseTo(-0.7, 5)
+    expect(values[2]).toBeCloseTo(-1.2, 5)
+  })
+
+  it('keeps the nearest reading where the reference is only steep to the scan', () => {
+    const values = computeDeviation(surface, positions, fit, {
+      normals,
+      maxNormalDeviation: byDefault,
+    })
+    expect(values[4]).toBeCloseTo(0.1, 5)
+    expect(values[5]).toBeCloseTo(0.02, 5)
+  })
+
+  it('leaves a point with no surface facing its way anywhere near unmeasured', () => {
+    // Tighter than the default, so that the sprue's side is plainly not facing
+    // the top face rather than square to it — and the steep point, with
+    // nothing within reach turned its way either, goes the same way.
+    const values = computeDeviation(surface, positions, fit, { normals, maxNormalDeviation: tight })
+    expect(values[3]).toBeNaN()
+    expect(values[4]).toBeNaN()
+    expect(values[5]).toBeCloseTo(0.02, 5)
+  })
+
+  it('reads a scan that came in inside-out the right way round', () => {
+    const inward = normals.map((c) => -c)
+    const values = computeDeviation(surface, positions, fit, {
+      normals,
+      maxNormalDeviation: byDefault,
+    })
+    expect(values[1]).toBeCloseTo(-0.7, 5)
+    const flipped = computeDeviation(surface, positions, fit, {
+      normals: inward,
+      maxNormalDeviation: byDefault,
+    })
+    expect([...flipped]).toEqual([...values])
+  })
+
+  it('writes the direction of the reading it kept, not the one it stepped over', () => {
+    const directions = new Int8Array(positions.length)
+    const values = computeDeviation(surface, positions, fit, {
+      normals,
+      maxNormalDeviation: tight,
+      directions,
+    })
+    const p = new Float64Array(3)
+    for (const v of [1, 2]) {
+      // The offset taken away puts the point back on the top face.
+      const s = values[v] / 127
+      rigidApply(
+        fit,
+        positions[v * 3] - s * directions[v * 3],
+        positions[v * 3 + 1] - s * directions[v * 3 + 1],
+        positions[v * 3 + 2] - s * directions[v * 3 + 2],
+        p,
+      )
+      expect(p[2]).toBeCloseTo(0.5, 2)
+    }
+    expect([...directions.subarray(9, 12)]).toEqual([0, 0, 0])
+  })
+
+  it('puts the limit the map was measured under in the report', () => {
+    const values = computeDeviation(surface, positions, fit, {
+      normals,
+      maxNormalDeviation: byDefault,
+    })
+    const align = {
+      transform: fit,
+      source: 'auto' as const,
+      rms: 0.05,
+      meanDistance: 0.04,
+      iterations: 10,
+      matched: 1000,
+      sampled: 1000,
+      ambiguous: false,
+    }
+    const stats = deviationStats(values, 3, 0.1)
+    expect(
+      buildDeviationReport('plate.stl', 'plate.step', align, stats, 0.5, 3, DEFAULT_MAP_FACING_DEG),
+    ).toContain('facing limit         90°')
+    expect(buildDeviationReport('plate.stl', 'plate.step', align, stats, 0.5, 3, null)).toContain(
+      'facing limit         off',
+    )
   })
 })
 

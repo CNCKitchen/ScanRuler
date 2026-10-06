@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { parsePLY } from '../src/core/parsers/ply'
+import { PLY_KEEP_WINDING, parsePLY } from '../src/core/parsers/ply'
 import { parseOBJ } from '../src/core/parsers/obj'
 
 /** One right triangle, as a binary little-endian PLY with the given header
@@ -36,6 +36,12 @@ describe('PLY parsing', () => {
     const mesh = parsePLY(binaryPly(['Créé par Ünïcode']))
     expect(Array.from(mesh.positions)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 0])
     expect(Array.from(mesh.indices!)).toEqual([0, 1, 2])
+  })
+
+  it('keeps the winding of a PLY that says so, and of no other', () => {
+    expect(parsePLY(binaryPly(['made by test', PLY_KEEP_WINDING])).keepWinding).toBe(true)
+    expect(parsePLY(binaryPly(['made by test'])).keepWinding).toBeUndefined()
+    expect(parsePLY(binaryPly([`${PLY_KEEP_WINDING} or not`])).keepWinding).toBeUndefined()
   })
 
   it('rejects a non-PLY buffer', () => {

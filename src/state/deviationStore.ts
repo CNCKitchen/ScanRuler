@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { create } from 'zustand'
 import type { AlignResult, PointPair } from '../core/deviation/align'
-import { MAX_AUTO_RANGE, type DeviationStats } from '../core/deviation/deviation'
+import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
+import { DEFAULT_MAP_FACING_DEG, MAX_AUTO_RANGE, type DeviationStats } from '../core/deviation/deviation'
 import { DEFAULT_FACING_DEG, type MaterialSide } from '../core/deviation/elementField'
 import type { FieldHistogram } from '../core/field/stats'
 import type { StepInfo } from '../core/parsers/step'
@@ -72,6 +73,11 @@ interface DeviationState extends ProbeSlice {
   histogram: FieldHistogram | null
   /** Bumped whenever a fresh deviation field lands, so the view repaints. */
   mapVersion: number
+  /** How far the reference surface a scan point is measured against may be
+   *  from facing the way the scan does there, in degrees; null takes the
+   *  nearest surface whatever it faces. It decides which surface is found, so
+   *  unlike the search distance it is measured with, not applied afterwards. */
+  mapFacingDeg: number | null
 
   /** Which fitted element the scan is measured against, in element mode. */
   targetId: number | null
@@ -118,6 +124,16 @@ interface DeviationState extends ProbeSlice {
   showMap: boolean
   /** Scan and reference side by side, in two viewports held in one pose. */
   split: boolean
+  /** The map is being played as motion: the part going from the ideal shape
+   *  to the measured one exaggerated `animScale` times, and back, on a loop —
+   *  see core/deviation/deflection.ts. Only the picture moves; the map, the
+   *  figures, the hover reading and the pins are the part as measured. */
+  animate: boolean
+  /** How many times the deviation is exaggerated at the top of the loop. */
+  animScale: number
+  /** The scale is still the suggested one, which follows each map that is
+   *  shown, rather than one the user has set. */
+  animScaleAuto: boolean
 
   /** The split-screen point picker is open. */
   picking: boolean
@@ -168,6 +184,9 @@ interface DeviationState extends ProbeSlice {
   revertToGlobal: () => void
   beginMap: () => void
   resolveMap: (range: number, maxDistance: number) => void
+  /** Only the setting: the map it changes is measured again by whoever owns
+   *  it. */
+  setMapFacing: (deg: number | null) => void
   setReadout: (stats: DeviationStats, histogram: FieldHistogram) => void
   setRange: (range: number) => void
   setMaxDistance: (d: number) => void
@@ -178,6 +197,11 @@ interface DeviationState extends ProbeSlice {
   setShowScan: (v: boolean) => void
   setShowMap: (v: boolean) => void
   setSplit: (v: boolean) => void
+  setAnimate: (v: boolean) => void
+  setAnimScale: (scale: number) => void
+  /** The scale suited to the map on screen. Taken only while the user has
+   *  not set one. */
+  suggestAnimScale: (scale: number) => void
   startPicking: () => void
   stopPicking: () => void
   addPickPoint: (side: 'scan' | 'nominal', point: Vec3) => void
@@ -200,6 +224,9 @@ const CLEARED = {
   pendingScan: null,
   marking: false,
   maxDistanceAuto: true,
+  // A new scan or a new reference starts at rest: the motion was a way of
+  // looking at a map that has gone with them.
+  animate: false,
 }
 
 /** The element map and the choice behind it. Cleared on its own: a new
@@ -240,6 +267,7 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   scopeCount: 0,
   scopeVersion: 0,
   targetFacingDeg: DEFAULT_FACING_DEG,
+  mapFacingDeg: DEFAULT_MAP_FACING_DEG,
   // On, and it earns its place: the map is measured against a surface that is
   // nowhere on the part, so without the element drawn there is no way to see
   // where the zero of the scale actually is.
@@ -266,6 +294,8 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   showScan: true,
   showMap: true,
   split: false,
+  animScale: 10,
+  animScaleAuto: true,
 
   // Both maps stay measured, so switching back and forth costs nothing. The
   // pinned readings do not: a reading off one map and a reading off the other
@@ -397,7 +427,10 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // gesture is picked, and picking one is one click. The tools themselves are
   // put back to that state by whoever opens the session (App), because the
   // elements workspace opens the same ones.
-  startMarking: () => set({ marking: true }),
+  //
+  // The motion stops: marking lands where the scan is, and a surface swinging
+  // out from under the brush would be marked somewhere it is not drawn.
+  startMarking: () => set({ marking: true, animate: false }),
   stopMarking: () => set({ marking: false }),
   setLocalMaxDistance: (d) => set({ localMaxDistance: Math.max(1e-4, d) }),
 
@@ -432,6 +465,9 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
       probes: [],
     })),
 
+  setMapFacing: (mapFacingDeg) =>
+    set({ mapFacingDeg: mapFacingDeg === null ? null : Math.min(90, Math.max(1, mapFacingDeg)) }),
+
   setReadout: (stats, histogram) => set({ stats, histogram }),
 
   setRange: (range) => set({ range: Math.max(1e-4, range), rangeAuto: false }),
@@ -448,7 +484,16 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // off would open onto an empty half — the switch goes back on with it.
   setSplit: (split) => set(split ? { split, showScan: true } : { split }),
 
-  startPicking: () => set({ picking: true, pendingScan: null }),
+  setAnimate: (animate) => set({ animate }),
+  setAnimScale: (animScale) =>
+    set({
+      animScale: Math.min(MAX_DEFLECTION_SCALE, Math.max(MIN_DEFLECTION_SCALE, animScale)),
+      animScaleAuto: false,
+    }),
+  suggestAnimScale: (animScale) => set((s) => (s.animScaleAuto ? { animScale } : {})),
+
+  // The picker covers the viewport, and points are picked on the scan as it is.
+  startPicking: () => set({ picking: true, pendingScan: null, animate: false }),
   stopPicking: () => set({ picking: false, pendingScan: null }),
 
   // Picks alternate: a point on the scan, then its counterpart on the nominal.

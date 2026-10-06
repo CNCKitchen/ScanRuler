@@ -7,7 +7,8 @@
 // pointer stream (see "touch gestures" below): a finger has no buttons, so no
 // control scheme could describe it, and the tablet convention — one finger
 // turns, two fingers pan and pinch — is the same in every CAD tool that has an
-// iPad client.
+// iPad client. A SpaceMouse drives them too, from the frame loop rather than
+// from events (see stepSpaceMouse).
 //
 // Ported from meshStep (github.com/CNCKitchen/meshStep) so that both tools
 // navigate identically. Shared by the main viewport and the split-screen point
@@ -25,6 +26,17 @@ import {
   type NavBinding,
   type NavAction,
 } from './navSchemes'
+import { spaceMouseBusy, type SpaceMouseMotion } from './spaceMouse'
+
+// SpaceMouse speeds at full deflection, BumpMesh's.
+const PUCK_TURN_RAD_PER_S = 2.4
+/** View heights per second. */
+const PUCK_PAN_PER_S = 1.2
+/** e-folds of zoom per second. */
+const PUCK_ZOOM_PER_S = 2.5
+/** How long the puck must stop turning before its pivot is let go: a puck has
+ *  no button to release, so this is the end of its gesture. */
+const PUCK_SETTLE_MS = 250
 
 /** Sphere enclosing everything drawn. Held by reference and re-read every
  *  frame, so the owner can re-frame its model without re-registering it. */
@@ -47,6 +59,9 @@ export class OrthoNavigator {
    *  brush while the user is painting a surface (see setPaintMode). */
   private bindings: NavBinding[] = SCHEMES[0].bindings
   private paintMode = false
+  /** Paint mode taking the claimed buttons whole, Shift and all — see
+   *  setPaintMode. */
+  private paintWhole = false
   /** A flat document has no third dimension to turn into: every orbit binding
    *  pans instead, and a single finger drags the sheet. See setPlanar. */
   private planar = false
@@ -67,6 +82,10 @@ export class OrthoNavigator {
   private orbitLast: { x: number; y: number } | null = null
   private orbiting = false
   private orbitRaycaster = new THREE.Raycaster()
+  /** What a SpaceMouse turn pivots on, held from its first frame until the
+   *  puck settles — see stepSpaceMouse. */
+  private puckPivot: THREE.Vector3 | null = null
+  private puckTurned = 0
 
   /** Fingers currently down on the canvas, in the order they landed — the
    *  first two are the ones a two-finger gesture is read from, so resting a
@@ -154,12 +173,24 @@ export class OrthoNavigator {
    * button bindings — pan in most schemes, orbit in several — are untouched
    * either way, so there is always a route to the camera that needs no
    * modifier at all.
+   *
+   * `whole` takes the claimed buttons with Shift too, and the plain binding
+   * goes instead of moving: for a sheet's selection box, which Shift adds to
+   * the selection, as Shift does a click.
    */
-  setPaintMode(on: boolean): void {
-    if (this.paintMode === on) return
+  setPaintMode(on: boolean, whole = false): void {
+    if (this.paintMode === on && this.paintWhole === (on && whole)) return
     this.paintMode = on
+    this.paintWhole = on && whole
     this.rebuildBindings()
     this.cancelGesture()
+  }
+
+  /** Whether a press is a camera gesture under the bindings in force — for
+   *  an owner deciding whether a press is its own or the camera's. */
+  navigates(e: PointerEvent): boolean {
+    const mask = e.buttons & 7
+    return this.bindings.some((b) => b.buttons === mask && !!b.shift === e.shiftKey && !!b.ctrl === e.ctrlKey && !!b.alt === e.altKey)
   }
 
   /** Flatten the navigation for a 2D document: whatever chord a scheme gives
@@ -189,6 +220,10 @@ export class OrthoNavigator {
     // Only the brush in 3D rubs out with the right button; the 2D region
     // tool claims the left alone, so the right stays the camera's there.
     const claimed = this.planar ? [LMB] : [LMB, RMB]
+    if (this.paintWhole) {
+      this.bindings = [...base.filter((b) => !(claimed.includes(b.buttons) && !b.ctrl && !b.alt)), ...planarExtra]
+      return
+    }
     const moved = base.map((b) =>
       claimed.includes(b.buttons) && !b.shift && !b.ctrl && !b.alt ? { ...b, shift: true } : b,
     )
@@ -214,6 +249,7 @@ export class OrthoNavigator {
     this.pinch = null
     this.touchOrbit = false
     this.touchPan = null
+    this.puckPivot = null
     this.retuneTouch()
   }
 
@@ -487,9 +523,24 @@ export class OrthoNavigator {
     return hits.length ? hits[0].point.clone() : null
   }
 
-  private showPivotMarker(): void {
-    if (!this.pivot) return
-    this.pivotMarker.position.copy(this.pivot)
+  /**
+   * What the screen centre is on: the surface there when the part is, and over
+   * empty stage the point on the view axis level with the model's centre, so a
+   * turn about it stays close to the part. What a turn with no cursor to go by
+   * pivots on: the standard views, and the SpaceMouse.
+   */
+  centrePivot(): THREE.Vector3 {
+    const rect = this.canvas.getBoundingClientRect()
+    const hit = this.surfaceAt(rect.left + rect.width / 2, rect.top + rect.height / 2)
+    if (hit) return hit
+    const axis = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
+    const depth = new THREE.Vector3().subVectors(this.clipSphere.center, this.camera.position).dot(axis)
+    return this.camera.position.clone().addScaledVector(axis, depth)
+  }
+
+  private showPivotMarker(at: THREE.Vector3 | null = this.pivot): void {
+    if (!at) return
+    this.pivotMarker.position.copy(at)
     // ~1.5% of the visible half-height, so the marker reads the same size at
     // any zoom.
     this.pivotMarker.scale.setScalar((this.camera.top / this.camera.zoom) * 0.015)
@@ -523,17 +574,21 @@ export class OrthoNavigator {
     this.q1.setFromAxisAngle(this.up, -dx * rotSpeed)
     this.q2.setFromAxisAngle(this.right, -dy * rotSpeed)
     this.q1.premultiply(this.q2)
-
-    // Swing both the camera and the orbit target around the pivot, so the
-    // target OrbitControls still owns stays consistent with the new pose.
-    this.tmp.copy(this.camera.position).sub(pivot).applyQuaternion(this.q1)
-    this.camera.position.copy(pivot).add(this.tmp)
-    this.tmp2.copy(this.controls.target).sub(pivot).applyQuaternion(this.q1)
-    this.controls.target.copy(pivot).add(this.tmp2)
-    this.camera.up.applyQuaternion(this.q1)
-    this.camera.quaternion.premultiply(this.q1)
-    this.camera.updateMatrixWorld()
+    this.swingAbout(pivot, this.q1)
     this.onChange?.()
+  }
+
+  /** Turn the camera by `q` about `pivot`, carrying `up` along. The orbit
+   *  target swings with it, so the target OrbitControls still owns stays
+   *  consistent with the new pose. */
+  private swingAbout(pivot: THREE.Vector3, q: THREE.Quaternion): void {
+    this.tmp.copy(this.camera.position).sub(pivot).applyQuaternion(q)
+    this.camera.position.copy(pivot).add(this.tmp)
+    this.tmp2.copy(this.controls.target).sub(pivot).applyQuaternion(q)
+    this.controls.target.copy(pivot).add(this.tmp2)
+    this.camera.up.applyQuaternion(q)
+    this.camera.quaternion.premultiply(q)
+    this.camera.updateMatrixWorld()
   }
 
   private endOrbit(): void {
@@ -588,6 +643,9 @@ export class OrthoNavigator {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault()
+    // Emulated by the 3Dconnexion driver while the puck is pushed — see
+    // spaceMouseBusy.
+    if (spaceMouseBusy()) return
     // SolidWorks/Autodesk/NX muscle memory: their schemes zoom OUT on scroll up.
     const zoomIn = this.scheme.wheelZoomsOut ? e.deltaY > 0 : e.deltaY < 0
     this.zoomAt(zoomIn ? 1.1 : 1 / 1.1, e.clientX, e.clientY)
@@ -609,6 +667,77 @@ export class OrthoNavigator {
     this.controls.target.add(this.tmp)
     this.controls.update()
     if (this.orbiting) this.showPivotMarker()
+    this.onChange?.()
+  }
+
+  // ---------- SpaceMouse ----------
+
+  /**
+   * One frame of SpaceMouse motion (see spaceMouse.ts), or null for a frame in
+   * which the puck is at rest or is driving another viewport.
+   *
+   * The mouse's three gestures at BumpMesh's speeds, each scaled to what is on
+   * screen so it feels the same at every zoom: slide pans in the screen plane,
+   * push and pull zoom about the screen centre, tilt and twist turn the part.
+   * The turn is the free orbit the mouse turns with, about the screen's own
+   * horizontal and vertical with `up` carried along, where BumpMesh turns a
+   * Z-up turntable: a turntable about world Z would fight a view the mouse has
+   * tipped over, and the two have to hand a pose back and forth. A sheet does
+   * not turn: in planar mode tilt and twist do nothing.
+   *
+   * The turn pivots on what the screen centre is on (centrePivot), taken on its
+   * first frame and held until the puck settles — the mouse's orbit about the
+   * point under the cursor, with the screen centre for the cursor. Picked anew
+   * every frame it would jump from surface to surface as the part turned. A
+   * pan carries it along, so it stays on the screen centre.
+   */
+  stepSpaceMouse(m: SpaceMouseMotion | null): void {
+    const now = performance.now()
+    const turning = m !== null && (m.rx !== 0 || m.rz !== 0) && !this.planar
+    if (this.puckPivot && !turning && now - this.puckTurned > PUCK_SETTLE_MS) {
+      this.puckPivot = null
+      // A mouse orbit under way keeps its own marker.
+      if (this.orbiting) this.showPivotMarker()
+      else this.pivotMarker.visible = false
+      this.onChange?.()
+    }
+    if (!m) return
+
+    this.camera.updateMatrixWorld()
+    this.right.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize()
+    this.up.setFromMatrixColumn(this.camera.matrixWorld, 1).normalize()
+
+    if (m.tx || m.tz) {
+      const step = ((this.camera.top - this.camera.bottom) / this.camera.zoom) * PUCK_PAN_PER_S * m.dt
+      this.tmp.copy(this.right).multiplyScalar(m.tx * step).addScaledVector(this.up, m.tz * step)
+      this.camera.position.add(this.tmp)
+      this.controls.target.add(this.tmp)
+      this.puckPivot?.add(this.tmp)
+    }
+
+    // Push the puck forward, away from you, to zoom in.
+    if (m.ty) {
+      const zoom = this.camera.zoom * Math.exp(m.ty * PUCK_ZOOM_PER_S * m.dt)
+      this.camera.zoom = Math.max(0.02, Math.min(2000, zoom))
+      this.camera.updateProjectionMatrix()
+    }
+
+    if (turning) {
+      if (!this.puckPivot) {
+        // The pivot ray is cast from where the pan has just put the camera.
+        this.camera.updateMatrixWorld()
+        this.puckPivot = this.centrePivot()
+      }
+      this.puckTurned = now
+      const turn = PUCK_TURN_RAD_PER_S * m.dt
+      this.q1.setFromAxisAngle(this.up, m.rz * turn)
+      this.q2.setFromAxisAngle(this.right, m.rx * turn)
+      this.q1.premultiply(this.q2)
+      this.swingAbout(this.puckPivot, this.q1)
+    }
+    // Moved by a pan, re-sized after a zoom.
+    if (this.puckPivot) this.showPivotMarker(this.puckPivot)
+    this.camera.updateMatrixWorld()
     this.onChange?.()
   }
 }

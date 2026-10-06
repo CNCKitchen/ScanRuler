@@ -5,6 +5,115 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## 0.4.6 — 2026-10-06
+
+- **The deviation map no longer reads a thin wall off its far side**
+  (2026-10-06). The map took each scan point's reading off the nearest
+  reference surface, whichever way it faced. Across a thin wall, a point
+  sunk more than half the wall's thickness is nearer the far side of the
+  wall than its own, so it read too small, and once through the wall it read
+  with the wrong sign: on a 1 mm wall, a point 0.7 mm in read −0.3 mm, and
+  one 1.2 mm in read +0.2 mm. A point whose nearest reference surface faces
+  away from the scan there is now measured against the nearest surface that
+  faces its way, using the facing-aware search the alignment already pairs
+  marked points with. It is left grey when no such surface lies within a
+  tenth of the part's size. **Reference must face the same way**, under
+  *What counts as measured*, switches this off, and *Max. deviation of
+  normals* can tighten it from the default of 90°, which steps over only
+  surface facing away. A tighter limit also re-reads the steep sides of
+  edges the scan has rounded over: on the bracket test pair, 60° re-reads
+  twenty times as many points as 90° and widens the map's extremes by almost
+  two millimetres. A scan whose normals came in inside-out as a whole is
+  recognised and read the right way round. Changing the setting measures the
+  map again. It is saved with the project, can be undone, and is printed in
+  the report as the facing limit. Measuring the bracket takes about 13 %
+  longer. Tests: `deviation` (on a 1 mm plate in a fitted pose: the plain
+  map's short and sign-flipped readings, the same points off their own face
+  with the limit, a steep surface kept at the default, a point with nothing
+  facing it left grey, an inside-out scan, the directions of re-read points,
+  the report line); `deviationStore` (the limit is clamped and kept apart
+  from the element map's); `e2e:deviation` (on by default at 90°, switching
+  it off measures a different map, and switching it back on gives the first
+  map again).
+- **The deviation map can be played as motion** (2026-10-06). Under
+  *Deformation* in the Surface Deviation panel, **Animate the deformation**
+  moves the part from the shape it should have to the shape it was measured
+  at, exaggerated by a **Scale** you set, and back, on a loop, like the
+  deformed-shape animation in FE software. Each point moves along the line
+  its reading was taken on, away from the reference or out of the element,
+  which is now recorded with every map. The motion is smoothed over about
+  1 % of the part's size, so a warp or a wall leaning in moves while scanner
+  noise and the edges of holes stay at true size. Readings past the end of
+  the colour scale move only as far as the end, and points with no reading
+  stay put. Until you set the scale, it is chosen so the end of the colour
+  scale moves by a twentieth of the part. The picture moves on the graphics
+  card and nothing else does: colours, figures, pins and exports are the
+  part as measured. Tests: `deflection` (directions point the right way on
+  both sides of a reference and through a fit's pose, and taking the offset
+  away lands on the surface; clamping, smoothing that keeps a warp and a
+  shared offset and takes out a spike, the suggested scale, the loop);
+  `deviationStore` (the scale override; the loop stops for marking, picking
+  and a new reference); `e2e:deviation` and `e2e:element-deviation` (the
+  part moves while playing and is back exactly as measured when stopped).
+- **3Dconnexion SpaceMouse support** (2026-10-06). In Chrome and Edge the
+  puck flies every viewport: push or pull it to zoom, slide it to pan, tilt
+  and twist it to turn the part about whatever is at the centre of the
+  screen. The turn is the same free orbit as the mouse's, so the two can take
+  turns. It connects the first time the puck is touched, and with several
+  viewports on screen it drives the one the mouse was last over. A 2D sheet
+  only pans and zooms. Wheel events that the 3Dconnexion driver sends while
+  the puck moves are ignored, so they cannot make the view jump. Nothing is
+  read until the browser reports a SpaceMouse. Tests: `spaceMouse` (device
+  match, deadzone, which viewport has the puck, the wheel hold-off; pan, zoom
+  and turn speeds and directions, the pivot staying put, a sheet not
+  turning); `e2e-spacemouse` (a stand-in puck in the real app: pan, zoom,
+  turn and the wheel hold-off on the scan, then the 2D sheet takes the puck
+  from the hidden 3D view and gives it back).
+- **A PLY can keep its winding** (2026-10-04). A PLY whose header carries
+  the line `comment ScanRuler: keep winding` is read with its triangles
+  wound exactly as written, and ScanRuler skips its guess at whether the
+  mesh is inside-out. The guess goes by the volume the mesh encloses, and a
+  strip that is open on every side and curves round its own inside, like
+  the top of a round wall with its inner face, can look inside-out to it
+  when it is not. Tests: `parsers` (the comment is read, and no other);
+  `normals` (an inside-out mesh that says so is kept as wound).
+- **The marking can be inverted, and it shows on back faces** (2026-10-04).
+  The marking tools have an **Invert** key beside *Clear marking*, and the
+  split-screen picker has *Invert selection* beside *Clear selection*. It
+  marks everything that was bare and clears everything that was marked, so
+  to take everything but a fixture or a riser you mark that and invert.
+  It flips point by point, so inverting twice gives back exactly the marking
+  you started with. The one row of triangles along the border, which has
+  some corners marked and some not, shows bare both ways. As a result the
+  new marking never overlaps the old one: a fixture marked and inverted is
+  not fitted even at its edge. Points on no triangle stay bare. An invert
+  counts as a gesture, so an element marked by hand re-fits on the new
+  marking. With
+  **Backfaces** on, marked surface now wears the marking colour on the far
+  side of a wall too, instead of being hidden under the back-face colour. A
+  gesture with *Mark faces pointing away too* takes surface there, and
+  that surface has to show. Tests: `regionColors` (no overlap with the old
+  marking, a round trip, points on no triangle, shading copies);
+  `e2e-local-fit` and `e2e-pick-fit` invert on the real scan.
+- **An element can be aligned to the coordinate planes** (2026-10-04). The
+  **Align** block in an element's box offers the XY, YZ and ZX planes ahead
+  of the measured planes, and it is there for every element with a
+  direction — plane, line, cylinder, cone, circle, torus — rather than only
+  once a plane had been measured, which hid it on a fresh part. On a part
+  set up with Auto-align or Align part the coordinate planes are the part's
+  own, so a bore can be stood square to its base without fitting the base
+  first; on a part not aligned yet a note says the planes are the scan's
+  own. Aligning the part again takes the alignment along: to whichever
+  coordinate plane its old one was turned onto (the ZX plane once the part
+  is stood on its side, still XY through a refinement of a degree), or, if
+  the part was turned onto none, it comes off and the element goes back to
+  its measurement. The summary names the plane ("aligned perpendicular to
+  the XY plane"). The coordinate planes are shared with the symmetry plane's
+  seed (`core/basePlanes.ts`). Tests: `orient` (an element on a coordinate
+  plane with no plane element, re-opened and restored, carried through a
+  quarter turn, a refinement and an off-axis turn, in the summary);
+  `e2e-orient` reads the first plane against the coordinate planes.
+
 ## 0.4.5 — 2026-10-03
 
 - **A plane through three points is clicked on the part** (2026-10-02). A

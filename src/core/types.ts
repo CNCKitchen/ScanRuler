@@ -7,6 +7,9 @@ export interface ParsedMesh {
   kind: 'soup' | 'indexed'
   positions: Float32Array
   indices?: Uint32Array
+  /** The file says its triangles face the way they are meant to (see
+   *  parsers/ply), so the winding is kept as written instead of guessed. */
+  keepWinding?: boolean
 }
 
 /** Indexed mesh plus everything the fitting pipeline needs: per-vertex

@@ -39,6 +39,8 @@ export interface LoadedNominal extends LoadedMesh {
 
 export interface DeviationResult {
   values: Float32Array
+  /** The direction each reading was taken along — see deviation/deflection.ts. */
+  directions: Int8Array
   suggestedRange: number
   suggestedMaxDistance: number
 }
@@ -283,9 +285,12 @@ export class MeshWorkerClient {
     })
   }
 
-  async deviate(transform: Rigid): Promise<DeviationResult> {
+  /** The deviation map under this alignment. The facing limit shapes which
+   *  surface each point is measured against, so changing it means asking
+   *  again. */
+  async deviate(transform: Rigid, facingDeg: number | null): Promise<DeviationResult> {
     const requestId = this.nextId++
-    return this.request<DeviationResult>({ type: 'deviate', requestId, transform })
+    return this.request<DeviationResult>({ type: 'deviate', requestId, transform, facingDeg })
   }
 
   /** Wall thickness at every scan vertex. Every setting here shapes the search

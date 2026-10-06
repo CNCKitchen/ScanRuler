@@ -318,15 +318,17 @@ export class NominalSurface {
    * `n · (nx, ny, nz) >= minDot`, within `maxDistance`.
    *
    * Plain `closest` takes the nearest surface whatever it is facing, which is
-   * right for measuring — the map wants the distance to the part, and the sign
-   * says which side of it the point fell on. It is wrong for *fitting*: across
-   * a thin wall, inside a bore, or in the gap between a boss and its pocket,
-   * the nearest reference surface to a marked point is the one facing back at
-   * it, and a caller that only rejects such a pair afterwards throws the point
-   * away entirely — so surface the user explicitly marked as being the part
-   * ends up contributing nothing, and the pose is decided by whatever subset
-   * happened to land on same-facing surface. Searching with the facing test
-   * *inside* it pairs the point with the surface it actually came off.
+   * right for nearly every point — the map wants the distance to the part, and
+   * the sign says which side of it the point fell on. It goes wrong across a
+   * thin wall, inside a bore, or in the gap between a boss and its pocket,
+   * where the nearest reference surface can be the one facing back at the
+   * point. For *fitting* that is worst of all: a caller that only rejects such
+   * a pair afterwards throws the point away entirely — so surface the user
+   * explicitly marked as being the part ends up contributing nothing, and the
+   * pose is decided by whatever subset happened to land on same-facing
+   * surface. For the map it is a reading taken off the wrong wall. Searching
+   * with the facing test *inside* it pairs the point with the surface it
+   * actually came off.
    *
    * Bounded and best-first: the traversal order is by box distance and a node
    * further away than the best triangle so far is not opened, so on the small

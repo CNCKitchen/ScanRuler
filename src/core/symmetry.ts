@@ -44,6 +44,7 @@
 // fudge left in, so an asymmetric part reports a large one instead of a
 // plane that looks authoritative.
 
+import { BASE_PLANES, basePlaneOf } from './basePlanes'
 import { icp, sampleScan, type ScanSamples } from './deviation/icp'
 import { principalFrame } from './deviation/prealign'
 import { identityRigid, rigidApply } from './deviation/rigid'
@@ -58,20 +59,15 @@ export interface SeedPlane {
 
 /** The coordinate planes as seeds, beside the plane elements: on a part
  *  that was aligned first the mirror plane is usually one of them, and
- *  naming it settles which of several symmetries is meant. The ids are
- *  negative so they never meet an element's. */
-export const BASE_PLANE_SEEDS: readonly { id: number; name: string; normal: Vec3 }[] = [
-  { id: -1, name: 'XY plane', normal: [0, 0, 1] },
-  { id: -2, name: 'YZ plane', normal: [1, 0, 0] },
-  { id: -3, name: 'ZX plane', normal: [0, 1, 0] },
-]
+ *  naming it settles which of several symmetries is meant. */
+export const BASE_PLANE_SEEDS = BASE_PLANES
 
 /** A coordinate plane as the seed of a search: the plane itself where it
  *  cuts through the part, and its parallel through the part's centre where
  *  it does not — a scan fresh from the scanner sits anywhere, and a mirror
  *  plane that misses the part mirrors it into thin air. */
 export function baseSeedPlane(id: number, center: Vec3, size: number): (SeedPlane & { name: string }) | null {
-  const base = BASE_PLANE_SEEDS.find((p) => p.id === id)
+  const base = basePlaneOf(id)
   if (!base) return null
   const off = dot(center, base.normal)
   const cuts = Math.abs(off) <= Math.max(size, 0) / 2

@@ -252,6 +252,51 @@ const ICONS = {
       <circle className="i-adt" cx="12" cy="9" r="1.8" />
     </>
   ),
+  // The other ways the three above are drawn, each with its clicks: about
+  // the centre, the centre between the diagonals; one side and the far side,
+  // at any angle; across a diameter; three points on the rim; an arc about
+  // its centre, from the start round to where it ends.
+  rectangleCenter: (
+    <>
+      <rect x="4" y="6" width="16" height="12" />
+      <path className="i-th i-ds" d="m4 6 16 12M20 6 4 18" />
+      <circle className="i-adt" cx="12" cy="12" r="1.8" />
+      <circle className="i-adt" cx="20" cy="18" r="1.8" />
+    </>
+  ),
+  rectangleThreePoint: (
+    <>
+      <path d="M3.7 12.6 14.9 4.2l5.4 7.2-11.2 8.4Z" />
+      <circle className="i-adt" cx="3.7" cy="12.6" r="1.8" />
+      <circle className="i-adt" cx="14.9" cy="4.2" r="1.8" />
+      <circle className="i-adt" cx="14.7" cy="15.6" r="1.8" />
+    </>
+  ),
+  circleTwoPoint: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <path className="i-a i-th i-ds" d="M6.34 17.66 17.66 6.34" />
+      <circle className="i-adt" cx="6.34" cy="17.66" r="1.8" />
+      <circle className="i-adt" cx="17.66" cy="6.34" r="1.8" />
+    </>
+  ),
+  circleThreePoint: (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle className="i-adt" cx="5.07" cy="8" r="1.8" />
+      <circle className="i-adt" cx="18.93" cy="8" r="1.8" />
+      <circle className="i-adt" cx="12" cy="20" r="1.8" />
+    </>
+  ),
+  arcCenter: (
+    <>
+      <path d="M18.5 18.5a13 13 0 0 0-13-13" />
+      <path className="i-a i-th i-ds" d="M5.5 18.5h13" />
+      <circle className="i-adt" cx="5.5" cy="18.5" r="1.6" />
+      <circle className="i-adt" cx="18.5" cy="18.5" r="1.8" />
+      <circle className="i-adt" cx="5.5" cy="5.5" r="1.8" />
+    </>
+  ),
   gridSnap: (
     <>
       <path className="i-th i-ft" d="M3 8h18M3 16h18M8 3v18M16 3v18" />
@@ -658,6 +703,12 @@ const ICONS = {
       <path className="i-g" d="M14.5 4 20 9.5 11.5 18H7l-3.5-3.5Z" />
       <path d="m9 9.5 5.5 5.5" />
       <path className="i-a i-ds" d="M4 21.5h16" />
+    </>
+  ),
+  markInvert: (
+    <>
+      <circle className="i-g" cx="12" cy="12" r="8.5" />
+      <path className="i-f" d="M12 3.5a8.5 8.5 0 0 0 0 17Z" />
     </>
   ),
 

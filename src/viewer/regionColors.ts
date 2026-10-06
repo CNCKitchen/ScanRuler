@@ -408,6 +408,50 @@ export class RegionColors {
     return true
   }
 
+  /**
+   * Turn the marking inside out: every point of the surface that was bare is
+   * marked, and every one that was marked is bare.
+   *
+   * Point by point, so inverting twice is exactly where it started. A
+   * triangle shows as marked only with all three corners marked, so the row
+   * along the border — some corners in, some out — shows bare both ways, and
+   * that is the side to err on: what is marked after never overlaps what was
+   * marked before. A piece marked to keep comes away whole once the rest is
+   * inverted and deleted; a fixture marked and inverted to fit on the rest is
+   * not fitted even at its edge. (Taking the corners of every bare triangle
+   * instead would close the row up, but hands the far side of it — the
+   * marked triangles whose corners all lie on the border — to the new
+   * marking as well.)
+   *
+   * Only points on a triangle are marked: a loose point is not surface, and
+   * the fit would take it. `triangles` is the render index and `own` takes
+   * its entries to the scan's own vertices, the way every gesture marks.
+   * The shading copies the index names are written with their vertex here
+   * rather than left for the viewport to bring level: the whole mask turns
+   * at once, and a view that does not do the levelling — the split-screen
+   * picker's — would otherwise show every sharp edge bare.
+   * Returns whether there was a mask to turn — what tells the caller the
+   * paint attribute needs an upload.
+   */
+  invertPaint(triangles: ArrayLike<number>, own: (v: number) => number): boolean {
+    const mask = this.paintMask
+    if (!mask) return false
+    const next = new Uint8Array(mask.length)
+    for (let i = 0; i < triangles.length; i++) {
+      const r = triangles[i]
+      const v = own(r)
+      const on = mask[v] ? 0 : 1
+      next[v] = on
+      next[r] = on
+    }
+    // Counted over the scan's own vertices: a copy is the same point again.
+    let marked = 0
+    for (let v = 0; v < this.scanVertices; v++) marked += next[v]
+    mask.set(next)
+    this.count = marked
+    return true
+  }
+
   /** Rub out the whole marking. Returns whether there was one to rub out —
    *  what tells the caller the paint attribute needs an upload. */
   clearPaint(): boolean {

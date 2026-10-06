@@ -27,6 +27,7 @@ import {
   finish,
   launchApp,
   loadScan,
+  pixelDiff,
   previewReady,
   shotPath,
   sleep,
@@ -189,6 +190,34 @@ check(
   `the far face reads as the cube's own size: ${bothFaces.min} mm`,
 )
 await page.screenshot({ path: shotPath('element-deviation-facing-off.png') })
+
+// ---- the map played as motion ----------------------------------------------
+// The underside, read against the plane on top, is the one reading to move,
+// and it faces away from the camera — so what is checked is the motion laid
+// on the scan: the underside's offset, at most the colour range, up the
+// plane's normal. That the picture moves is the deviation run's to show.
+const deflection = () =>
+  page.evaluate(() => {
+    const a = window.__scanruler.scene().scanGeometry()?.getAttribute('deflect')
+    if (!a) return null
+    let up = 0
+    for (let i = 2; i < a.array.length; i += 3) up = Math.min(up, a.array[i])
+    return up
+  })
+const view = await canvasRect(page, '.viewslot canvas')
+const viewClip = { x: view.x, y: view.y, width: view.w, height: view.h }
+const frame = () => page.screenshot({ clip: viewClip, encoding: 'base64' })
+const atRest = await frame()
+const range = Number(await page.$eval('[data-test=range-value]', (el) => el.value))
+await click(page, '[data-test=animate-deformation]')
+await sleep(500)
+const lowest = await deflection()
+console.log(`animation: the underside moves ${lowest} mm (range ±${range})`)
+check(lowest !== null && lowest < 0 && lowest >= -range - 1e-6, 'the element map plays as motion, as far as the colour range')
+await click(page, '[data-test=animate-deformation]')
+await sleep(500)
+check((await deflection()) === null, 'and stopping it takes the motion off the scan')
+check((await pixelDiff(page, await frame(), atRest)) < 0.01, 'and puts the part back as measured')
 
 await click(page, '[data-test=toggle-facing]')
 await sleep(400)

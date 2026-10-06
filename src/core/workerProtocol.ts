@@ -76,7 +76,15 @@ export type WorkerRequest =
    *  the one message that jumps the queue, because everything else waits
    *  behind the very computation it is trying to end. */
   | { type: 'align-abort' }
-  | { type: 'deviate'; requestId: number; transform: Rigid }
+  | {
+      type: 'deviate'
+      requestId: number
+      transform: Rigid
+      /** How far the reference surface a point is measured against may be
+       *  from facing the way the scan does there, in degrees; null takes the
+       *  nearest surface whatever it faces. */
+      facingDeg: number | null
+    }
   /** Wall thickness of the scan itself — no reference model involved. The
    *  settings that shape the search travel with the request: all of them
    *  change the measurement, so all of them mean measuring again. */
@@ -174,6 +182,9 @@ export type WorkerResponse =
       type: 'deviation-ok'
       requestId: number
       values: Float32Array
+      /** The direction each reading was taken along, three bytes per vertex —
+       *  see deviation/deflection.ts. */
+      directions: Int8Array
       /** Colour range the tool would choose for this map, in mm. */
       suggestedRange: number
       /** Search distance the tool would choose for this part, in mm. */

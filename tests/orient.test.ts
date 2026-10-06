@@ -3,14 +3,19 @@
 // direction onto its designed relation, the warning once the measurement is
 // too far from it, and what the store does with it — the alignment has to
 // follow the reference plane, survive a re-fit and an edit, and come off
-// cleanly when the reference goes.
+// cleanly when the reference goes. A coordinate plane as the reference has
+// to follow the part through a datum alignment the same way.
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  isOrientRef,
   ORIENT_TOLERANCE_DEG,
   OrientError,
   orientFit,
+  referenceName,
+  referenceNormal,
   relationLabel,
 } from '../src/core/elements/orient'
+import { BASE_PLANES } from '../src/core/basePlanes'
 import { buildSummary } from '../src/core/summary'
 import { blockedRefs, useStore } from '../src/state/store'
 import { acuteAngle, dot, len, sub } from '../src/core/vec'
@@ -316,5 +321,112 @@ describe('an aligned element in the store', () => {
     fitted(bore, ref)
     const text = buildSummary('t.stl', store().elements, [])
     expect(text).toMatch(/aligned perpendicular to Plane 1, measured 0\.300° off/)
+  })
+})
+
+describe('an element aligned to a coordinate plane', () => {
+  const store = () => useStore.getState()
+  const asOutput = (fit: FitData): FitOutput => ({
+    ...fit,
+    region: new Uint32Array([1, 2, 3]),
+  })
+  const elementById = (id: number) => store().elements.find((e) => e.id === id)!
+  const XY = BASE_PLANES.find((p) => p.name === 'XY plane')!.id
+  const ZX = BASE_PLANES.find((p) => p.name === 'ZX plane')!.id
+
+  function fitted(fit: FitData, orientTo?: number): number {
+    store().startDraft(fit.kind)
+    store().setDraftPicks([[1, 2, 3]])
+    store().resolveDraft(asOutput(fit))
+    if (orientTo !== undefined) store().setDraftOrientRef(orientTo)
+    const id = store().commitDraft()
+    if (id === null) throw new Error('not created')
+    return id
+  }
+
+  /** A turn about x by the given angle. */
+  function aboutX(deg: number) {
+    const a = (deg * Math.PI) / 180
+    const c = Math.cos(a)
+    const s = Math.sin(a)
+    return { r: new Float64Array([1, 0, 0, 0, c, -s, 0, s, c]), t: new Float64Array([0, 0, 0]) }
+  }
+
+  beforeEach(() => {
+    store().beginLoad('test.stl')
+    store().finishLoad(0, 0, 100, [0, 0, 0])
+  })
+
+  it('needs no plane element: the first element can stand on the XY plane', () => {
+    const id = fitted(bore, XY)
+    const el = elementById(id)
+    expect(el.orient).toEqual({ ref: XY, relation: 'normal' })
+    expect(el.fit?.kind === 'cylinder' && el.fit.axis).toEqual([0, 0, 1])
+    expect(el.measured).toEqual(bore)
+  })
+
+  it('reads the coordinate planes as references, and nothing else that is not a plane', () => {
+    expect(referenceNormal(XY, () => undefined)).toEqual([0, 0, 1])
+    expect(referenceNormal(ZX, () => undefined)).toEqual([0, 1, 0])
+    expect(referenceNormal(-99, () => undefined)).toBeNull()
+    expect(referenceNormal(7, () => bore)).toBeNull()
+    expect(referenceNormal(7, () => base)).toEqual(base.normal)
+    expect(isOrientRef(XY, [])).toBe(true)
+    expect(isOrientRef(-99, [])).toBe(false)
+    expect(referenceName(XY, [])).toBe('the XY plane')
+  })
+
+  it('re-opens with the coordinate plane still chosen, and survives a restore', () => {
+    const id = fitted(bore, XY)
+    store().editElement(id)
+    expect(store().draft?.orient).toEqual({ ref: XY, relation: 'normal' })
+    store().cancelDraft()
+    // A draft with a marking on it is kept when it is dropped, and comes
+    // back with its alignment.
+    store().startDraft('cylinder')
+    store().setDraftSelection(new Uint32Array([1, 2, 3]))
+    store().resolveDraft(asOutput(bore))
+    store().setDraftOrientRef(XY)
+    store().cancelDraft()
+    store().restoreDraft()
+    expect(store().draft?.orient?.ref).toBe(XY)
+    store().cancelDraft()
+  })
+
+  it('follows the part onto the plane its reference was turned onto', () => {
+    const id = fitted(bore, XY)
+    // Stood on its side: z becomes −y, so the old XY plane is the ZX plane.
+    store().applyAlignment(aboutX(90))
+    const el = elementById(id)
+    if (el.fit?.kind !== 'cylinder' || el.measured?.kind !== 'cylinder') throw new Error()
+    expect(el.orient?.ref).toBe(ZX)
+    expect(acuteAngle(el.fit.axis, [0, 1, 0])).toBeCloseTo(0, 9)
+    expect(acuteAngle(el.measured.axis, [0, 1, 0])).toBeCloseTo(0.3, 6)
+  })
+
+  it('stays square to the new axes through a refinement of the alignment', () => {
+    const id = fitted(bore, XY)
+    store().applyAlignment(aboutX(0.5))
+    const el = elementById(id)
+    if (el.fit?.kind !== 'cylinder') throw new Error()
+    expect(el.orient?.ref).toBe(XY)
+    expect(el.fit.axis).toEqual([0, 0, 1])
+  })
+
+  it('comes off when the part is turned onto no coordinate plane', () => {
+    const id = fitted(bore, XY)
+    store().applyAlignment(aboutX(30))
+    const el = elementById(id)
+    if (el.fit?.kind !== 'cylinder') throw new Error()
+    expect(el.orient).toBeUndefined()
+    expect(el.measured).toBeUndefined()
+    // The measurement, moved with the part.
+    expect(acuteAngle(el.fit.axis, [0, -Math.sin(Math.PI / 6), Math.cos(Math.PI / 6)])).toBeCloseTo(0.3, 6)
+  })
+
+  it('is reported in the summary by the coordinate plane’s name', () => {
+    fitted(bore, XY)
+    const text = buildSummary('t.stl', store().elements, [])
+    expect(text).toMatch(/aligned perpendicular to the XY plane, measured 0\.300° off/)
   })
 })

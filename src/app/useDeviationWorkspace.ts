@@ -29,6 +29,7 @@ export function useDeviationWorkspace({
   sceneRef,
   deviation,
   deviationRgb,
+  fieldDirections,
   sources,
   imports,
 }: {
@@ -36,6 +37,8 @@ export function useDeviationWorkspace({
   sceneRef: RefObject<SceneManager | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
+  /** The direction each map's readings were taken along, keyed by the map. */
+  fieldDirections: WeakMap<Float32Array, Int8Array>
   imports: ImportQueue
   sources: RefObject<SourceFiles>
 }) {
@@ -108,10 +111,11 @@ export function useDeviationWorkspace({
     if (!dev.align) return
     dev.beginMap()
     try {
-      const result = await clientRef.current!.deviate(dev.align.transform)
+      const result = await clientRef.current!.deviate(dev.align.transform, dev.mapFacingDeg)
       if (!current()) return
       deviation.current = result.values
       deviationRgb.current = null
+      fieldDirections.set(result.values, result.directions)
       useDeviation.getState().resolveMap(result.suggestedRange, result.suggestedMaxDistance)
       useStore.getState().setStatus('Deviation measured.')
     } catch (e) {
@@ -121,6 +125,17 @@ export function useDeviationWorkspace({
       useDeviation.getState().failMap(e instanceof Error ? e.message : String(e))
       useStore.getState().setStatus('')
     }
+  }
+
+  /** The facing limit decides which surface each point is measured against,
+   *  so a map already on the part is measured again under the new one. */
+  const setMapFacing = (deg: number | null) => {
+    const before = useDeviation.getState().mapFacingDeg
+    useDeviation.getState().setMapFacing(deg)
+    const dev = useDeviation.getState()
+    if (dev.mapFacingDeg === before || dev.mapStatus !== 'ready') return
+    useStore.getState().setStatus('Re-measuring the deviation under the new facing limit…')
+    void runDeviation()
   }
 
   /**
@@ -320,6 +335,7 @@ export function useDeviationWorkspace({
         dev.stats,
         dev.range,
         dev.maxDistance,
+        dev.mapFacingDeg,
       ),
     )
   }
@@ -332,6 +348,7 @@ export function useDeviationWorkspace({
     startPicking,
     stopPicking,
     runDeviation,
+    setMapFacing,
     runLocalAlign,
     handleStartMarking,
     handleStopMarking,

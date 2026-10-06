@@ -375,6 +375,21 @@ export class SurfaceMarking {
     this.ctx.invalidate()
   }
 
+  /** Turn the marking inside out — see RegionColors.invertPaint. Reported like
+   *  the end of a gesture, so whatever follows the marking (an element that
+   *  re-fits on it, a region being measured) takes the new one up the same way
+   *  it would a stroke. Only a marking session's marking is turned. */
+  invertPaint(): void {
+    const mesh = this.ctx.mesh()
+    const attr = this.ctx.paintAttr()
+    if (!this.paint || !mesh || !attr) return
+    const index = (mesh.geometry as THREE.BufferGeometry).getIndex()
+    if (!index || !this.ctx.regions.invertPaint(index.array, this.ctx.graphVertex)) return
+    attr.needsUpdate = true
+    this.ctx.invalidate()
+    this.ctx.onPaintChange(this.ctx.regions.paintCount)
+  }
+
   /** One dab per few pixels along the segment the pointer covered, so a fast
    *  drag paints a stroke rather than a dotted line. */
   private stroke(x: number, y: number, erase: boolean): void {

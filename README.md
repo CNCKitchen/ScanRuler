@@ -20,7 +20,9 @@ The workspaces share the loaded scan:
   a colour map over the part, measured either against a **nominal CAD part**
   (loaded as a mesh or as a **STEP file** tessellated in the browser, and
   best-fitted onto the scan) or against **one fitted element** — is this face
-  flat, is this bore round, does this surface sit where the datum says.
+  flat, is this bore round, does this surface sit where the datum says. The
+  map can be **played as motion**, exaggerated and looped like an FE
+  deformed-shape animation, to see which way the part has gone.
 - **Thickness** — paint the **wall thickness of the part itself** over it, with
   no reference model and no alignment: load one file and measure.
 
@@ -133,21 +135,26 @@ one clean band rather than on everything the tool can reach.
 Set **Surface** to *Marked by hand* in the element being created and the fit
 takes what you mark, and nothing else. The tools are the same ones the
 [local fine fit](#local-fine-fit) is marked with — **Navigate**, **Window**,
-**Brush**, **Lasso**, the **Erase** switch, *Mark faces pointing away too* and
-*Clear marking* — and they behave identically here: nothing is armed until you
-pick a gesture, **left-drag marks and right-drag rubs out** while one is,
-Shift-drag still orbits, and **Navigate** or `Esc` hands the plain drags back to
-the camera without touching what is already marked. A second `Esc` discards the
-element — but not the marking: a draft discarded with a marked surface on it
-waits in the panel, under a **Restore** button, until the next element is
-started, so a slip of the key costs one click rather than the marking. (A held
-key does not repeat through both steps.)
+**Brush**, **Lasso**, the **Erase** switch, *Mark faces pointing away too*,
+**Invert** and *Clear marking* — and they behave identically here: nothing is
+armed until you pick a gesture, **left-drag marks and right-drag rubs out**
+while one is, Shift-drag still orbits, and **Navigate** or `Esc` hands the
+plain drags back to the camera without touching what is already marked. A
+second `Esc` discards the element — but not the marking: a draft discarded
+with a marked surface on it waits in the panel, under a **Restore** button,
+until the next element is started, so a slip of the key costs one click rather
+than the marking. (A held key does not repeat through both steps.)
 
 The **brush Ø** in millimetres sets how wide a brush stroke is — it starts sized
 to the part. A ring on the surface under the cursor shows the footprint before
 you commit to it, in the element's colour while marking and dark while rubbing
 out. The marked surface wears the colour the element will get, the fit re-runs
-each time you lift the button, and *Clear marking* starts over.
+each time you lift the button, and *Clear marking* starts over. **Invert**
+marks everything that was bare and clears everything that was marked. To take
+everything but a small piece, mark the piece and invert. The one row of
+triangles on the border between the two stays bare either way, so the new
+marking never reaches into the old one, and inverting twice gives back what you
+had.
 
 A gesture takes whole triangles — the ones it actually covers — so what lights
 up is exactly what the fit is given. It never reaches through a thin wall or
@@ -168,7 +175,8 @@ because of something you did somewhere else.
 scan is a surface, not a solid: where it has a hole, you are looking at the
 inside of the wall behind it, and in plain grey that reads as part. Switched
 on, it reads as a hole — which is also how an inverted normal gives itself
-away.
+away. Marked surface keeps the marking colour on the far side too, so what a
+gesture took through the part shows on the wall behind.
 
 It is a statement about the models rather than about one viewport, so it holds
 across the [split view](#both-parts-side-by-side): the reference in the half
@@ -238,6 +246,16 @@ the centre and the zoom are taken back, so you land looking at what you were
 looking at. Every viewport has one, both halves of the point picker included,
 and it fits whatever is actually being shown — with the scan switched off it
 frames the reference rather than the pair of them.
+
+A **3Dconnexion SpaceMouse** works too, in Chrome and Edge, with nothing to set
+up beyond the device's own driver: push or pull the puck to zoom, slide it to
+pan, tilt and twist it to turn the part. The turn pivots on whatever is at the
+centre of the screen, marked with the same red dot as a mouse orbit, and it is
+the same free turn the mouse makes, so either can pick up where the other left
+off. The browser only shows the puck to the page once it has been touched, so
+the first touch connects it. With several viewports on screen, the split view
+or the two halves of the point picker, the puck drives the one the mouse was
+last over. On a flat 2D sheet it pans and zooms and does not turn.
 
 ### Settings
 
@@ -591,6 +609,29 @@ viewport draws it at its assumed Ø, the preview as soon as the value is
 entered, and the STEP export writes it at that Ø and every other element as
 measured — and the copied summary reports it beside the measurement whenever
 the two differ.
+
+### Aligning an element — the designed relation
+
+A bore drilled square to the base fits at 89.7°, the top face at 0.2° to the
+bottom. That is the measurement and it stays reported, but CAD usually wants
+the relation that was designed. While a **plane, line, cylinder, cone, circle
+or torus** is being created or edited, the **Align** block turns it onto one:
+choose a **Reference** — the **XY, YZ or ZX plane**, or a measured plane — and
+whether the element is *parallel* or *perpendicular* to it. The element keeps
+its measured position and size and pivots about its own centre by the
+smallest rotation that gets it there; the panel says how far off the
+measurement was, and warns past 2°, which usually means the wrong reference or
+the wrong relation.
+
+The coordinate planes are the part's own once it has been aligned (Auto-align
+or Align part, below), so a bore can be stood square to the base without
+fitting the base first. Aligning the part again takes the alignment along to
+whichever coordinate plane its old one was turned onto, or drops it if the
+part was turned onto none. A measured plane as the reference is followed when
+it is re-fitted; deleting it drops the alignment. Either way the measurement
+is kept beside the aligned geometry, and sigma and form error are always the
+measurement's; the copied summary says what the element was aligned to and how
+far off it was.
 
 ### Changing what you have made
 
@@ -1053,10 +1094,11 @@ pose it starts from; the selection decides what it is allowed to settle onto —
 the other half of getting a scan carrying a fixture, a riser or a run of spray
 into the right place, and the same idea as the local fine fit below, available
 before the first fit rather than only after one. Select nothing and the whole
-scan is fitted, which is what nearly every part wants. `Esc` stands the gesture
-down and hands the clicks back to picking points; a second one closes the
-picker. The selection belongs to the fit being set up there and goes with the
-picker when it closes.
+scan is fitted, which is what nearly every part wants. *Invert selection*
+swaps what is selected for what is not: select the fixture, invert, and the fit
+is measured on everything else. `Esc` stands the gesture down and hands the
+clicks back to picking points; a second one closes the picker. The selection
+belongs to the fit being set up there and goes with the picker when it closes.
 
 ### Local fine fit
 
@@ -1081,7 +1123,9 @@ Four modes, one of which is always live:
 | **Lasso** | Draw a free outline; everything it encloses is marked. For a patch of spray that follows no straight line. |
 
 The three gestures are additive and all undone by the same gesture with the
-right button (or with **Erase** switched on, or with Alt). A live gesture takes
+right button (or with **Erase** switched on, or with Alt). **Invert** swaps
+the marked surface for the bare surface, so a riser can be marked and then
+inverted to keep everything else. A live gesture takes
 both plain drags for as long as it is on, so **Navigate** — or `Esc`, or
 clicking the live tool again — hands them straight back. Shift-drag orbits
 while a gesture is live, and the middle button is untouched throughout.
@@ -1149,6 +1193,19 @@ triangle's own normal. Against a CAD part full of sharp pockets and bores a
 scanned surface projects onto those seams constantly, and signing by the face
 normal speckles every edge of the map with false inside/outside flips.
 
+**The surface a point is measured against has to face the point's way.**
+Across a thin wall, a scan point sunk more than half the wall's thickness is
+nearer the far side of the wall than its own. Measured against that side it
+reads too small, and once it is through the wall it reads with the wrong sign.
+So a point whose nearest reference surface faces away from it, judged by the
+scan's own normal, is measured against the nearest surface that faces its way
+instead. It is left grey when there is none within a tenth of the part's
+bounding-box diagonal. By default only surface facing away is stepped over. A
+limit tighter than 90° also re-reads the steep sides of edges the scan has
+rounded over, against the neighbouring face, which moves the closest-point
+reading at every edge of the part. A scan whose normals came in inside-out as
+a whole is recognised and read the right way round.
+
 Reading the map:
 
 | Control | Unit | What it does |
@@ -1157,6 +1214,8 @@ Reading the map:
 | **Bands** | — | Continuous, or quantised into bands when you want iso-deviation contours. |
 | **Histogram** | — | The distribution, drawn beside the scale and sharing its axis, plus min / max / mean / RMS / sigma. |
 | **Max search distance** | mm | How far a scan point may look for reference surface. Beyond it there is nothing to deviate from, so the surface is left plain grey and kept out of the statistics. Display only — it never affects the alignment, and moving it re-colours instantly. |
+| **Reference must face the same way** | — | On by default. Steps over reference surface facing away from the scan, so that a thin wall is never read off its far side (see above). Changing it measures the map again. |
+| **Max. deviation of normals** | ° | How far the reference surface may be from facing the way the scan does and still be measured against. 90° by default, which steps over only surface facing away. |
 | **Tolerance ±** | mm | The band the *within ± x mm* figure under the scale counts. It does not change the colours. |
 | **▩ Colour plot** | — | Whether the map is painted onto the scan at all (view bar). Off leaves the bare surface and takes the scale with it; the map stays measured, and the reading under the cursor and the pinned readings go on reporting it. |
 
@@ -1170,6 +1229,43 @@ Validated against the included test pair (`side bracket left.stl` as nominal,
 `block-marius.stl` as the scan, 1.43 M triangles): the fit converges to
 0.072 mm RMS, and a scan displaced by a random rotation and translation comes
 back to within **0.9 µm** of the fit found in place.
+
+### Watching the part deform
+
+A map says by how much each point is out; it is hard to see from the colours
+which way the part as a whole has gone. **Animate the deformation**, under
+*Deformation* in the panel, plays the map as motion, the way an FE package
+animates a deformed shape: the part moves from the shape it should have to the
+shape it was measured at, with the deviation multiplied by the **Scale**, and
+back, on a loop. It works the same on a map against a fitted element.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Animate the deformation** | — | Starts and stops the loop: two seconds from the ideal shape to the full scale and back, eased into both ends. It starts from the scan as measured, and stopping puts the scan back exactly as measured. |
+| **Scale** | × | How many times the deviation is exaggerated at the far end of the loop; 1× moves the part exactly as far as it is out. Until you set it, it is chosen so that the end of the colour scale moves by a twentieth of the part's bounding-box diagonal, and follows the range. |
+
+Each point moves along the line its deviation was measured on: away from the
+closest point on the reference, or out of the element on the material's side.
+That direction is recorded with each reading, so the scan's own normals, which
+may face either way on an open scan, never decide it. What is exaggerated is how
+the part as a whole has deformed:
+
+- **The motion is smoothed** over about 1 % of the part's diagonal, on a
+  grid in space. A warp, a twist or a wall leaning in moves as it is, but the
+  scanner's noise and the edges of holes stay at their true size and ride
+  along; multiplied fifty times they would be fur on every edge and folds
+  around every hole. Both faces of a thin wall move together, the way a bent
+  wall does.
+- **A reading past the end of the colour scale moves only as far as the end.**
+  Material the reference does not have and stray points stay in proportion.
+  Widen the range to let more of the part move.
+- **Points with no reading stay put**: no counterpart, or past the max search
+  distance.
+
+Only the picture moves, on the graphics card. The colours, the figures, the
+hover reading, the pins and an exported scan are all the part as measured. The
+loop stops when the marking tools or the point picker come out, since both
+work on the scan where it is, and when a new scan or reference is loaded.
 
 ## Deviation from a fitted element
 

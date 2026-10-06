@@ -36,12 +36,19 @@ interface MarkState {
   /** Vertices marked right now. The marking itself lives in the scene — this is
    *  the one number the panels need from it. */
   count: number
+  /** How many times the marking has been asked to turn inside out. A request
+   *  rather than a call, because the panels that offer it do not hold the
+   *  viewport that holds the marking: whichever does — the main one, or the
+   *  split-screen picker's while it is open — watches this and does it. */
+  inverts: number
 
   setGesture: (g: MarkGesture | null) => void
   setErase: (v: boolean) => void
   setBackfaces: (v: boolean) => void
   setDiameter: (mm: number) => void
   setCount: (n: number) => void
+  /** Mark what is bare and rub out what is marked. */
+  invert: () => void
   /** Put the tools back in their opening state — no gesture live, nothing
    *  marked. Called when a session opens and when one workspace hands over to
    *  another, so a gesture can never be live because of something the user did
@@ -59,12 +66,14 @@ export const useMark = create<MarkState>((set) => ({
   backfaces: false,
   diameter: 2,
   count: 0,
+  inverts: 0,
 
   setGesture: (gesture) => set({ gesture }),
   setErase: (erase) => set({ erase }),
   setBackfaces: (backfaces) => set({ backfaces }),
   setDiameter: (diameter) => set({ diameter: Math.max(diameter, 2e-4) }),
   setCount: (count) => set({ count }),
+  invert: () => set((s) => ({ inverts: s.inverts + 1 })),
   reset: () => set({ gesture: null, erase: false, count: 0 }),
   sizeToModel: (modelSize) => set({ diameter: Math.max(modelSize * 0.08, 2e-3) }),
 }))

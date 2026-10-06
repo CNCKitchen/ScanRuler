@@ -95,7 +95,7 @@ describe('worker import transactions', () => {
     load(1, 0)
     send({ type: 'load-nominal', requestId: 2, name: 'ref.obj', buffer: triangle(0) })
     expect(send({ type: 'load-nominal', requestId: 3, name: 'bad.obj', buffer: new ArrayBuffer(0), staged: true }).type).toBe('error')
-    const reply = send({ type: 'deviate', requestId: 4, transform: identityRigid() })
+    const reply = send({ type: 'deviate', requestId: 4, transform: identityRigid(), facingDeg: 60 })
     expect(reply.type).toBe('deviation-ok')
     if (reply.type === 'deviation-ok') expect([...reply.values]).toEqual([0, 0, 0])
   })

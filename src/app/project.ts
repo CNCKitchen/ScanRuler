@@ -33,6 +33,7 @@ import {
   type ThicknessPart,
 } from '../core/project/manifest'
 import type { ArchiveMember } from '../core/project/archive'
+import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 
 /** The original bytes of every model the session holds, kept from the moment
  *  each was opened: the worker takes its copy by transfer and the scene keeps
@@ -149,6 +150,7 @@ export function collectProject(
     targetId: dev.targetId,
     targetSide: dev.targetSide,
     targetFacingDeg: dev.targetFacingDeg,
+    mapFacingDeg: dev.mapFacingDeg,
     targetScope: dev.targetScope,
     scope: scope ? Array.from(scope) : null,
     showElement: dev.showElement,
@@ -290,6 +292,9 @@ function deviationPartState(p: DeviationPart): Partial<ReturnType<typeof useDevi
     targetId: p.targetId,
     targetSide: p.targetSide,
     targetFacingDeg: p.targetFacingDeg,
+    // A project from before the limit existed opens with it, like any new
+    // session: the map is measured again on opening either way.
+    mapFacingDeg: p.mapFacingDeg === undefined ? DEFAULT_MAP_FACING_DEG : p.mapFacingDeg,
     targetScope: p.targetScope,
     scopeCount: p.scope?.length ?? 0,
     showElement: p.showElement,

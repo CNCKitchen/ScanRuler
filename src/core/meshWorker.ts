@@ -629,11 +629,19 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     try {
       let lastPercent = -1
-      const values = computeDeviation(nominal, graph.positions, msg.transform, (f) => {
-        const percent = Math.round(f * 100)
-        if (percent === lastPercent) return
-        lastPercent = percent
-        progress(`Measuring deviation — ${percent}%…`)
+      const directions = new Int8Array(graph.positions.length)
+      const values = computeDeviation(nominal, graph.positions, msg.transform, {
+        onProgress: (f) => {
+          const percent = Math.round(f * 100)
+          if (percent === lastPercent) return
+          lastPercent = percent
+          progress(`Measuring deviation — ${percent}%…`)
+        },
+        directions,
+        // Rotated along with the positions whenever an alignment is baked in,
+        // so they stand in the same frame the transform starts from.
+        normals: graph.normals,
+        maxNormalDeviation: msg.facingDeg === null ? null : (msg.facingDeg * Math.PI) / 180,
       })
       const suggestedMaxDistance = defaultMaxDistance(graph.bboxDiag)
       post(
@@ -641,10 +649,11 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           type: 'deviation-ok',
           requestId: msg.requestId,
           values,
+          directions,
           suggestedRange: suggestRange(values, suggestedMaxDistance),
           suggestedMaxDistance,
         },
-        [values.buffer],
+        [values.buffer, directions.buffer],
       )
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })

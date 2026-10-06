@@ -25,6 +25,7 @@ import type { PickMarker } from './PickScene'
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
+import { deflectionFactor, deflectionStartPhase } from '../core/deviation/deflection'
 import { applyFinish, DEFAULT_THEME, setSurfaceColor, type ViewTheme } from './viewThemes'
 import {
   backfaceUniforms,
@@ -48,6 +49,12 @@ import {
   PAINT_GLSL_VERTEX_BODY,
   type PaintUniform,
 } from './paintTint'
+import {
+  DEFLECT_GLSL_VERTEX,
+  DEFLECT_GLSL_VERTEX_BODY,
+  DEFLECTION_PERIOD_MS,
+  type DeflectionUniform,
+} from './deflection'
 import {
   patchWireframe,
   SEE_THROUGH_OPACITY,
@@ -309,6 +316,16 @@ export class SceneManager {
   /** The mesh mode's switch, shared by the scan and the reference: the
    *  triangle edges, drawn in the surface shader — see surfaceModes.ts. */
   private wire = wireUniforms()
+
+  /** The map played as motion — see deflection.ts. Each scan vertex's offset
+   *  off the ideal surface, with the geometry it was laid on: the loop plays
+   *  only while that geometry is the one on screen. Null at rest. */
+  private deflection: { vectors: Float32Array; geometry: THREE.BufferGeometry } | null = null
+  /** How many times the deviation is exaggerated at the top of the loop. */
+  private deflectScale = 1
+  /** When the loop began, in performance.now() time. */
+  private deflectStart = 0
+  private uDeflect: DeflectionUniform = { value: 0 }
   /** See-through surfaces, so what is inside the scan — the reference, the
    *  fitted elements, the pinned readings — shows. Held here as well as on
    *  the materials because a part loaded later has to be dressed the same. */
@@ -393,6 +410,7 @@ export class SceneManager {
         if (this.sheetFollow && (el.clientWidth !== this.followedSize.w || el.clientHeight !== this.followedSize.h)) {
           this.applyFollow(0)
         }
+        this.stepDeflection()
         // Last, after everything above that may have written a vertex
         // attribute, and before the frame that uploads it.
         this.syncCopies()
@@ -968,6 +986,8 @@ export class SceneManager {
       keep,
     )
     this.regions.rebind(colors, paint, tint, this.scanVertices)
+    // The offsets are the scan's own, laid out again over the new copies.
+    this.layOutDeflection()
     geometry.computeBoundsTree()
     this.invalidate()
   }
@@ -1019,9 +1039,10 @@ export class SceneManager {
   /**
    * The scan material's shader amendments: the sharp border of the element
    * tints (see regionTint.ts), the hand-marking's tint (see paintTint.ts),
-   * back-face flagging (see backfaceTint.ts) and the mesh mode's edges (see
-   * surfaceModes.ts). Folded into one patch here because a material has a
-   * single onBeforeCompile.
+   * back-face flagging (see backfaceTint.ts), the mesh mode's edges (see
+   * surfaceModes.ts) and the map played as motion (see deflection.ts).
+   * Folded into one patch here because a material has a single
+   * onBeforeCompile.
    *
    * Back faces are flagged in the shader rather than by drawing the mesh a
    * second time with the faces flipped, because the second pass would have to
@@ -1029,8 +1050,10 @@ export class SceneManager {
    * pass would take the inside of the part out of reach of the raycaster,
    * which is what picking, hovering and the brush all run on. The order the
    * lines run in is the order the layers stack: the region border is cut
-   * first, the marking paints over it, and the flag has the last word — a
-   * tinted back face is a warning, not a surface.
+   * first, the flag goes over it — a tinted back face is a warning, not a
+   * surface — and the marking has the last word. A gesture that reaches
+   * through the part marks the far side of the wall as well, and marking
+   * that hid under the flag would be marking the user cannot see.
    */
   private patchScanShader(material: THREE.Material): void {
     material.onBeforeCompile = (shader) => {
@@ -1038,15 +1061,19 @@ export class SceneManager {
       shader.uniforms.uBackfaceColor = this.backface.uBackfaceColor
       shader.uniforms.uPaintColor = this.uPaintColor
       shader.uniforms.uSurfaceColor = this.uSurfaceColor
+      shader.uniforms.uDeflect = this.uDeflect
       shader.vertexShader =
         TINT_GLSL_VERTEX +
         PAINT_GLSL_VERTEX +
-        shader.vertexShader.replace(
-          '#include <color_vertex>',
-          `#include <color_vertex>
+        DEFLECT_GLSL_VERTEX +
+        shader.vertexShader
+          .replace(
+            '#include <color_vertex>',
+            `#include <color_vertex>
           ${TINT_GLSL_VERTEX_BODY}
           ${PAINT_GLSL_VERTEX_BODY}`,
-        )
+          )
+          .replace('#include <begin_vertex>', `#include <begin_vertex>\n\t${DEFLECT_GLSL_VERTEX_BODY}`)
       shader.fragmentShader =
         BACKFACE_GLSL_PREAMBLE +
         PAINT_GLSL_PREAMBLE +
@@ -1055,8 +1082,8 @@ export class SceneManager {
           '#include <color_fragment>',
           `#include <color_fragment>
           ${TINT_GLSL_FRAGMENT}
-          ${PAINT_GLSL_FRAGMENT}
-          ${BACKFACE_GLSL_FRAGMENT}`,
+          ${BACKFACE_GLSL_FRAGMENT}
+          ${PAINT_GLSL_FRAGMENT}`,
         )
       spliceWireframe(shader, this.wire)
     }
@@ -1561,6 +1588,12 @@ export class SceneManager {
    *  underneath it. */
   clearPaint(): void {
     this.marking.clearPaint()
+  }
+
+  /** Turn the marking inside out — what was bare is marked, what was marked
+   *  is bare. Reported through onPaintChange, like a gesture. */
+  invertPaint(): void {
+    this.marking.invertPaint()
   }
 
   /** How far along the pick ray the scan is met, or null off it. */
@@ -2209,6 +2242,9 @@ export class SceneManager {
     this.setEditedMesh(null)
     const geometry = this.mesh.geometry as THREE.BufferGeometry
     this.marking.meshDisposed()
+    // Keyed by vertex number, like the colouring: whoever moves this scan
+    // lays them on again.
+    this.dropDeflection()
     for (const layer of this.layers) layer.scanReplaced?.()
     geometry.disposeBoundsTree?.()
     geometry.dispose()
@@ -2272,6 +2308,110 @@ export class SceneManager {
     this.invalidate()
     if (!painted) return
     this.surfaceRepainted()
+  }
+
+  /**
+   * Play a map as motion, or pass null to put the scan back at rest as
+   * measured. `vectors` is each scan vertex's offset off the ideal surface,
+   * three floats per vertex — see core/deviation/deflection.ts — for the
+   * surface on screen now; a buffer that runs on past the scan's vertices
+   * (a map measured over the shading copies too) is read for those only.
+   *
+   * A new map, or the same one with the search distance moved, carries on
+   * from wherever the loop is. A loop that is starting starts from the scan
+   * as it is on screen.
+   */
+  setDeflection(vectors: Float32Array | null): void {
+    const geometry = this.mesh?.geometry as THREE.BufferGeometry | undefined
+    const fits = vectors !== null && geometry !== undefined && this.scanVertices > 0 &&
+      vectors.length >= this.scanVertices * 3
+    const running = fits && this.deflection?.geometry === geometry
+    if (!running) this.dropDeflection()
+    if (fits) {
+      this.deflection = { vectors, geometry }
+      this.layOutDeflection()
+      if (!running) {
+        this.deflectStart = performance.now() - deflectionStartPhase(this.deflectScale) * DEFLECTION_PERIOD_MS
+      }
+      // Bounded by the scan at rest, and the loop carries it past that.
+      this.mesh!.frustumCulled = false
+    }
+    this.invalidate()
+  }
+
+  /** How many times the deviation is exaggerated at the top of the loop. */
+  setDeflectionScale(scale: number): void {
+    if (!(scale > 0) || scale === this.deflectScale) return
+    this.deflectScale = scale
+    this.invalidate()
+  }
+
+  /** Lay the offsets on the geometry they belong to, if it is on screen. The
+   *  copies sharp edges were split into take their vertex's: moved apart,
+   *  the two sides of a sharp edge would open a crack along it. */
+  private layOutDeflection(): void {
+    const d = this.deflection
+    if (!d || d.geometry !== this.mesh?.geometry) return
+    const count = d.geometry.getAttribute('position').count
+    const own = this.scanVertices
+    let attr = d.geometry.getAttribute('deflect') as THREE.BufferAttribute | undefined
+    if (attr && attr.count !== count) {
+      this.releaseDeflect(d.geometry)
+      attr = undefined
+    }
+    if (!attr) {
+      attr = new THREE.BufferAttribute(new Float32Array(count * 3), 3)
+      d.geometry.setAttribute('deflect', attr)
+    }
+    const a = attr.array as Float32Array
+    a.set(d.vectors.subarray(0, own * 3))
+    const c = this.copyOf
+    for (let k = 0; k < c.length; k++) {
+      const dst = (own + k) * 3, src = c[k] * 3
+      a[dst] = a[src]
+      a[dst + 1] = a[src + 1]
+      a[dst + 2] = a[src + 2]
+    }
+    attr.needsUpdate = true
+  }
+
+  /** Back at rest, with the offsets taken off the geometry they were laid on. */
+  private dropDeflection(): void {
+    const d = this.deflection
+    this.deflection = null
+    this.uDeflect.value = 0
+    if (this.mesh) this.mesh.frustumCulled = true
+    if (d) this.releaseDeflect(d.geometry)
+  }
+
+  /** Take the offsets' attribute off a geometry, GPU buffer and all. three.js
+   *  lets an attribute's buffer go only when its geometry is disposed, so it
+   *  is: the rest of the scan is uploaded again on the next frame it is
+   *  drawn — once, the price of not keeping a buffer the size of the
+   *  positions for a loop nobody is playing. */
+  private releaseDeflect(geometry: THREE.BufferGeometry): void {
+    if (!geometry.getAttribute('deflect')) return
+    geometry.dispose()
+    geometry.deleteAttribute('deflect')
+  }
+
+  /** Where the loop is this frame. Playing, it draws every frame — that is
+   *  what it is for; at rest it costs a comparison. */
+  private stepDeflection(): void {
+    const d = this.deflection
+    const playing = d !== null && this.mesh !== null && this.mesh.visible && d.geometry === this.mesh.geometry
+    if (!playing) {
+      // Off the geometry on screen, the attribute is not there to be read
+      // and the shader must not add anything at all.
+      if (this.uDeflect.value !== 0) {
+        this.uDeflect.value = 0
+        this.invalidate()
+      }
+      return
+    }
+    const phase = (performance.now() - this.deflectStart) / DEFLECTION_PERIOD_MS
+    this.uDeflect.value = deflectionFactor(phase, this.deflectScale) - 1
+    this.invalidate()
   }
 
   /** Paint a reading on some of the scan's vertices, leaving the rest as
@@ -2339,6 +2479,7 @@ export class SceneManager {
     this.setEditedMesh(null)
     this.regions.detach()
     this.marking.meshDisposed()
+    this.dropDeflection()
     // What the layers made of the scan goes with it.
     for (const layer of this.layers) layer.scanReplaced?.()
     if (!this.mesh) return
