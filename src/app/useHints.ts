@@ -14,6 +14,7 @@ import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
 import { plugins } from '../plugins/registry'
 import type { WorkspaceTab } from '../plugins/api'
+import { useCommandActivity } from '../commands/activity'
 
 /** The ladder's answer for the workspace on screen, already silenced where it
  *  has no business speaking. Every field is a primitive or a boolean, so the
@@ -56,10 +57,12 @@ function useLadder(): HintResult {
 
   const imageLoaded = useFlat((s) => s.imageName !== null)
   const imageBusy = useFlat((s) => s.imageBusy)
+  // An agent's command is steps the person watches rather than takes.
+  const commandRunning = useCommandActivity((s) => s.running !== null)
 
   const input: HintInput = {
     workspace,
-    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning || imageBusy || pluginHints.some((h) => h?.busy),
+    busy: scanBusy || nominalBusy || deviationRunning || thicknessRunning || imageBusy || commandRunning || pluginHints.some((h) => h?.busy),
     scanLoaded,
     fittedElements,
     dimensions,
@@ -86,6 +89,39 @@ function useLadder(): HintResult {
   if (inSubFlow) return result === 'done' ? 'done' : null
   if (!on || learned) return result === 'done' ? 'done' : null
   return result
+}
+
+/** The ladder's answer for the workspace on screen right now, read off the
+ *  stores outside React — the same reading useLadder takes, for the
+ *  session's readout (commands/state.ts). Neither the switch in Settings nor
+ *  what has been learned silences it: whoever asks wants the step. A
+ *  plugin's workspace has its step in a hook, so here it has none. */
+export function hintNow(): HintResult {
+  const workspace: HintTrack = useShell.getState().workspace
+  const s = useStore.getState()
+  const d = useDeviation.getState()
+  const t = useThickness.getState()
+  const f = useFlat.getState()
+  return nextHint({
+    workspace,
+    busy: s.busy || d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running' || t.status === 'running' || f.imageBusy,
+    scanLoaded: s.fileName !== null,
+    fittedElements: s.elements.filter((e) => e.fit).length,
+    dimensions: s.dimensions.length,
+    draftOpen: s.draft !== null,
+    dimDraftOpen: s.dimDraft !== null,
+    alignDraftOpen: s.alignDraft !== null,
+    sectionDraftOpen: s.sectionDraft !== null,
+    onElement: d.source === 'element',
+    referenceLoaded: d.nominalName !== null,
+    aligned: d.alignStatus === 'done' && d.align !== null,
+    mapReady: d.mapStatus === 'ready',
+    hasTargetElement: s.elements.some((e) => isDeviationTarget(e.fit)),
+    targetChosen: d.targetId !== null,
+    thicknessReady: t.status === 'ready',
+    pluginStep: plugins().some((p) => p.workspace?.id === workspace) ? null : undefined,
+    imageLoaded: f.imageName !== null,
+  })
 }
 
 /** True when this control is the step to press next. Give it the control's own

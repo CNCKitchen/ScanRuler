@@ -1,0 +1,2299 @@
+[
+  {
+    "name": "align.auto",
+    "title": "Auto-align the part",
+    "description": "Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. Returns what the pose was read from, the transform and the elements afterwards. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "align.clear",
+    "title": "Reset the alignment",
+    "description": "Put the part back in the coordinates the scanner delivered it in, with everything measured on it. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "align.datum",
+    "title": "Align the part to datums",
+    "description": "A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points on a face) whose outward normal becomes primaryAxis (default z-, the face the part stands on facing down); secondary turns it — a line, axis or plane (or 2 points along an edge) laid along secondaryAxis (default x+); origin is the zero point — a point, sphere or circle (or 1 point). Each is an element by id or name, or points on the scan in mm. An origin alone moves the part without turning it. Everything measured moves with the part. Returns the transform applied and the elements afterwards. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "primary": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "element": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "description": "The element’s id.",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                      "minLength": 1
+                    }
+                  ],
+                  "description": "A measured element for levelling."
+                }
+              },
+              "required": [
+                "element"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "A point, mm.",
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "description": "3 points on the scan for levelling — they span the face.",
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "Levelling: an element, or 3 points on the scan."
+        },
+        "primaryAxis": {
+          "type": "string",
+          "enum": [
+            "x+",
+            "x-",
+            "y+",
+            "y-",
+            "z+",
+            "z-"
+          ],
+          "description": "The axis the primary’s outward normal becomes — default z-."
+        },
+        "secondary": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "element": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "description": "The element’s id.",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                      "minLength": 1
+                    }
+                  ],
+                  "description": "A measured element for rotation."
+                }
+              },
+              "required": [
+                "element"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "points": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "description": "A point, mm.",
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "description": "2 points on the scan for rotation — they run along the edge.",
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "points"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "Rotation: an element, or 2 points on the scan."
+        },
+        "secondaryAxis": {
+          "type": "string",
+          "enum": [
+            "x+",
+            "x-",
+            "y+",
+            "y-",
+            "z+",
+            "z-"
+          ],
+          "description": "The axis the secondary runs along — default x+."
+        },
+        "origin": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "element": {
+                  "oneOf": [
+                    {
+                      "type": "integer",
+                      "description": "The element’s id.",
+                      "minimum": 1
+                    },
+                    {
+                      "type": "string",
+                      "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                      "minLength": 1
+                    }
+                  ],
+                  "description": "A measured element for the zero point."
+                }
+              },
+              "required": [
+                "element"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "point": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "A point for the zero point, mm.",
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              },
+              "required": [
+                "point"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "The zero point: an element, or a point on the scan."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "align.symmetry",
+    "title": "Align the part on its symmetry plane",
+    "description": "Settle the part’s pose on its mirror plane and apply it, as Use symmetry then Confirm alignment do: the pose is Auto-align’s, the mirror plane a measured symmetry plane or one searched for on the scan; the axis nearest its normal is turned onto it and the zero point put on it. Refuses when the scan has no symmetry plane. Returns the note on what it settled on, the transform and the elements afterwards. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "deviation.align",
+    "title": "Best-fit the scan onto the reference",
+    "description": "Rigid best fit (no scale) of the scan onto the reference part, then the deviation map under it. mode auto (the default) finds the pose on its own; points starts from three or more pairs of corresponding points — a point on the scan and the same point on the reference, mm — then refines; local refines the fit in hand on a marked surface only (vertices, scan vertex numbers), within searchDistance mm. Returns the alignment (RMS, points matched, transform) and the map’s statistics. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "points",
+            "local"
+          ],
+          "description": "auto (default), points or local."
+        },
+        "pairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scan": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "On the scan, mm.",
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "reference": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "The same point on the reference, mm.",
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "scan",
+              "reference"
+            ],
+            "additionalProperties": false
+          },
+          "description": "points: the corresponding pairs.",
+          "minItems": 3
+        },
+        "vertices": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "local: the marked surface, scan vertex numbers.",
+          "minItems": 3
+        },
+        "searchDistance": {
+          "type": "number",
+          "description": "local: how far a point may be from the reference to count, mm.",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "deviation.measure",
+    "title": "Measure the deviation map",
+    "description": "Measure the deviation map again under the alignment in hand — after a change of facing limit or search distance, say. deviation.align measures it already. Returns the map’s statistics (min, max, mean, RMS, sigma, share within the tolerance, points matched). One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "deviation.open_reference",
+    "title": "Open the reference part",
+    "description": "Open the nominal part the scan is compared with — STEP straight from CAD, or STL, PLY or OBJ — in place of the one there is; any alignment and map against the old one go. The elements measured on the scan stay. Returns the deviation state. Not undoable: a new reference starts a new history.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "format": "binary",
+          "description": "The file’s contents."
+        },
+        "name": {
+          "type": "string",
+          "description": "The file's name with its extension — \"bracket.step\". It is what the session calls the model.",
+          "minLength": 1
+        },
+        "units": {
+          "type": "string",
+          "enum": [
+            "mm",
+            "cm",
+            "m",
+            "in"
+          ],
+          "description": "What the file’s coordinates are in: mm (the default), cm, m or in. An STL carries no units of its own; PLY and OBJ are taken in millimetres unless told otherwise. Everything is measured in millimetres once read."
+        }
+      },
+      "required": [
+        "bytes",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "deviation.set_target",
+    "title": "Measure against an element",
+    "description": "Map how far the scan strays from one of its own fitted elements — a plane, cylinder, cone, sphere or torus — instead of from a reference part, as choosing the element in the panel does; null goes back to the reference. side is the material side, read off the scan when the element is chosen (outward: the element’s outer side; inward: a bore or shell) — give it to override. facingDeg limits which surface counts to what faces the element within that many degrees, null for any. Needs the viewport. Returns the map’s statistics. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "element": {
+          "oneOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "description": "The element’s id.",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                  "minLength": 1
+                }
+              ],
+              "description": "The element."
+            },
+            {
+              "type": "null",
+              "description": "Back to the reference part."
+            }
+          ],
+          "description": "The element, or null."
+        },
+        "side": {
+          "type": "string",
+          "enum": [
+            "outward",
+            "inward"
+          ],
+          "description": "The material side."
+        },
+        "facingDeg": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 90
+            },
+            {
+              "type": "null",
+              "description": "Off."
+            }
+          ],
+          "description": "The facing limit, degrees."
+        }
+      },
+      "required": [
+        "element"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "deviation.settings",
+    "title": "Set how the deviation is read",
+    "description": "The deviation map’s reading: range, the colour scale ± mm; maxDistance, how far from the reference a point may be to count, mm; bands, a stepped scale of that many colours or null for smooth; tolerance, ± mm, the share within which the statistics give; facingDeg, how far the reference surface a point is measured against may turn from facing it, degrees, or null for the nearest surface whatever it faces — a change of it measures the map again. Returns the deviation state. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "range": {
+          "type": "number",
+          "description": "Colour scale, ± mm.",
+          "exclusiveMinimum": 0
+        },
+        "maxDistance": {
+          "type": "number",
+          "description": "Search distance, mm.",
+          "exclusiveMinimum": 0
+        },
+        "bands": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 2
+            },
+            {
+              "type": "null",
+              "description": "Off."
+            }
+          ],
+          "description": "Stepped colours, or null for smooth."
+        },
+        "tolerance": {
+          "type": "number",
+          "description": "Tolerance, ± mm.",
+          "exclusiveMinimum": 0
+        },
+        "facingDeg": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 90
+            },
+            {
+              "type": "null",
+              "description": "Off."
+            }
+          ],
+          "description": "Facing limit, degrees, or null."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "dimension.add",
+    "title": "Add a dimension",
+    "description": "Measure between elements, or a size or tolerance of one, as the panel’s dimension box does. refs are the elements by id or name. Without type, the type follows the elements as clicking them in the viewport does — two spheres or points give their centre distance, two planes their distance, a plane and an axis their distance, and so on. With type, it is one of: dist-point-point (From, To); dist-point-axis (Point, Axis); dist-point-plane (Point, Plane); dist-axis-axis (Axis A, Axis B); dist-axis-plane (Axis, Plane); dist-plane-plane (From, To); angle-axis-axis (Axis A, Axis B); angle-axis-plane (Axis, Plane); angle-plane-plane (Plane A, Plane B); size-diameter (Feature); form-flatness (Plane); form-cylindricity (Cylinder); form-circularity (Circle); form-sphericity (Sphere); orient-parallelism (Feature, Datum); orient-perpendicularity (Feature, Datum); orient-angularity (Feature, Datum); loc-coaxiality (Feature, Datum axis). anchor, for two spheres: center (default), gap or span. limit holds the value to a ceiling or a nominal ± band. Returns the dimension with its value (mm or degrees, full precision), the formatted value the panel shows, and the verdict. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "refs": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The element’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "An element."
+          },
+          "description": "The elements, in slot order.",
+          "minItems": 1,
+          "maxItems": 3
+        },
+        "type": {
+          "type": "string",
+          "description": "The dimension type — see the description. Optional.",
+          "minLength": 1
+        },
+        "anchor": {
+          "type": "string",
+          "enum": [
+            "center",
+            "gap",
+            "span"
+          ],
+          "description": "Between two spheres: centre to centre (default), the gap between their surfaces, or the span across them."
+        },
+        "limit": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "max"
+                  ],
+                  "description": "A ceiling."
+                },
+                "max": {
+                  "type": "number",
+                  "description": "The value may be this and no more — a tolerance zone’s width, mm or degrees."
+                }
+              },
+              "required": [
+                "kind",
+                "max"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "band"
+                  ],
+                  "description": "A nominal with an allowance either side."
+                },
+                "nominal": {
+                  "type": "number",
+                  "description": "The nominal value, mm or degrees."
+                },
+                "plus": {
+                  "type": "number",
+                  "description": "How far above it is allowed.",
+                  "minimum": 0
+                },
+                "minus": {
+                  "type": "number",
+                  "description": "How far below it is allowed (a positive number).",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "kind",
+                "nominal",
+                "plus",
+                "minus"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "What the value is checked against; the readout and the report then carry a pass or fail verdict."
+        },
+        "basic": {
+          "type": "number",
+          "description": "An angularity’s basic angle, degrees."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it; otherwise it is numbered — \"Distance 2\".",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "refs"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "dimension.remove",
+    "title": "Delete a dimension",
+    "description": "Delete a dimension or tolerance. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "dimension": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The dimension’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "Its name — \"Distance 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The dimension."
+        }
+      },
+      "required": [
+        "dimension"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "dimension.set_basic",
+    "title": "Set an angularity’s basic angle",
+    "description": "The basic angle an angularity tolerance is read against, in degrees, or null to take it off. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "dimension": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The dimension’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "Its name — \"Distance 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The angularity."
+        },
+        "basic": {
+          "oneOf": [
+            {
+              "type": "number",
+              "description": "Degrees."
+            },
+            {
+              "type": "null",
+              "description": "None."
+            }
+          ],
+          "description": "The basic angle."
+        }
+      },
+      "required": [
+        "dimension",
+        "basic"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "dimension.set_limit",
+    "title": "Set a dimension’s limit",
+    "description": "Hold a dimension to a limit — a ceiling, or a nominal ± band — or take it off with null. Returns the dimension with its verdict. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "dimension": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The dimension’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "Its name — \"Distance 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The dimension."
+        },
+        "limit": {
+          "oneOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "max"
+                      ],
+                      "description": "A ceiling."
+                    },
+                    "max": {
+                      "type": "number",
+                      "description": "The value may be this and no more — a tolerance zone’s width, mm or degrees."
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "max"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "band"
+                      ],
+                      "description": "A nominal with an allowance either side."
+                    },
+                    "nominal": {
+                      "type": "number",
+                      "description": "The nominal value, mm or degrees."
+                    },
+                    "plus": {
+                      "type": "number",
+                      "description": "How far above it is allowed.",
+                      "minimum": 0
+                    },
+                    "minus": {
+                      "type": "number",
+                      "description": "How far below it is allowed (a positive number).",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "nominal",
+                    "plus",
+                    "minus"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "description": "What the value is checked against; the readout and the report then carry a pass or fail verdict."
+            },
+            {
+              "type": "null",
+              "description": "No limit."
+            }
+          ],
+          "description": "The limit, or null for none."
+        }
+      },
+      "required": [
+        "dimension",
+        "limit"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.construct",
+    "title": "Construct an element",
+    "description": "Construct an element from others and typed-in numbers, as the panel’s creation methods do — by kind: point (point-coords, point-centroid, point-midpoint, point-line-plane), line (line-two-points, line-axis, line-plane-plane), plane (plane-three-points, plane-offset, plane-midplane, plane-coords, plane-symmetry), circle (circle-plane-cylinder, circle-plane-sphere, circle-coords). refs fill the method’s slots in order, by element id or name; params are its numbers in order (or by key: x, y, z; offset; nx, ny, nz, px, py, pz; d, cx, cy, cz). point-centroid and plane-symmetry measure the scan themselves: vertices confines them to a marked surface, seed starts the symmetry search from a plane. Returns the element. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "point",
+            "line",
+            "plane",
+            "sphere",
+            "cylinder",
+            "cone",
+            "circle",
+            "torus"
+          ],
+          "description": "What to construct."
+        },
+        "method": {
+          "type": "string",
+          "description": "The creation method — see the description.",
+          "minLength": 1
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The element’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "A source element."
+          },
+          "description": "The method’s source elements, slot by slot."
+        },
+        "params": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "description": "The numbers in the method’s order."
+            },
+            {
+              "type": "object",
+              "description": "The numbers by key.",
+              "additionalProperties": true
+            }
+          ],
+          "description": "The method’s typed-in numbers, in millimetres."
+        },
+        "seed": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The element’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "plane-symmetry: the plane the search starts from — a plane element or \"XY\", \"YZ\", \"ZX\"."
+        },
+        "vertices": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "point-centroid, plane-symmetry: confine the search to these scan vertices.",
+          "minItems": 3
+        },
+        "assumed": {
+          "type": "number",
+          "description": "The diameter the feature was designed at, mm — a sphere, cylinder or circle is then drawn and exported at it, and still reported as measured.",
+          "exclusiveMinimum": 0
+        },
+        "orient": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "description": "The element’s id.",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                  "minLength": 1
+                }
+              ],
+              "description": "The reference plane: a plane element, or a coordinate plane \"XY\", \"YZ\" or \"ZX\"."
+            },
+            "relation": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "inPlane"
+              ],
+              "description": "normal (the default): the element’s direction is the plane’s normal — a parallel face, a perpendicular bore. inPlane: it lies in the plane."
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "additionalProperties": false,
+          "description": "Align the element’s direction to a reference plane, as designed; the fit as measured is kept beside it and reported."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it; otherwise it is numbered by kind — \"Sphere 2\".",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.fit",
+    "title": "Fit an element",
+    "description": "Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place given and is best-fitted to it; a point is the place itself; a circle goes through three or more places. `at` is one place, or a list — a feature seen in patches can be seeded on each. A place is { vertex } (a scan vertex), { point: [x, y, z] } (the nearest scan vertex to a point, mm, in the current frame), or { screen } / { candidate } (not available yet). Returns the element with its fit at full precision and the seed actually used (vertex and point), so a recipe can be replayed on another scan. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "plane",
+            "sphere",
+            "cylinder",
+            "cone",
+            "torus",
+            "point",
+            "circle"
+          ],
+          "description": "What to fit."
+        },
+        "at": {
+          "oneOf": [
+            {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "vertex": {
+                      "type": "integer",
+                      "description": "A scan vertex, as a project file and session.state name it.",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "vertex"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "point": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "description": "A point in millimetres, in the frame the part is measured in now; the scan vertex nearest it is taken.",
+                      "minItems": 3,
+                      "maxItems": 3
+                    }
+                  },
+                  "required": [
+                    "point"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "screen": {
+                      "type": "array",
+                      "items": {
+                        "type": "number"
+                      },
+                      "description": "A pixel of the viewport, x right and y down from its top left, as on a view.render picture.",
+                      "minItems": 2,
+                      "maxItems": 2
+                    }
+                  },
+                  "required": [
+                    "screen"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "candidate": {
+                      "type": "integer",
+                      "description": "A feature from scan.candidates.",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "candidate"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "description": "One place."
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "vertex": {
+                        "type": "integer",
+                        "description": "A scan vertex, as a project file and session.state name it.",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "vertex"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "point": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "A point in millimetres, in the frame the part is measured in now; the scan vertex nearest it is taken.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": [
+                      "point"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "screen": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "A pixel of the viewport, x right and y down from its top left, as on a view.render picture.",
+                        "minItems": 2,
+                        "maxItems": 2
+                      }
+                    },
+                    "required": [
+                      "screen"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "candidate": {
+                        "type": "integer",
+                        "description": "A feature from scan.candidates.",
+                        "minimum": 0
+                      }
+                    },
+                    "required": [
+                      "candidate"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "A place."
+              },
+              "description": "Several places.",
+              "minItems": 1
+            }
+          ],
+          "description": "Where on the scan."
+        },
+        "sigma": {
+          "type": "integer",
+          "enum": [
+            3,
+            2,
+            1,
+            0
+          ],
+          "description": "The outlier cut-off: residuals beyond this many sigma are left out of the fit — 3 (the default the panel starts on), 2, 1, or 0 for all points."
+        },
+        "assumed": {
+          "type": "number",
+          "description": "The diameter the feature was designed at, mm — a sphere, cylinder or circle is then drawn and exported at it, and still reported as measured.",
+          "exclusiveMinimum": 0
+        },
+        "orient": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "description": "The element’s id.",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                  "minLength": 1
+                }
+              ],
+              "description": "The reference plane: a plane element, or a coordinate plane \"XY\", \"YZ\" or \"ZX\"."
+            },
+            "relation": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "inPlane"
+              ],
+              "description": "normal (the default): the element’s direction is the plane’s normal — a parallel face, a perpendicular bore. inPlane: it lies in the plane."
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "additionalProperties": false,
+          "description": "Align the element’s direction to a reference plane, as designed; the fit as measured is kept beside it and reported."
+        },
+        "extend": {
+          "type": "object",
+          "properties": {
+            "start": {
+              "type": "number",
+              "description": "Cylinder: millimetres past the start of the measured surface (negative pulls it in)."
+            },
+            "end": {
+              "type": "number",
+              "description": "Cylinder: millimetres past its end."
+            },
+            "uMin": {
+              "type": "number",
+              "description": "Plane: millimetres past one edge of the patch along its first axis."
+            },
+            "uMax": {
+              "type": "number",
+              "description": "Plane: past the opposite edge."
+            },
+            "vMin": {
+              "type": "number",
+              "description": "Plane: past one edge along its second axis."
+            },
+            "vMax": {
+              "type": "number",
+              "description": "Plane: past the opposite edge."
+            }
+          },
+          "additionalProperties": false,
+          "description": "How far past the measured surface a cylinder or plane is drawn and exported. What is reported stays what was measured."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it; otherwise it is numbered by kind — \"Sphere 2\".",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.fit_marked",
+    "title": "Fit an element to a marked surface",
+    "description": "Fit a plane, sphere, cylinder, cone or torus to exactly the scan vertices given — a surface marked by hand in the panel, with no search for the surface. The element keeps the marking as its recipe. Returns the element. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "plane",
+            "sphere",
+            "cylinder",
+            "cone",
+            "torus"
+          ],
+          "description": "What to fit."
+        },
+        "vertices": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "The scan vertices of the surface.",
+          "minItems": 3
+        },
+        "sigma": {
+          "type": "integer",
+          "enum": [
+            3,
+            2,
+            1,
+            0
+          ],
+          "description": "The outlier cut-off: residuals beyond this many sigma are left out of the fit — 3 (the default the panel starts on), 2, 1, or 0 for all points."
+        },
+        "assumed": {
+          "type": "number",
+          "description": "The diameter the feature was designed at, mm — a sphere, cylinder or circle is then drawn and exported at it, and still reported as measured.",
+          "exclusiveMinimum": 0
+        },
+        "orient": {
+          "type": "object",
+          "properties": {
+            "to": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "description": "The element’s id.",
+                  "minimum": 1
+                },
+                {
+                  "type": "string",
+                  "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+                  "minLength": 1
+                }
+              ],
+              "description": "The reference plane: a plane element, or a coordinate plane \"XY\", \"YZ\" or \"ZX\"."
+            },
+            "relation": {
+              "type": "string",
+              "enum": [
+                "normal",
+                "inPlane"
+              ],
+              "description": "normal (the default): the element’s direction is the plane’s normal — a parallel face, a perpendicular bore. inPlane: it lies in the plane."
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "additionalProperties": false,
+          "description": "Align the element’s direction to a reference plane, as designed; the fit as measured is kept beside it and reported."
+        },
+        "extend": {
+          "type": "object",
+          "properties": {
+            "start": {
+              "type": "number",
+              "description": "Cylinder: millimetres past the start of the measured surface (negative pulls it in)."
+            },
+            "end": {
+              "type": "number",
+              "description": "Cylinder: millimetres past its end."
+            },
+            "uMin": {
+              "type": "number",
+              "description": "Plane: millimetres past one edge of the patch along its first axis."
+            },
+            "uMax": {
+              "type": "number",
+              "description": "Plane: past the opposite edge."
+            },
+            "vMin": {
+              "type": "number",
+              "description": "Plane: past one edge along its second axis."
+            },
+            "vMax": {
+              "type": "number",
+              "description": "Plane: past the opposite edge."
+            }
+          },
+          "additionalProperties": false,
+          "description": "How far past the measured surface a cylinder or plane is drawn and exported. What is reported stays what was measured."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it; otherwise it is numbered by kind — \"Sphere 2\".",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "vertices"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.remove",
+    "title": "Delete an element",
+    "description": "Delete an element, as its row’s delete key does — and with it every construction built on it and every dimension that refers to any of them. Returns what went. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "element": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The element’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The element."
+        }
+      },
+      "required": [
+        "element"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.rename",
+    "title": "Rename an element",
+    "description": "Give an element another name; dimensions and constructions on it keep pointing at it. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "element": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The element’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The element."
+        },
+        "name": {
+          "type": "string",
+          "description": "Its new name.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "element",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "element.set_visible",
+    "title": "Show or hide elements",
+    "description": "Show or hide one element, or all of them with all: true. A hidden element still measures; only its drawing and surface tint go. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "element": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The element’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "The element."
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Every element."
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "Shown (true) or hidden (false)."
+        }
+      },
+      "required": [
+        "visible"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "export.cloud",
+    "title": "Export the scan as a point cloud",
+    "description": "Every scan vertex with its normal, in the pose it is shown in, as a binary PLY (the default) or an XYZ text file. Needs the viewport. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "ply",
+            "xyz"
+          ],
+          "description": "ply or xyz."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "export.csv",
+    "title": "Export the 2D measurements as CSV",
+    "description": "The 2D Measure elements and dimensions as CSV, for a spreadsheet. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "export.dxf",
+    "title": "Export the 2D sheet as DXF",
+    "description": "The 2D sheet as DXF for CAD — millimetres, y up, the origin on the sheet’s alignment, the edges thinned to a sketch’s worth. Needs the browser. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "export.step",
+    "title": "Export the elements as STEP",
+    "description": "The measured elements as analytic STEP geometry for CAD — as drawn, extensions and assumed diameters included — and, in a group per section, what was measured on the sections. style: solids (the default the panel starts on: solids and faces) or surfaces (construction surfaces); it is remembered as the panel’s choice. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "style": {
+          "type": "string",
+          "enum": [
+            "solids",
+            "surfaces"
+          ],
+          "description": "solids or surfaces."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "export.stl",
+    "title": "Export the scan as STL",
+    "description": "The scan as a binary STL in the pose it is shown in — a datum alignment and a best fit onto the reference included. Needs the viewport. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "export.svg",
+    "title": "Export the 2D sheet as SVG",
+    "description": "The 2D sheet at true scale as SVG — the shown edges and the visible elements, aligned and turned as shown — for a vector editor, a laser or a 1:1 print. Needs the browser. Returns the file’s bytes and the name the panel would save it under.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.calibrate",
+    "title": "Calibrate the image",
+    "description": "Set the image’s scale against a known length, as the Calibrate tool does: distance takes two places a known distance apart, diameter three or more on a circle of known diameter; mm is that length. Every measurement on the image follows the new scale. Returns the calibration. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "distance",
+            "diameter"
+          ],
+          "description": "distance (two places) or diameter (three or more on a circle)."
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "A place on the sheet, [x, y] in the sheet’s units.",
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "The places, in the sheet’s units as they are now.",
+          "minItems": 2
+        },
+        "mm": {
+          "type": "number",
+          "description": "The true length, mm.",
+          "exclusiveMinimum": 0
+        }
+      },
+      "required": [
+        "mode",
+        "points",
+        "mm"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.detect_edges",
+    "title": "Detect the image’s edges",
+    "description": "Find the edges in the image again at a sensitivity from 0 (only the strongest) to 1 (every faint one) — what the seed and edge methods of flat.fit and the snapping of every place follow. Needs the browser. Returns how many edge chains were found.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "sensitivity": {
+          "type": "number",
+          "description": "0 to 1.",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.dimension_add",
+    "title": "Add a 2D dimension",
+    "description": "Measure between two 2D elements: flat-dist-point-point (point, point), flat-dist-point-line (point, line), flat-dist-line-line (line, line), flat-angle-line-line (line, line). Points, circles and arcs count as their point (centre), lines as lines. Without type, the first that takes the two elements in the order given. Returns the dimensions on the sheet. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "refs": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The 2D element’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "Its name — \"Line 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "A 2D element."
+          },
+          "description": "The two elements.",
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "flat-dist-point-point",
+            "flat-dist-point-line",
+            "flat-dist-line-line",
+            "flat-angle-line-line"
+          ],
+          "description": "The dimension type."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "refs"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.fit",
+    "title": "Fit a 2D element",
+    "description": "Make a 2D element on the sheet as its tool does — kind point, line, circle, arc or spline, by a method of that kind: point: flat-point-pick (pick), flat-point-midpoint (construct), flat-point-intersect (construct), flat-point-center (construct); line: flat-line-pick (pick), flat-line-seed (seed), flat-line-edge (edge); circle: flat-circle-pick (pick), flat-circle-seed (seed), flat-circle-edge (edge); arc: flat-arc-pick (pick), flat-arc-edge (edge); spline: flat-spline-pick (pick). A pick method takes points, the places clicked; a seed method one place on a detected edge, grown along it; an edge method a place on an edge, taken whole; a construct method refs, other 2D elements by id or name. Returns the element with its fit. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "point",
+            "line",
+            "circle",
+            "arc",
+            "spline"
+          ],
+          "description": "What to make."
+        },
+        "method": {
+          "type": "string",
+          "description": "The method — see the description; the kind’s first pick method by default.",
+          "minLength": 1
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "description": "A place on the sheet, [x, y] in the sheet’s units.",
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "The places, in the sheet’s units.",
+          "minItems": 1
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The 2D element’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "Its name — \"Line 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "A 2D element."
+          },
+          "description": "construct: the source elements."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.open_image",
+    "title": "Open a flatbed image",
+    "description": "Open a flatbed scan of a part — PNG or JPEG, at the highest optical resolution — on the 2D sheet, in place of the image there was. The scale it declares about itself is taken until it is calibrated. Needs the browser. Returns the 2D state. Not undoable: a new image starts a new history.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "format": "binary",
+          "description": "The file’s contents."
+        },
+        "name": {
+          "type": "string",
+          "description": "The file's name with its extension — \"part.png\". It is what the session calls the model.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "bytes",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.report",
+    "title": "Get the 2D report",
+    "description": "The 2D Measure report as its Copy button gives it: the image or section, the scale it rests on, the alignment, every element and dimension.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "flat.set_alignment",
+    "title": "Align the sheet",
+    "description": "Put the sheet’s zero point at origin and its X axis through xAxis, as the Align tool’s two clicks do — every coordinate on the sheet is then read in that frame. clear: true takes the alignment off. Returns the 2D state. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "The zero point, in the sheet’s units.",
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "xAxis": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "A place on the +X axis.",
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "clear": {
+          "type": "boolean",
+          "description": "Take the alignment off instead."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "history.redo",
+    "title": "Redo",
+    "description": "Redo the step undone last. Returns the step’s name and the session afterwards.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "history.undo",
+    "title": "Undo",
+    "description": "Undo the last step — one of the person’s or one of these commands, each of which is one step. Returns the step’s name and the session afterwards.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "project.load",
+    "title": "Open a project",
+    "description": "Open a .scanruler project in place of the session — its models, then every measurement in it, refitted and remeasured. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session. Not undoable: an opened project starts a new history.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "format": "binary",
+          "description": "The project file’s contents."
+        },
+        "name": {
+          "type": "string",
+          "description": "Its name, for the status line.",
+          "minLength": 1
+        },
+        "discard": {
+          "type": "boolean",
+          "description": "Replace the session even though it holds measurements — they are lost (a project file saved before keeps them). Without it the command refuses when there is work to lose."
+        }
+      },
+      "required": [
+        "bytes"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "project.save",
+    "title": "Save the project",
+    "description": "The session as a .scanruler project file, as Save Project downloads it: the scan, the reference, the image and every measurement, each rebuilt when it is opened. Needs the browser. Returns the file’s bytes and its name.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": false
+  },
+  {
+    "name": "report.get",
+    "title": "Get the report",
+    "description": "The measurement report. format \"text\" is word for word what the workspace’s Copy report button puts on the clipboard — measure (elements and dimensions with verdicts), deviation, thickness or flat (2D). format \"json\" (the default) is the whole session’s report structured: what the numbers rest on (units, scale, frame, applied alignment, fit method and each element’s outlier cut-off), every element with its fit, every dimension with value, unit, limit and pass/fail verdict, the tally of checks, the sections, and the deviation, thickness and 2D results with their settings.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "json",
+            "text"
+          ],
+          "description": "json (the default) or text."
+        },
+        "workspace": {
+          "type": "string",
+          "enum": [
+            "measure",
+            "deviation",
+            "thickness",
+            "flat"
+          ],
+          "description": "For text: whose report — measure (the default), deviation, thickness or flat."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "scan.nearest",
+    "title": "Find a place on the scan",
+    "description": "Where a location lands on the scan: the vertex (a point snaps to the nearest one), its coordinates and outward normal, a triangle it is a corner of, and how far it is from the point asked about. Use it to check a point lies on the surface before fitting there.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "vertex": {
+                  "type": "integer",
+                  "description": "A scan vertex, as a project file and session.state name it.",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "vertex"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "point": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "A point in millimetres, in the frame the part is measured in now; the scan vertex nearest it is taken.",
+                  "minItems": 3,
+                  "maxItems": 3
+                }
+              },
+              "required": [
+                "point"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "screen": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  },
+                  "description": "A pixel of the viewport, x right and y down from its top left, as on a view.render picture.",
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              },
+              "required": [
+                "screen"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "candidate": {
+                  "type": "integer",
+                  "description": "A feature from scan.candidates.",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "candidate"
+              ],
+              "additionalProperties": false
+            }
+          ],
+          "description": "The place on the scan."
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "scan.open",
+    "title": "Open a scan",
+    "description": "Open a mesh as the scan to measure — STL, PLY or OBJ — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true. Returns the scan: name, units, vertex and triangle counts, its bounding box (min and max corners), the box’s centre and its diagonal (size), in millimetres. Not undoable: a new scan starts a new history.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "format": "binary",
+          "description": "The file’s contents."
+        },
+        "name": {
+          "type": "string",
+          "description": "The file's name with its extension — \"ballbar.stl\". It is what the session calls the model.",
+          "minLength": 1
+        },
+        "units": {
+          "type": "string",
+          "enum": [
+            "mm",
+            "cm",
+            "m",
+            "in"
+          ],
+          "description": "What the file’s coordinates are in: mm (the default), cm, m or in. An STL carries no units of its own; PLY and OBJ are taken in millimetres unless told otherwise. Everything is measured in millimetres once read."
+        },
+        "discard": {
+          "type": "boolean",
+          "description": "Replace the session even though it holds measurements — they are lost (a project file saved before keeps them). Without it the command refuses when there is work to lose."
+        }
+      },
+      "required": [
+        "bytes",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "section.cut",
+    "title": "Cut a section",
+    "description": "Cut the scan with a plane and keep the cut as a section, measured in the 2D workspace (flat) — where it is put on the sheet. across is what the plane is taken across: an element with a direction (a plane, cylinder, cone, line or circle) by id or name, or a coordinate plane \"XY\", \"YZ\" or \"ZX\", which is laid through the part’s centre. offset slides the plane along its normal, mm — from the element, or for a coordinate plane the coordinate itself. Returns the section: its plane and how many chains the cut has. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "across": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "description": "The element’s id.",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "description": "The element’s name, as the list shows it — \"Sphere 1\".",
+              "minLength": 1
+            }
+          ],
+          "description": "An element with a direction, or a coordinate plane \"XY\", \"YZ\", \"ZX\"."
+        },
+        "offset": {
+          "type": "number",
+          "description": "Where along the normal the plane lies, mm."
+        },
+        "name": {
+          "type": "string",
+          "description": "A name for it; otherwise it is numbered — \"Section 2\".",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "across"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "session.reset",
+    "title": "Start over",
+    "description": "Close the scan, the reference part and the 2D image, and with them every measurement, as opening an empty project does. Refuses while the session holds measurements unless discard is true. Not undoable: the history starts over too.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "discard": {
+          "type": "boolean",
+          "description": "Replace the session even though it holds measurements — they are lost (a project file saved before keeps them). Without it the command refuses when there is work to lose."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "session.state",
+    "title": "Read the session",
+    "description": "The whole session as JSON: the app and its plugins, the workspace on screen, whether it is busy, the scan (file, units, vertex and triangle counts, bounding box, centre, size, applied alignment), every element with its fit at full precision, every dimension with its value, limit and verdict, the sections, what is open in the panels, the deviation, wall thickness and 2D Measure state with their statistics, the guided hint for the next step, and the undo history. Lengths in millimetres, angles in degrees. Read it before acting and after.",
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "thickness.measure",
+    "title": "Measure the wall thickness",
+    "description": "Measure the wall thickness at every point of the scan, as the Wall Thickness workspace’s Measure button does, with the search settings given or those in hand. Returns the statistics (min, max, mean, sigma, share under the thin-wall limit, points measured) and the settings. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "ray",
+            "sphere"
+          ],
+          "description": "ray: along the inward normal to the far wall (with coneRays, the shortest of a cone of rays). sphere: the largest sphere that fits at the point."
+        },
+        "maxThickness": {
+          "type": "number",
+          "description": "The thickest wall searched for, mm.",
+          "exclusiveMinimum": 0
+        },
+        "coneRays": {
+          "type": "integer",
+          "description": "ray: rays in the cone about the normal; 0 for the normal alone.",
+          "minimum": 0
+        },
+        "coneAngleDeg": {
+          "type": "number",
+          "description": "ray: the cone’s half-angle, degrees.",
+          "minimum": 0,
+          "maximum": 89
+        },
+        "normalDeviationDeg": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 180
+            },
+            {
+              "type": "null",
+              "description": "Not checked."
+            }
+          ],
+          "description": "How far the far wall may turn from facing back, degrees, or null to accept whatever is hit."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "thickness.settings",
+    "title": "Set how the wall thickness is searched and read",
+    "description": "The search settings (method, maxThickness, coneRays, coneAngleDeg, normalDeviationDeg — they take effect at the next thickness.measure) and the reading: low and high, the ends of the colour scale, mm; bands, a stepped scale or null; limit, the thin-wall limit the statistics count under, mm. Returns the thickness state. One undo step.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "ray",
+            "sphere"
+          ],
+          "description": "ray: along the inward normal to the far wall (with coneRays, the shortest of a cone of rays). sphere: the largest sphere that fits at the point."
+        },
+        "maxThickness": {
+          "type": "number",
+          "description": "The thickest wall searched for, mm.",
+          "exclusiveMinimum": 0
+        },
+        "coneRays": {
+          "type": "integer",
+          "description": "ray: rays in the cone about the normal; 0 for the normal alone.",
+          "minimum": 0
+        },
+        "coneAngleDeg": {
+          "type": "number",
+          "description": "ray: the cone’s half-angle, degrees.",
+          "minimum": 0,
+          "maximum": 89
+        },
+        "normalDeviationDeg": {
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 180
+            },
+            {
+              "type": "null",
+              "description": "Not checked."
+            }
+          ],
+          "description": "How far the far wall may turn from facing back, degrees, or null to accept whatever is hit."
+        },
+        "low": {
+          "type": "number",
+          "description": "Colour scale’s low end, mm.",
+          "minimum": 0
+        },
+        "high": {
+          "type": "number",
+          "description": "Colour scale’s high end, mm.",
+          "exclusiveMinimum": 0
+        },
+        "bands": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 2
+            },
+            {
+              "type": "null",
+              "description": "Smooth."
+            }
+          ],
+          "description": "Stepped colours, or null."
+        },
+        "limit": {
+          "type": "number",
+          "description": "Thin-wall limit, mm.",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "view.render",
+    "title": "Picture the view",
+    "description": "A picture of the 3D view as a PNG — what the person sees in the viewport, without the HTML labels over it (dimension values, names). Give view and/or fit to turn the view first, as view.set does. width and height in pixels: the viewport’s own shape at most 1280 pixels on its long side by default; one of them alone keeps the viewport’s shape. Waits for the session to settle first. Needs the viewport.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "description": "Pixels across, 64 to 2048.",
+          "minimum": 64,
+          "maximum": 2048
+        },
+        "height": {
+          "type": "integer",
+          "description": "Pixels down, 64 to 2048.",
+          "minimum": 64,
+          "maximum": 2048
+        },
+        "view": {
+          "type": "string",
+          "enum": [
+            "iso",
+            "top",
+            "bottom",
+            "front",
+            "rear",
+            "left",
+            "right"
+          ],
+          "description": "A standard view, the camera turned about the middle of the screen: iso (from the front, right and above), top (down the Z axis, Y up the screen), bottom, front (from −Y, Z up), rear (from +Y), left (from −X), right (from +X)."
+        },
+        "fit": {
+          "type": "boolean",
+          "description": "Bring everything shown into the frame, keeping the direction looked from."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": true,
+    "returnsImage": true
+  },
+  {
+    "name": "view.set",
+    "title": "Turn the view",
+    "description": "Turn the 3D view to a standard view and/or fit everything shown into the frame — with neither given, it fits. It waits for the session to settle first (a fit, a map, a rebuild), so what was just made is in the frame. Not a step of the history. Needs the viewport. Returns the view.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "type": "string",
+          "enum": [
+            "iso",
+            "top",
+            "bottom",
+            "front",
+            "rear",
+            "left",
+            "right"
+          ],
+          "description": "A standard view, the camera turned about the middle of the screen: iso (from the front, right and above), top (down the Z axis, Y up the screen), bottom, front (from −Y, Z up), rear (from +Y), left (from −X), right (from +X)."
+        },
+        "fit": {
+          "type": "boolean",
+          "description": "Bring everything shown into the frame, keeping the direction looked from."
+        }
+      },
+      "additionalProperties": false
+    },
+    "readOnly": true,
+    "returnsFile": false,
+    "returnsImage": false
+  },
+  {
+    "name": "workspace.set",
+    "title": "Show a workspace",
+    "description": "Put a workspace on screen: measure (fitting elements and dimensions), deviation (scan against a reference part or an element), thickness (wall thickness), flat (2D measuring of an image or a section), or a plugin’s by its id — session.state lists them under app.plugins. Commands put their own workspace on screen; this is for showing the person something.",
+    "input": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "type": "string",
+          "description": "The workspace — measure, deviation, thickness, flat, or a plugin’s id.",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "workspace"
+      ],
+      "additionalProperties": false
+    },
+    "readOnly": false,
+    "returnsFile": false,
+    "returnsImage": false
+  }
+]

@@ -363,9 +363,9 @@ export class SceneManager {
    *  grip, how far along its normal it has been moved. */
   onExtendDrag: ((side: GripSide, delta: number, phase: 'start' | 'move' | 'end') => void) | null =
     null
-  /** A number typed into the field on a plugin's grip, or the field closed
-   *  with Escape — see setGripField. */
-  onGripFieldCommit: ((side: GripSide, value: number) => void) | null = null
+  /** The text typed into the field on a plugin's grip and entered, or the
+   *  field closed with Escape — see setGripField. */
+  onGripFieldCommit: ((side: GripSide, text: string) => void) | null = null
   onGripFieldClose: (() => void) | null = null
 
   constructor(container: HTMLDivElement) {
@@ -1188,6 +1188,15 @@ export class SceneManager {
       const e = this.stage.extent()
       box.union(new THREE.Box3(new THREE.Vector3(-e, -e, -e), new THREE.Vector3(e, e, e)))
     }
+    // No scan: what a layer stands in its place is the part, as frameAll
+    // has it.
+    if (!this.mesh) {
+      this.partGroup.updateMatrixWorld(true)
+      for (const layer of this.layers) {
+        const b = layer.frameBox?.()
+        if (b) box.union(b.clone().applyMatrix4(this.partGroup.matrixWorld))
+      }
+    }
     // Nothing visible to fit — a hidden scan with no reference beside it. The
     // part is still loaded, so fit that rather than doing nothing at all.
     if (box.isEmpty() && moved) box.union(moved)
@@ -1201,6 +1210,20 @@ export class SceneManager {
    *  the point the camera is looking at, keeping the zoom. */
   viewFrom(view: StandardView): void {
     this.viewport.viewFrom(view)
+  }
+
+  /** The canvas's size on screen, in CSS pixels. */
+  viewSize(): { width: number; height: number } {
+    const el = this.viewport.renderer.domElement
+    return { width: el.clientWidth || 1, height: el.clientHeight || 1 }
+  }
+
+  /** The view as it stands as the bytes of a PNG, `width` × `height` pixels
+   *  — the canvas's own size by default. See OrthoViewport.capture. */
+  async capture(width?: number, height?: number): Promise<Uint8Array> {
+    const size = this.viewSize()
+    const blob = await this.viewport.capture(Math.round(width ?? size.width), Math.round(height ?? size.height))
+    return new Uint8Array(await blob.arrayBuffer())
   }
 
   /**
@@ -1751,7 +1774,7 @@ export class SceneManager {
    *  dragged, and a field to type into once the hand lets go — Enter
    *  commits through onGripFieldCommit, Escape closes through
    *  onGripFieldClose. Null takes it away. */
-  setGripField(field: { side: GripSide; value: number; unit: string } | null): void {
+  setGripField(field: { side: GripSide; value: number; unit: string; text?: string } | null): void {
     this.grips.setField(field)
   }
 

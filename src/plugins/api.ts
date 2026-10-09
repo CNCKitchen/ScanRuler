@@ -24,6 +24,23 @@ import type { HoverReading } from '../ui/HoverReadout'
 import type { IconName } from '../ui/icons'
 import type { GripSide, PickHit, SceneManager } from '../viewer/SceneManager'
 
+// ---- Commands -----------------------------------------------------------------
+// The session's verbs as an agent calls them (src/commands). A plugin adds its
+// own from install(): registerCommands(plugin.id, [...]) puts them under its
+// id — `<id>.<verb>` — and registerStateSection(plugin.id, describe) adds its
+// part to the session's readout under plugins.<id>. Each command is the same
+// code path as the plugin's panel, one step of the undo history, and returns
+// what the stores hold afterwards; see commands/types.ts. registerBusy(
+// plugin.id, check) says what the plugin's own machinery is busy with, so no
+// command runs over it and the readout's `busy` says so.
+
+export { registerCommands } from '../commands/registry'
+export { registerStateSection } from '../commands/stateSections'
+export { registerBusy } from '../commands/activity'
+export { CommandError } from '../commands/types'
+export type { Command, CommandContext, CommandErrorCode, FileOut } from '../commands/types'
+export type { JsonSchema } from '../commands/schema'
+
 /** A workspace's tab in the top bar. */
 export interface WorkspaceTab {
   /** The workspace's id — the shell store's `workspace` while it is open,
@@ -184,8 +201,9 @@ export interface ScanRulerPlugin {
    *  more paragraphs under "Third-party software". */
   notices?: ComponentType
   /** Run once at start-up, when the plugin is enabled: the place to register
-   *  with the app's registries — the undo history, the project file and the
-   *  rest. Nothing a plugin registers exists while it is disabled. */
+   *  with the app's registries — the undo history, the project file, the
+   *  commands and the readout (above) and the rest. Nothing a plugin
+   *  registers exists while it is disabled. */
   install?(): void
   /** The plugin's part in the app, as a React hook App calls on every render
    *  — the same plugins in the same order each time, as hooks need. */

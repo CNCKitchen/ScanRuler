@@ -160,6 +160,35 @@ body {
   font-size: 11px;
   max-width: 170px;
 }
+
+/* The agent connection, while it is on: a lamp and where it stands. */
+.agentchip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--well);
+  color: var(--dim);
+  white-space: nowrap;
+}
+.agentchip .agentlamp {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e8a33d;
+  animation: lampblink 1s ease-in-out infinite alternate;
+}
+.agentchip.connected .agentlamp {
+  background: var(--green);
+  animation: none;
+}
+.agentchip.refused .agentlamp {
+  background: #d9472b;
+  animation: none;
+}
 .project-save-status small {
   display: block;
   overflow: hidden;
@@ -2324,9 +2353,16 @@ button.x:disabled {
   white-space: nowrap;
 }
 
-.setting > select {
+.setting > select,
+.setting > input[type='number'],
+.setting > input[type='text'] {
   width: 100%;
   max-width: 240px;
+}
+
+.setting > small code {
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .setting > small {

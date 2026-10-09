@@ -84,9 +84,10 @@ export interface ExtendGripsContext {
    *  after the cursor has wandered off it — or null for none. The ghost marks
    *  that side of itself, so a hand on a grip can see the edge it is moving. */
   onActiveSide(side: GripSide | null): void
-  /** The number field on a feature grip: a value typed and entered, or the
-   *  field closed with Escape. */
-  onFieldCommit(side: GripSide, value: number): void
+  /** The number field on a feature grip: the text typed and entered — a
+   *  number, or whatever the owner's numbers are written as — or the field
+   *  closed with Escape. */
+  onFieldCommit(side: GripSide, text: string): void
   onFieldClose(): void
 }
 
@@ -193,7 +194,7 @@ export class ExtendGrips {
    * not written over by the store's value, or the keystrokes would be
    * lost to the very number they are changing.
    */
-  setField(field: { side: GripSide; value: number; unit: string } | null): void {
+  setField(field: { side: GripSide; value: number; unit: string; text?: string } | null): void {
     if (!field) {
       this.dropField()
       return
@@ -203,8 +204,9 @@ export class ExtendGrips {
       const div = document.createElement('div')
       div.className = 'viewport-label grip-field'
       const input = document.createElement('input')
-      input.type = 'number'
-      input.step = 'any'
+      input.type = 'text'
+      input.inputMode = 'decimal'
+      input.spellcheck = false
       input.dataset.test = 'grip-field'
       input.title = 'The number this grip drags — type a value and press Enter; Escape closes the field'
       const unit = document.createElement('i')
@@ -220,8 +222,7 @@ export class ExtendGrips {
       input.addEventListener('keydown', (e) => {
         e.stopPropagation()
         if (e.key === 'Enter') {
-          const v = Number(input.value)
-          if (Number.isFinite(v) && this.field) this.ctx.onFieldCommit(this.field.side, v)
+          if (input.value.trim() !== '' && this.field) this.ctx.onFieldCommit(this.field.side, input.value.trim())
           input.blur()
         } else if (e.key === 'Escape') {
           this.ctx.onFieldClose()
@@ -235,9 +236,11 @@ export class ExtendGrips {
     f.unit.textContent = field.unit
     f.input.readOnly = this.handleDrag !== null
     // Only a settled value is shown: not the one under a hand still typing.
-    if (document.activeElement !== f.input && f.value !== field.value) {
-      f.input.value = String(Math.round(field.value * 100) / 100)
-    }
+    // Given text — what the number is written as — the field shows that,
+    // with the value it comes to as its tooltip.
+    const shown = field.text ?? String(Math.round(field.value * 100) / 100)
+    if (document.activeElement !== f.input && (f.value !== field.value || f.input.value !== shown)) f.input.value = shown
+    f.input.title = field.text ? `${field.text} = ${Math.round(field.value * 100) / 100} ${field.unit}` : 'The number this grip drags — type a value and press Enter; Escape closes the field'
     f.value = field.value
     this.placeField()
   }

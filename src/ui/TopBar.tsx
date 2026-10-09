@@ -13,6 +13,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useShell, type Workspace } from '../state/shellStore'
 import { plugins } from '../plugins/registry'
 import { UndoRedo } from './UndoRedo'
+import { AGENT_STATUS, useAgentLink } from '../commands/agentLink'
 import { Icon, type IconName } from './icons'
 import { IMAGE_ACCEPT, MESH_ACCEPT, isImageFile, isMeshFile, isStepFile } from '../core/formats'
 import { PROJECT_EXTENSION } from '../core/project/manifest'
@@ -65,6 +66,8 @@ export function TopBar({
   const setWorkspace = useShell((s) => s.setWorkspace)
   const picking = useDeviation((s) => s.picking)
   const openSettings = usePrefs((s) => s.openSettings)
+  const agentLink = usePrefs((s) => s.agentLink)
+  const agent = useAgentLink()
   const openRef = useRef<HTMLInputElement>(null)
 
   const onLoad = (file: File | undefined) => {
@@ -130,6 +133,19 @@ export function TopBar({
         </div>
       )}
       <div className="grow" />
+      {/* While the agent connection is on, where it stands — and the way to
+          its settings. */}
+      {agentLink && (
+        <button
+          className={`agentchip ${agent.status}`}
+          data-test="agent-chip"
+          title={`${AGENT_STATUS[agent.status]}${agent.detail ? ` — ${agent.detail}` : ''}. Settings → Agents.`}
+          onClick={() => openSettings(true)}
+        >
+          <span className="agentlamp" />
+          Agent: {agent.status === 'connected' ? 'connected' : agent.status === 'refused' ? 'turned away' : 'listening'}
+        </button>
+      )}
       <span className="project-save-status" data-test="project-save-status"
         title={`${recovery.status || 'Checkpoints are stored only in this browser.'} Checkpoints and project files include completed work; finish active drawings before leaving. Save Project downloads a portable copy.`}>
         {recovery.dirty ? 'Unsaved changes' : 'No unsaved changes'}

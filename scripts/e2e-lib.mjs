@@ -69,8 +69,9 @@ export async function finish(browser, consoleErrors) {
 // ---- browser and app --------------------------------------------------------
 
 /** Launch Chrome, open the app, and collect console/page errors as they come.
+ *  `url` opens it at another address than APP_URL — with a fragment, say.
  *  Returns { browser, page, consoleErrors }. */
-export async function launchApp({ width = 1500, height = 950, protocolTimeout } = {}) {
+export async function launchApp({ width = 1500, height = 950, protocolTimeout, url = APP_URL } = {}) {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
     headless: 'new',
@@ -93,7 +94,7 @@ export async function launchApp({ width = 1500, height = 950, protocolTimeout } 
     try { localStorage.setItem('scanruler.askstlunits', '0') } catch { /* private mode: the question is answered by hand */ }
   })
   try {
-    await page.goto(APP_URL, { waitUntil: 'networkidle0' })
+    await page.goto(url, { waitUntil: 'networkidle0' })
     await page.waitForSelector('.panel')
   } catch (error) {
     fail(`App did not start: ${error.message}`)

@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The wall thickness workspace's verbs: measure the field and copy the report.
-// The field itself lives in refs owned by App, because the hover readout and
-// the pins read it too.
+// The field itself lives in the session's refs (see session.ts), because the
+// hover readout and the pins read it too.
 import type { RefObject } from 'react'
 import type { MeshWorkerClient } from '../core/workerClient'
 import { useStore } from '../state/store'
 import { useThickness } from '../state/thicknessStore'
 import { buildThicknessReport } from '../core/thickness/report'
+import type { ThicknessStats } from '../core/thickness/thickness'
 
-export function useThicknessWorkspace({
+export type ThicknessWorkspace = ReturnType<typeof thicknessWorkspace>
+
+export function thicknessWorkspace({
   clientRef,
   thickness,
   thicknessRgb,
@@ -43,13 +46,15 @@ export function useThicknessWorkspace({
     }
   }
 
+  /** The report the panel copies, on the figures given — the legend's, by
+   *  default. Null with nothing measured. */
+  const reportText = (stats: ThicknessStats | null = useThickness.getState().stats): string | null =>
+    stats ? buildThicknessReport(useStore.getState().fileName ?? '', stats, useThickness.getState()) : null
+
   const handleCopyThicknessReport = () => {
-    const t = useThickness.getState()
-    if (!t.stats) return
-    void navigator.clipboard?.writeText(
-      buildThicknessReport(useStore.getState().fileName ?? '', t.stats, t),
-    )
+    const text = reportText()
+    if (text) void navigator.clipboard?.writeText(text)
   }
 
-  return { runThickness, handleCopyThicknessReport }
+  return { runThickness, reportText, handleCopyThicknessReport }
 }

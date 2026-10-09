@@ -82,7 +82,7 @@ export function useScanSwap({
       triangleCount: mesh.triangleCount,
       modelSize: scene.modelSize(),
       modelCenter: scene.modelCenter(),
-      // Every cut is taken again — see useSections: a plane through a piece
+      // Every cut is taken again — see sectionCuts: a plane through a piece
       // that has gone cut it too.
       sections: s.sections.map((sec) => ({ ...sec, cut: undefined, cutKey: undefined })),
     }))

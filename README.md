@@ -1620,6 +1620,71 @@ what is fitted on a section's sheet goes back the other way: it is drawn on
 the cut in the 3D view and exported with the section in the STEP file — see
 [Sections](#sections-cutting-the-scan-to-measure-the-cut).
 
+## Agents
+
+An AI agent on your computer — Claude Code, Claude Desktop, Cursor or
+anything else that speaks the [Model Context Protocol](https://modelcontextprotocol.io)
+— can drive the ScanRuler tab you have open: *"Open ballbar.stl, fit both
+spheres, measure the centre distance and give me the report."* It works the
+panels the way you do, one step at a time in front of you, and every step is
+on the undo keys under *Agent: …*, so anything it did can be taken back.
+
+The agent talks to **scanruler-mcp**, a small server it starts on your
+computer (the [mcp/](mcp/) folder of this repository), and the tab connects
+to that server on `127.0.0.1`. **Nothing leaves your computer through
+ScanRuler**: the scan goes from your disk to your browser, as it does when you
+open it yourself. What the agent asks for — the figures, the report — goes to
+the agent's own model provider, like everything else it reads.
+
+**Setting it up** takes two steps, once.
+
+1. Add the server to your agent. In Claude Code:
+
+   ```bash
+   claude mcp add scanruler -- npx scanruler-mcp
+   ```
+
+   Claude Desktop and Cursor take the same command in their MCP settings —
+   [mcp/README.md](mcp/README.md) has each one's file. From a clone of this
+   repository, `node <clone>/mcp/bin/scanruler-mcp.js` in place of
+   `npx scanruler-mcp` runs the copy in it (after `npm --prefix mcp ci`).
+2. Pair the tab with it. `npx scanruler-mcp --pair` prints a port, a token,
+   and a link; open the link once, or put the port and the token into
+   ⚙ **Settings → Agents** and switch on **Local agent connection**. The
+   agent's `scanruler_status` tool hands out the same link, so asking the
+   agent works too. A chip in the top bar says whether the agent is
+   connected.
+
+Chrome and Edge ask once whether the site may reach "apps and services on
+this device" — allow it, or the tab cannot reach the server. Firefox asks the
+same. Safari does not let a page from the web reach the computer it runs on at
+all; for it, and for working offline or with the open-source build, the server
+serves a build of the app itself — `scanruler-mcp --serve dist` after
+`npm run build`, then open `http://127.0.0.1:7317/`.
+
+**What the agent can do** is what the panels do: open a scan; fit planes,
+spheres, cylinders, cones, tori, points and circles where you would click, or
+on a marked surface; construct elements from others; measure distances,
+angles, sizes and GD&T tolerances, held to limits; align the part to datums,
+to the pose the scan suggests, or to its symmetry plane; cut sections;
+best-fit the scan onto a reference part and map the deviation; measure wall
+thickness; calibrate and measure a flatbed image; export STEP, STL, a point
+cloud, SVG, DXF and CSV; save and open projects; undo and redo; and look:
+it turns the 3D view to a standard view and gets a picture of it. It names a
+place on the scan by a point in millimetres or a vertex number; it reads the
+whole session as JSON — the bounding box of the scan, every element at full
+precision, every dimension with its verdict — and gets the report either as
+the text the **Copy report** buttons give or structured as JSON, to write
+Markdown, HTML or a PDF of its own from. Files are paths on your computer: the
+agent names one to open, and exports land where it says.
+
+Under the hood every panel verb is a typed command in `src/commands/`, run
+with the panel's own code (`src/app/session.ts` and the workspaces beside it)
+as one undo step, refused while the session is busy or the panel has work
+open in it. `tests/agentBallbar.test.ts` measures the ball bar through the
+commands alone; `scripts/e2e-agent.mjs` does it through a real MCP client,
+the server and the app in Chrome.
+
 ## Development
 
 ```bash

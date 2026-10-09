@@ -60,14 +60,34 @@ export const sectionStepGroups = (): StepSection[] => {
     .filter((group) => group.elements.length > 0)
 }
 
-/** Hand the created elements over as analytic STEP geometry — and with
- *  them, in a group per section, what was measured on the sections. */
-export const exportElementsStep = () => runExport(async () => {
+/** A file an export built, before anyone saves it: what the panel's button
+ *  hands the browser to download, and what a command hands back as bytes. */
+export interface BuiltFile {
+  name: string
+  mimeType: string
+  bytes: Uint8Array
+  /** What the status line says once it is out. */
+  status: string
+}
+
+export const textBytes = (text: string) => new TextEncoder().encode(text)
+
+/** Save a built file the way every export button does, and say so. */
+export const saveBuilt = (file: BuiltFile | null) => {
+  if (!file) return
+  saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }))
+  useStore.getState().setStatus(file.status)
+}
+
+/** The created elements as analytic STEP geometry — and with them, in a
+ *  group per section, what was measured on the sections. Null with nothing
+ *  to export. */
+export async function buildElementsStep(): Promise<BuiltFile | null> {
   const store = useStore.getState()
   const els = store.elements.filter((e) => e.fit)
   const groups = sectionStepGroups()
   const onSections = groups.reduce((n, g) => n + g.elements.length, 0)
-  if (els.length === 0 && onSections === 0) return
+  if (els.length === 0 && onSections === 0) return null
   const assumed = els.filter((e) => e.assumed !== undefined).length
   const name = `${exportStem()}-elements.step`
   const { buildStepFile } = await import('../core/exportStep')
@@ -83,33 +103,39 @@ export const exportElementsStep = () => runExport(async () => {
     store.stepStyle,
     groups,
   )
-  saveFile(name, new Blob([text], { type: 'model/step' }))
   const what: string[] = []
   if (els.length) what.push(`${els.length} element${els.length === 1 ? '' : 's'}`)
   if (onSections) {
     const where = groups.length === 1 ? groups[0].name : `${groups.length} sections`
     what.push(`${onSections} on ${where}`)
   }
-  store.setStatus(
-    `${what.join(' and ')} exported to ${name} as ${
+  return {
+    name,
+    mimeType: 'model/step',
+    bytes: textBytes(text),
+    status: `${what.join(' and ')} exported to ${name} as ${
       store.stepStyle === 'solids' ? 'solids and faces' : 'construction surfaces'
     }${assumed ? ` — ${assumed} at ${assumed === 1 ? 'its' : 'their'} assumed Ø` : ''}.`,
-  )
-})
+  }
+}
 
-/** Hand the scan back as an STL in the pose it is being shown in.
+/** Hand the created elements over as analytic STEP geometry. */
+export const exportElementsStep = () => runExport(async () => saveBuilt(await buildElementsStep()))
+
+/** The scan as an STL in the pose it is being shown in. Null with no scan
+ *  on the viewport.
  *
  *  A 3-2-1 or typed-in alignment is already baked into the vertices, so it
  *  comes along for free. The deviation workspace's best fit is not: it rides
  *  on the scan's group matrix so the fit can be watched and undone, and it
  *  has to be applied on the way out. Either way what lands on disk is the
  *  part where the user can see it. */
-export const exportScanStl = (sceneRef: RefObject<SceneManager | null>) => {
+export function buildScanStl(scene: SceneManager | null): BuiltFile | null {
   const store = useStore.getState()
-  const geometry = sceneRef.current?.scanGeometry()
-  if (!geometry || !store.fileName) return
+  const geometry = scene?.scanGeometry()
+  if (!geometry || !store.fileName) return null
   const positions = geometry.getAttribute('position')?.array as Float32Array | undefined
-  if (!positions) return
+  if (!positions) return null
   const index = geometry.getIndex()?.array as Uint32Array | Uint16Array | undefined
   const align = useDeviation.getState().align
   const moved = align !== null || store.appliedAlignment !== null
@@ -124,32 +150,36 @@ export const exportScanStl = (sceneRef: RefObject<SceneManager | null>) => {
     align?.transform ?? null,
     `ScanRuler scan export - ${stem}`,
   )
-  saveFile(name, new Blob([buffer], { type: 'model/stl' }))
   const triangles = (index ? index.length : positions.length / 3) / 3
-  store.setStatus(
-    `Scan exported to ${name} — ${triangles.toLocaleString('en-US')} triangles${
+  return {
+    name,
+    mimeType: 'model/stl',
+    bytes: new Uint8Array(buffer),
+    status: `Scan exported to ${name} — ${triangles.toLocaleString('en-US')} triangles${
       moved ? ', in its aligned position' : ''
     }.`,
-  )
+  }
 }
 
-/** Hand the scan back as a point cloud — every vertex with its normal, in
- *  the pose it is being shown in, as a binary PLY or an XYZ text file — for
- *  the reverse-engineering tools that model over points rather than
- *  triangles. The pose comes along the way it does for the STL: a datum
- *  alignment is in the vertices already, the deviation best fit is applied
- *  on the way out. The normals are the scan's own, oriented out of the part
- *  when it was loaded. */
-export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) => runExport(async () => {
+/** Hand the scan back as an STL in the pose it is being shown in. */
+export const exportScanStl = (sceneRef: RefObject<SceneManager | null>) => saveBuilt(buildScanStl(sceneRef.current))
+
+/** The scan as a point cloud — every vertex with its normal, in the pose it
+ *  is being shown in, as a binary PLY or an XYZ text file — for the
+ *  reverse-engineering tools that model over points rather than triangles.
+ *  The pose comes along the way it does for the STL: a datum alignment is in
+ *  the vertices already, the deviation best fit is applied on the way out.
+ *  The normals are the scan's own, oriented out of the part when it was
+ *  loaded. Null with no scan on the viewport. */
+export async function buildScanPointCloud(scene: SceneManager | null, format: CloudFormat): Promise<BuiltFile | null> {
   const { buildPointCloudPly, buildPointCloudXyz } = await import('../core/exportPointCloud')
   // Geometry can be transformed in place; read it and its alignment together
   // after loading the writer, with no async gap before serialization.
   const store = useStore.getState()
-  const scene = sceneRef.current
   const geometry = scene?.scanGeometry()
-  if (!scene || !geometry || !store.fileName) return
+  if (!scene || !geometry || !store.fileName) return null
   const drawn = geometry.getAttribute('position')?.array as Float32Array | undefined
-  if (!drawn) return
+  if (!drawn) return null
   const index = geometry.getIndex()?.array as Uint32Array | Uint16Array | undefined
   const onMesh = geometry.getAttribute('normal')?.array as Float32Array | undefined
   const drawnNormals =
@@ -166,17 +196,21 @@ export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, f
   const stem = exportStem()
   const name = `${stem}-${moved ? 'aligned' : 'export'}.${format}`
   const transform = align?.transform ?? null
-  const blob =
+  const bytes =
     format === 'ply'
-      ? new Blob([buildPointCloudPly(positions, normals, transform, `ScanRuler point cloud - ${stem}`)], {
-          type: 'application/octet-stream',
-        })
-      : new Blob([buildPointCloudXyz(positions, normals, transform)], { type: 'text/plain' })
-  saveFile(name, blob)
+      ? new Uint8Array(buildPointCloudPly(positions, normals, transform, `ScanRuler point cloud - ${stem}`))
+      : textBytes(buildPointCloudXyz(positions, normals, transform))
   const points = positions.length / 3
-  store.setStatus(
-    `Point cloud exported to ${name} — ${points.toLocaleString('en-US')} points${
+  return {
+    name,
+    mimeType: format === 'ply' ? 'application/octet-stream' : 'text/plain',
+    bytes,
+    status: `Point cloud exported to ${name} — ${points.toLocaleString('en-US')} points${
       normals ? ' with normals' : ''
     }${moved ? ', in its aligned position' : ''}.`,
-  )
-})
+  }
+}
+
+/** Hand the scan back as a point cloud. */
+export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) =>
+  runExport(async () => saveBuilt(await buildScanPointCloud(sceneRef.current, format)))

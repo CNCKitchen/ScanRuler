@@ -88,3 +88,27 @@ export async function fitFilletTorus(page, { R = 25, r = 3 } = {}, { click, prev
   }
   return ready
 }
+
+/** A ball bar without its bar: two balls of radius `r`, their centres
+ *  `distance` apart along Y — what the agent check measures where the real
+ *  scan (ballbar.stl) is not at hand. Returns the STL's path. */
+export function ballPairScan({ distance = 148.64, r = 7.96, rings = 48, segments = 96 } = {}) {
+  const tris = []
+  for (const cy of [-distance / 2, distance / 2]) {
+    const at = (i, k) => {
+      const theta = (Math.PI * i) / rings
+      const phi = (2 * Math.PI * k) / segments
+      return [r * Math.sin(theta) * Math.cos(phi), cy + r * Math.cos(theta), r * Math.sin(theta) * Math.sin(phi)]
+    }
+    for (let i = 0; i < rings; i++) {
+      for (let k = 0; k < segments; k++) {
+        const a = at(i, k), b = at(i + 1, k), c = at(i + 1, k + 1), d = at(i, k + 1)
+        if (i > 0) tris.push(a, d, c)
+        if (i < rings - 1) tris.push(a, c, b)
+      }
+    }
+  }
+  const path = join(mkdtempSync(join(tmpdir(), 'scanruler-balls-')), 'ball-pair.stl')
+  writeFileSync(path, stl('ScanRuler e2e ball pair', tris))
+  return path
+}

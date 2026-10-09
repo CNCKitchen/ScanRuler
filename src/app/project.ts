@@ -266,7 +266,7 @@ function scanPartState(p: ScanPart): Partial<ReturnType<typeof useStore.getState
     showLabels: p.showOverlays,
     showBackfaces: p.showBackfaces ?? true,
     // Planes only: the cuts are taken again once the scan is in the worker —
-    // see useSections.
+    // see sectionCuts.
     sections: (p.sections ?? []).map(sectionFromJson),
     sectionDraft: null,
     nextSectionNumber: p.nextSectionNumber ?? 1,

@@ -2,6 +2,7 @@
 import { WorkerRpc } from './workerRpc'
 import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseSetting, CreaseReport } from './geometry/crease'
+import type { ScanSpot } from './geometry/nearest'
 import type { SeedPlane, SymmetryPlane } from './symmetry'
 import type { AutoAlignResult } from './autoAlign'
 import type { AlignResult, PointPair } from './deviation/align'
@@ -330,6 +331,21 @@ export class MeshWorkerClient {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'flood-ok' }>>({ type: 'flood', requestId, seed, maxAngleDeg, limit })
     return res.vertices
+  }
+
+  /** A place on the scan named without a click: the vertex asked for, or
+   *  the one nearest the point — see geometry/nearest. */
+  async nearest(at: { vertex: number } | { point: Vec3 }): Promise<ScanSpot> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'nearest-ok' }>>({ type: 'nearest', requestId, ...at })
+    return res.result
+  }
+
+  /** The box around the scan as it now stands, mm. */
+  async bounds(): Promise<{ min: Vec3; max: Vec3 }> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'bounds-ok' }>>({ type: 'bounds', requestId })
+    return { min: res.min, max: res.max }
   }
 
   /** The scan's mean curvature at every vertex, 1/mm, convex positive. */

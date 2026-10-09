@@ -8,6 +8,7 @@ import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseReport, CreaseSetting } from './geometry/crease'
 import type { SeedPlane, SymmetryPlane } from './symmetry'
 import type { AutoAlignResult } from './autoAlign'
+import type { ScanSpot } from './geometry/nearest'
 
 export type WorkerRequest =
   /** `crease` says whether the scan's sharp edges are to be drawn sharp —
@@ -120,6 +121,13 @@ export type WorkerRequest =
   /** The scan's mean curvature at every vertex, 1/mm, convex positive, for
    *  colouring the scan by it. See geometry/curvature. */
   | { type: 'curvature'; requestId: number }
+  /** A place on the scan named without a click — a vertex by its number,
+   *  or the vertex nearest a point — with a triangle it is a corner of, the
+   *  seed a click there would give. See geometry/nearest. */
+  | { type: 'nearest'; requestId: number; vertex?: number; point?: Vec3 }
+  /** The box around the scan's own vertices, in the frame they are measured
+   *  in now — every datum alignment baked in. */
+  | { type: 'bounds'; requestId: number }
   /** The coordinate system the scan itself suggests — its face directions,
    *  the side it stood on, a zero point. See core/autoAlign. Nothing moves:
    *  the answer is a proposal for the alignment editor. */
@@ -206,6 +214,8 @@ export type WorkerResponse =
   | { type: 'flood-ok'; requestId: number; vertices: Uint32Array }
   | { type: 'curvature-ok'; requestId: number; values: Float32Array }
   | { type: 'auto-align-ok'; requestId: number; result: AutoAlignResult }
+  | { type: 'nearest-ok'; requestId: number; result: ScanSpot }
+  | { type: 'bounds-ok'; requestId: number; min: Vec3; max: Vec3 }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

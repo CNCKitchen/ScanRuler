@@ -1,0 +1,30 @@
+{
+  "name": "scanruler-mcp",
+  "version": "0.1.0",
+  "description": "Drive ScanRuler, the 3D-scan measuring tool, from an AI agent: a local MCP server that reaches the ScanRuler tab open in your browser.",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
+  "homepage": "https://scanruler.com/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CNCKitchen/scanruler.git",
+    "directory": "mcp"
+  },
+  "keywords": ["mcp", "model-context-protocol", "3d-scan", "metrology", "scanruler"],
+  "bin": {
+    "scanruler-mcp": "bin/scanruler-mcp.js"
+  },
+  "files": ["bin", "src", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bin/scanruler-mcp.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "ws": "8.22.0"
+  }
+}

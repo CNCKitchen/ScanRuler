@@ -31,6 +31,8 @@ jobs:
       - name: Nothing outside plugins/ imports from it
         run: node scripts/check-plugin-boundary.mjs
       - run: npm test
+      - name: The agent server (mcp/), its own package
+        run: npm --prefix mcp ci && npm --prefix mcp test
       - run: npm run build
       - name: Browser regression checks and production smoke test
         run: npm run e2e:ci

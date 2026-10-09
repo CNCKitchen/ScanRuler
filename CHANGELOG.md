@@ -5,6 +5,107 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## Unreleased
+
+- **The agent can see the 3D view** (2026-10-09). `view.set` turns the view
+  to a standard view — iso, top, bottom, front, rear, left, right — or fits
+  everything shown into the frame, and `view.render` hands back a PNG of the
+  view at the size asked, so an agent that cannot see the screen can look
+  at what it measured or made. Both wait for the session to settle first,
+  and neither is a step of the undo history. scanruler-mcp gives the picture
+  to the agent as an image, and writes it to a file only when the call names
+  a path. The server also keeps the command list of the last tab that
+  connected, in its config folder, and lists those tools before a tab is
+  back: an agent that reads the tool list once, when it starts, and not
+  again when told it changed, still sees every tool the tab offers. **Fit**
+  on a stage with no scan now frames what a workspace has drawn in the
+  scan's place, as opening one already did. Plugins take part in the
+  command layer through three registries — their commands, their part of
+  `session.state`, and what their own machinery is busy with, which holds
+  every command that changes the session and shows as `busy` in the readout,
+  so `scanruler_wait` waits it out. A command's input schema is held to
+  8,000 bytes and twelve levels, and registering one past that fails: an
+  agent's client may turn a tool with a larger schema down without a word —
+  Claude Desktop did, at 82 kB nested twenty deep — so a large shape is
+  listed loosely and checked when the command runs. The server tells the
+  agent the tools changed when any tool's definition does, not only when
+  the names do. Tests: `commandRegistry` (a schema past the budget refused,
+  the app's own within it); `commandsView` (the view commands
+  without a viewport, the picture flag, a busy check holding commands and
+  showing in the readout); the server's `tools` (an image result, a path
+  only when asked), `mcp` (an image block end to end) and `remembered` (the
+  last tab's list listed before a tab connects, kept when one does, and the
+  agent told when a kept tool's schema differs from the tab's);
+  `mcpCommands` (the server's copy of the command list).
+
+- **An AI agent can drive the tab you have open** (2026-10-09). Claude
+  Code, Claude Desktop, Cursor and other agents that speak the Model Context
+  Protocol can run ScanRuler's commands through scanruler-mcp, a server the
+  agent starts on your computer (the new `mcp/` folder, with its own README).
+  With **Local agent connection** on in ⚙ Settings → Agents, the tab
+  connects to the server on 127.0.0.1 with a pairing token. `npx
+  scanruler-mcp --pair` prints the port and the token, and a link that
+  switches the connection on with both; the agent's `scanruler_status` tool
+  gives the same link. You see each command as it runs: a chip in the top bar
+  says whether the agent is connected, the status line names the command,
+  the guided hints keep quiet, and clicks on the part wait until it is done.
+  Every step is on the undo keys. Files are paths on the agent's side: the
+  server reads a scan and streams it to the tab as a binary frame, and writes
+  each export where the agent asks. The server takes one tab at a time, from
+  scanruler.com, from this computer or from an address it is told, and only
+  with the token. Chrome and Edge refuse a connection from a website to this
+  computer unless the site has been allowed to reach apps on the device, and
+  they only ask on a fetch, never on a WebSocket (checked in Chrome 154), so
+  the tab fetches the server's hello first and the browser asks once.
+  Firefox asks on the connection itself. Safari allows neither, so
+  `scanruler-mcp --serve` serves a build of the app from the same port.
+  Nothing leaves the computer through ScanRuler. The connection's code, like
+  the commands', loads only once it is switched on. Copies of the server
+  share the tab: an agent may start more than one — Claude Desktop starts one
+  for its chats and one for its other sessions — and a copy that finds the
+  port taken sends its calls through the copy that holds it, and takes the
+  port over when that one stops. Tests: `agentBridge` (the
+  hello, runs with bytes both ways, errors as codes, a refusal, the pairing
+  link); `mcpCommands` (the server's copy of the command list); the server's
+  own `npm --prefix mcp test` (framing, tool generation, the origin and token
+  checks, one tab at a time, an MCP client end to end, copies sharing one
+  port and taking it over, a port another program holds); `e2e:agent`, now in
+  the CI run (a real MCP client, the server and the app in Chrome measure the
+  ball bar — or two generated balls where the scan is not at hand — and
+  check the panel, the report — through a second copy of the server too —
+  the STEP, STL and point-cloud exports, undo and redo, and the project saved
+  and opened again).
+- **Every panel verb is a typed command** (2026-10-09). What the panels do —
+  open a scan, fit an element where a click would land, construct one,
+  measure between elements, hold a value to a limit, align the part, cut a
+  section, best-fit the scan onto a reference, measure the wall thickness,
+  calibrate and measure a 2D image, export, save — can now be run by name,
+  with JSON in and JSON out, so that an AI agent or a script can drive a
+  session; the connection to an agent follows. A command runs the same code
+  as its button, as one step of the undo history labelled *Agent: …*. It
+  waits until the result is in, refuses while the session is busy or the
+  panel has work open in it, closes every box it opened, and returns what the
+  panel would show, at full precision in millimetres and degrees. A place on
+  the scan is a vertex number or a point, and a point is taken to its
+  nearest vertex. `session.state` reads the whole session out as JSON,
+  including the scan's bounding box, and `report.get` returns the report as
+  the Copy button's text or structured as JSON, with what each number rests
+  on: units, frame, alignment and each element's outlier cut-off. The exports
+  return their bytes; the buttons still download them. To share code with
+  the panels, the 3D Measure workspace's fitting, the scan import, the part
+  alignment, the section cuts and the deviation and thickness workspaces
+  moved out of the app's top component into modules that also run without
+  the viewport, and the worker can now name the vertex nearest a point and
+  the scan's bounding box. The commands themselves load only when an agent
+  connects. Tests: `agentBallbar` (the ball bar through the commands alone:
+  a sphere fitted in each end, seeded from the readout's bounding box; the
+  centre distance at 148.639 mm against GOM Inspect's 148.64 mm; the report
+  in both forms; the dimension undone);
+  `commandSchema` and `commandRegistry` (input checking, one undo step per
+  command, refusal while busy, commands run one after another);
+  `commandsMeasure` and `commandsWorkspaces` (for every command, what it
+  refuses, what it does and its undo step).
+
 ## 0.4.6 — 2026-10-06
 
 - **The deviation map no longer reads a thin wall off its far side**

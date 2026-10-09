@@ -39,6 +39,19 @@ const PINS_BEHIND_KEY = 'scanruler.pinsbehind'
 const SUPPORT_CARD_KEY = 'scanruler.supportcard'
 const STL_UNITS_KEY = 'scanruler.stlunits'
 const ASK_STL_UNITS_KEY = 'scanruler.askstlunits'
+const AGENT_LINK_KEY = 'scanruler.agentlink'
+const AGENT_PORT_KEY = 'scanruler.agentport'
+const AGENT_TOKEN_KEY = 'scanruler.agenttoken'
+
+/** The port the agent's local server listens on unless told otherwise — the
+ *  one scanruler-mcp uses by default. */
+export const AGENT_PORT_DEFAULT = 7317
+
+/** A port as typed or stored, or the default when it is not one. */
+export const agentPortOf = (value: unknown): number => {
+  const n = Number(value)
+  return Number.isInteger(n) && n >= 1 && n <= 65535 ? n : AGENT_PORT_DEFAULT
+}
 
 const read = (key: string): string | null => {
   try {
@@ -103,6 +116,13 @@ interface PrefsState {
   /** The units an STL is taken to be in when the question is off, and the
    *  answer the question offers first: the last one given. */
   stlUnits: MeshUnits
+  /** Whether this page connects to an AI agent's local server — see
+   *  commands/bridge. Off unless switched on, here or by a pairing link. */
+  agentLink: boolean
+  /** The port on 127.0.0.1 that server listens on. */
+  agentPort: number
+  /** The token it was started with, which the page presents. */
+  agentToken: string
   settingsOpen: boolean
   setUiTheme: (theme: UiTheme) => void
   setColormap: (id: ColormapId) => void
@@ -113,6 +133,9 @@ interface PrefsState {
   setSupportCard: (on: boolean) => void
   setAskStlUnits: (on: boolean) => void
   setStlUnits: (units: MeshUnits) => void
+  setAgentLink: (on: boolean) => void
+  setAgentPort: (port: number) => void
+  setAgentToken: (token: string) => void
   openSettings: (open: boolean) => void
 }
 
@@ -129,6 +152,9 @@ export const usePrefs = create<PrefsState>()((set) => {
     supportCard: read(SUPPORT_CARD_KEY) !== '0',
     askStlUnits: read(ASK_STL_UNITS_KEY) !== '0',
     stlUnits: meshUnitsOf(read(STL_UNITS_KEY)) ?? 'mm',
+    agentLink: read(AGENT_LINK_KEY) === '1',
+    agentPort: agentPortOf(read(AGENT_PORT_KEY)),
+    agentToken: read(AGENT_TOKEN_KEY) ?? '',
     settingsOpen: false,
 
     setUiTheme: (theme) => {
@@ -171,6 +197,20 @@ export const usePrefs = create<PrefsState>()((set) => {
       const stlUnits = meshUnitsOf(units) ?? 'mm'
       write(STL_UNITS_KEY, stlUnits)
       set({ stlUnits })
+    },
+    setAgentLink: (agentLink) => {
+      write(AGENT_LINK_KEY, agentLink ? '1' : '0')
+      set({ agentLink })
+    },
+    setAgentPort: (port) => {
+      const agentPort = agentPortOf(port)
+      write(AGENT_PORT_KEY, String(agentPort))
+      set({ agentPort })
+    },
+    setAgentToken: (token) => {
+      const agentToken = token.trim()
+      write(AGENT_TOKEN_KEY, agentToken)
+      set({ agentToken })
     },
     openSettings: (settingsOpen) => set({ settingsOpen }),
   }

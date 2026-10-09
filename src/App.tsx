@@ -1,25 +1,20 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { useEffect, useMemo, useRef } from 'react'
 import { useProjectHistory } from './app/useProjectHistory'
-import { clearHistory, historyAction, historyAsync } from './state/historyStore'
+import { clearHistory, historyAction } from './state/historyStore'
 import { MeshWorkerClient } from './core/workerClient'
-import { creaseSetting, type CreaseReport, type CreaseSetting } from './core/geometry/crease'
+import { creaseSetting, type CreaseSetting } from './core/geometry/crease'
 import { buildSummary } from './core/summary'
-import { baseSeedPlane } from './core/symmetry'
 import { IMAGE_ACCEPT, REFERENCE_ACCEPT } from './core/formats'
 import { EdgeClient } from './core/flat/edgeClient'
 import { EDGE_MIN_FEATURE_MM } from './core/flat/edges'
 import { chainCount, type EdgeChains } from './core/flat/edges'
 import { EdgeIndex } from './core/flat/snap'
-import { evaluateFlatDimensions } from './core/flat/dimensions'
-import { buildFlatCsv, buildFlatReport, scaleLine, titleLine, type FlatReportInput } from './core/flat/report'
+import { buildFlatReport, scaleLine, titleLine } from './core/flat/report'
 import type { FlatDrawingInput } from './core/flat/drawing'
 import type { Vec2 } from './core/flat/types'
 import {
   canCutAlong,
-  describeCut,
-  sectionRefName,
-  tiltOf,
   turnAxis,
   type CutAxis,
   type WorldAxis,
@@ -27,22 +22,12 @@ import {
 import { chainBounds, projectCut } from './core/section/slice'
 import { elementKindInfo } from './core/elements/kinds'
 import { creationMethod, takesSurface } from './core/elements/construct'
-import { circleFromPoints } from './core/fit/circle'
 import { extensionOf, fitWindow, isExtendable, sideValue } from './core/elements/extend'
 import { roleOf } from './core/elements/refs'
 import { dimensionTypeInfo, evaluateDimension, evaluateDimensions } from './core/dimensions'
+import { attachSurfaceScene, forgetSurface, surfaceSource } from './app/surfaces'
+import type { FitData, PointFit, SigmaPreset, Vec3 } from './core/types'
 import {
-  attachSurfaceScene,
-  forgetAllSurfaces,
-  forgetSurface,
-  rememberSurface,
-  surfaceSource,
-  surfacesMoved,
-} from './app/surfaces'
-import type { ElementKind, FitData, PointFit, SigmaPreset, Vec3 } from './core/types'
-import {
-  alignCenterOf,
-  alignmentPreview,
   alignSlotPicks,
   blockedRefs,
   draftColorOf,
@@ -87,35 +72,28 @@ import { imageScaleX, useFlat } from './state/flatStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
 import { thicknessScale } from './core/thickness/thickness'
-import { rigidApply, rigidInvert, rigidToColumnMajor, type Rigid } from './core/deviation/rigid'
-import { ALIGN_PICK_COUNT, describeRigid } from './core/alignment'
-import { autoAlignPicks } from './core/autoAlign'
-import { ALIGN_SYMMETRY_MAX_RMS_MM, poseOfRigid, poseOnSymmetry } from './core/alignSymmetry'
-import { SYMMETRY_MAX_RMS_MM, SYMMETRY_MIN_MATCHED } from './core/symmetry'
-import { exportElementsStep, exportScanPointCloud, exportScanStl, saveFile, runExport } from './app/exports'
-import { PICK_MARK_TOOL_STATUS, useDeviationWorkspace } from './app/useDeviationWorkspace'
-import { targetFitOf, useElementField } from './app/useElementField'
-import { detectMaterialSide } from './core/deviation/elementField'
-import { useThicknessWorkspace } from './app/useThicknessWorkspace'
+import { rigidToColumnMajor } from './core/deviation/rigid'
+import { ALIGN_PICK_COUNT } from './core/alignment'
+import { exportElementsStep, exportScanPointCloud, exportScanStl, runExport, saveBuilt, textBytes, type BuiltFile } from './app/exports'
+import { PICK_MARK_TOOL_STATUS } from './app/deviationWorkspace'
+import { useElementField } from './app/useElementField'
 import { useSceneSync } from './app/useSceneSync'
 import { useScanSwap } from './app/useScanSwap'
-import { scanLoaded } from './app/scanEvents'
-import { useSections } from './app/useSections'
+import { createSession, type AppSession } from './app/session'
+import { installCommandHost, type FlatHost, type ProjectHost } from './commands/host'
+import { commandRunning } from './commands/activity'
+import { takePairingLink } from './commands/agentLink'
+import { creaseNote } from './app/scanImport'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
+import { buildFlatCsvFile, flatExportStem, flatReportInput } from './app/flatReport'
 import { sheetAlignment, sheetElements, sheetFrame, sheetLoupeActive, sheetPoseOf, sheetScale } from './app/flatSheet'
 import { useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
 import { useProject } from './app/useProject'
-import { emptySources, type SourceFiles } from './app/project'
-import { ImportQueue } from './app/importQueue'
-import { prepareScan, prepareImage, runImport, type PreparedScan, type PreparedImage } from './app/imports'
-import { unitsLabel, type MeshUnits } from './core/meshUnits'
-import { meshUnitsFor } from './state/unitsPromptStore'
+import { prepareImage, runImport, type PreparedImage } from './app/imports'
 import { plugins } from './plugins/registry'
 import type { PluginHost, PluginRuntime } from './plugins/api'
-
-const LARGE_TRIANGLE_WARNING = 5_000_000
 
 /** What a plugin without a hook adds: nothing. */
 const NO_RUNTIME: PluginRuntime = {}
@@ -124,27 +102,34 @@ const NO_RUNTIME: PluginRuntime = {}
  *  split for it again, ms: a slider dragged across splits it once. */
 const CREASE_SETTLE_MS = 250
 
-/** What became of the sharp-edge split, for the status line. Null when it
- *  went as asked and there is nothing to add. */
-function creaseNote(report: CreaseReport, crease: CreaseSetting): string | null {
-  if (report.skipped === 'budget') {
-    return `Sharp edges are shaded smooth: drawing every edge from ${crease.angleDeg}° on sharp would add more vertices than the scan has — try a larger angle.`
-  }
-  if (report.skipped === 'scan') {
-    return 'This mesh reads as a scan, so its edges are shaded smooth — set Sharp edges to Always to split them regardless, from an angle the noise does not reach.'
-  }
-  if (report.skipped === 'off') return 'Sharp edges shaded smooth.'
-  if (report.added === 0) {
-    return crease.mode === 'on' ? `No edges of ${crease.angleDeg}° or more to split on this mesh.` : 'Sharp edges drawn sharp.'
-  }
-  return `Edges from ${crease.angleDeg}° on drawn sharp — ${report.added.toLocaleString('en-US')} vertices split.`
-}
-
 export default function App() {
-  const imports = useRef(new ImportQueue()).current
   const clientRef = useRef<MeshWorkerClient | null>(null)
   if (!clientRef.current) clientRef.current = new MeshWorkerClient()
   const sceneRef = useRef<SceneManager | null>(null)
+  // The worker, the viewport, the models' files, the maps and the
+  // workspaces' verbs, wired once — see app/session. The commands an agent
+  // runs are handed the same session, so they run the panel's code.
+  const sessionRef = useRef<AppSession | null>(null)
+  if (!sessionRef.current) sessionRef.current = createSession({ clientRef, sceneRef })
+  const session = sessionRef.current
+  const { imports, sources, maps, fieldDirections } = session
+  const { deviation, deviationRgb, elementField, elementRgb, elementScope, thickness, thicknessRgb } = maps
+  const {
+    draftRegion,
+    draftSeq,
+    clearPreview,
+    clearPaint,
+    runFit,
+    runDraftFit,
+    runPickFit,
+    runDraftPaintFit,
+    refitDraftInWindow,
+    startDraft: handleStartDraft,
+    confirmDraft: handleConfirmDraft,
+    cancelDraft: handleCancelDraft,
+    findSymmetry: handleFindSymmetry,
+  } = session.measure
+  const { commitScan, openScan: openFile } = session.scan
   // In development the viewport, the worker and the Measure store are
   // reachable from the console and the browser checks — nothing in a
   // production build.
@@ -161,10 +146,6 @@ export default function App() {
   // with its workspace.
   const flatSceneRef = useRef<FlatScene | null>(null)
   const flatBitmapRef = useRef<ImageBitmap | null>(null)
-  // The bytes of every model as it came in, for saving the session as a
-  // project — see app/project. The worker takes its copy by transfer, so this
-  // is the only one left.
-  const sources = useRef<SourceFiles>(emptySources())
   // Edge detection: its own worker, the grayscale cached for sensitivity
   // re-runs, and the resulting chains — all big buffers, all in refs.
   const edgeClientRef = useRef<EdgeClient | null>(null)
@@ -184,40 +165,9 @@ export default function App() {
     bounds: { min: Vec2; max: Vec2 }
   } | null>(null)
 
-  // Region of the pending preview fit, kept out of the store because it is a
-  // large typed array that only the scene needs.
-  const draftRegion = useRef<Uint32Array | null>(null)
-  // The deviation field: one float per scan vertex, so hundreds of thousands
-  // of them. It stays out of the store for the same reason, and stays on the
-  // main thread so that moving the scale or the search distance re-colours the
-  // part immediately instead of going back to the worker.
-  const deviation = useRef<Float32Array | null>(null)
-  const deviationRgb = useRef<Uint8Array | null>(null)
-  // The deviation from a fitted element, held beside the one from the reference
-  // part rather than sharing it: a few megabytes buys switching between what the
-  // scan is measured against without either map losing what it had.
-  const elementField = useRef<Float32Array | null>(null)
-  const elementRgb = useRef<Uint8Array | null>(null)
-  // The direction each reading of a deviation map was taken along, for playing
-  // the map as motion (core/deviation/deflection.ts) — keyed by the map's own
-  // array, so a direction can never be read against a map it was not measured
-  // with, and goes when the map does.
-  const fieldDirections = useMemo(() => new WeakMap<Float32Array, Int8Array>(), [])
-  // The hand-marked scan region an element map can be restricted to. A snapshot
-  // rather than the live paint mask, so the region survives the paint layer
-  // being cleared by other workflows — the map keeps showing what was chosen.
-  const elementScope = useRef<Uint32Array | null>(null)
-  // The wall thickness field, kept the same way and for the same reasons: one
-  // float per scan vertex, and the two ends of its scale move it immediately
-  // rather than going back to the worker.
-  const thickness = useRef<Float32Array | null>(null)
-  const thicknessRgb = useRef<Uint8Array | null>(null)
   // The hover label subscribes to this instead of taking a prop, so a reading
   // that changes every frame does not re-render the workspace around it.
   const hoverSink = useRef<((reading: HoverReading | null) => void) | null>(null)
-  // Bumped whenever the draft changes, so a fit that resolves after the user
-  // has already picked again (or cancelled) is discarded.
-  const draftSeq = useRef(0)
 
   useEffect(() => {
     clientRef.current!.restoreState = () => ({
@@ -277,13 +227,6 @@ export default function App() {
       clearTimeout(timer)
     }
   }, [creaseMode, creaseAngle])
-
-  const clearPreview = () => {
-    draftSeq.current++
-    draftRegion.current = null
-    sceneRef.current?.setPreviewRegion(null)
-    sceneRef.current?.setPreview(null)
-  }
 
   /** Open a flatbed scan image in the 2D Measure workspace: decode it, read
    *  the resolution it declares about itself, and hand it to the flat scene.
@@ -371,7 +314,7 @@ export default function App() {
     sceneRef,
     sources,
     imports,
-    maps: { deviation, deviationRgb, elementField, elementRgb, elementScope, thickness, thicknessRgb },
+    maps,
     openScan: (file, units) => hostVerbs.current!.openScan(file, units),
     openReference: (file, units) => hostVerbs.current!.openReference(file, units),
     runFit: (...args) => hostVerbs.current!.runFit(...args),
@@ -469,58 +412,16 @@ export default function App() {
   }, [sectionIds])
 
   // Cuts are taken in the mesh worker, for the draft and for sections that
-  // arrive from a project with their planes only.
-  useSections({ clientRef })
-
-  /** The section on the 2D stage, described for the report: its name, the
-   *  scan it cuts, and where. Undefined with the image on the stage. */
-  const activeSectionInfo = () => {
-    const subject = useFlat.getState().subject
-    if (subject.kind !== 'section') return undefined
-    const store = useStore.getState()
-    const sec = store.sections.find((x) => x.id === subject.id)
-    if (!sec) return undefined
-    const where = describeCut(
-      sectionRefName(sec.ref, store.elements),
-      sec.offset,
-      tiltOf(sec.refDir, sec.frame.normal),
-    )
-    return { name: sec.name, scanName: store.fileName ?? 'scan', cut: where }
-  }
-
-  /** Everything the 2D report and CSV need, gathered once. */
-  const flatReportInput = (): FlatReportInput => {
-    const s = useFlat.getState()
-    return {
-      imageName: s.imageName ?? 'image',
-      imageWidth: s.imageWidth,
-      imageHeight: s.imageHeight,
-      calSource: s.calSource,
-      section: activeSectionInfo(),
-      pxPerMm: s.pxPerMm,
-      datum: s.datum,
-      frame: sheetFrame(s),
-      unit: s.pxPerMm ? 'mm' : 'px',
-      elements: s.elements,
-      dimensions: evaluateFlatDimensions(s.dimensions, s.elements),
-      counts: s.counts,
-    }
-  }
+  // arrive from a project with their planes only; a centroid draft measures
+  // itself — see app/sectionCuts and app/measureWorkspace.
+  useEffect(() => session.watch(), [session])
 
   const handleFlatCopyReport = () => {
     void navigator.clipboard.writeText(buildFlatReport(flatReportInput()))
     useStore.getState().setStatus('2D measurement report copied to the clipboard.')
   }
 
-  /** The stem every 2D export is named on: the section, or the image. */
-  const flatExportStem = () =>
-    (activeSectionInfo()?.name ?? useFlat.getState().imageName ?? 'scan').replace(/\.[^.]+$/, '')
-
-  const handleFlatExportCsv = () => {
-    const name = `${flatExportStem()}-measurements.csv`
-    saveFile(name, new Blob([buildFlatCsv(flatReportInput())], { type: 'text/csv' }))
-    useStore.getState().setStatus(`Measurements exported to ${name}.`)
-  }
+  const handleFlatExportCsv = () => saveBuilt(buildFlatCsvFile())
 
   /** The sheet gathered for a drawing export — see core/flat/drawing. What
    *  is on the sheet is what is exported: the edges while they are shown,
@@ -565,22 +466,23 @@ export default function App() {
   }
 
   /** The sheet as an SVG at true scale — for a vector editor, a laser or a
-   *  print at 1:1. */
-  const handleFlatExportSvg = () => runExport(async () => {
+   *  print at 1:1. Null with nothing on the stage. */
+  const buildFlatSvgFile = async (): Promise<BuiltFile | null> => {
     const input = flatDrawingInput()
-    if (!input) return
+    if (!input) return null
     const name = `${flatExportStem()}-sheet.svg`
     const summary = drawnSummary(input)
     const { buildFlatSvg } = await import('./core/flat/svg')
-    saveFile(name, new Blob([buildFlatSvg(input)], { type: 'image/svg+xml' }))
-    useStore.getState().setStatus(`Sheet exported to ${name} — ${summary}.`)
-  })
+    return { name, mimeType: 'image/svg+xml', bytes: textBytes(buildFlatSvg(input)), status: `Sheet exported to ${name} — ${summary}.` }
+  }
+  const handleFlatExportSvg = () => runExport(async () => saveBuilt(await buildFlatSvgFile()))
 
   /** The sheet as a DXF — for CAD: millimetres by declaration, y up, the
-   *  origin on the alignment, the edges thinned to a sketch's worth. */
-  const handleFlatExportDxf = () => runExport(async () => {
+   *  origin on the alignment, the edges thinned to a sketch's worth. Null
+   *  with nothing on the stage. */
+  const buildFlatDxfFile = async (): Promise<BuiltFile | null> => {
     const input = flatDrawingInput()
-    if (!input) return
+    if (!input) return null
     const s = useFlat.getState()
     const origin = sheetFrame(s)?.origin ?? null
     const name = `${flatExportStem()}-sheet.dxf`
@@ -591,223 +493,15 @@ export default function App() {
       origin,
       edgeTolerance: tolerance,
     })
-    saveFile(name, new Blob([dxf], { type: 'application/dxf' }))
-    useStore
-      .getState()
-      .setStatus(`Drawing exported to ${name} — ${drawnSummary(input, `thinned to ${tolerance} ${input.unit}`, s.showEdges)}.`)
-  })
-
-
-
-  const commitScan = (prepared: PreparedScan | null) => {
-    const store = useStore.getState()
-    clearPreview()
-    // A different scan invalidates the alignment and the map measured under
-    // it, and its wall thickness along with them; the reference geometry
-    // itself is still perfectly good. The elements go with the scan they were
-    // measured on, so the map against one of them goes too.
-    deviation.current = null
-    deviationRgb.current = null
-    elementField.current = null
-    elementRgb.current = null
-    // The marked region is vertex indices into the scan being replaced — and
-    // so is every surface an element rested on.
-    elementScope.current = null
-    forgetAllSurfaces()
-    thickness.current = null
-    thicknessRgb.current = null
-    useDeviation.getState().clearAlign()
-    useDeviation.getState().clearElementMap()
-    useDeviation.getState().clearScope()
-    useThickness.getState().clear()
-    // Nothing is marked on a part that is being replaced, and no gesture should
-    // survive the swap.
-    useMark.getState().reset()
-    sources.current.scan = prepared?.source ?? null
-    store.beginLoad(prepared?.source.name ?? '')
-    if (prepared) {
-      prepared.view.commit()
-      const { mesh } = prepared
-      store.finishLoad(mesh.vertexCount, mesh.triangleCount,
-        sceneRef.current?.modelSize() ?? 1, sceneRef.current?.modelCenter() ?? [0, 0, 0])
-      useMark.getState().sizeToModel(sceneRef.current?.modelSize() ?? 1)
-      useThickness.getState().suggestMaxThickness(2 * (sceneRef.current?.modelSize() ?? 1))
-      scanLoaded({ positions: mesh.positions, indices: mesh.indices, modelSize: sceneRef.current?.modelSize() ?? 1 })
-    } else {
-      sceneRef.current?.clearScan()
-      useStore.setState({ fileName: null, modelSize: 1, modelCenter: [0, 0, 0] })
-      scanLoaded(null)
-    }
-    // Project restoration still has work to do; the import owns this flag.
-    useStore.setState({ busy: true })
-    clearHistory()
-  }
-
-  /** An STL is asked about first — what units it is in — unless `units` is
-   *  given: a file the instrument wrote itself, in millimetres like
-   *  everything it holds. A question dismissed leaves the file unopened. */
-  const openFile = async (file: File, units?: MeshUnits): Promise<void> => {
-    const read = units ?? (await meshUnitsFor(file.name))
-    if (!read) return
-    await runImport(imports, 'Reading file…', async () => {
-      const client = clientRef.current!
-      const crease = creaseSetting(useStore.getState())
-      const prepared = await prepareScan(client, sceneRef.current!, file, crease, undefined, read)
-      try {
-        await client.commitImport({ scan: prepared.id })
-        commitScan(prepared)
-        const mesh = prepared.mesh
-        const creaseWord = mesh.crease.skipped === 'budget' ? ` ${creaseNote(mesh.crease, crease)}` : ''
-        const unitsWord = read !== 'mm' ? `Read in ${unitsLabel(read).toLowerCase()} and converted to millimetres. ` : ''
-        useStore.getState().setStatus(
-          unitsWord +
-          (mesh.triangleCount > LARGE_TRIANGLE_WARNING
-            ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
-            : 'Pick an element type in the panel to start measuring.') + creaseWord)
-      } finally {
-        prepared.view.dispose()
-        await client.discardImport([prepared.id])
-      }
-    })
-  }
-
-  /** Re-fit an already measured element (on project load, where the fits are
-   *  saved without their surfaces). A hand-marked element re-fits on its
-   *  marked surface, an auto-fitted one from its seeds, each with the fit
-   *  settings it was measured with — all of it the recipe the element was
-   *  made with. */
-  const runFit = async (
-    elementId: number,
-    kind: ElementKind,
-    seeds: number[],
-    selection?: Uint32Array,
-    regionsOnly = false,
-  ) => {
-    const scanVersion = clientRef.current!.scanVersion
-    const el = useStore.getState().elements.find((e) => e.id === elementId)
-    const alignment = useStore.getState().appliedAlignment
-    const stillCurrent = () => scanVersion === clientRef.current!.scanVersion &&
-      alignment === useStore.getState().appliedAlignment &&
-      el?.source === useStore.getState().elements.find((e) => e.id === elementId)?.source
-    const settings = el?.source.type === 'fitted' ? el.source.settings : useStore.getState().settings
-    // A fit confined to the drawn span is confined to it every time it runs.
-    const window = fitWindow(el?.extend)
-    try {
-      const result = selection
-        ? await clientRef.current!.fitSelection(kind, selection, settings, window)
-        : await clientRef.current!.fit(kind, seeds, settings, window)
-      if (!stillCurrent()) return
-      // The surface goes on record before the fit does, so whatever re-reads
-      // the elements on the fit landing finds the points already there.
-      rememberSurface(elementId, result.region)
-      if (!regionsOnly || !el?.fit) useStore.getState().resolveFit(elementId, result)
-      const fitted = useStore.getState().elements.find((e) => e.id === elementId)
-      if (fitted) sceneRef.current?.applyRegion(elementId, fitted.color, result.region)
-    } catch (e) {
-      if (!stillCurrent()) return
-      useStore.getState().failFit(elementId, e instanceof Error ? e.message : String(e))
+    return {
+      name,
+      mimeType: 'application/dxf',
+      bytes: textBytes(dxf),
+      status: `Drawing exported to ${name} — ${drawnSummary(input, `thinned to ${tolerance} ${input.unit}`, s.showEdges)}.`,
     }
   }
+  const handleFlatExportDxf = () => runExport(async () => saveBuilt(await buildFlatDxfFile()))
 
-  /** The fit settings the open draft runs with — its own. The session default
-   *  only stands in when no draft is open, which no fit below runs without. */
-  const draftSettings = () => {
-    const s = useStore.getState()
-    return s.draft?.settings ?? s.settings
-  }
-
-  /** Fit the draft from every picked point at once and show it as a preview.
-   *  Picks may sit on unconnected patches — a partial scan of one feature —
-   *  and the region growing seeds from all of them. */
-  const runDraftFit = async (kind: ElementKind, picks: [number, number, number][]) => {
-    const seq = ++draftSeq.current
-    const settings = draftSettings()
-    const seeds = picks.flat()
-    const window = fitWindow(useStore.getState().draft?.extend)
-    try {
-      const result = await clientRef.current!.fit(kind, seeds, settings, window)
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      draftRegion.current = result.region
-      sceneRef.current?.setPreviewRegion(result.region, draftColorOf(useStore.getState()))
-      useStore.getState().resolveDraft(result)
-    } catch (e) {
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      draftRegion.current = null
-      sceneRef.current?.setPreviewRegion(null)
-      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  /** Fit a pick-mode draft that needs several points — a circle. Pure math on
-   *  a handful of coordinates, so it runs right here rather than in the
-   *  worker, and the preview is ready before the click has been let go of. */
-  const runPickFit = (points: Vec3[]) => {
-    clearPreviewShapeOnly()
-    try {
-      const fit = circleFromPoints(points)
-      useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
-    } catch (e) {
-      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  /** Drop a stale fit preview without touching the draft itself — the picks
-   *  are being re-fitted, not abandoned. */
-  const clearPreviewShapeOnly = () => {
-    draftSeq.current++
-    draftRegion.current = null
-    sceneRef.current?.setPreviewRegion(null)
-  }
-
-  /** Fit the draft to the surface the user has marked by hand. The marked
-   *  surface is the region, so there is nothing to preview separately — it is
-   *  already tinted on the part, in the colour the element will get. */
-  const runDraftPaintFit = async (kind: ElementKind, selection: Uint32Array) => {
-    const seq = ++draftSeq.current
-    const settings = draftSettings()
-    const window = fitWindow(useStore.getState().draft?.extend)
-    useStore.getState().setDraftSelection(selection)
-    try {
-      const result = await clientRef.current!.fitSelection(kind, selection, settings, window)
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      draftRegion.current = result.region
-      useStore.getState().resolveDraft(result)
-    } catch (e) {
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      draftRegion.current = null
-      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
-    }
-  }
-
-  /** The open draft measured again on the same surface, with the span its fit
-   *  is confined to as it stands now. In place: the fit standing is replaced
-   *  when the new one lands, and nothing goes blank in between — this runs at
-   *  the end of a grip drag, and a ghost that vanished under the hand would
-   *  make the drag look like a mistake. A failure keeps the fit too, so the
-   *  fields stay to be put right. */
-  const refitDraftInWindow = async () => {
-    const d = useStore.getState().draft
-    if (!d || d.kind !== 'cylinder' || creationMethod(d.kind, d.method).mode !== 'fit') return
-    if (!d.selection && d.picks.length === 0) return
-    const seq = ++draftSeq.current
-    const settings = d.settings
-    const window = fitWindow(d.extend)
-    try {
-      const result = d.selection
-        ? await clientRef.current!.fitSelection(d.kind, d.selection, settings, window)
-        : await clientRef.current!.fit(d.kind, d.picks.flat(), settings, window)
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      draftRegion.current = result.region
-      // A hand-marked surface is already tinted by the marking itself, which
-      // sits above any preview; a grown one shows what the fit now rests on.
-      if (!d.selection)
-        sceneRef.current?.setPreviewRegion(result.region, draftColorOf(useStore.getState()))
-      useStore.getState().resolveDraft(result)
-    } catch (e) {
-      if (seq !== draftSeq.current || !useStore.getState().draft) return
-      useStore.getState().failDraft(e instanceof Error ? e.message : String(e))
-    }
-  }
 
   /** A marking gesture ended: re-fit on what is marked now, or fall back to an
    *  empty draft once the last of the marking has been rubbed out. */
@@ -852,52 +546,7 @@ export default function App() {
     void runDraftPaintFit(draft.kind, selection)
   }
 
-  /** Rub the marking out. The tools stay as they are — which gesture is in the
-   *  user's hand outlives the element it was collecting, the same way it
-   *  outlives a local fine fit. */
-  const clearPaint = () => {
-    draftSeq.current++
-    draftRegion.current = null
-    sceneRef.current?.clearPaint()
-    useMark.getState().setCount(0)
-    useStore.getState().setDraftSelection(null)
-  }
-
-  /** Bake a datum alignment (or its inverse, on reset) into everything that
-   *  carries scan coordinates: the worker's copy of the mesh, the displayed
-   *  mesh and its BVH, and every element in the store. Vertex order never
-   *  changes, so painted regions and fit seeds stay valid. A scan→reference
-   *  best fit was measured in the old frame and is invalidated along with the
-   *  deviation map on it. */
-  const applyRigidToPart = (m: Rigid, reset = false) => imports.run(() => historyAsync('Align part', async () => {
-    useStore.setState({ busy: true })
-    try {
-      clearPreview()
-      useStore.getState().setStatus('Aligning part — rebuilding spatial index…')
-      // Let the status paint before the synchronous BVH rebuild.
-      await new Promise((r) => setTimeout(r, 30))
-      await clientRef.current!.transform(m)
-      // The real transform goes on and the preview of it comes off together.
-      sceneRef.current?.applyTransform(m)
-      sceneRef.current?.setAlignPreview(null)
-      useStore.getState().applyAlignment(m)
-      if (reset) useStore.getState().clearAppliedAlignment()
-      // Thickness is invariant under a rigid move; its pins move with the scan.
-      const moved = new Float64Array(3)
-      useThickness.setState((s) => ({ probes: s.probes.map((probe) => {
-        rigidApply(m, ...probe.point, moved)
-        return { ...probe, point: [moved[0], moved[1], moved[2]] as Vec3 }
-      }) }))
-      surfacesMoved()
-      deviation.current = null
-      deviationRgb.current = null
-      sceneRef.current?.setFieldColors(null)
-      useDeviation.getState().clearAlign()
-    } finally { useStore.setState({ busy: false }) }
-  })).then(() => true).catch((error) => {
-    useStore.getState().setError(error instanceof Error ? error.message : String(error))
-    return false
-  })
+  const { applyAlignment: handleApplyAlignment, applyManual: handleApplyManual, resetAlignment: handleResetAlignment } = session.alignment
 
   const handleStartAlignment = () => {
     clearPreview()
@@ -909,218 +558,12 @@ export default function App() {
       )
   }
 
-  /** Ask the worker what coordinate system the scan suggests and open the
-   *  alignment editor on it: the slots filled, the pose previewed on the part,
-   *  nothing applied. What the proposal rests on is said in the editor, so a
-   *  guess reads as a guess. */
-  const handleAutoAlign = async () => {
-    clearPreview()
-    const s = useStore.getState()
-    s.setError(null)
-    s.setStatus('Auto-align — reading the part’s directions off the scan…')
-    s.setWorking('READING…')
-    try {
-      const r = await clientRef.current!.autoAlign()
-      const pct = (share: number) => `${Math.round(share * 100)} %`
-      const stands = {
-        'open-side': 'the side the scan is open on',
-        face: 'its largest flat face',
-        'axis-end': 'an end of its main axis',
-        extent: 'its flattest side',
-      }[r.base]
-      const read =
-        r.method === 'principal'
-          ? 'The scan shows no face directions and no round walls, so this is the principal axes of its points — a guess.'
-          : r.method === 'axis'
-            ? `Read off the scan: the main axis from the round walls (${pct(r.wallShare)} of the surface)${
-                r.onAxis ? ', zero on that axis' : ''
-              }; ${pct(r.planeShare)} of the surface is faces square to the axes.`
-            : `Read off the scan: ${pct(r.planeShare)} of the surface is faces square to these axes${
-                r.wallShare >= 0.05 ? `, ${pct(r.wallShare)} more is wall running along them` : ''
-              }.`
-      const note = `${read} The part stands on ${stands}, its long side along X. Change a side or a direction below if it reads the part differently than you do.`
-      useStore.getState().proposeAlignment(autoAlignPicks(r, 0.2 * useStore.getState().modelSize), note)
-      useStore.getState().setStatus('Auto-align — check the previewed pose, then press Confirm alignment.')
-    } catch (e) {
-      useStore.getState().setStatus('')
-      useStore.getState().setError(e instanceof Error ? e.message : 'Auto-align failed.')
-    } finally {
-      useStore.getState().setWorking(null)
-    }
-  }
-
-  /** The pose being set up, settled on the part's symmetry plane: the plane
-   *  a Measure symmetry plane gives, or the scan searched for its own; the
-   *  pose the editor previews, or Auto-align's when it has none yet. It
-   *  comes back as a proposal — picks, like Auto-align's — so every choice
-   *  in it can still be changed and nothing moves until it is applied. */
-  const handleAlignSymmetry = async () => {
-    clearPreview()
-    const s = useStore.getState()
-    const client = clientRef.current
-    if (!client || !s.fileName) return
-    s.setError(null)
-    // Seconds of searching on a big scan, with nothing to show on the part
-    // until the pose lands: the viewport says so meanwhile, as the symmetry
-    // plane's own box does.
-    s.setWorking('SEARCHING…')
-    try {
-      const ad = s.alignDraft
-      const standing = ad ? alignmentPreview(ad, s.elements, s.modelSize, alignCenterOf(s)).preview : null
-      let pose: { axes: [Vec3, Vec3, Vec3]; origin: Vec3 }
-      if (standing) pose = poseOfRigid(standing.rigid)
-      else {
-        s.setStatus('Use symmetry — no pose set up yet, reading one off the scan first…')
-        pose = await client.autoAlign()
-      }
-      const measured = [...s.elements].reverse().find((e) => e.fit?.kind === 'plane' && e.source.type === 'constructed' && e.source.method === 'plane-symmetry')
-      let plane: { normal: Vec3; point: Vec3 }
-      let from: string
-      if (measured?.fit?.kind === 'plane') {
-        plane = { normal: measured.fit.normal, point: measured.fit.center }
-        from = measured.name
-      } else {
-        s.setStatus('Use symmetry — searching the scan for its mirror plane…')
-        const r = await client.symmetry(null)
-        if (!Number.isFinite(r.rms) || r.rms > ALIGN_SYMMETRY_MAX_RMS_MM || r.sampled === 0 || r.matched / r.sampled < SYMMETRY_MIN_MATCHED) {
-          useStore.getState().setStatus('')
-          useStore.getState().setError(`No symmetry plane found on the scan — the best mirror image stands ${Number.isFinite(r.rms) ? `${r.rms.toFixed(2)} mm` : 'far'} off it. The pose is left as it is.`)
-          return
-        }
-        plane = { normal: r.normal, point: r.point }
-        from = `the scan’s mirror plane (σ ${r.rms.toFixed(3)} mm${r.rms > SYMMETRY_MAX_RMS_MM ? ', a loose match' : ''})`
-      }
-      const settled = poseOnSymmetry(pose.axes, pose.origin, plane)
-      if (!settled) {
-        useStore.getState().setError('The symmetry plane has no direction to settle the pose on.')
-        return
-      }
-      const names = ['YZ', 'XZ', 'XY']
-      const note = `Settled on ${from}: it is the ${names[settled.axis]} plane now — ${'XYZ'[settled.axis]} turned ${settled.tiltDeg.toFixed(2)}° onto its normal, the zero point moved ${settled.shiftMm.toFixed(2)} mm onto it. The steps below are this pose as points; change a side or a direction if it reads the part differently than you do.`
-      useStore.getState().proposeAlignment(autoAlignPicks(settled, 0.2 * useStore.getState().modelSize), note)
-      useStore.getState().setStatus('Use symmetry — check the previewed pose, then press Confirm alignment.')
-    } catch (e) {
-      useStore.getState().setStatus('')
-      useStore.getState().setError(e instanceof Error ? e.message : 'The symmetry search failed.')
-    } finally {
-      useStore.getState().setWorking(null)
-    }
-  }
-
-  const handleApplyAlignment = async (m: Rigid) => {
-    const { rotationDeg, translation } = describeRigid(m)
-    if (!await applyRigidToPart(m)) return
-    useStore
-      .getState()
-      .setStatus(
-        `Part aligned — rotated ${rotationDeg.toFixed(2)}°, moved ${translation.toFixed(3)} mm. Elements and dimensions moved with it.`,
-      )
-  }
-
-  const handleApplyManual = async (m: Rigid) => {
-    const { rotationDeg, translation } = describeRigid(m)
-    if (!await applyRigidToPart(m)) return
-    useStore
-      .getState()
-      .setStatus(
-        `Part moved — rotated ${rotationDeg.toFixed(2)}°, moved ${translation.toFixed(3)} mm. Elements and dimensions moved with it.`,
-      )
-  }
-
-  const handleResetAlignment = async () => {
-    const total = useStore.getState().appliedAlignment
-    if (!total) return
-    if (!await applyRigidToPart(rigidInvert(total), true)) return
-    useStore.getState().setStatus('Alignment reset — the part is back in scan coordinates.')
-  }
-
   // The exports live in src/app/exports.ts — they read the stores directly,
   // and the STL one needs the scene for the geometry as shown.
   const handleExportStep = exportElementsStep
   const handleExportStl = () => exportScanStl(sceneRef)
   const handleExportCloud = () => exportScanPointCloud(sceneRef, useStore.getState().cloudFormat)
 
-  /** The open symmetry-plane draft asks the worker for the mirror plane —
-   *  refined from the seed plane it names, or from the scan's principal
-   *  planes — and takes the numbers into its params the way typed ones go. */
-  const handleFindSymmetry = async () => {
-    const s = useStore.getState()
-    const d = s.draft
-    if (!d || d.method !== 'plane-symmetry' || d.status === 'fitting') return
-    const seedEl = d.seed != null && d.seed >= 0 ? s.elements.find((e) => e.id === d.seed) : undefined
-    const seedFit = seedEl?.fit?.kind === 'plane' ? seedEl.fit : null
-    const seedBase = d.seed != null && d.seed < 0 ? baseSeedPlane(d.seed, s.modelCenter, s.modelSize) : null
-    const seedName = seedFit ? seedEl!.name : seedBase ? `the ${seedBase.name}` : null
-    s.setDraftWorking('Searching the scan for its mirror plane…')
-    try {
-      const marked = d.selection ?? null
-      const r = await clientRef.current!.symmetry(
-        seedFit ? { normal: seedFit.normal, point: seedFit.center } : seedBase ? { normal: seedBase.normal, point: seedBase.point } : null,
-        marked,
-      )
-      const now = useStore.getState().draft
-      if (!now || now.method !== 'plane-symmetry') return
-      const loose = r.rms > 0.1
-      useStore.getState().setDraftParams(
-        [...r.normal, ...r.point, r.rms, r.matched, r.sampled],
-        `The mirror image fits the ${marked ? 'marked surface' : 'scan'} to σ ${r.rms.toFixed(
-          4,
-        )} mm over ${r.matched.toLocaleString('en-US')} of ${r.sampled.toLocaleString(
-          'en-US',
-        )} samples, ${
-          seedName
-            ? `refined from ${seedName}`
-            : r.candidate < 3
-              ? `from principal plane ${r.candidate + 1}`
-              : 'from one of the part’s face directions'
-        }.${
-          loose
-            ? ' A loose match: the part may not be symmetric about any plane, or the seed was far off — try another seed.'
-            : ''
-        }`,
-      )
-    } catch (e) {
-      const now = useStore.getState().draft
-      if (now && now.method === 'plane-symmetry')
-        useStore.getState().failDraft(e instanceof Error ? e.message : 'The symmetry search failed.')
-    }
-  }
-
-  // A centroid draft measures itself the moment it is opened: its numbers
-  // come off the scan, not the keyboard. Keyed on the draft being an
-  // unmeasured centroid, so choosing the method again measures again and a
-  // failed measurement stays failed rather than looping.
-  const centroidPending = useStore(
-    (s) =>
-      s.draft?.method === 'point-centroid' &&
-      s.draft.status === 'empty' &&
-      s.draft.params.some((p) => !Number.isFinite(p)),
-  )
-  useEffect(() => {
-    if (!centroidPending) return
-    const marked = useStore.getState().draft?.selection ?? null
-    useStore.getState().setDraftWorking('Measuring the centroid…')
-    void clientRef.current!.centroid(marked).then(
-      (c) => {
-        const now = useStore.getState().draft
-        if (!now || now.method !== 'point-centroid' || now.status !== 'fitting') return
-        const at = c.volume ?? c.area
-        useStore.getState().setDraftParams(
-          [at[0], at[1], at[2]],
-          marked
-            ? `The centroid of the ${marked.length.toLocaleString('en-US')} marked points' surface — of its area, not of a volume.`
-            : c.closed
-              ? `The centroid of the enclosed volume, ${(c.volumeMm3 / 1000).toFixed(2)} cm³.`
-              : 'The scan is open — this is the centroid of its surface, not of a volume.',
-        )
-      },
-      (e: unknown) => {
-        const now = useStore.getState().draft
-        if (now && now.method === 'point-centroid')
-          useStore.getState().failDraft(e instanceof Error ? e.message : 'The centroid could not be measured.')
-      },
-    )
-  }, [centroidPending])
 
   // ---- Deviation workspace -------------------------------------------------
 
@@ -1139,34 +582,13 @@ export default function App() {
     handleClearMarking,
     handleRevertLocal,
     handleCopyReport,
-  } = useDeviationWorkspace({ clientRef, sceneRef, deviation, deviationRgb, fieldDirections, sources, imports })
+    selectTarget: handleSelectTarget,
+  } = session.deviation
 
   // ---- Deviation from a fitted element -------------------------------------
 
   useElementField({ sceneRef, elementField, elementRgb, elementScope, fieldDirections })
 
-  /** Measure against this element. The material side is read off the scan as the
-   *  element is chosen — see detectMaterialSide for why it is decided here and
-   *  then left alone rather than re-derived as the controls move. */
-  const handleSelectTarget = (id: number | null) => {
-    const dev = useDeviation.getState()
-    const target = targetFitOf(useStore.getState().elements, id)
-    if (id === null || !target) {
-      dev.setTarget(null)
-      return
-    }
-    const geometry = sceneRef.current?.scanGeometry()
-    const positions = geometry?.getAttribute('position')?.array as Float32Array | undefined
-    const normals = geometry?.getAttribute('normal')?.array as Float32Array | undefined
-    dev.setTarget(
-      id,
-      positions && normals
-        ? detectMaterialSide(target, positions, normals, dev.maxDistance)
-        : 1,
-    )
-    const name = useStore.getState().elements.find((e) => e.id === id)?.name ?? 'element'
-    useStore.getState().setStatus(`Deviation measured against ${name}.`)
-  }
 
   /** Switch the element map between measuring the whole scan and measuring a
    *  hand-marked region of it. Choosing the marked scope opens the marking
@@ -1214,11 +636,7 @@ export default function App() {
 
   // ---- Wall thickness workspace --------------------------------------------
 
-  const { runThickness, handleCopyThicknessReport } = useThicknessWorkspace({
-    clientRef,
-    thickness,
-    thicknessRgb,
-  })
+  const { runThickness, handleCopyThicknessReport } = session.thickness
 
   // Another version of the scan put in place under the session — see
   // useScanSwap.
@@ -1271,6 +689,9 @@ export default function App() {
   }
 
   const handlePick = (hit: PickHit) => {
+    // An agent's command has the panel's box open: a click now would land in
+    // it. The person watches until it is done.
+    if (commandRunning()) return
     const store = useStore.getState()
     // On either map a click pins the reading under it; alignment points are
     // picked in the split view, which has its own scenes.
@@ -1346,6 +767,7 @@ export default function App() {
    *  editor is collecting references — the dimension draft, or a construction
    *  draft's slots. Clicking an element that is already used takes it out. */
   const handleElementPick = (id: number, clientX = 0, clientY = 0) => {
+    if (commandRunning()) return
     const store = useStore.getState()
     const el = store.elements.find((e) => e.id === id)
     if (!el?.fit) return
@@ -1408,22 +830,6 @@ export default function App() {
       return
     }
     if (store.dimDraft) store.selectDimensionElement(id)
-  }
-
-  const handleStartDraft = (kind: ElementKind) => {
-    const store = useStore.getState()
-    clearPreview()
-    // A new element starts from bare scan, whichever way the last one was
-    // collected — the brush stays armed, but nothing is marked for it yet.
-    clearPaint()
-    // The kind already in hand, pressed again, starts its box over — it is
-    // not put down.
-    store.startDraft(kind)
-    const draft = useStore.getState().draft!
-    const method = creationMethod(kind, draft.method)
-    store.setStatus(
-      method.mode === 'construct' ? 'Select the source elements in the panel.' : method.hint,
-    )
   }
 
   /** Re-open an element in the box it was created in. Everything it was made
@@ -1522,22 +928,6 @@ export default function App() {
     }
   }
 
-  const handleCancelDraft = () => {
-    const closing = useStore.getState().draft
-    // The store first: a draft closed with a marking on it is put aside with
-    // that marking (store.discarded), and clearing the part would take the
-    // marking off the draft before it is.
-    useStore.getState().cancelDraft()
-    clearPreview()
-    clearPaint()
-    const kept = useStore.getState().discarded
-    useStore.getState().setStatus(
-      kept?.selection && closing
-        ? `${closing.editId !== undefined ? 'The edit was' : `The ${elementKindInfo(closing.kind).noun} was`} discarded with ${kept.selection.length.toLocaleString('en-US')} marked points on it — Restore in the panel brings it back.`
-        : '',
-    )
-  }
-
   /** The draft put aside with its marking, back where it was: the marking
    *  goes back onto the part in the draft's colour and the draft is measured
    *  on it again — a fit re-fits, a search of the scan starts over on it. */
@@ -1622,36 +1012,6 @@ export default function App() {
     const store = useStore.getState()
     if (!store.sectionDraft || store.draft) return
     store.setSectionDraftRef(axis)
-  }
-
-  const handleConfirmDraft = () => {
-    const region = draftRegion.current
-    const editing = useStore.getState().draft?.editId !== undefined
-    const id = useStore.getState().commitDraft()
-    if (id === null) return
-    clearPreview()
-    // The marking hands its surface over to the element that was made from it:
-    // clear it first, so the element's own tint is what stays on the part.
-    clearPaint()
-    const el = useStore.getState().elements.find((e) => e.id === id)
-    if (el && region) {
-      rememberSurface(id, region)
-      sceneRef.current?.applyRegion(id, el.color, region)
-    }
-    // An element that has stopped being fitted — re-made from coordinates or
-    // from other elements — leaves the surface it used to own behind.
-    else if (el && el.source.type !== 'fitted') {
-      forgetSurface(id)
-      sceneRef.current?.clearElement(id)
-    }
-    // The kind is still in hand after a creation — say so the first times,
-    // and where the way out is.
-    const next = useStore.getState().draft
-    useStore.getState().setStatus(
-      next
-        ? `${el?.name ?? 'Element'} created — the ${elementKindInfo(next.kind).noun} stays in hand for the next one; Esc or Cancel puts it down.`
-        : `${el?.name ?? 'Element'} ${editing ? 'updated' : 'created'}.`,
-    )
   }
 
   // Changing "Used points" is a change to the open draft alone: it re-fits on
@@ -1844,7 +1204,7 @@ export default function App() {
   })
 
   // Drag & drop anywhere.
-  const { saveProject, openProject, recovery } = useProject({
+  const { saveProject, packProject, openProject, recovery } = useProject({
     sources,
     clientRef,
     sceneRef,
@@ -1860,6 +1220,78 @@ export default function App() {
   })
 
   const dragging = useDragDrop({ openFile, openNominal, openImage, openProject })
+
+  // The commands an agent runs (src/commands) work through the session, and
+  // through the same handlers as the buttons for what only the browser has:
+  // project files and the 2D sheet's image. Bound through a ref, as the
+  // plugins' verbs are, since the handlers are this render's.
+  const commandVerbs = useRef<{ project: ProjectHost; flat: FlatHost } | null>(null)
+  commandVerbs.current = {
+    project: {
+      save: packProject,
+      open: (file, discard) => openProject(file, false, discard),
+    },
+    flat: {
+      openImage,
+      closeImage: () => commitImage(null),
+      detectEdges: async (sensitivity) => {
+        const flat = useFlat.getState()
+        if (flat.subject.kind !== 'image' || !flatGrayRef.current) return flat.edgeCount
+        const before = flat.edgeVersion
+        // A new sensitivity detects again by itself (the effect above).
+        if (sensitivity !== flat.edgeSensitivity) flat.setEdgeSensitivity(sensitivity)
+        else void runEdgeDetect()
+        await new Promise<void>((resolve) => {
+          const stop = useFlat.subscribe((s) => {
+            if (s.edgeVersion === before) return
+            stop()
+            resolve()
+          })
+        })
+        return useFlat.getState().edgeCount
+      },
+      edgeIndex: () => activeEdgeIndex(),
+      buildSvg: buildFlatSvgFile,
+      buildDxf: buildFlatDxfFile,
+    },
+  }
+  useEffect(() => {
+    const verbs = () => commandVerbs.current!
+    return installCommandHost({
+      session,
+      project: { save: () => verbs().project.save(), open: (file, discard) => verbs().project.open(file, discard) },
+      flat: {
+        openImage: (file) => verbs().flat.openImage(file),
+        closeImage: () => verbs().flat.closeImage(),
+        detectEdges: (sensitivity) => verbs().flat.detectEdges(sensitivity),
+        edgeIndex: () => verbs().flat.edgeIndex(),
+        buildSvg: () => verbs().flat.buildSvg(),
+        buildDxf: () => verbs().flat.buildDxf(),
+      },
+    })
+  }, [session])
+
+  // The agent connection, while it is switched on — see commands/bridge. A
+  // pairing link in the address switches it on first.
+  const agentLink = usePrefs((s) => s.agentLink)
+  const agentPort = usePrefs((s) => s.agentPort)
+  const agentToken = usePrefs((s) => s.agentToken)
+  useEffect(() => {
+    takePairingLink()
+  }, [])
+  useEffect(() => {
+    if (!agentLink) return
+    // The link's code comes with the link — see commands/agentLink.
+    let stop: (() => void) | null = null
+    let dropped = false
+    void import('./commands/bridge').then(({ startBridge }) => {
+      if (!dropped) stop = startBridge({ port: agentPort, token: agentToken })
+    })
+    return () => {
+      dropped = true
+      stop?.()
+    }
+  }, [agentLink, agentPort, agentToken])
 
   const handleCopy = () => {
     const store = useStore.getState()
@@ -2172,8 +1604,8 @@ export default function App() {
             onCancelSection={handleCancelSection}
             onConfirmSection={handleConfirmSection}
             onCopy={handleCopy}
-            onAutoAlign={() => void handleAutoAlign()}
-            onAlignSymmetry={() => void handleAlignSymmetry()}
+            onAutoAlign={() => void session.alignment.proposeAutoAlign()}
+            onAlignSymmetry={() => void session.alignment.proposeSymmetry()}
             onStartAlignment={handleStartAlignment}
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
             onApplyManual={(m) => void handleApplyManual(m)}

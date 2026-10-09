@@ -41,7 +41,9 @@ type DocBox = { x0: number; y0: number; x1: number; y1: number }
 export interface SketchDimensionItem {
   shape: DimShape
   value: string
-  edit?: { id: number; value: number }
+  /** The number to type over, and the text the field opens with when the
+   *  number is written as something other than itself. */
+  edit?: { id: number; value: number; text?: string }
 }
 
 /** A selection box dragged over the sheet — see setBoxSelect. */
@@ -211,9 +213,10 @@ export class FlatScene {
   onNoteDrag: ((id: number, p: Vec2) => void) | null = null
   /** A text note clicked without being dragged — to open it for typing. */
   onNoteSelect: ((id: number) => void) | null = null
-  /** A dimension's value typed into its label on the sheet — see
-   *  setFlatDimensions' `edit`. */
-  onDimensionEdit: ((id: number, value: number) => void) | null = null
+  /** The text typed into a dimension's label on the sheet — see
+   *  setFlatDimensions' `edit`; the owner reads it as a number, or as
+   *  whatever its numbers are written as. */
+  onDimensionEdit: ((id: number, text: string) => void) | null = null
   /** A sketch dimension's number dragged to a sheet point; `begin` on the
    *  first step of the drag. */
   onDimensionMove: ((id: number, p: Vec2, begin: boolean) => void) | null = null
@@ -355,7 +358,8 @@ export class FlatScene {
    *  a distance, two rays and a swept arc for an angle. A title of '' leaves
    *  the label the bare value. An item with `edit` is a number to type over:
    *  a click on its label opens a field there, and Enter (or leaving the
-   *  field) hands the new number to onDimensionEdit under the item's id.
+   *  field) hands the text typed to onDimensionEdit under the item's id;
+   *  the field opens with `text` when given, else with the value.
    *  `style` is for a sheet whose stage is not paper — the sketch's, laid
    *  over the part: the colour of the callout lines and a class for the
    *  labels. */
@@ -365,7 +369,7 @@ export class FlatScene {
       value: string
       segment?: [Vec2, Vec2]
       arc?: { vertex: Vec2; dirA: Vec2; dirB: Vec2 }
-      edit?: { id: number; value: number }
+      edit?: { id: number; value: number; text?: string }
     }[],
     style: { color?: number; className?: string } = {},
   ): void {
@@ -496,7 +500,7 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
-  private addDimLabel(at: Vec2, title: string, value: string, className?: string, edit?: { id: number; value: number }, turn?: number): void {
+  private addDimLabel(at: Vec2, title: string, value: string, className?: string, edit?: { id: number; value: number; text?: string }, turn?: number): void {
     const div = document.createElement('div')
     div.className = 'viewport-label distance-label' + (className ? ` ${className}` : '')
     if (title !== '') {
@@ -531,18 +535,19 @@ export class FlatScene {
       })
       const open = () => {
         if (div.querySelector('input')) return
-        const shown = String(Math.round(edit.value * 1000) / 1000)
+        const shown = edit.text ?? String(Math.round(edit.value * 1000) / 1000)
         const input = document.createElement('input')
-        input.type = 'number'
-        input.step = 'any'
+        input.type = 'text'
+        input.inputMode = 'decimal'
+        input.spellcheck = false
         input.value = shown
         let done = false
         const close = (commit: boolean) => {
           if (done) return
           done = true
-          const n = Number(input.value)
+          const typed = input.value.trim()
           input.replaceWith(v)
-          if (commit && input.value.trim() !== '' && Number.isFinite(n) && input.value !== shown) this.onDimensionEdit?.(edit.id, n)
+          if (commit && typed !== '' && typed !== shown) this.onDimensionEdit?.(edit.id, typed)
         }
         input.addEventListener('keydown', (ev) => {
           ev.stopPropagation()

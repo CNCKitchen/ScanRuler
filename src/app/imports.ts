@@ -52,10 +52,14 @@ export function runImport(
   })
 }
 
+/** What a model prepared without a viewport puts on screen: nothing. */
+const NO_VIEW: PreparedView = { commit() {}, dispose() {} }
+
 /** `units` is what the file's coordinates are in; the worker reads it in
  *  millimetres, and the source remembers the units so a project or a worker
- *  restart reads the same bytes the same way. */
-export async function prepareScan(client: MeshWorkerClient, scene: SceneManager, file: File, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm'): Promise<PreparedScan> {
+ *  restart reads the same bytes the same way. Without a viewport — a test, a
+ *  headless run — the model goes to the worker alone. */
+export async function prepareScan(client: MeshWorkerClient, scene: SceneManager | null, file: File, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm'): Promise<PreparedScan> {
   if (!isMeshFile(file.name)) throw new Error(isStepFile(file.name)
     ? 'A STEP file is CAD, not a scan — load it as the reference in the Deviation workspace.'
     : 'Unsupported file type — use STL, PLY, or OBJ.')
@@ -63,7 +67,7 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager,
   const source = { name: file.name, bytes: new Uint8Array(buffer.slice(0)), units }
   const { id, mesh } = await client.prepareScan(file.name, buffer, crease, transform, units)
   try {
-    const view = scene.prepareMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf)
+    const view = scene ? scene.prepareMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf) : NO_VIEW
     return { id, mesh, source, view }
   } catch (e) {
     await client.discardImport([id])
@@ -71,13 +75,13 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager,
   }
 }
 
-export async function prepareNominal(client: MeshWorkerClient, scene: SceneManager, file: File, units: MeshUnits = 'mm'): Promise<PreparedNominal> {
+export async function prepareNominal(client: MeshWorkerClient, scene: SceneManager | null, file: File, units: MeshUnits = 'mm'): Promise<PreparedNominal> {
   if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, or STEP.')
   const buffer = await file.arrayBuffer()
   const source = { name: file.name, bytes: new Uint8Array(buffer.slice(0)), units }
   const { id, mesh } = await client.prepareNominal(file.name, buffer, units)
   try {
-    const view = scene.prepareNominal(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots)
+    const view = scene ? scene.prepareNominal(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots) : NO_VIEW
     return { id, mesh, source, view }
   } catch (e) {
     await client.discardImport([id])

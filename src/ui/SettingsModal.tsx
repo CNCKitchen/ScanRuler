@@ -11,6 +11,7 @@ import { useEffect } from 'react'
 import { COLORMAPS, colormapById, cssRgb, legendGradient } from '../core/field/colormap'
 import { CREASE_ANGLE_DEG, CREASE_ANGLE_MAX, CREASE_ANGLE_MIN, CREASE_ANGLE_STEP, type CreaseMode } from '../core/geometry/crease'
 import { MESH_UNITS, type MeshUnits } from '../core/meshUnits'
+import { AGENT_STATUS, useAgentLink } from '../commands/agentLink'
 import { useHintPrefs } from '../state/hintStore'
 import { UI_THEMES, usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
@@ -47,6 +48,13 @@ export function SettingsModal() {
   const setCreaseAngle = useStore((s) => s.setCreaseAngle)
   const hintsOn = useHintPrefs((s) => s.on)
   const setHintsOn = useHintPrefs((s) => s.setOn)
+  const agentLink = usePrefs((s) => s.agentLink)
+  const setAgentLink = usePrefs((s) => s.setAgentLink)
+  const agentPort = usePrefs((s) => s.agentPort)
+  const setAgentPort = usePrefs((s) => s.setAgentPort)
+  const agentToken = usePrefs((s) => s.agentToken)
+  const setAgentToken = usePrefs((s) => s.setAgentToken)
+  const link = useAgentLink()
 
   // Escape closes it. Captured, like the imprint's, so the workspace's own
   // Escape handling — which would discard the draft behind the dialog — never
@@ -327,6 +335,55 @@ export function SettingsModal() {
             a workspace twice. Switching it back on starts the guidance over.
           </span>
         </label>
+
+        <h3>Agents</h3>
+        <label className="checkrow settings-check">
+          <input
+            type="checkbox"
+            data-test="toggle-agent-link"
+            checked={agentLink}
+            onChange={(e) => setAgentLink(e.target.checked)}
+          />
+          <span>
+            <b>Local agent connection</b> — let an AI agent on this computer (Claude Code, Claude
+            Desktop, Cursor …) drive this tab through its ScanRuler tools, the scanruler-mcp server.
+            You watch every step here and can undo it. Nothing leaves this computer through
+            ScanRuler — the connection is to 127.0.0.1 — but what the agent asks for, the
+            figures and the report, goes to the agent’s own model provider like everything else
+            it reads.
+          </span>
+        </label>
+        <div className="setting">
+          <label htmlFor="agentport">Port</label>
+          <input
+            id="agentport"
+            data-test="agent-port"
+            type="number"
+            min={1}
+            max={65535}
+            value={agentPort}
+            onChange={(e) => setAgentPort(Number(e.target.value))}
+          />
+          <label htmlFor="agenttoken">Token</label>
+          <input
+            id="agenttoken"
+            data-test="agent-token"
+            type="text"
+            spellCheck={false}
+            autoComplete="off"
+            value={agentToken}
+            onChange={(e) => setAgentToken(e.target.value)}
+          />
+          <small data-test="agent-status">
+            {agentLink ? <b>{AGENT_STATUS[link.status]}.</b> : null}{' '}
+            {link.detail ?? (
+              <>
+                <code>npx scanruler-mcp --pair</code> prints the port and the token, and a link
+                that fills them in.
+              </>
+            )}
+          </small>
+        </div>
 
         <h3>Support</h3>
         <label className="checkrow settings-check">

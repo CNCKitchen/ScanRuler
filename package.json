@@ -47,6 +47,7 @@
     "e2e:import": "node scripts/e2e-import.mjs",
     "e2e:recovery": "node scripts/e2e-recovery.mjs",
     "e2e:history": "node scripts/e2e-history.mjs",
+    "e2e:agent": "node scripts/e2e-agent.mjs",
     "e2e:surface": "node scripts/e2e-surface.mjs",
     "e2e:section": "node scripts/e2e-section.mjs"
   },

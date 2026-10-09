@@ -435,7 +435,7 @@ export function useSceneSync({
   // The section being made: its plane through the part, the cut so far, and
   // the grip that slides it. The cut lags the plane by one worker round trip
   // while the grip is dragged, and is shown as it stands until the fresh one
-  // lands — see useSections.
+  // lands — see sectionCuts.
   const sectionFrame = sectionDraft?.frame ?? null
   const sectionCut = sectionDraft?.cut ?? null
   const sectionColor = useStore(sectionDraftColorOf)

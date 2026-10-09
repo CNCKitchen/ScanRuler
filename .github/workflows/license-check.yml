@@ -45,3 +45,12 @@ jobs:
           --excludePackages "meshstep@0.1.1"
           --onlyAllow "MIT;Apache-2.0;MIT OR Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
           --summary
+      # The agent server is a package of its own, held to the same list; the
+      # package itself is AGPL like the app.
+      - run: npm --prefix mcp ci
+      - name: npm license allowlist (mcp/)
+        run: >-
+          npx --yes license-checker --start mcp
+          --excludePackages "scanruler-mcp@$(node -p "require('./mcp/package.json').version")"
+          --onlyAllow "MIT;Apache-2.0;MIT OR Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
+          --summary

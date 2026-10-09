@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The deviation workspace's verbs: load the reference, best-fit the scan onto
-// it — globally or on a marked surface — and measure the map. The field
-// itself lives in refs owned by App, because other workspaces read it too.
+// it — globally or on a marked surface — measure the map, and choose the
+// element a map against an element is measured from. The field itself lives
+// in the session's refs (see session.ts), because other workspaces read it
+// too. The panel and the deviation.* commands both work through these.
 import type { RefObject } from 'react'
 import { isStepFile } from '../core/formats'
 import { unitsLabel, type MeshUnits } from '../core/meshUnits'
@@ -16,6 +18,8 @@ import { useDeviation } from '../state/deviationStore'
 import { rigidToColumnMajor } from '../core/deviation/rigid'
 import { useMark } from '../state/markStore'
 import { buildDeviationReport, buildElementReport } from '../core/deviation/report'
+import type { DeviationStats } from '../core/deviation/deviation'
+import { detectMaterialSide } from '../core/deviation/elementField'
 import { targetFitOf } from './useElementField'
 import type { SourceFiles } from './project'
 
@@ -24,7 +28,9 @@ import type { SourceFiles } from './project'
 export const PICK_MARK_TOOL_STATUS =
   'Pick a marking tool in the panel — Window, Brush or Lasso — then drag on the scan.'
 
-export function useDeviationWorkspace({
+export type DeviationWorkspace = ReturnType<typeof deviationWorkspace>
+
+export function deviationWorkspace({
   clientRef,
   sceneRef,
   deviation,
@@ -70,7 +76,7 @@ export function useDeviationWorkspace({
     isStepFile(file.name) ? 'Reading STEP file — tessellating the CAD surfaces…' : 'Reading reference geometry…',
     async () => {
       const client = clientRef.current!
-      const prepared = await prepareNominal(client, sceneRef.current!, file, read)
+      const prepared = await prepareNominal(client, sceneRef.current, file, read)
       try {
         await client.commitImport({ nominal: prepared.id })
         commitNominal(prepared)
@@ -218,7 +224,7 @@ export function useDeviationWorkspace({
         .setStatus(
           `Aligned — ${result.rms.toFixed(4)} mm RMS over ${result.matched.toLocaleString('en-US')} points. Measure the deviation next.`,
         )
-      void runDeviation()
+      await runDeviation()
     } catch (e) {
       if (!current()) return
       const message = e instanceof Error ? e.message : String(e)
@@ -251,15 +257,15 @@ export function useDeviationWorkspace({
     useMark.getState().setCount(0)
   }
 
-  /** Refine the alignment on the marked surface only, starting from the fit
-   *  already in hand. */
-  const runLocalAlign = async () => {
+  /** Refine the alignment on the marked surface only — the one on the part,
+   *  or `marked` — starting from the fit already in hand. */
+  const runLocalAlign = async (marked?: Uint32Array) => {
     const { scanVersion, nominalVersion } = clientRef.current!
     const current = () => scanVersion === clientRef.current!.scanVersion && nominalVersion === clientRef.current!.nominalVersion
     const dev = useDeviation.getState()
     const start = dev.align
     if (!start) return
-    const vertices = sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
+    const vertices = marked ?? sceneRef.current?.paintedVertices() ?? new Uint32Array(0)
     dev.beginAlign()
     try {
       const result = await clientRef.current!.alignLocal(
@@ -284,7 +290,7 @@ export function useDeviationWorkspace({
         .setStatus(
           `Fine fitted — ${result.rms.toFixed(4)} mm RMS over ${result.matched.toLocaleString('en-US')} marked points. Re-measuring the deviation.`,
         )
-      void runDeviation()
+      await runDeviation()
     } catch (e) {
       if (!current()) return
       const message = e instanceof Error ? e.message : String(e)
@@ -304,40 +310,65 @@ export function useDeviationWorkspace({
     void runDeviation()
   }
 
-  const handleCopyReport = () => {
+  /** Measure against this element. The material side is read off the scan as the
+   *  element is chosen — see detectMaterialSide for why it is decided here and
+   *  then left alone rather than re-derived as the controls move. */
+  const selectTarget = (id: number | null) => {
     const dev = useDeviation.getState()
-    if (!dev.stats) return
+    const target = targetFitOf(useStore.getState().elements, id)
+    if (id === null || !target) {
+      dev.setTarget(null)
+      return
+    }
+    const geometry = sceneRef.current?.scanGeometry()
+    const positions = geometry?.getAttribute('position')?.array as Float32Array | undefined
+    const normals = geometry?.getAttribute('normal')?.array as Float32Array | undefined
+    dev.setTarget(
+      id,
+      positions && normals
+        ? detectMaterialSide(target, positions, normals, dev.maxDistance)
+        : 1,
+    )
+    const name = useStore.getState().elements.find((e) => e.id === id)?.name ?? 'element'
+    useStore.getState().setStatus(`Deviation measured against ${name}.`)
+  }
+
+  /** The report the panel copies, on the figures given — the legend's, by
+   *  default. Null with no map to report on. */
+  const reportText = (stats: DeviationStats | null = useDeviation.getState().stats): string | null => {
+    const dev = useDeviation.getState()
+    if (!stats) return null
     if (dev.source === 'element') {
       const elements = useStore.getState().elements
       const target = targetFitOf(elements, dev.targetId)
-      if (!target) return
-      void navigator.clipboard?.writeText(
-        buildElementReport(
-          useStore.getState().fileName ?? '',
-          elements.find((e) => e.id === dev.targetId)?.name ?? 'element',
-          target,
-          dev.targetSide,
-          dev.stats,
-          dev.range,
-          dev.maxDistance,
-          dev.targetFacingDeg,
-          dev.targetScope === 'marked' ? dev.scopeCount : null,
-        ),
-      )
-      return
-    }
-    if (!dev.align) return
-    void navigator.clipboard?.writeText(
-      buildDeviationReport(
+      if (!target) return null
+      return buildElementReport(
         useStore.getState().fileName ?? '',
-        dev.nominalName ?? '',
-        dev.align,
-        dev.stats,
+        elements.find((e) => e.id === dev.targetId)?.name ?? 'element',
+        target,
+        dev.targetSide,
+        stats,
         dev.range,
         dev.maxDistance,
-        dev.mapFacingDeg,
-      ),
+        dev.targetFacingDeg,
+        dev.targetScope === 'marked' ? dev.scopeCount : null,
+      )
+    }
+    if (!dev.align) return null
+    return buildDeviationReport(
+      useStore.getState().fileName ?? '',
+      dev.nominalName ?? '',
+      dev.align,
+      stats,
+      dev.range,
+      dev.maxDistance,
+      dev.mapFacingDeg,
     )
+  }
+
+  const handleCopyReport = () => {
+    const text = reportText()
+    if (text) void navigator.clipboard?.writeText(text)
   }
 
   return {
@@ -350,10 +381,12 @@ export function useDeviationWorkspace({
     runDeviation,
     setMapFacing,
     runLocalAlign,
+    selectTarget,
     handleStartMarking,
     handleStopMarking,
     handleClearMarking,
     handleRevertLocal,
+    reportText,
     handleCopyReport,
   }
 }

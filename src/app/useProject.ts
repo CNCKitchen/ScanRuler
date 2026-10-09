@@ -28,6 +28,7 @@ import {
 } from './project'
 import { APP_VERSION } from '../version'
 import { useRecovery } from './useRecovery'
+import type { PackedProject } from '../commands/host'
 import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 
@@ -66,9 +67,11 @@ export function useProject({
   const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
   const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true))
 
-  const saveProject = () => imports.run(async () => {
+  /** The session as a project file, and the session marked saved — what
+   *  Save Project downloads and project.save hands back. */
+  const packProject = () => imports.run(async (): Promise<PackedProject> => {
     const store = useStore.getState()
-    if (!projectHasContent(sources.current)) return
+    if (!projectHasContent(sources.current)) return { error: 'There is nothing to save yet — no scan, image or work.' }
     store.setError(null)
     useStore.setState({ busy: true, statusText: 'Saving project…' })
     try {
@@ -76,20 +79,28 @@ export function useProject({
       const { manifest, members } = snapshot
       const bytes = await client().pack(manifest, members)
       const stem = projectStem(store.fileName, useFlat.getState().imageName)
-      saveFile(`${stem}.${PROJECT_EXTENSION}`, new Blob([bytes as BlobPart], { type: 'application/zip' }))
       recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
         statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
       })
+      return { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       useStore.setState({ busy: false, statusText: '' })
-      store.setError(`The project could not be saved — ${e instanceof Error ? e.message : String(e)}`)
+      const error = `The project could not be saved — ${e instanceof Error ? e.message : String(e)}`
+      store.setError(error)
+      return { error }
     }
   })
 
-  const openProject = (file: File, recovered = false) => runImport(imports, 'Reading project…', async () => {
+  const saveProject = () => packProject().then((packed) => {
+    if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+  })
+
+  /** Open a project in place of the session — after asking, when there is
+   *  work to lose, unless the caller has settled that (`settled`). */
+  const openProject = (file: File, recovered = false, settled = false) => runImport(imports, 'Reading project…', async () => {
     const meshClient = clientRef.current!
     let scan: PreparedScan | null = null
     let nominal: PreparedNominal | null = null
@@ -173,7 +184,7 @@ export function useProject({
       if (!committed) image?.bitmap.close()
       await meshClient.discardImport([scan?.id, nominal?.id].filter((id): id is number => id !== undefined))
     }
-  }, () => !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?'))
+  }, () => settled || !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?'))
 
-  return { saveProject, openProject, recovery }
+  return { saveProject, packProject, openProject, recovery }
 }

@@ -14,9 +14,6 @@
 import type { Rigid } from '../deviation/rigid'
 import { rigidApplyToPoints } from '../deviation/rigid'
 
-/** The file name the sample loads under — what the guide keys on. */
-export const SAMPLE_PART_NAME = 'sample-bracket.stl'
-
 /** The L's profile, millimetres: a 40 × 30 outline with legs 12 thick. */
 export const SAMPLE_WIDTH = 40
 export const SAMPLE_HEIGHT = 30

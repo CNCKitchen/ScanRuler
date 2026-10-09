@@ -6,6 +6,7 @@
 // held both was a row of small print nobody could find anything in.
 
 import { useStore } from '../state/store'
+import { useCommandActivity } from '../commands/activity'
 
 export function StatusStrip() {
   const busy = useStore((s) => s.busy)
@@ -14,10 +15,12 @@ export function StatusStrip() {
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
   const openImprint = useStore((s) => s.openImprint)
+  // A command an agent is running: named here, for as long as it runs.
+  const agent = useCommandActivity((s) => s.running)
 
   const fitting = draft?.status === 'fitting' || elements.some((e) => e.status === 'fitting')
-  const lamp = errorText ? 'lamp err' : busy || fitting ? 'lamp busy' : 'lamp'
-  const state = errorText ? 'ERROR' : busy ? 'LOADING' : fitting ? 'FITTING' : 'READY'
+  const lamp = errorText ? 'lamp err' : busy || fitting || agent ? 'lamp busy' : 'lamp'
+  const state = errorText ? 'ERROR' : agent ? 'AGENT' : busy ? 'LOADING' : fitting ? 'FITTING' : 'READY'
 
   const done = elements.filter((e) => e.fit)
   const dimensions = useStore((s) => s.dimensions)
@@ -35,7 +38,16 @@ export function StatusStrip() {
         </div>
       )}
       <div className="msg grow">
-        {errorText ? <span className="warn">⚠ {errorText}</span> : statusText}
+        {errorText ? (
+          <span className="warn">⚠ {errorText}</span>
+        ) : agent ? (
+          <span data-test="agent-running">
+            <b>{agent.title}</b> <code>{agent.name}</code>
+            {statusText ? ` — ${statusText}` : ''}
+          </span>
+        ) : (
+          statusText
+        )}
       </div>
       <button
         className="stripimprint"

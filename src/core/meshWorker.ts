@@ -26,6 +26,8 @@ import { meshCentroid } from './geometry/centroid'
 import { trianglesWithin } from './geometry/region'
 import { floodByNormal } from './fit/regionGrow'
 import { meanCurvature } from './geometry/curvature'
+import { scanSpot } from './geometry/nearest'
+import { boundsOf } from './geometry/bounds'
 import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
 import { workerPlugins } from './workerPlugins'
@@ -425,6 +427,31 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     const vertices = floodByNormal(graph, msg.seed, msg.maxAngleDeg, msg.limit)
     post({ type: 'flood-ok', requestId: msg.requestId, vertices }, [vertices.buffer])
+    return
+  }
+
+  if (msg.type === 'nearest') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    try {
+      const at = msg.vertex !== undefined ? { vertex: msg.vertex } : msg.point ? { point: msg.point } : null
+      if (!at) throw new Error('Name a vertex or a point.')
+      post({ type: 'nearest-ok', requestId: msg.requestId, result: scanSpot(graph, at) })
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
+    return
+  }
+
+  if (msg.type === 'bounds') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const { min, max } = boundsOf(graph.positions, graph.vertexCount)
+    post({ type: 'bounds-ok', requestId: msg.requestId, min, max })
     return
   }
 

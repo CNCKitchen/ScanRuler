@@ -591,6 +591,45 @@ export class OrthoViewport {
     this.camera.updateProjectionMatrix()
   }
 
+  /**
+   * The view as it stands, drawn once at `width` × `height` pixels into a
+   * PNG — a picture of the part for someone who cannot see the screen. The
+   * camera keeps where it looks and its zoom; a turn under way is landed
+   * first. The labels are HTML laid over the canvas and are not in it, nor
+   * is a viewport laid over this one. The canvas is back at its own size
+   * before the picture is encoded: the bitmap is copied as toBlob is called.
+   */
+  capture(width: number, height: number): Promise<Blob> {
+    const canvas = this.renderer.domElement
+    const ratio = this.renderer.getPixelRatio()
+    if (this.flight) {
+      this.flight.start = -Infinity
+      this.stepFlight()
+    }
+    this.controls.update()
+    this.renderer.setPixelRatio(1)
+    this.renderer.setSize(width, height, false)
+    const aspect = width / height
+    const { halfW, halfH } = this.fitExtent
+    const h = Math.max(halfH, halfW / aspect)
+    this.camera.top = h
+    this.camera.bottom = -h
+    this.camera.right = h * aspect
+    this.camera.left = -h * aspect
+    this.camera.updateProjectionMatrix()
+    this.keyLight.position.copy(this.camera.position)
+    this.keyLight.target.position.copy(this.controls.target)
+    this.renderer.setViewport(0, 0, width, height)
+    this.renderer.render(this.scene, this.camera)
+    this.opts.onAfterRender?.(width, height)
+    const blob = new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The view could not be encoded as a PNG.'))), 'image/png'),
+    )
+    this.renderer.setPixelRatio(ratio)
+    this.resize()
+    return blob
+  }
+
   resize(): void {
     const w = this.container.clientWidth || 1
     const h = this.container.clientHeight || 1
