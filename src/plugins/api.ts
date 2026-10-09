@@ -13,7 +13,7 @@
 import type { ComponentType, ReactNode, RefObject } from 'react'
 import type { ImportQueue } from '../app/importQueue'
 import type { SourceFiles } from '../app/project'
-import type { ScanSource } from '../app/useScanSwap'
+import type { ScanSource } from '../app/scanSwap'
 import type { Rigid } from '../core/deviation/rigid'
 import type { FieldScale } from '../core/field/colormap'
 import type { HintResult } from '../core/hints'
@@ -100,7 +100,7 @@ export interface PluginHost {
   /** Take the open element draft's preview off the part. */
   clearPreview(): void
   /** Put another version of the scan in place under the session, read in
-   *  the pose `transform` — see app/useScanSwap. */
+   *  the pose `transform` — see app/scanSwap. */
   swapScan(source: ScanSource, transform: Rigid | null): Promise<void>
   /** Renumber everything held by vertex onto the version just put in place. */
   remapScan(vertexMap: Int32Array): void

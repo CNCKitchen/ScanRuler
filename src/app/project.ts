@@ -38,7 +38,7 @@ import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 /** The original bytes of every model the session holds, kept from the moment
  *  each was opened: the worker takes its copy by transfer and the scene keeps
  *  only geometry, so nothing else could write the file back out as it came.
- *  A scan swapped for an edited version of itself (app/useScanSwap) is kept
+ *  A scan swapped for an edited version of itself (app/scanSwap) is kept
  *  as the file it now is: a PLY in millimetres, in the frame the original was
  *  opened in, so the applied alignment goes on it the same way — see
  *  core/mesh/plyWriter. */

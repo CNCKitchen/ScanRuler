@@ -5,7 +5,37 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
-## Unreleased
+## 0.5.0 — 2026-10-09
+
+- **The agent opens ScanRuler for you** (2026-10-09). Connecting an agent
+  is now two steps: add scanruler-mcp to it with one line, and ask it to
+  connect. The server has a new tool, `scanruler_open`, that opens ScanRuler
+  in your default browser with the pairing in its address and waits for the
+  tab, so the only thing left to you is the browser's one question whether
+  the site may reach this computer; the tab keeps the pairing from then on.
+  A tab paired before gets eleven seconds to come back by itself first, so an
+  open one is not opened a second time, and both waits together stay under
+  the minute Codex gives a tool call. The README's Agents section is now a
+  step-by-step guide for Claude Code, Codex, Claude Desktop and Cursor, with
+  what to do when it does not connect, and the server runs as
+  `npx -y scanruler-mcp`. Tests: the server's `mcp` (the tab opened when none
+  comes back, never for a connected one) and `browser` (the opener on each
+  platform; a link a shell would read anything into is not opened).
+
+- **scanruler-mcp answers in compact JSON** (2026-10-09). A tool's answer
+  went to the agent indented, every coordinate of a bounding box on a line
+  of its own; it now goes as JSON without the spaces, a large share of a
+  long answer's size. Nothing else about the answers changes.
+
+- **Putting an edited version of the scan in place is part of the session**
+  (2026-10-09). Swapping the scan for an edited version of itself — or back
+  to the one before an edit, as a step of the undo history across it does —
+  was wired up in the page's top component; it is now the app session's,
+  beside opening a scan, so a workspace's commands swap the scan the way its
+  buttons do. It runs without a viewport too: the part's size is then read
+  off the mesh, as opening one reads it. Nothing changes on screen. Tests:
+  `scanSwap` (a smaller version of a box put in place headless — the
+  session's scan, its size and centre, the listeners told).
 
 - **The agent can see the 3D view** (2026-10-09). `view.set` turns the view
   to a standard view — iso, top, bottom, front, rear, left, right — or fits

@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { parseArgs } from 'node:util'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { openInBrowser } from './browser.js'
 import { configDir, loadConfig, loadRemembered, saveRemembered } from './config.js'
 import { originAllowed } from './link.js'
 import { createMcpServer } from './mcp.js'
@@ -33,8 +34,10 @@ Usage: scanruler-mcp [options]
   --help                 this
 
 The pairing token is made on the first run and kept in ${join2(configDir(), 'config.json')};
-SCANRULER_MCP_TOKEN overrides it. In ScanRuler: Settings → Agents → Local agent
-connection, with the port and the token — or open the pairing link once.
+SCANRULER_MCP_TOKEN overrides it. The agent's scanruler_open tool opens ScanRuler
+in the default browser, paired. By hand: open the pairing link once, or in
+ScanRuler go to Settings → Agents → Local agent connection and enter the port
+and the token.
 `
 
 function join2(a, b) {
@@ -95,6 +98,7 @@ export async function main(argv = process.argv.slice(2)) {
     connectHelp: () => (link.error ? `${link.error} ` : '') + connectHelp(),
     serverInfo: () => ({ name: 'scanruler-mcp', version: VERSION, port, role: link.role, outDir, config: config.file, ...(link.error ? { error: link.error } : {}) }),
     remembered: { load: () => loadRemembered(), save: (commands) => saveRemembered(commands) },
+    openPage: () => openInBrowser(pairing),
   })
   const transport = new StdioServerTransport()
   server.onclose = () => {

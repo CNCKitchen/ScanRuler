@@ -78,7 +78,6 @@ import { exportElementsStep, exportScanPointCloud, exportScanStl, runExport, sav
 import { PICK_MARK_TOOL_STATUS } from './app/deviationWorkspace'
 import { useElementField } from './app/useElementField'
 import { useSceneSync } from './app/useSceneSync'
-import { useScanSwap } from './app/useScanSwap'
 import { createSession, type AppSession } from './app/session'
 import { installCommandHost, type FlatHost, type ProjectHost } from './commands/host'
 import { commandRunning } from './commands/activity'
@@ -639,10 +638,8 @@ export default function App() {
   const { runThickness, handleCopyThicknessReport } = session.thickness
 
   // Another version of the scan put in place under the session — see
-  // useScanSwap.
-  const { swapScan, remapScan, remeasureScan } = useScanSwap({
-    clientRef, sceneRef, sources, maps: host.maps, clearPreview, runFit, runDeviation, runThickness,
-  })
+  // app/scanSwap.
+  const { swapScan, remapScan, remeasureScan } = session.swap
 
   hostVerbs.current = { openScan: openFile, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, remapScan, remeasureScan }
 

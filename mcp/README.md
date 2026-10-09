@@ -14,18 +14,38 @@ provider, like everything else it reads.
 
 ## Setting up
 
-You need Node.js 20 or newer, and ScanRuler open in Chrome, Edge or Firefox.
+You need [Node.js](https://nodejs.org/) 20 or newer, and Chrome, Edge or
+Firefox.
 
 ### 1. Add the server to your agent
 
 **Claude Code**
 
 ```bash
-claude mcp add scanruler -- npx scanruler-mcp
+claude mcp add --scope user scanruler -- npx -y scanruler-mcp
 ```
 
-Add `--scope user` to have it in every project. Exports the agent makes land
-in the folder Claude Code was started in, unless the agent names a path.
+`--scope user` has it in every project; leave it out for this one only.
+Exports the agent makes land in the folder Claude Code was started in,
+unless the agent names a path.
+
+**Codex** — the CLI, the IDE extension and the app share one setting:
+
+```bash
+codex mcp add scanruler -- npx -y scanruler-mcp
+```
+
+or, in `~/.codex/config.toml`, with room for the first start (npx fetches the
+package) and for long calls — Codex gives a server 10 seconds to start and a
+call 60 unless told otherwise:
+
+```toml
+[mcp_servers.scanruler]
+command = "npx"
+args = ["-y", "scanruler-mcp"]
+startup_timeout_sec = 60
+tool_timeout_sec = 300
+```
 
 **Claude Desktop** — Settings → Developer → Edit Config, then in
 `claude_desktop_config.json`:
@@ -35,7 +55,7 @@ in the folder Claude Code was started in, unless the agent names a path.
   "mcpServers": {
     "scanruler": {
       "command": "npx",
-      "args": ["scanruler-mcp", "--out", "/Users/you/Documents/ScanRuler"]
+      "args": ["-y", "scanruler-mcp", "--out", "/Users/you/Documents/ScanRuler"]
     }
   }
 }
@@ -56,37 +76,51 @@ tab connects to it, and the other sends its calls through that one — see
   "mcpServers": {
     "scanruler": {
       "command": "npx",
-      "args": ["scanruler-mcp"]
+      "args": ["-y", "scanruler-mcp"]
     }
   }
 }
 ```
 
-**From a clone of the ScanRuler repository**, before the package is on npm or
-to try a change: run `npm --prefix mcp ci` once, then use
+**From a clone of the ScanRuler repository**, to try a change: run
+`npm --prefix mcp ci` once, then use
 `node /path/to/scanruler/mcp/bin/scanruler-mcp.js` where the examples say
-`npx scanruler-mcp` — in Claude Code,
+`npx -y scanruler-mcp` — in Claude Code,
 `claude mcp add scanruler -- node /path/to/scanruler/mcp/bin/scanruler-mcp.js`.
 
-### 2. Pair the ScanRuler tab with it
+### 2. Let the agent open ScanRuler
+
+Ask the agent for something in ScanRuler — or just *"Connect to ScanRuler"*.
+With no tab connected, it calls `scanruler_open`, which opens ScanRuler in
+your default browser with the pairing in its address: the tab switches the
+connection on with this server's port and token, and connects. The first
+time, **Chrome and Edge** ask whether scanruler.com may access "apps and
+services on this device" — allow it, that is this server. **Firefox** asks
+the same. The tab keeps the pairing, so this is done once per browser.
+
+When the default browser is not the one you use ScanRuler in, or the agent
+runs somewhere it cannot open one, pair by hand:
 
 ```bash
-npx scanruler-mcp --pair
+npx -y scanruler-mcp --pair
 ```
 
 prints the port, the pairing token and a link. Open the link once in the
-browser you use ScanRuler in — it switches the connection on with both — or
-in ScanRuler go to ⚙ **Settings → Agents**, switch on **Local agent
-connection**, and enter the port and the token. The token is made on the
-first run and kept in your config folder (`%APPDATA%\scanruler-mcp` on
-Windows, `~/Library/Application Support/scanruler-mcp` on macOS,
-`~/.config/scanruler-mcp` elsewhere), so this is done once. You can also just
-ask the agent: its `scanruler_status` tool hands out the same link.
+browser you use ScanRuler in, or in ScanRuler go to ⚙ **Settings → Agents**,
+switch on **Local agent connection**, and enter the port and the token. The
+token is made on the first run and kept in your config folder
+(`%APPDATA%\scanruler-mcp` on Windows,
+`~/Library/Application Support/scanruler-mcp` on macOS,
+`~/.config/scanruler-mcp` elsewhere). `scanruler_status` hands out the same
+link.
 
 A chip in ScanRuler's top bar says where the connection stands: **listening**
 while the agent's server is not running, **connected**, or **turned away**
 (a wrong token, or another tab connected already — the server takes one tab
-at a time).
+at a time). If you denied the browser's question, allow *Local network
+access* for the site in the site settings (the icon left of the address) and
+reload. **Safari** does not let a page from the web reach the computer it
+runs on at all; use `--serve` below.
 
 ### Several agents
 
@@ -100,13 +134,6 @@ tab — which keeps trying — connects to it within ten seconds.
 tokens cannot share a port: give them the same `SCANRULER_MCP_TOKEN`, or
 each its own `--port`. Changes from several agents run one after another in
 the tab, each one step of the same undo history.
-
-**Chrome and Edge** ask, the first time, whether scanruler.com may reach
-"apps and services on this device". Allow it — that is this server. If you
-denied it, allow *Local network access* for the site in the site settings
-(the icon left of the address) and reload. **Firefox** asks the same.
-**Safari** does not let a page from the web reach the computer it runs on at
-all; use `--serve` below.
 
 ### Serving the app yourself
 
@@ -144,8 +171,9 @@ with more commands lists more. Before a tab is there it is the list of the
 last tab that connected, which the server keeps in its config folder
 (`tools.json`), or, the first time, the app's own; a client that lists the
 tools once, when it starts, sees them all that way, and one that listens is
-told when the list changes. Two more are the server's: `scanruler_status`
-(is a tab connected, which version, how to pair one) and `scanruler_wait`
+told when the list changes. Three more are the server's: `scanruler_status`
+(is a tab connected, which version, how to pair one), `scanruler_open` (open
+ScanRuler in the default browser, paired, and wait for it) and `scanruler_wait`
 (until a tab is connected, or also idle).
 
 - **Places on the scan** are `{ "point": [x, y, z] }` in millimetres — the
@@ -163,9 +191,10 @@ told when the list changes. Two more are the server's: `scanruler_status`
   `no_scan`, `busy`, `invalid_input`, `invalid_state` (something open in a
   panel is in the way), `not_found`, `failed`, `unavailable`.
 
-A session might go: `scanruler_status`, `scan_open`, `session_state` (the
-scan's bounding box says where the part lies), `element_fit` twice,
-`dimension_add`, `report_get`, `view_render`.
+A session might go: `scanruler_status`, `scanruler_open` if no tab is
+connected, `scan_open`, `session_state` (the scan's bounding box says where
+the part lies), `element_fit` twice, `dimension_add`, `report_get`,
+`view_render`.
 
 ## How it works
 

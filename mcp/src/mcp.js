@@ -2,7 +2,8 @@
 // The MCP side: the tools an agent lists and calls. Each of the page's
 // commands is a tool (tools.js); two more are this server's own —
 // scanruler_status, to see whether a ScanRuler page is connected and how to
-// connect one, and scanruler_wait, to wait for it or for it to be idle.
+// connect one; scanruler_open, to open one in the user's browser, paired;
+// and scanruler_wait, to wait for it or for it to be idle.
 
 import { readFileSync } from 'node:fs'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
@@ -18,14 +19,14 @@ export const SNAPSHOT = JSON.parse(readFileSync(new URL('./commands.json', impor
 
 export const INSTRUCTIONS = [
   'These tools drive ScanRuler, a measuring app for 3D scans, in the browser tab the user has open: the user watches every step in the viewport and can undo it there.',
-  'Start with scanruler_status. If no ScanRuler page is connected, it says how the user connects one; tell them, then call scanruler_wait.',
+  'Start with scanruler_status. If no ScanRuler page is connected, call scanruler_open: it opens ScanRuler in the user’s browser, paired with this server, and waits for it. If that leaves it unconnected, tell the user what howToConnect says, then call scanruler_wait.',
   'Read session_state before acting and after: the scan’s bounding box says where the part lies, the elements and dimensions what is measured. Lengths are millimetres, angles degrees.',
   'A place on the scan is { point: [x, y, z] } (the nearest scan vertex is taken) or { vertex: n }. To fit a feature, aim at its middle, not at an edge.',
   'Every tool that changes the session is one step of the undo history; history_undo takes the last back. report_get gives the report as JSON (format "json") or as the text the panel copies (format "text").',
   'view_render shows you the 3D view as a picture; view_set turns it to a standard view or fits it.',
 ].join(' ')
 
-const text = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value, null, 1) }] })
+const text = (value) => ({ content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }] })
 const failure = (e) => {
   const code = e?.code ?? 'failed'
   const message = e?.message ?? String(e)
@@ -42,9 +43,29 @@ const failure = (e) => {
  *   serverInfo: () => Record<string, unknown>,
  *   pageTimeoutMs?: number,
  *   remembered?: { load(): unknown[] | null, save(commands: unknown[]): void } | null,
- * }} options
+ *   openPage?: () => Promise<boolean>,
+ *   openGraceMs?: number,
+ *   openWaitMs?: number,
+ * }} options — `openPage` opens the pairing link in the user's browser
+ *   (browser.js), true when it could; scanruler_open first gives a tab that
+ *   is already paired `openGraceMs` to connect by itself — the page tries
+ *   again at most ten seconds apart — and then waits `openWaitMs` for the
+ *   one it opened, the user's answer to the browser's question included.
+ *   Both together stay under the minute some clients give a tool call.
  */
-export function createMcpServer({ link, version, cwd, outDir, connectHelp, serverInfo, pageTimeoutMs = 15_000, remembered = null }) {
+export function createMcpServer({
+  link,
+  version,
+  cwd,
+  outDir,
+  connectHelp,
+  serverInfo,
+  pageTimeoutMs = 15_000,
+  remembered = null,
+  openPage = async () => false,
+  openGraceMs = 11_000,
+  openWaitMs = 40_000,
+}) {
   const server = new Server(
     { name: 'scanruler', title: 'ScanRuler', version },
     { capabilities: { tools: { listChanged: true } }, instructions: INSTRUCTIONS },
@@ -91,6 +112,20 @@ export function createMcpServer({ link, version, cwd, outDir, connectHelp, serve
       inputSchema: { type: 'object', properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, openWorldHint: false },
       call: async () => text(status()),
+    },
+    {
+      name: 'scanruler_open',
+      title: 'Open ScanRuler',
+      description: 'Open ScanRuler in the user’s default browser, paired with this server, and wait for the page to connect — for when scanruler_status says none is. The first time, the browser asks the user whether the site may reach apps on this computer; they must allow it. Returns the status, with opened: whether the browser was asked to open it. If connected is still false, tell the user what howToConnect says.',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+      call: async () => {
+        // A tab that was paired before is likely open and on its way back.
+        if (link.connected || (await link.waitForPage(openGraceMs))) return text({ ...status(), opened: false })
+        const opened = await openPage().catch(() => false)
+        if (opened) await link.waitForPage(openWaitMs)
+        return text({ ...status(), opened })
+      },
     },
     {
       name: 'scanruler_wait',
@@ -150,7 +185,7 @@ export function createMcpServer({ link, version, cwd, outDir, connectHelp, serve
     const command = commands().find((c) => toolName(c) === name)
     if (!command) return failure({ code: 'unknown_command', message: `There is no tool ${name}.` })
     if (!link.connected && !(await link.waitForPage(pageTimeoutMs))) {
-      return failure({ code: 'unavailable', message: `No ScanRuler page is connected. ${connectHelp()}` })
+      return failure({ code: 'unavailable', message: `No ScanRuler page is connected; scanruler_open opens one. ${connectHelp()}` })
     }
     // Progress lines from the page, for a client that asked for them.
     const token = request.params._meta?.progressToken

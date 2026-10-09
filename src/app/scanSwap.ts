@@ -5,10 +5,13 @@
 // sections, the alignments, the settings. What was read off the old vertices
 // goes, because the vertices are the new file's: the maps, the surfaces the
 // elements rest on, the marking. Whoever else kept something read off them
-// hears of it through the scan events (scanEvents.ts).
+// hears of it through the scan events (scanEvents.ts). Part of the session
+// (app/session.ts): the history steps across an edit, and a workspace that
+// edits the scan, call it — with or without a viewport.
 
 import type { RefObject } from 'react'
 import type { Rigid } from '../core/deviation/rigid'
+import { boundsOf } from '../core/geometry/bounds'
 import { remapVertices } from '../core/geometry/remap'
 import type { ElementKind } from '../core/types'
 import type { MeshWorkerClient } from '../core/workerClient'
@@ -26,7 +29,9 @@ import { forgetAllSurfaces } from './surfaces'
 /** A scan as the session holds it: its file's bytes, and their units. */
 export type ScanSource = NonNullable<SourceFiles['scan']>
 
-export function useScanSwap({
+export type ScanSwap = ReturnType<typeof scanSwap>
+
+export function scanSwap({
   clientRef,
   sceneRef,
   sources,
@@ -52,7 +57,6 @@ export function useScanSwap({
    */
   const swapScan = async (source: ScanSource, transform: Rigid | null): Promise<void> => {
     const client = clientRef.current!
-    const scene = sceneRef.current!
     const { id, mesh } = await client.prepareScan(
       source.name,
       source.bytes.slice().buffer,
@@ -76,12 +80,16 @@ export function useScanSwap({
     maps.thicknessRgb.current = null
     forgetAllSurfaces()
     useMark.getState().reset()
-    scene.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf)
+    // Without a viewport the part's size is read off the mesh, as an open
+    // reads it.
+    const scene = sceneRef.current
+    scene?.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf)
+    const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
     useStore.setState((s) => ({
       vertexCount: mesh.vertexCount,
       triangleCount: mesh.triangleCount,
-      modelSize: scene.modelSize(),
-      modelCenter: scene.modelCenter(),
+      modelSize: scene?.modelSize() ?? bounds!.radius,
+      modelCenter: scene?.modelCenter() ?? bounds!.center,
       // Every cut is taken again — see sectionCuts: a plane through a piece
       // that has gone cut it too.
       sections: s.sections.map((sec) => ({ ...sec, cut: undefined, cutKey: undefined })),

@@ -1622,47 +1622,116 @@ the cut in the 3D view and exported with the section in the STEP file — see
 
 ## Agents
 
-An AI agent on your computer — Claude Code, Claude Desktop, Cursor or
+An AI agent on your computer — Claude Code, Codex, Claude Desktop, Cursor or
 anything else that speaks the [Model Context Protocol](https://modelcontextprotocol.io)
 — can drive the ScanRuler tab you have open: *"Open ballbar.stl, fit both
 spheres, measure the centre distance and give me the report."* It works the
 panels the way you do, one step at a time in front of you, and every step is
 on the undo keys under *Agent: …*, so anything it did can be taken back.
 
-The agent talks to **scanruler-mcp**, a small server it starts on your
-computer (the [mcp/](mcp/) folder of this repository), and the tab connects
-to that server on `127.0.0.1`. **Nothing leaves your computer through
-ScanRuler**: the scan goes from your disk to your browser, as it does when you
-open it yourself. What the agent asks for — the figures, the report — goes to
-the agent's own model provider, like everything else it reads.
+### Connecting your agent
 
-**Setting it up** takes two steps, once.
+You need [Node.js](https://nodejs.org/) 20 or newer (`node --version` in a
+terminal says which you have) and Chrome, Edge or Firefox. Then two steps,
+once.
 
-1. Add the server to your agent. In Claude Code:
+**1. Add ScanRuler to your agent.** Pick yours:
 
-   ```bash
-   claude mcp add scanruler -- npx scanruler-mcp
-   ```
+- **Claude Code** — in a terminal:
 
-   Claude Desktop and Cursor take the same command in their MCP settings —
-   [mcp/README.md](mcp/README.md) has each one's file. From a clone of this
-   repository, `node <clone>/mcp/bin/scanruler-mcp.js` in place of
-   `npx scanruler-mcp` runs the copy in it (after `npm --prefix mcp ci`).
-2. Pair the tab with it. `npx scanruler-mcp --pair` prints a port, a token,
-   and a link; open the link once, or put the port and the token into
-   ⚙ **Settings → Agents** and switch on **Local agent connection**. The
-   agent's `scanruler_status` tool hands out the same link, so asking the
-   agent works too. A chip in the top bar says whether the agent is
-   connected.
+  ```bash
+  claude mcp add --scope user scanruler -- npx -y scanruler-mcp
+  ```
 
-Chrome and Edge ask once whether the site may reach "apps and services on
-this device" — allow it, or the tab cannot reach the server. Firefox asks the
-same. Safari does not let a page from the web reach the computer it runs on at
-all; for it, and for working offline or with the open-source build, the server
-serves a build of the app itself — `scanruler-mcp --serve dist` after
-`npm run build`, then open `http://127.0.0.1:7317/`.
+- **Codex** (the CLI, the IDE extension and the app) — in a terminal:
 
-**What the agent can do** is what the panels do: open a scan; fit planes,
+  ```bash
+  codex mcp add scanruler -- npx -y scanruler-mcp
+  ```
+
+- **Claude Desktop** — Settings → Developer → **Edit Config**, put this in
+  the file, save, and restart Claude Desktop (File → Exit; closing the window
+  leaves it running):
+
+  ```json
+  {
+    "mcpServers": {
+      "scanruler": {
+        "command": "npx",
+        "args": ["-y", "scanruler-mcp", "--out", "C:/Users/you/Documents/ScanRuler"]
+      }
+    }
+  }
+  ```
+
+  `--out` is where exports go when you name no folder (on a Mac, say
+  `/Users/you/Documents/ScanRuler`). If the file has an `"mcpServers"`
+  section already, add the `"scanruler"` entry inside it.
+
+- **Cursor and others** — the same `command` and `args` in their MCP
+  settings.
+
+**2. Ask it to connect.** Start a new session with your agent and say:
+
+> Connect to ScanRuler.
+
+It opens ScanRuler in your browser, already paired with the agent. The first
+time, the browser asks whether the site may access *apps and services on this
+device* — click **Allow**; that is the agent's helper on your own computer.
+The top bar now says **Agent: connected**, and you are set: the browser keeps
+the pairing, so from then on you just ask.
+
+**Now ask for what you want measured.** For example:
+
+> Open C:\Scans\ballbar.stl, fit a sphere in each ball, measure the distance
+> between their centres and show me the report.
+
+> Load C:\Scans\bracket.stl and the nominal C:\CAD\bracket.step, best-fit
+> them, and tell me where the scan is more than 0.2 mm off. Show me a
+> picture.
+
+Name files by their full path — the agent opens them from your disk, and
+saves exports where you say. Everything happens in the tab in front of you;
+**Ctrl+Z** takes back any step you don't want.
+
+**If it does not connect:**
+
+- **The agent knows nothing about ScanRuler** — its helper did not start.
+  Check `node --version` says 20 or newer, then start a new session (Claude
+  Desktop: quit it completely and start it again). In Claude Code and Codex,
+  `/mcp` lists the helper and says why it failed.
+- **The top bar says *Agent: listening*** — the tab cannot reach the helper.
+  If you clicked *Block* when the browser asked, click the icon left of the
+  address, allow *Local network access* for scanruler.com, and reload.
+  Otherwise the agent's session has ended: start one and ask again.
+- **It says *Agent: turned away*** — another ScanRuler tab is connected
+  already; close that one.
+- **ScanRuler opened in a different browser than the one you use** — run
+  `npx -y scanruler-mcp --pair` in a terminal and open the link it prints in
+  your browser.
+- **Codex says the server timed out on its first start** — it was still
+  downloading; start a new session. [mcp/README.md](mcp/README.md) shows how
+  to give it more time.
+- **Safari** does not let a website reach your own computer. Use Chrome,
+  Edge or Firefox — or have the helper serve the app itself:
+  `npx -y scanruler-mcp --serve dist` after `npm run build` in a clone of
+  this repository, then open `http://127.0.0.1:7317/`.
+
+### What happens on your computer
+
+The agent talks to **scanruler-mcp**, a small helper it starts on your
+computer (the [mcp/](mcp/) folder of this repository, on npm as
+`scanruler-mcp`), and the tab connects to that helper on `127.0.0.1` with a
+pairing token only the two of them know. **Nothing leaves your computer
+through ScanRuler**: the scan goes from your disk to your browser, as it does
+when you open it yourself. What the agent asks for — the figures, the report
+— goes to the agent's own model provider, like everything else it reads.
+[mcp/README.md](mcp/README.md) has the rest: every option, several agents
+sharing one tab, and how the connection works.
+
+### What the agent can do
+
+It does what the panels do: open a scan; fit planes,
 spheres, cylinders, cones, tori, points and circles where you would click, or
 on a marked surface; construct elements from others; measure distances,
 angles, sizes and GD&T tolerances, held to limits; align the part to datums,

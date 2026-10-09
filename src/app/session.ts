@@ -16,6 +16,7 @@ import { measureWorkspace } from './measureWorkspace'
 import { partAlignment } from './partAlignment'
 import { emptySources, type SourceFiles } from './project'
 import { scanImport } from './scanImport'
+import { scanSwap } from './scanSwap'
 import { sectionCuts } from './sectionCuts'
 import { thicknessWorkspace } from './thicknessWorkspace'
 
@@ -80,6 +81,18 @@ export function createSession({
   })
   const thickness = thicknessWorkspace({ clientRef, thickness: maps.thickness, thicknessRgb: maps.thicknessRgb })
   const sections = sectionCuts(clientRef)
+  // Another version of the scan put in place under everything measured on
+  // it — an edit of it, or the one before an edit.
+  const swap = scanSwap({
+    clientRef,
+    sceneRef,
+    sources,
+    maps,
+    clearPreview: measure.clearPreview,
+    runFit: measure.runFit,
+    runDeviation: deviation.runDeviation,
+    runThickness: thickness.runThickness,
+  })
 
   /** Start what keeps itself in step with the stores — a centroid measuring
    *  itself, the sections' cuts. The returned function stops it. */
@@ -88,5 +101,5 @@ export function createSession({
     return () => stops.forEach((stop) => stop())
   }
 
-  return { clientRef, sceneRef, imports, sources, maps, fieldDirections, measure, scan, alignment, deviation, thickness, sections, watch }
+  return { clientRef, sceneRef, imports, sources, maps, fieldDirections, measure, scan, alignment, deviation, thickness, sections, swap, watch }
 }

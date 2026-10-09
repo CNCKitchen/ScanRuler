@@ -6,7 +6,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { identityRigid, rigidCompose, rigidInvert, type Rigid } from '../core/deviation/rigid'
 import type { SourceFiles } from './project'
-import type { ScanSource } from './useScanSwap'
+import type { ScanSource } from './scanSwap'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import type { ImportQueue } from './importQueue'
@@ -27,7 +27,7 @@ export function useProjectHistory(options: {
   runDeviation: () => Promise<void>
   runThickness: () => Promise<void>
   /** A step across an edit of the scan loads the file from the other side
-   *  of it — see useScanSwap. */
+   *  of it — see scanSwap. */
   swapScan: (source: ScanSource, transform: Rigid | null) => Promise<void>
   remeasureScan: (refit: boolean) => Promise<void>
 }) {

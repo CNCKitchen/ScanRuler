@@ -21,6 +21,8 @@ let port
 let client
 let dir
 let listChanged = 0
+// What scanruler_open's opening of the browser does, set by a test.
+let opener = async () => false
 
 before(async () => {
   dir = await mkdtemp(join(tmpdir(), 'scanruler-mcp-'))
@@ -37,6 +39,9 @@ before(async () => {
     connectHelp: () => 'Open ScanRuler and pair it.',
     serverInfo: () => ({ port }),
     pageTimeoutMs: 50,
+    openPage: () => opener(),
+    openGraceMs: 50,
+    openWaitMs: 5_000,
   })
   const [a, b] = InMemoryTransport.createLinkedPair()
   client = new Client({ name: 'test', version: '0.0.0' })
@@ -62,14 +67,15 @@ test('before a page connects: the app’s tools are listed, status says how to c
   const names = tools.map((t) => t.name)
   assert.ok(names.includes('scanruler_status'))
   assert.ok(names.includes('scanruler_wait'))
+  assert.ok(names.includes('scanruler_open'))
   assert.ok(names.includes('scan_open'))
-  assert.equal(tools.length, SNAPSHOT.length + 2)
+  assert.equal(tools.length, SNAPSHOT.length + 3)
   const status = await call('scanruler_status')
   assert.equal(status.json.connected, false)
   assert.equal(status.json.howToConnect, 'Open ScanRuler and pair it.')
   const refused = await call('session_state')
   assert.equal(refused.error, true)
-  assert.match(refused.text, /^unavailable: No ScanRuler page is connected\. Open ScanRuler/)
+  assert.match(refused.text, /^unavailable: No ScanRuler page is connected; scanruler_open opens one\. Open ScanRuler/)
   const waited = await call('scanruler_wait', { timeoutSeconds: 0.05 })
   assert.equal(waited.json.connected, false)
 })
@@ -117,4 +123,36 @@ test('with a page: tools run on it — files read from paths and written to path
   const { tools } = await client.listTools()
   assert.ok(tools.some((t) => t.name === 'demo_thing'))
   page.page.close()
+})
+
+test('scanruler_open opens the paired page when none comes back by itself, and leaves a connected one be', async () => {
+  for (let i = 0; link.connected && i < 100; i++) await new Promise((resolve) => setTimeout(resolve, 20))
+  assert.equal(link.connected, false)
+
+  const failed = await call('scanruler_open')
+  assert.equal(failed.json.connected, false)
+  assert.equal(failed.json.opened, false)
+  assert.equal(failed.json.howToConnect, 'Open ScanRuler and pair it.')
+
+  let opens = 0
+  let page
+  opener = async () => {
+    opens++
+    // The browser opening the pairing link, and the page in it connecting.
+    setTimeout(() => {
+      page = fakePage(port, { token: TOKEN })
+    }, 20)
+    return true
+  }
+  const opened = await call('scanruler_open')
+  assert.equal(opened.json.connected, true)
+  assert.equal(opened.json.opened, true)
+  assert.equal(opens, 1)
+
+  const again = await call('scanruler_open')
+  assert.equal(again.json.connected, true)
+  assert.equal(again.json.opened, false)
+  assert.equal(opens, 1, 'a connected page is not opened a second time')
+  ;(await page).page.close()
+  opener = async () => false
 })

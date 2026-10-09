@@ -105,7 +105,7 @@ export async function imageContent(result, args, { cwd, outDir }) {
   if (!file || !(file.bytes instanceof Uint8Array) || !String(file.mimeType ?? '').startsWith('image/')) return null
   const saved = args?.path ? await saveFileResult(result, args, { cwd, outDir }) : { ...result, file: { name: file.name, mimeType: file.mimeType, size: file.bytes.byteLength } }
   return [
-    { type: 'text', text: JSON.stringify(saved, null, 1) },
+    { type: 'text', text: JSON.stringify(saved) },
     { type: 'image', data: Buffer.from(file.bytes.buffer, file.bytes.byteOffset, file.bytes.byteLength).toString('base64'), mimeType: file.mimeType },
   ]
 }
