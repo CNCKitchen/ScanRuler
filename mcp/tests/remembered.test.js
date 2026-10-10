@@ -61,7 +61,7 @@ test('a server lists the last page’s commands before a page connects, and keep
   const listedBefore = (await client.listTools()).tools
   const before = listedBefore.map((t) => t.name)
   assert.ok(before.includes('demo_thing'), 'the kept command is listed with no page')
-  assert.equal(before.length, SNAPSHOT.length + 4)
+  assert.equal(before.length, SNAPSHOT.length + 5)
   assert.ok(listedBefore.find((t) => t.name === SNAPSHOT[0].name.replace(/\./g, '_')).inputSchema.properties.old, 'as it was kept')
 
   const page = await fakePage(http.address().port, { token: TOKEN, commands: SNAPSHOT })

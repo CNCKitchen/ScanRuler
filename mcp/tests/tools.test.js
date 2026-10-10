@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { SNAPSHOT } from '../src/mcp.js'
-import { bytesProperty, imageContent, inputFor, saveFileResult, toolFor, toolName } from '../src/tools.js'
+import { agentJson, bytesProperty, imageContent, inputFor, saveFileResult, toolFor, toolName } from '../src/tools.js'
 
 const command = (name) => SNAPSHOT.find((c) => c.name === name)
 
@@ -20,6 +20,13 @@ test('every command is a tool, dots to underscores, its schema an object', () =>
     assert.match(tool.name, /^[a-z][a-z0-9_]*$/, c.name)
     assert.ok(tool.description.length > 40, c.name)
   }
+})
+
+test('an answer keeps six significant digits, no finer than a millionth, and whole numbers whole', () => {
+  assert.equal(
+    agentJson({ a: 0.9483828176573491, b: 12.000000000000002, c: 1e-17, d: -3.4e-8, e: 1234567.891, f: 0.0423171, g: [1, 2, 3], h: 123.456789, id: 9007199254740991, s: '0.123456789', n: null }),
+    '{"a":0.948383,"b":12,"c":0,"d":0,"e":1234570,"f":0.042317,"g":[1,2,3],"h":123.457,"id":9007199254740991,"s":"0.123456789","n":null}',
+  )
 })
 
 test('a schema passes through as it is, but for files', () => {

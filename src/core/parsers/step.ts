@@ -5,6 +5,7 @@
 // deviation map is the part and how much is the conversion.
 
 import { autoTessellation, estimateStepSize, importStep, type ImportDiagnostics } from 'meshstep'
+import { meshGaps, type MeshGap } from '../geometry/openEdges'
 import type { ParsedMesh } from '../types'
 
 /** How the reference was converted, for the caller to report. */
@@ -22,6 +23,12 @@ export interface StepInfo {
    *  of the reference — and with it the sign of every deviation — is not
    *  reliable. */
   unsound: boolean
+  /** The faces that could not be converted, by their STEP entity id (#id in
+   *  the file), each with what went wrong — when any did. */
+  faces?: { id: number | null; problem: string }[]
+  /** Where the converted mesh is open — the rims of its gaps, largest
+   *  first, with a place to look — when it is. */
+  gaps?: MeshGap[]
 }
 
 export interface StepImport {
@@ -48,9 +55,26 @@ function decode(buffer: ArrayBuffer): string {
   return new TextDecoder('utf-8').decode(buffer)
 }
 
-/** The measurement-critical half of the conversion verdict, phrased for
- *  someone about to take readings against this surface. */
-function describe(d: ImportDiagnostics): { warning: string | null; unsound: boolean } {
+/** What went wrong with a face, in words, by the warning's code. */
+const PROBLEMS: Record<string, string> = {
+  'face-dropped': 'a malformed face record, dropped',
+  'face-unsupported-surface': 'a surface kind the converter does not handle',
+  'face-untriangulated': 'a face no mesher could triangulate',
+}
+
+/** How many faces and gaps the verdict names one by one. */
+const NAMED = 3
+
+const mm = (v: number) => `${Math.round(v * 100) / 100}`
+const place = (at: readonly number[]) => `(${at.map(mm).join(', ')})`
+
+/**
+ * The measurement-critical half of the conversion verdict, phrased for
+ * someone about to take readings against this surface — and, with the
+ * converted mesh, where to look: the faces that went missing by their
+ * entity ids in the file, and the gaps they left by where they lie.
+ */
+export function describeConversion(d: ImportDiagnostics, mesh?: { positions: Float32Array | Float64Array; indices: Uint32Array }): Pick<StepInfo, 'warning' | 'unsound' | 'faces' | 'gaps'> {
   if (d.ok) return { warning: null, unsound: false }
 
   const missing = d.facesDropped + d.facesSkipped
@@ -58,16 +82,27 @@ function describe(d: ImportDiagnostics): { warning: string | null; unsound: bool
   const leaks = d.openEdges > 0 || d.nonManifoldEdges > 0
 
   if (missing > 0 || leaks || hasError) {
+    const faces = d.warnings.filter((w) => w.code in PROBLEMS).map((w) => ({ id: w.faceId ?? null, problem: PROBLEMS[w.code] }))
+    const gaps = mesh && d.openEdges > 0 ? meshGaps(mesh.positions, mesh.indices, NAMED) : []
     const parts: string[] = []
-    if (missing > 0) parts.push(`${missing} surface${missing === 1 ? '' : 's'} could not be converted`)
+    if (missing > 0) {
+      const named = faces
+        .slice(0, NAMED)
+        .map((f) => `${f.id !== null ? `#${f.id}` : 'one'} (${f.problem})`)
+        .join(', ')
+      parts.push(`${missing} surface${missing === 1 ? '' : 's'} could not be converted${named ? `: ${named}${faces.length > NAMED ? ', …' : ''}` : ''}`)
+    }
     if (d.openEdges > 0) parts.push(`${d.openEdges} open edge${d.openEdges === 1 ? '' : 's'}`)
     if (d.nonManifoldEdges > 0) parts.push(`${d.nonManifoldEdges} non-manifold edge${d.nonManifoldEdges === 1 ? '' : 's'}`)
+    const where = gaps.length > 0 ? ` The gap${gaps.length === 1 ? ' lies' : 's lie'} at ${gaps.map((g) => `${place(g.at)}, ${mm(g.size)} mm across`).join('; ')}.` : ''
     return {
       // The signed distance takes its sign from which side of the reference a
       // scan point is on, and a surface with holes in it has no reliable
       // inside — so this is not a cosmetic complaint.
-      warning: `STEP conversion is incomplete (${parts.join(', ')}) — the reference is not closed, so the sign of the deviation may be wrong in places. Export a mesh (STL) from your CAD system instead.`,
+      warning: `STEP conversion is incomplete (${parts.join(', ')}) — the reference is not closed, so the sign of the deviation may be wrong in places.${where} Export a mesh (STL) from your CAD system instead.`,
       unsound: true,
+      ...(faces.length > 0 ? { faces } : {}),
+      ...(gaps.length > 0 ? { gaps } : {}),
     }
   }
 
@@ -126,7 +161,7 @@ export function parseSTEP(buffer: ArrayBuffer, onProgress?: (text: string) => vo
     )
   }
 
-  const { warning, unsound } = describe(result.diagnostics)
+  const verdict = describeConversion(result.diagnostics, result.mesh)
   return {
     // meshStep welds each body and orients it outward already; the mesh graph
     // is built on top of it exactly as for a scan, so nothing downstream has
@@ -139,6 +174,6 @@ export function parseSTEP(buffer: ArrayBuffer, onProgress?: (text: string) => vo
       positions: Float32Array.from(result.mesh.positions),
       indices: result.mesh.indices,
     },
-    info: { surfaceDeviation, units: result.units, warning, unsound },
+    info: { surfaceDeviation, units: result.units, ...verdict },
   }
 }

@@ -87,6 +87,41 @@ describe('deviation', () => {
     expect(text).toContain('Reference: nominal.stl')
   })
 
+  it('deviation.hotspots gathers what lies over tolerance into patches', async () => {
+    expect((await refused('deviation.hotspots')).code).toBe('invalid_state')
+    // A reference a tenth taller than the scan: the scan's top and bottom
+    // lie 2 mm inside it, its sides on it.
+    const slab = boxMesh(40, 40).map((v, i) => (i % 3 === 2 ? v * 1.1 : v))
+    await run('deviation.open_reference', { bytes: stlBytes(slab), name: 'slab.stl' })
+    await run('deviation.align')
+    type V3 = [number, number, number]
+    type H = { source: string; tolerance: number; over: number; found: number; spacing: number; patches: { centroid: V3; box: { min: V3; max: V3 }; area: number; count: number; mean: number; extreme: number; side: string; at: V3; vertex: number; vertices: number[]; onReference?: { centroid: V3; at: V3 } }[] }
+    const h = await run<H>('deviation.hotspots', { tolerance: 0.5 })
+    expect(h.source).toBe('reference')
+    expect(h.tolerance).toBe(0.5)
+    expect(h.found).toBe(2)
+    expect(h.patches).toHaveLength(2)
+    // The scan's grid is a millimetre.
+    expect(h.spacing).toBeCloseTo(1, 1)
+    for (const p of h.patches) {
+      expect(p.side).toBe('inside')
+      expect(Math.abs(p.extreme)).toBeCloseTo(2, 1)
+      expect(Math.abs(p.centroid[2])).toBeCloseTo(20, 0)
+      expect(Math.abs(p.box.min[2] - p.box.max[2])).toBeLessThan(1e-3)
+      expect(p.count).toBeGreaterThan(300)
+      expect(p.area).toBeGreaterThan(1000)
+      expect(p.vertices.length).toBeGreaterThan(0)
+      expect(p.vertices).toContain(p.vertex)
+      expect(p.onReference).toBeDefined()
+    }
+    expect(h.patches[0].centroid[2] * h.patches[1].centroid[2]).toBeLessThan(0)
+    expect(h.over).toBeGreaterThanOrEqual(h.patches[0].count + h.patches[1].count)
+    const none = await run<H>('deviation.hotspots', { tolerance: 3 })
+    expect(none.patches).toEqual([])
+    expect(none.over).toBe(0)
+    expect((await refused('deviation.hotspots', { patches: 0 })).code).toBe('invalid_input')
+  })
+
   it('deviation.set_target needs the viewport the element map is measured on', async () => {
     await run('element.fit', { kind: 'plane', at: { point: [0, 0, 20] } })
     expect((await refused('deviation.set_target', { element: 'Plane 1' })).code).toBe('unavailable')

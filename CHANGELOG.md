@@ -5,6 +5,105 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in the
 README under "Releases".
 
+## 0.5.1 — 2026-10-10
+
+- **Nothing lights under the cursor while the view moves** (2026-10-10).
+  A drag that turns, pans or zooms the view puts out what was lit under
+  the cursor at its first move and tests the cursor again only where it
+  ends: the hover test — several rays a frame over everything pickable —
+  had run on every frame of a turn, and lit faces flickered past under a
+  cursor that was steering the camera. A button held without moving is
+  not yet a drag, so a click does not flicker the highlight
+  (`OrthoNavigator.navigating`). Tests: `orthoNavDrag`.
+
+- **Shorter answers for an agent** (2026-10-10). An agent re-reads its
+  whole session at every step, so every answer is paid for again on each
+  step after it. scanruler-mcp gives each number that is not whole to six
+  significant digits and no finer than a millionth — 0.9483828176573491 is
+  0.948383, a zero's rounding error of 1e-17 is 0 — and ids, indices and
+  counts as they are; the page's answers stay exact for any other caller.
+  `session.state`, `element.fit` and `dimension.add` no longer promise
+  their numbers at full precision. `align.datum`, `align.auto`,
+  `align.symmetry` and `align.clear` answer the step applied, the whole
+  alignment only when the part was aligned before, and how many elements
+  moved with it; `detail: "full"` lists each element where it now is, as
+  before. `view.render` is 800 pixels on its
+  long side by default, from 1280: an agent pays for a picture by its
+  pixels, and asks for a larger one for a picture to keep. Tests: `tools`
+  (the rounding), `mcp` (an answer through the server), `commandsMeasure`
+  (an alignment answered short, and whole).
+
+- **The symmetry plane as an element answers with its residual** (2026-10-10).
+  `element.construct` with `plane-symmetry` returns `symmetry { rms, matched,
+  sampled }` and the search's note beside the element, and its description
+  says the alignment is left as it is — `align.symmetry` is the one that
+  re-poses the part. An agent had searched for a way to measure the mirror
+  plane without moving the part and not found it.
+
+- **Where the deviation lies over tolerance, as patches** (2026-10-10).
+  `deviation.hotspots` reads the deviation map as connected regions of the
+  scan over tolerance instead of one number over the part: the vertices
+  past the tolerance (the map's own, or one given) gathered into patches
+  by distance — a few point spacings, read off the points themselves — on
+  the same side of the surface, the largest and farthest first, each with
+  its centre and box, its area (count × spacing²), how many vertices, the
+  mean and the extreme reading and its side, the point of the extreme and
+  the scan vertex there, and a few of its vertices for `element.fit_marked`;
+  with a map against the reference part, the centre and the extreme on the
+  reference too. The gathering is `core/deviation/hotspots.ts`, a hash grid
+  and a union-find over the vertices over tolerance, so a workspace that
+  compares the scan with something else can read its own map the same way.
+  Tests: `hotspots` (two patches on two faces, a gap bridged, a wall apart
+  kept apart, the sides kept apart, the spacing), `commandsWorkspaces` (a
+  reference a tenth taller than the scan: its top and bottom as two patches,
+  2 mm inside).
+
+- **Several tools in one call** (2026-10-10). scanruler-mcp has a fourth
+  tool of its own, `scanruler_batch`: a list of the page's tools with their
+  arguments, run in order, each answer in its place — twenty `scan_nearest`
+  calls in one round trip. The first refused stops the rest unless
+  `stopOnError` is false; each call that changes the session is still its
+  own undo step; a picture gives its text, not the image. Tests: the
+  server's `mcp` (four calls, stopped at the third; every call reported;
+  the server's own tools not batched).
+
+- **The scan's own points, and a section's polylines, for an agent**
+  (2026-10-09). An agent measuring a part had to export the whole point
+  cloud and slice it elsewhere to read a number off the scan. `scan.query`
+  hands back the vertices inside a box, or within a radius of a point,
+  with their outward normals — facing a direction if asked, so the top
+  face alone — thinned evenly to a limit, with the box round them, their
+  centroid and mean normal. `section.get` hands back a section's cut as
+  the polylines it is, each chain's points in order on the sheet ([u, v]
+  in the section's plane, what `flat.fit` takes) and, if asked, in the
+  world, with the plane, whether the chain closes, its length and its box
+  — where `section.cut` said only how many chains there were. Tests:
+  `commandsMeasure` (the top face's vertices facing up, a ball about a
+  corner, the limit; a section's ring on the sheet and in the world, a
+  sheet point lifted back onto its world point, the thinning).
+
+- **A picture of the model on its own** (2026-10-09). `view.render` and
+  `view.set` take `show` — the scan, the reference, the sections, the
+  elements and the labels, each on or off by key, a workspace adding keys
+  of its own (`registerViewToggles`, a plugin extension point; `view.set`
+  and `session.state` list every key standing and whether it is shown) —
+  and `frame`, a box or a place to look at closely instead of fitting
+  everything. `view.render` puts things away for the picture alone and
+  back after; `view.set` leaves them as asked. `{ scan: false }` shows what
+  was built on the scan without the scan over it. Tests: `commandsView`
+  (the toggles a plugin registers, one taking the app's `scan` key over
+  while its workspace is on screen; the refusals).
+
+- **A STEP reference that came apart says which faces and where**
+  (2026-10-09). The reference loader's "1 surface could not be converted"
+  now names the faces by their entity ids in the file (`#1234`) with what
+  went wrong with each, and says where the gaps they left lie — the middle
+  of each open rim, and how far across — so the face can be looked up in
+  the CAD system and the place on the part. `session.state` carries them
+  under the reference's `step` (`faces`, `gaps`). Tests: `openEdges` (the
+  rims of a box with a face taken out, two faces apart as two gaps and
+  side by side as one; the verdict's wording).
+
 ## 0.5.0 — 2026-10-09
 
 - **The agent opens ScanRuler for you** (2026-10-09). Connecting an agent

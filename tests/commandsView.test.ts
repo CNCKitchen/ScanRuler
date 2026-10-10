@@ -9,6 +9,7 @@ import { registerBusy } from '../src/commands/activity'
 import { listCommands, registerCommands } from '../src/commands/registry'
 import { obj } from '../src/commands/schema'
 import type { Command } from '../src/commands/types'
+import { pluginToggleKeys, registerViewToggles, viewToggles, type ViewToggle } from '../src/commands/viewToggles'
 import { useStore } from '../src/state/store'
 import { refused, run, startHeadless, undoLabels, type Headless } from './commandKit'
 
@@ -30,6 +31,34 @@ describe('the view', () => {
     }
     expect((await refused('view.set', { view: 'sideways' })).code).toBe('invalid_input')
     expect((await refused('view.render', { width: 10 })).code).toBe('invalid_input')
+    expect((await refused('view.render', { show: { scan: 'no' } })).code).toBe('invalid_input')
+    expect((await refused('view.set', { frame: { min: [0, 0, 0] } })).code).toBe('invalid_input')
+    // The session's readout has no view to speak of without a viewport.
+    expect((await run<{ view: unknown }>('session.state')).view).toBeNull()
+  })
+
+  it('takes a plugin’s toggles under its id, a plugin taking an app key over while its workspace is on', () => {
+    let shown = true
+    let on = true
+    const base: ViewToggle[] = [{ key: 'scan', description: 'the scan', shown: () => shown, show: (v) => (shown = v) }]
+    const mine: ViewToggle[] = [
+      { key: 'bodies', description: 'the bodies', shown: () => true, show: () => {} },
+      { key: 'scan', description: 'the scan, my way', shown: () => false, show: () => {}, applies: () => on },
+    ]
+    const stop = registerViewToggles('demo', mine)
+    try {
+      expect(() => registerViewToggles('demo', [])).toThrow(/share the id/)
+      expect(pluginToggleKeys().map((t) => t.key)).toEqual(['bodies', 'scan'])
+      const now = viewToggles(base)
+      expect([...now.keys()]).toEqual(['scan', 'bodies'])
+      expect(now.get('scan')!.description).toBe('the scan, my way')
+      on = false
+      expect(viewToggles(base).get('scan')!.description).toBe('the scan')
+    } finally {
+      stop()
+    }
+    expect(viewToggles(base).has('bodies')).toBe(false)
+    expect(pluginToggleKeys()).toEqual([])
   })
 
   it('lists view.render as the command that answers with a picture', () => {

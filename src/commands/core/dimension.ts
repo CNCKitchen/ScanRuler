@@ -91,7 +91,7 @@ const add: Command<{
     dimensionTypes()
       .map((t) => `${t.id} (${t.slots.map((s) => s.label).join(', ')})`)
       .join('; ') +
-    '. anchor, for two spheres: center (default), gap or span. limit holds the value to a ceiling or a nominal ± band. Returns the dimension with its value (mm or degrees, full precision), the formatted value the panel shows, and the verdict. One undo step.',
+    '. anchor, for two spheres: center (default), gap or span. limit holds the value to a ceiling or a nominal ± band. Returns the dimension with its value (mm or degrees, finer than the panel shows it), the formatted value the panel shows, and the verdict. One undo step.',
   input: obj(
     {
       refs: arr(elementRefSchema('An element.'), 'The elements, in slot order.', { minItems: 1, maxItems: 3 }),

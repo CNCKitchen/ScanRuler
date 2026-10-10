@@ -141,7 +141,7 @@ const fit: Command<{ kind: FitKind; at: Location | Location[] } & Finishing> = {
   name: 'fit',
   title: 'Fit an element',
   description:
-    'Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place given and is best-fitted to it; a point is the place itself; a circle goes through three or more places. `at` is one place, or a list — a feature seen in patches can be seeded on each. A place is { vertex } (a scan vertex), { point: [x, y, z] } (the nearest scan vertex to a point, mm, in the current frame), or { screen } / { candidate } (not available yet). Returns the element with its fit at full precision and the seed actually used (vertex and point), so a recipe can be replayed on another scan. One undo step.',
+    'Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place given and is best-fitted to it; a point is the place itself; a circle goes through three or more places. `at` is one place, or a list — a feature seen in patches can be seeded on each. A place is { vertex } (a scan vertex), { point: [x, y, z] } (the nearest scan vertex to a point, mm, in the current frame), or { screen } / { candidate } (not available yet). Returns the element with its fit and the seed actually used (vertex and point), so a recipe can be replayed on another scan. One undo step.',
   input: obj(
     {
       kind: enumOf(FIT_KINDS, 'What to fit.'),
@@ -235,7 +235,7 @@ const construct: Command<{
   name: 'construct',
   title: 'Construct an element',
   description:
-    'Construct an element from others and typed-in numbers, as the panel’s creation methods do — by kind: point (point-coords, point-centroid, point-midpoint, point-line-plane), line (line-two-points, line-axis, line-plane-plane), plane (plane-three-points, plane-offset, plane-midplane, plane-coords, plane-symmetry), circle (circle-plane-cylinder, circle-plane-sphere, circle-coords). refs fill the method’s slots in order, by element id or name; params are its numbers in order (or by key: x, y, z; offset; nx, ny, nz, px, py, pz; d, cx, cy, cz). point-centroid and plane-symmetry measure the scan themselves: vertices confines them to a marked surface, seed starts the symmetry search from a plane. Returns the element. One undo step.',
+    'Construct an element from others and typed-in numbers, as the panel’s creation methods do — by kind: point (point-coords, point-centroid, point-midpoint, point-line-plane), line (line-two-points, line-axis, line-plane-plane), plane (plane-three-points, plane-offset, plane-midplane, plane-coords, plane-symmetry), circle (circle-plane-cylinder, circle-plane-sphere, circle-coords). refs fill the method’s slots in order, by element id or name; params are its numbers in order (or by key: x, y, z; offset; nx, ny, nz, px, py, pz; d, cx, cy, cz). point-centroid and plane-symmetry measure the scan themselves: vertices confines them to a marked surface, seed starts the symmetry search from a plane. plane-symmetry finds the scan’s own mirror plane as an element, the alignment left as it is (align.symmetry re-poses the part on it instead), and answers with the search’s residual: symmetry { rms, matched, sampled } and a note. Returns the element. One undo step.',
   input: obj(
     {
       kind: enumOf(ALL_KINDS, 'What to construct.'),
@@ -293,6 +293,7 @@ const construct: Command<{
     }
     const m = commandHost().session.measure
     showWorkspace('elements')
+    let symmetry: { rms: number; matched: number; sampled: number; note?: string } | null = null
     try {
       m.startDraft(input.kind)
       const store = useStore.getState()
@@ -315,11 +316,17 @@ const construct: Command<{
         if (input.seed !== undefined) useStore.getState().setDraftSeed(planeRef(input.seed))
         if (input.vertices) useStore.getState().setDraftSelection(Uint32Array.from(input.vertices))
         await m.findSymmetry()
+        // The search's verdict lives on the draft, which confirming closes:
+        // read it off first. Its params run normal, point, rms, matched, sampled.
+        const d = useStore.getState().draft
+        if (d?.method === 'plane-symmetry' && d.params.length >= 9) {
+          symmetry = { rms: d.params[6], matched: d.params[7], sampled: d.params[8], ...(d.note ? { note: d.note } : {}) }
+        }
       } else if (input.vertices || input.seed !== undefined) {
         throw new CommandError('invalid_input', `${method.label} takes no marked surface and no seed.`)
       }
       const id = finishAndCreate(input)
-      return { element: created(id) }
+      return { element: created(id), ...(symmetry ? { symmetry } : {}) }
     } finally {
       closeDraft()
     }

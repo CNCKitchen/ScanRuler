@@ -348,6 +348,15 @@ export class MeshWorkerClient {
     return { min: res.min, max: res.max }
   }
 
+  /** The scan's vertices inside a box — facing a direction within an angle
+   *  if asked — with their positions and normals, at most `limit` of them
+   *  spread evenly through what matched. See geometry/query. */
+  async query(q: { min: Vec3; max: Vec3; normal?: { dir: Vec3; cosLimit: number }; limit: number }): Promise<{ vertices: Uint32Array; positions: Float32Array; normals: Float32Array; matched: number; step: number }> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'query-ok' }>>({ type: 'query', requestId, ...q })
+    return { vertices: res.vertices, positions: res.positions, normals: res.normals, matched: res.matched, step: res.step }
+  }
+
   /** The scan's mean curvature at every vertex, 1/mm, convex positive. */
   async curvature(): Promise<Float32Array> {
     const requestId = this.nextId++

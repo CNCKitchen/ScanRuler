@@ -69,7 +69,7 @@ test('before a page connects: the app’s tools are listed, status says how to c
   assert.ok(names.includes('scanruler_wait'))
   assert.ok(names.includes('scanruler_open'))
   assert.ok(names.includes('scan_open'))
-  assert.equal(tools.length, SNAPSHOT.length + 3)
+  assert.equal(tools.length, SNAPSHOT.length + 4)
   const status = await call('scanruler_status')
   assert.equal(status.json.connected, false)
   assert.equal(status.json.howToConnect, 'Open ScanRuler and pair it.')
@@ -90,6 +90,7 @@ test('with a page: tools run on it — files read from paths and written to path
       if (name === 'scan.open') return { scan: { fileName: input.name, bytes: input.bytes.byteLength } }
       if (name === 'export.step') return { file: { name: 'ballbar-elements.step', mimeType: 'model/step', bytes: new TextEncoder().encode('ISO-10303-21;') }, status: 'ok' }
       if (name === 'session.state') return { busy: null, running: null }
+      if (name === 'scan.nearest') return { vertex: 1234567, point: [0.9483828176573491, 12.000000000000002, -1.2e-17], normal: [0, -0.7071067811865476, 0.7071067811865475] }
       if (name === 'view.render') return { file: { name: 'ballbar-view.png', mimeType: 'image/png', bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) }, width: input.width ?? 640, height: 480 }
       throw { code: 'invalid_input', message: `${name} refused.` }
     },
@@ -115,13 +116,38 @@ test('with a page: tools run on it — files read from paths and written to path
   assert.deepEqual(pictured.json, { file: { name: 'ballbar-view.png', mimeType: 'image/png', size: 4 }, width: 640, height: 480 })
   assert.equal(page.page.runs.find((r) => r.name === 'view.render').input.path, undefined)
 
+  // Numbers come back to six significant digits; whole ones as they are.
+  const near = await call('scan_nearest', { point: [1, 12, 0] })
+  assert.equal(near.text, '{"vertex":1234567,"point":[0.948383,12,0],"normal":[0,-0.707107,0.707107]}')
+
   const refused = await call('element_fit', { kind: 'sphere', at: { vertex: 1 } })
   assert.equal(refused.error, true)
   assert.equal(refused.text, 'invalid_input: element.fit refused.')
 
+  // Several tools in one call, in order; a refusal stops the rest unless
+  // told otherwise, and the server's own tools are not batched.
+  const batch = await call('scanruler_batch', { calls: [{ tool: 'session_state' }, { tool: 'view_render', arguments: { width: 320 } }, { tool: 'element_fit', arguments: { kind: 'sphere', at: { vertex: 1 } } }, { tool: 'session_state' }] })
+  assert.equal(batch.error, false)
+  assert.equal(batch.json.ran, 3)
+  assert.equal(batch.json.of, 4)
+  assert.equal(batch.json.stopped, 2)
+  assert.deepEqual(batch.json.results[0], { tool: 'session_state', ok: true, result: { busy: null, running: null } })
+  assert.equal(batch.json.results[1].ok, true)
+  assert.equal(batch.json.results[1].result.width, 320, 'a picture gives its text in a batch')
+  assert.equal(batch.images.length, 0)
+  assert.deepEqual(batch.json.results[2], { tool: 'element_fit', ok: false, error: { code: 'invalid_input', message: 'element.fit refused.' } })
+  const all = await call('scanruler_batch', { stopOnError: false, calls: [{ tool: 'element_fit', arguments: {} }, { tool: 'no_such_tool' }, { tool: 'scanruler_status' }, { tool: 'session_state' }] })
+  assert.equal(all.json.ran, 4)
+  assert.equal(all.json.stopped, undefined)
+  assert.equal(all.json.results[1].error.code, 'unknown_command')
+  assert.equal(all.json.results[2].error.code, 'invalid_input')
+  assert.equal(all.json.results[3].ok, true)
+  assert.equal((await call('scanruler_batch', { calls: [] })).error, true)
+
   assert.ok(listChanged >= 1, 'the client is told the list changed')
   const { tools } = await client.listTools()
   assert.ok(tools.some((t) => t.name === 'demo_thing'))
+  assert.ok(tools.some((t) => t.name === 'scanruler_batch'))
   page.page.close()
 })
 

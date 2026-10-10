@@ -42,11 +42,11 @@ describe('the command list', () => {
   it('holds the contract’s names', () => {
     const names = listCommands().map((c) => c.name)
     for (const name of [
-      'session.state', 'session.reset', 'workspace.set', 'scan.open', 'scan.nearest',
+      'session.state', 'session.reset', 'workspace.set', 'scan.open', 'scan.nearest', 'scan.query',
       'element.fit', 'element.fit_marked', 'element.construct', 'element.rename', 'element.remove', 'element.set_visible',
       'dimension.add', 'dimension.set_limit', 'dimension.set_basic', 'dimension.remove',
-      'align.datum', 'align.auto', 'align.symmetry', 'align.clear', 'section.cut',
-      'deviation.open_reference', 'deviation.align', 'deviation.measure', 'deviation.set_target', 'deviation.settings',
+      'align.datum', 'align.auto', 'align.symmetry', 'align.clear', 'section.cut', 'section.get',
+      'deviation.open_reference', 'deviation.align', 'deviation.measure', 'deviation.set_target', 'deviation.settings', 'deviation.hotspots',
       'thickness.measure', 'thickness.settings',
       'flat.open_image', 'flat.calibrate', 'flat.set_alignment', 'flat.detect_edges', 'flat.fit', 'flat.dimension_add', 'flat.report',
       'report.get', 'export.step', 'export.stl', 'export.cloud', 'export.svg', 'export.dxf', 'export.csv',
@@ -89,6 +89,43 @@ describe('scan', () => {
     expect((await refused('scan.nearest', { at: { vertex: 1e7 } })).code).toBe('invalid_input')
     expect((await refused('scan.nearest', { at: { screen: [10, 10] } })).code).toBe('not_implemented')
     expect((await refused('scan.nearest', { at: { candidate: 1 } })).code).toBe('not_implemented')
+    expect(useHistory.getState().past).toHaveLength(0)
+  })
+
+  it('scan.query reads the vertices in a box or a ball, facing a way if asked, thinned to the limit', async () => {
+    type Q = { matched: number; returned: number; step: number; bounds: { min: Vec3; max: Vec3 }; centroid: Vec3; meanNormal: Vec3; vertices: number[]; points: Vec3[]; normals: Vec3[] }
+    // The top face of the box: a 41 × 41 grid of vertices at z = 20, its
+    // rim's normals leaning 45° into the sides — inside the default 30° only
+    // the 39 × 39 within the rim face up.
+    const top = await run<Q>('scan.query', { box: { min: [-30, -30, 19.9], max: [30, 30, 20.1] }, normal: { dir: [0, 0, 1] } })
+    expect(top.matched).toBe(39 * 39)
+    expect(top.returned).toBe(top.vertices.length)
+    expect(top.step).toBe(2)
+    expect(top.returned).toBeGreaterThanOrEqual(700)
+    expect(top.returned).toBeLessThanOrEqual(1000)
+    expect((await run<Q>('scan.query', { box: { min: [-30, -30, 19.9], max: [30, 30, 20.1] }, normal: { dir: [0, 0, 1], withinDeg: 80 } })).matched).toBe(41 * 41)
+    expect(top.centroid[2]).toBeCloseTo(20, 5)
+    expect(top.meanNormal[2]).toBeCloseTo(1, 3)
+    expect(top.bounds.min[0]).toBeCloseTo(-19, 5)
+    expect(top.points).toHaveLength(top.returned)
+    expect(top.normals[0][2]).toBeCloseTo(1, 2)
+    // Facing the other way, the same box holds nothing of the top face.
+    const none = await run<Q>('scan.query', { box: { min: [-30, -30, 19.9], max: [30, 30, 20.1] }, normal: { dir: [0, 0, -1], withinDeg: 10 } })
+    expect(none.matched).toBe(0)
+    expect(none.points).toEqual([])
+    // Every vertex of the box, held to the limit.
+    const all = await run<Q>('scan.query', { box: { min: [-21, -21, -21], max: [21, 21, 21] }, limit: 50 })
+    expect(all.matched).toBe(useStore.getState().vertexCount)
+    expect(all.returned).toBeLessThanOrEqual(50)
+    expect(all.step).toBeGreaterThan(1)
+    // A ball about a corner: the corner's own vertex and its neighbours on
+    // three faces, none further than the radius.
+    const corner = await run<Q>('scan.query', { near: { at: [20, 20, 20], radius: 1.5 } })
+    expect(corner.returned).toBeGreaterThan(3)
+    for (const p of corner.points) expect(Math.hypot(p[0] - 20, p[1] - 20, p[2] - 20)).toBeLessThanOrEqual(1.5 + 1e-6)
+    expect(corner.matched).toBe(corner.returned)
+    expect((await refused('scan.query', {})).code).toBe('invalid_input')
+    expect((await refused('scan.query', { box: { min: [1, 0, 0], max: [0, 1, 1] } })).code).toBe('invalid_input')
     expect(useHistory.getState().past).toHaveLength(0)
   })
 })
@@ -250,6 +287,19 @@ describe('alignment', () => {
     expect((await refused('align.datum', { primary: { points: [[0, 0, 20], [1, 0, 20]] } })).code).toBe('invalid_input')
   })
 
+  it('answers short — the step, the whole alignment only when it is more, how many elements moved — and whole with detail full', async () => {
+    const top = await fitFace([0, 0, 20])
+    const first = await run<{ applied: { rotationDeg: number }; appliedAlignment?: unknown; elements: unknown }>('align.datum', { primary: { element: top.id } })
+    expect(first.applied.rotationDeg).toBeCloseTo(180, 3)
+    expect(first.appliedAlignment).toBeUndefined()
+    expect(first.elements).toBe(1)
+    const second = await run<{ appliedAlignment?: { rotationDeg: number }; elements: { id: number; fit: unknown }[] }>('align.datum', { origin: { point: [5, 0, 0] }, detail: 'full' })
+    expect(second.appliedAlignment?.rotationDeg).toBeCloseTo(180, 3)
+    expect(second.elements.map((e) => e.id)).toEqual([top.id])
+    expect(second.elements[0].fit).toBeTruthy()
+    expect((await run<{ elements: unknown }>('align.clear')).elements).toBe(1)
+  })
+
   it('align.datum takes points on the scan, and align.clear takes the alignment off', async () => {
     await run('align.datum', { primary: { points: [[-10, -10, -20], [10, -10, -20], [0, 10, -20]] }, origin: { point: [-20, -20, -20] } })
     expect(useStore.getState().appliedAlignment).not.toBeNull()
@@ -290,6 +340,40 @@ describe('sections', () => {
     expect(undoLabels()).toEqual(['Agent: cut section', 'Agent: fit plane', 'Agent: cut section'])
     await undo()
     expect(useStore.getState().sections).toHaveLength(1)
+  })
+
+  it('section.get hands back the chains as polylines, on the sheet and in the world', async () => {
+    await openBox()
+    const s = await run<{ section: { id: number } }>('section.cut', { across: 'XY', offset: 5, name: 'Mid cut' })
+    type G = { section: { id: number; chains: number }; plane: { origin: Vec3; normal: Vec3; basisU: Vec3; basisV: Vec3 }; step: number; chains: { index: number; closed: boolean; points: number; kept: number; length: number; bounds: { min: [number, number]; max: [number, number] }; sheet?: [number, number][]; world?: Vec3[] }[] }
+    const got = await run<G>('section.get', { section: 'Mid cut', space: 'both' })
+    expect(got.section.id).toBe(s.section.id)
+    expect(got.chains).toHaveLength(got.section.chains)
+    expect(got.step).toBe(1)
+    const ring = got.chains[0]
+    expect(ring.closed).toBe(true)
+    expect(ring.kept).toBe(ring.points)
+    // The box's outline at z = 5: a 40 mm square.
+    expect(ring.length).toBeCloseTo(160, 1)
+    expect(ring.bounds.min[0]).toBeCloseTo(-20, 3)
+    expect(ring.bounds.max[1]).toBeCloseTo(20, 3)
+    expect(ring.sheet).toHaveLength(ring.points)
+    expect(ring.world).toHaveLength(ring.points)
+    for (const p of ring.world!) expect(p[2]).toBeCloseTo(5, 4)
+    // A sheet point is origin + u·basisU + v·basisV.
+    const [u, v] = ring.sheet![0]
+    const o = got.plane.origin
+    const expected = [0, 1, 2].map((k) => o[k] + u * got.plane.basisU[k] + v * got.plane.basisV[k])
+    for (let k = 0; k < 3; k++) expect(ring.world![0][k]).toBeCloseTo(expected[k], 3)
+    // Thinned to a limit, the ends stay.
+    const few = await run<G>('section.get', { section: s.section.id, limit: 10 })
+    expect(few.step).toBeGreaterThan(1)
+    expect(few.chains[0].kept).toBeLessThanOrEqual(11)
+    expect(few.chains[0].sheet![few.chains[0].kept - 1]).toEqual(ring.sheet![ring.points - 1])
+    expect(few.chains[0].world).toBeUndefined()
+    expect((await refused('section.get', { section: 'Nowhere' })).code).toBe('not_found')
+    expect((await refused('section.get', { section: s.section.id, chains: [9] })).code).toBe('not_found')
+    expect(useHistory.getState().past).toHaveLength(1)
   })
 
   it('refuses a sphere, which has no direction to cut across', async () => {

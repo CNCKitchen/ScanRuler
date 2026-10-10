@@ -128,6 +128,9 @@ export type WorkerRequest =
   /** The box around the scan's own vertices, in the frame they are measured
    *  in now — every datum alignment baked in. */
   | { type: 'bounds'; requestId: number }
+  /** The scan's vertices inside a box, facing `normal` within its angle if
+   *  one is given, at most `limit` of them — see geometry/query. */
+  | { type: 'query'; requestId: number; min: Vec3; max: Vec3; normal?: { dir: Vec3; cosLimit: number }; limit: number }
   /** The coordinate system the scan itself suggests — its face directions,
    *  the side it stood on, a zero point. See core/autoAlign. Nothing moves:
    *  the answer is a proposal for the alignment editor. */
@@ -216,6 +219,9 @@ export type WorkerResponse =
   | { type: 'auto-align-ok'; requestId: number; result: AutoAlignResult }
   | { type: 'nearest-ok'; requestId: number; result: ScanSpot }
   | { type: 'bounds-ok'; requestId: number; min: Vec3; max: Vec3 }
+  /** The vertices kept, with their positions and normals gathered, how many
+   *  matched before the limit, and the stride the limit thinned them by. */
+  | { type: 'query-ok'; requestId: number; vertices: Uint32Array; positions: Float32Array; normals: Float32Array; matched: number; step: number }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

@@ -105,6 +105,18 @@ export class SectionOverlay {
     this.ctx.invalidate()
   }
 
+  /** Whether the finished sections are on screen. */
+  shown(): boolean {
+    return this.group.visible
+  }
+
+  /** Put the finished sections away, or back — for a picture of the part on
+   *  its own. The next setSections sets it again as the workspace has it. */
+  setShown(on: boolean): void {
+    this.group.visible = on
+    this.ctx.invalidate()
+  }
+
   /** How heavy a finished cut is drawn, in pixels. Everything else drawn
    *  here — the preview's cut, the sheet's curves — follows in proportion,
    *  and lines already on the part take the new width without a rebuild. */

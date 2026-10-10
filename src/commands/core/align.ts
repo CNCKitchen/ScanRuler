@@ -70,14 +70,29 @@ const closeBox = () => {
   if (useStore.getState().alignDraft) useStore.getState().cancelAlignment()
 }
 
+type Detail = 'brief' | 'full'
+
+const detailIn = enumOf(['brief', 'full'], 'brief (the default): the transform and how many elements moved with the part. full: every element where it now is, as the list gives it.')
+
+/** The elements after an alignment: how many moved with the part — or,
+ *  with detail full, each where it now is. */
+const elementsOut = (detail: Detail | undefined) => {
+  const elements = useStore.getState().elements
+  return detail === 'full' ? elements.map(describeElement) : elements.length
+}
+
 /** What an alignment leaves: the step applied, the whole alignment the part
- *  now carries, and the elements where they now are. */
-const applied = (step: Rigid, extra: Record<string, unknown> = {}) => ({
-  applied: rigidJson(step),
-  appliedAlignment: rigidJson(useStore.getState().appliedAlignment),
-  ...extra,
-  elements: useStore.getState().elements.map(describeElement),
-})
+ *  now carries when that is more than the step, and the elements. */
+const applied = (step: Rigid, detail: Detail | undefined, extra: Record<string, unknown> = {}) => {
+  const now = rigidJson(useStore.getState().appliedAlignment)
+  const out = rigidJson(step)
+  return {
+    applied: out,
+    ...(detail === 'full' || JSON.stringify(now) !== JSON.stringify(out) ? { appliedAlignment: now } : {}),
+    ...extra,
+    elements: elementsOut(detail),
+  }
+}
 
 const datum: Command<{
   primary?: Slot
@@ -85,17 +100,19 @@ const datum: Command<{
   secondary?: Slot
   secondaryAxis?: AxisDir
   origin?: Slot
+  detail?: Detail
 }> = {
   name: 'datum',
   title: 'Align the part to datums',
   description:
-    'A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points on a face) whose outward normal becomes primaryAxis (default z-, the face the part stands on facing down); secondary turns it — a line, axis or plane (or 2 points along an edge) laid along secondaryAxis (default x+); origin is the zero point — a point, sphere or circle (or 1 point). Each is an element by id or name, or points on the scan in mm. An origin alone moves the part without turning it. Everything measured moves with the part. Returns the transform applied and the elements afterwards. One undo step.',
+    'A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points on a face) whose outward normal becomes primaryAxis (default z-, the face the part stands on facing down); secondary turns it — a line, axis or plane (or 2 points along an edge) laid along secondaryAxis (default x+); origin is the zero point — a point, sphere or circle (or 1 point). Each is an element by id or name, or points on the scan in mm. An origin alone moves the part without turning it. Everything measured moves with the part. Returns the transform applied — the whole alignment the part carries, when it was aligned before — and how many elements moved with it. One undo step.',
   input: obj({
     primary: slotSchema('levelling', 3, 'they span the face'),
     primaryAxis: enumOf(AXES, 'The axis the primary’s outward normal becomes — default z-.'),
     secondary: slotSchema('rotation', 2, 'they run along the edge'),
     secondaryAxis: enumOf(AXES, 'The axis the secondary runs along — default x+.'),
     origin: slotSchema('the zero point', 1, ''),
+    detail: detailIn,
   }),
   label: () => 'datum alignment',
   run: async (input) => {
@@ -110,21 +127,21 @@ const datum: Command<{
       if (input.secondary) await fillSlot('secondary', input.secondary)
       if (input.secondaryAxis) useStore.getState().setAlignmentAxis('secondary', input.secondaryAxis)
       if (input.origin) await fillSlot('origin', input.origin)
-      return applied(await applyOpenBox())
+      return applied(await applyOpenBox(), input.detail)
     } finally {
       closeBox()
     }
   },
 }
 
-const auto: Command = {
+const auto: Command<{ detail?: Detail }> = {
   name: 'auto',
   title: 'Auto-align the part',
   description:
-    'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. Returns what the pose was read from, the transform and the elements afterwards. One undo step.',
-  input: obj({}),
+    'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. Returns what the pose was read from, the transform and how many elements moved with it. One undo step.',
+  input: obj({ detail: detailIn }),
   label: () => 'auto-align',
-  run: async () => {
+  run: async ({ detail }) => {
     requireScan()
     requireMeasureFree()
     showWorkspace('elements')
@@ -133,21 +150,21 @@ const auto: Command = {
         throw new CommandError('failed', lastError('Auto-align found no pose.'))
       }
       const note = useStore.getState().alignDraft?.proposal
-      return applied(await applyOpenBox(), { note })
+      return applied(await applyOpenBox(), detail, { note })
     } finally {
       closeBox()
     }
   },
 }
 
-const symmetry: Command = {
+const symmetry: Command<{ detail?: Detail }> = {
   name: 'symmetry',
   title: 'Align the part on its symmetry plane',
   description:
-    'Settle the part’s pose on its mirror plane and apply it, as Use symmetry then Confirm alignment do: the pose is Auto-align’s, the mirror plane a measured symmetry plane or one searched for on the scan; the axis nearest its normal is turned onto it and the zero point put on it. Refuses when the scan has no symmetry plane. Returns the note on what it settled on, the transform and the elements afterwards. One undo step.',
-  input: obj({}),
+    'Settle the part’s pose on its mirror plane and apply it, as Use symmetry then Confirm alignment do: the pose is Auto-align’s, the mirror plane a measured symmetry plane or one searched for on the scan; the axis nearest its normal is turned onto it and the zero point put on it. Refuses when the scan has no symmetry plane. Returns the note on what it settled on, the transform and how many elements moved with it. One undo step.',
+  input: obj({ detail: detailIn }),
   label: () => 'symmetry alignment',
-  run: async () => {
+  run: async ({ detail }) => {
     requireScan()
     requireMeasureFree()
     showWorkspace('elements')
@@ -156,20 +173,20 @@ const symmetry: Command = {
         throw new CommandError('failed', lastError('No symmetry plane was found.'))
       }
       const note = useStore.getState().alignDraft?.proposal
-      return applied(await applyOpenBox(), { note })
+      return applied(await applyOpenBox(), detail, { note })
     } finally {
       closeBox()
     }
   },
 }
 
-const clear: Command = {
+const clear: Command<{ detail?: Detail }> = {
   name: 'clear',
   title: 'Reset the alignment',
-  description: 'Put the part back in the coordinates the scanner delivered it in, with everything measured on it. One undo step.',
-  input: obj({}),
+  description: 'Put the part back in the coordinates the scanner delivered it in, with everything measured on it. Returns how many elements moved with it. One undo step.',
+  input: obj({ detail: detailIn }),
   label: () => 'reset alignment',
-  run: async () => {
+  run: async ({ detail }) => {
     requireScan()
     requireMeasureFree()
     const total = useStore.getState().appliedAlignment
@@ -178,7 +195,7 @@ const clear: Command = {
     if (!(await commandHost().session.alignment.resetAlignment())) {
       throw new CommandError('failed', lastError('The alignment could not be reset.'))
     }
-    return { appliedAlignment: null, elements: useStore.getState().elements.map(describeElement) }
+    return { appliedAlignment: null, elements: elementsOut(detail) }
   },
 }
 

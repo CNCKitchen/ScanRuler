@@ -311,6 +311,12 @@ export class OrthoViewport {
     this.invalidate()
   }
 
+  /** Whether a drag is moving the view right now — see
+   *  OrthoNavigator.navigating. */
+  navigating(): boolean {
+    return this.nav.navigating()
+  }
+
   /** Aim the shared raycaster through the cursor. */
   setPickRay(clientX: number, clientY: number): void {
     this.nav.setPickRay(this.raycaster, clientX, clientY)

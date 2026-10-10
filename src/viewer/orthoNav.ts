@@ -81,6 +81,10 @@ export class OrthoNavigator {
   private orbitStart: { x: number; y: number } | null = null
   private orbitLast: { x: number; y: number } | null = null
   private orbiting = false
+  /** Whether a drag — a mouse chord or fingers on the glass — has moved the
+   *  camera since it began: past the orbit's threshold, or a pan or a zoom
+   *  that went somewhere. Not the wheel, which is no drag. */
+  private moving = false
   private orbitRaycaster = new THREE.Raycaster()
   /** What a SpaceMouse turn pivots on, held from its first frame until the
    *  puck settles — see stepSpaceMouse. */
@@ -193,6 +197,14 @@ export class OrthoNavigator {
     return this.bindings.some((b) => b.buttons === mask && !!b.shift === e.shiftKey && !!b.ctrl === e.ctrlKey && !!b.alt === e.altKey)
   }
 
+  /** Whether a drag is turning, panning or zooming the view right now — a
+   *  button merely held, which may yet be a click, is not. What lights
+   *  under the cursor waits while it is: the view moves under a cursor that
+   *  stays put, and testing what is under it every frame is all cost. */
+  navigating(): boolean {
+    return this.moving
+  }
+
   /** Flatten the navigation for a 2D document: whatever chord a scheme gives
    *  to orbiting drags the sheet instead, so no scheme can turn the image
    *  edge-on, and the buttons still mean what the user's scheme says. */
@@ -240,6 +252,7 @@ export class OrthoNavigator {
    *  physically still there — and simply re-read under the new rules. */
   private cancelGesture(): void {
     this.endOrbit()
+    this.moving = false
     this.action = null
     this.mask = 0
     this.last = null
@@ -383,6 +396,7 @@ export class OrthoNavigator {
     }
     if (action === this.action) return
     this.endOrbit()
+    this.moving = false
     this.action = null
     this.last = null
     this.zoomAnchor = null
@@ -449,6 +463,7 @@ export class OrthoNavigator {
     const prev = this.pinch
     this.pinch = { x, y, dist }
     if (!prev) return // first move of the gesture: this frame only sets the datum
+    this.moving = true
     this.panByPixels(x - prev.x, y - prev.y)
     // Below a finger's width apart the spacing is mostly noise, and dividing by
     // it would fling the zoom; a two-finger drag with the fingers together
@@ -486,6 +501,8 @@ export class OrthoNavigator {
       this.touchOrbit = false
     }
     this.touchPan = null
+    // The last finger up ends the drag; one still down carries it on.
+    if (!only) this.moving = false
     // A brush or a grip that has claimed the plain drag keeps the single
     // finger; two fingers still navigate, exactly as the middle button does
     // for a mouse.
@@ -553,6 +570,7 @@ export class OrthoNavigator {
       const moved = Math.hypot(clientX - this.orbitStart.x, clientY - this.orbitStart.y)
       if (moved < 3) return // tolerate a click without flashing the marker
       this.orbiting = true
+      this.moving = true
       this.showPivotMarker()
     }
     const dx = clientX - this.orbitLast.x
@@ -616,6 +634,8 @@ export class OrthoNavigator {
    *  1:1. */
   private panByPixels(dx: number, dy: number): void {
     if (dx === 0 && dy === 0) return
+    // Every pan is a drag's: a mouse chord's, one finger on a sheet, two.
+    this.moving = true
     const h = Math.max(1, this.canvas.clientHeight)
     const worldPerPx = (this.camera.top - this.camera.bottom) / this.camera.zoom / h
     this.camera.updateMatrixWorld()
@@ -638,6 +658,7 @@ export class OrthoNavigator {
     const dy = e.clientY - this.last.y
     this.last = { x: e.clientX, y: e.clientY }
     if (dy === 0) return
+    this.moving = true
     this.zoomAt(Math.exp(-dy * 0.005), this.zoomAnchor.x, this.zoomAnchor.y)
   }
 

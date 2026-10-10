@@ -171,13 +171,19 @@ with more commands lists more. Before a tab is there it is the list of the
 last tab that connected, which the server keeps in its config folder
 (`tools.json`), or, the first time, the app's own; a client that lists the
 tools once, when it starts, sees them all that way, and one that listens is
-told when the list changes. Three more are the server's: `scanruler_status`
+told when the list changes. Four more are the server's: `scanruler_status`
 (is a tab connected, which version, how to pair one), `scanruler_open` (open
-ScanRuler in the default browser, paired, and wait for it) and `scanruler_wait`
-(until a tab is connected, or also idle).
+ScanRuler in the default browser, paired, and wait for it), `scanruler_wait`
+(until a tab is connected, or also idle) and `scanruler_batch` (several of
+the tab's tools in one call, in order — a run of `scan_nearest` or
+`element_fit` calls — each answer in its place, stopped at the first refused
+unless told to go on).
 
 - **Places on the scan** are `{ "point": [x, y, z] }` in millimetres — the
-  scan vertex nearest it is taken — or `{ "vertex": n }`.
+  scan vertex nearest it is taken — or `{ "vertex": n }`. `scan_query` reads
+  the scan's own points: the vertices in a box or about a point, with their
+  normals, facing a way if asked; `section_get` a section's cut as
+  polylines, on the sheet and in the world.
 - **Files are paths.** `scan_open`, `deviation_open_reference`,
   `flat_open_image` and `project_load` take `path`, a file on this computer;
   the server reads it and streams it to the tab. The exports and
@@ -185,7 +191,11 @@ ScanRuler in the default browser, paired, and wait for it) and `scanruler_wait`
   ScanRuler gives it — and the server writes the file there and returns where.
 - **Pictures.** `view_render` comes back as an image the agent sees — the
   3D view as the tab shows it, after `view_set` has turned it if asked — and
-  is written to a file only when the call gives `path`.
+  is written to a file only when the call gives `path`. `show` puts the
+  scan, the reference, the sections, the elements or the labels away for
+  the picture (`{ "scan": false }` shows what was built on the scan on its
+  own; a workspace adds keys of its own, which `view_set` lists), and
+  `frame` looks at a box or a place closely.
 - **Results** are the session as the tab holds it afterwards, as JSON, in
   millimetres and degrees. A refusal comes back as an error with a code —
   `no_scan`, `busy`, `invalid_input`, `invalid_state` (something open in a

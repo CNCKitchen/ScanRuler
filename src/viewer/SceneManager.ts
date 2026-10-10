@@ -280,6 +280,8 @@ export class SceneManager {
    *  hundreds of moves a second and only the latest one is on screen. */
   private hoverAt: { x: number; y: number } | null = null
   private hoverDirty = false
+  /** Hover put out for a drag that is moving the view — see updateHover. */
+  private hoverHeld = false
   private hoverEnabled = false
   private hoverWasHit = false
   /** While on, a click resolves to the element under the cursor (overlay
@@ -718,14 +720,37 @@ export class SceneManager {
   /** One pointer test per frame, and only when the answer could have changed:
    *  the hover readout when a map is showing, the brush footprint when the
    *  brush is armed. A mouse can emit hundreds of moves a second and only the
-   *  last of them is on screen. */
+   *  last of them is on screen.
+   *
+   *  None while a drag turns, pans or zooms the view: what was lit goes out
+   *  at its first move, and the cursor is tested again where the drag ends.
+   *  Lit along the way, a face or an edge would flicker past under a cursor
+   *  that is steering the camera, not pointing at anything — and the test,
+   *  several rays a frame over everything pickable, would be paid on every
+   *  frame of the turn. */
   private updateHover(): void {
+    if (this.viewport.navigating()) {
+      if (!this.hoverHeld) {
+        this.hoverHeld = true
+        this.hoverUnder(null)
+      }
+      return
+    }
+    if (this.hoverHeld) {
+      this.hoverHeld = false
+      this.hoverDirty = true
+    }
     if (!this.hoverDirty) return
     this.hoverDirty = false
+    this.hoverUnder(this.hoverAt)
+  }
+
+  /** Light what is under a client point — or, with null, nothing. */
+  private hoverUnder(at: { x: number; y: number } | null): void {
     // The gizmo's arrows light under the cursor and take the plain left-drag
     // off the camera while one is under it, the way the grips do: a press on
     // an arrow is a click on a button, not the start of an orbit.
-    const axis = this.hoverAt ? this.gizmoAt(this.hoverAt.x, this.hoverAt.y) : null
+    const axis = at ? this.gizmoAt(at.x, at.y) : null
     if (this.gizmo.setHovered(axis)) {
       this.viewport.renderer.domElement.style.cursor = axis !== null ? 'pointer' : ''
       this.claimDrag('gizmo', axis !== null)
@@ -734,26 +759,24 @@ export class SceneManager {
     // A coordinate plane on offer lights under the cursor the way an element
     // does — except under the gizmo corner, which is a button first, and
     // where an element is: that one would take the click.
-    const plane =
-      this.hoverAt && axis === null ? this.worldPlaneUnder(this.hoverAt.x, this.hoverAt.y) : null
+    const plane = at && axis === null ? this.worldPlaneUnder(at.x, at.y) : null
     if (this.sections.setHoveredWorldPlane(plane)) {
       this.viewport.renderer.domElement.style.cursor = plane !== null ? 'pointer' : ''
     }
-    if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
+    if (this.marking.armed()) this.marking.updateBrushRing(at)
     // Then everything that lights under the cursor, in order: what lights
     // covers what comes after it where it says so — a grip, or a sketch
     // region, over what lies behind — and nothing lights under the gizmo
     // corner, which is a button first.
     let covered = axis !== null
     // A step the arrow keys took lights alone: every other layer is covered.
-    const stepped = this.cyclingLayer(this.hoverAt)
+    const stepped = this.cyclingLayer(at)
     for (const step of this.hoverSteps()) {
       const under = stepped ? step.layer !== stepped : covered
       if (step.layer) this.hoverCovered.set(step.layer, under)
-      if (step.hover(this.hoverAt, under) && step.covers) covered = true
+      if (step.hover(at, under) && step.covers) covered = true
     }
     if (!this.hoverEnabled) return
-    const at = this.hoverAt
     const hit = at ? this.pick(at.x, at.y) : null
     // Silence is worth reporting once, not every frame the cursor spends off
     // the part.
@@ -2115,6 +2138,52 @@ export class SceneManager {
 
   setScanVisible(visible: boolean): void {
     if (this.mesh) this.mesh.visible = visible
+    this.invalidate()
+  }
+
+  /** Whether the scan is drawn — false with none loaded. */
+  scanShown(): boolean {
+    return Boolean(this.mesh?.visible)
+  }
+
+  /** Whether the reference part is drawn — false with none loaded. */
+  nominalShown(): boolean {
+    return Boolean(this.nominalMesh?.visible)
+  }
+
+  /** The finished sections, and the element overlays, shown or put away as
+   *  a whole — what a picture of the part on its own asks for. The
+   *  workspace sets them again as it has them on its next update. */
+  sectionsShown(): boolean {
+    return this.sections.shown()
+  }
+
+  setSectionsShown(on: boolean): void {
+    this.sections.setShown(on)
+    this.invalidate()
+  }
+
+  elementsShown(): boolean {
+    return this.overlays.shown()
+  }
+
+  setElementsShown(on: boolean): void {
+    this.overlays.setShown(on)
+    this.invalidate()
+  }
+
+  labelsShown(): boolean {
+    return !this.container.classList.contains('nolabels')
+  }
+
+  /** Frame a box, in the frame the part is measured in now — a place on the
+   *  part looked at closely, as fitToView frames the whole of it. */
+  fitBox(min: Vec3, max: Vec3): void {
+    const box = new THREE.Box3(new THREE.Vector3(...min), new THREE.Vector3(...max))
+    if (box.isEmpty()) return
+    this.viewport.fitCamera(box)
+    this.framedClip.center.copy(this.clipSphere.center)
+    this.framedClip.radius = this.clipSphere.radius
     this.invalidate()
   }
 

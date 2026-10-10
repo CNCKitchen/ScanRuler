@@ -28,6 +28,7 @@ import { floodByNormal } from './fit/regionGrow'
 import { meanCurvature } from './geometry/curvature'
 import { scanSpot } from './geometry/nearest'
 import { boundsOf } from './geometry/bounds'
+import { gatherVertices, queryVertices } from './geometry/query'
 import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
 import { workerPlugins } from './workerPlugins'
@@ -452,6 +453,20 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     const { min, max } = boundsOf(graph.positions, graph.vertexCount)
     post({ type: 'bounds-ok', requestId: msg.requestId, min, max })
+    return
+  }
+
+  if (msg.type === 'query') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const found = queryVertices(graph, { min: msg.min, max: msg.max, normal: msg.normal, limit: msg.limit })
+    const { positions, normals } = gatherVertices(graph, found.vertices)
+    post(
+      { type: 'query-ok', requestId: msg.requestId, vertices: found.vertices, positions, normals, matched: found.matched, step: found.step },
+      [found.vertices.buffer, positions.buffer, normals.buffer],
+    )
     return
   }
 

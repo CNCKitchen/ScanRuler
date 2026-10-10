@@ -275,6 +275,17 @@ export class Overlays {
     ctx.partGroup.add(this.pickMarkerGroup)
   }
 
+  /** Whether the element overlays are on screen. */
+  shown(): boolean {
+    return this.overlayGroup.visible
+  }
+
+  /** Put the element overlays away, or back — for a picture of the part on
+   *  its own. The next updateOverlays sets it again as the workspace has it. */
+  setShown(on: boolean): void {
+    this.overlayGroup.visible = on
+  }
+
   /** The overlay meshes a click may resolve to an element through — a fresh
    *  array the caller may extend, empty while the overlays are switched off. */
   pickTargets(): THREE.Object3D[] {

@@ -37,6 +37,25 @@ const imagePath = {
   description: 'Also write the picture to a file: a file path, or a folder to write it into under the name ScanRuler gives it. Without it, it is only shown.',
 }
 
+/** How many significant digits a number keeps in an answer, and the finest
+ *  step it is given to: six digits is a micrometre on a part under a metre
+ *  and a millionth of a unit vector; past them the page's doubles are
+ *  noise the agent pays for — 0.9483828176573491 in place of 0.948383. */
+export const DIGITS = 6
+const STEP = 1e6
+
+const tidy = (v) => {
+  const r = Number(v.toPrecision(DIGITS))
+  return Math.abs(r) < 9e9 ? Math.round(r * STEP) / STEP || 0 : r
+}
+
+/** An answer as the agent reads it: JSON, every number that is not whole
+ *  kept to DIGITS significant digits and no finer than a millionth — 1e-17,
+ *  a zero's rounding error, is 0. Whole numbers — ids, indices, counts —
+ *  are as they were. */
+export const agentJson = (value) =>
+  JSON.stringify(value, (_key, v) => (typeof v === 'number' && Number.isFinite(v) && !Number.isInteger(v) ? tidy(v) : v))
+
 /** A command as the MCP tool an agent sees. */
 export function toolFor(command, { outDir }) {
   const input = structuredClone(command.input ?? { type: 'object' })
@@ -105,7 +124,7 @@ export async function imageContent(result, args, { cwd, outDir }) {
   if (!file || !(file.bytes instanceof Uint8Array) || !String(file.mimeType ?? '').startsWith('image/')) return null
   const saved = args?.path ? await saveFileResult(result, args, { cwd, outDir }) : { ...result, file: { name: file.name, mimeType: file.mimeType, size: file.bytes.byteLength } }
   return [
-    { type: 'text', text: JSON.stringify(saved) },
+    { type: 'text', text: agentJson(saved) },
     { type: 'image', data: Buffer.from(file.bytes.buffer, file.bytes.byteOffset, file.bytes.byteLength).toString('base64'), mimeType: file.mimeType },
   ]
 }

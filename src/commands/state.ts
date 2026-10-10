@@ -27,6 +27,7 @@ import { APP_VERSION } from '../version'
 import { commandHost, sessionBusy } from './host'
 import { useCommandActivity } from './activity'
 import { readStateSections } from './stateSections'
+import { describeView } from './core/view'
 
 // ---- Workspaces -------------------------------------------------------------
 
@@ -306,6 +307,7 @@ export async function sessionState() {
       redo: history.future.at(-1)?.label ?? null,
       blocked: historyBlocked(),
     },
+    view: describeView(),
     plugins: readStateSections(),
   }
 }

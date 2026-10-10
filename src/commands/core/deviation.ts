@@ -4,6 +4,8 @@
 
 import type { MeshUnits } from '../../core/meshUnits'
 import { isDeviationTarget } from '../../core/deviation/elementField'
+import { rigidApply } from '../../core/deviation/rigid'
+import type { Vec3 } from '../../core/types'
 import { useDeviation } from '../../state/deviationStore'
 import { useMark } from '../../state/markStore'
 import { useStore } from '../../state/store'
@@ -186,4 +188,74 @@ const settings: Command<{ range?: number; maxDistance?: number; bands?: number |
   },
 }
 
-export const deviationCommands = [openReference, align, measure, setTarget, settings]
+/** How many patches an answer names unless told otherwise, and how many
+ *  of a patch's vertices. */
+const HOTSPOT_PATCHES = 8
+const HOTSPOT_VERTICES = 12
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+const hotspotsCommand: Command<{ tolerance?: number; patches?: number; grain?: number }> = {
+  name: 'hotspots',
+  title: 'Where the deviation lies over tolerance',
+  description:
+    'The deviation map read as patches: the scan vertices whose deviation lies past the tolerance (the map’s own, under deviation.settings, unless tolerance says otherwise) gathered into connected regions, the largest and farthest first — where the part is off, how large each place is and by how much, instead of one number over the whole part. Each patch: its centre and box in mm (in the frame the scan is measured in — what scan.query { box } and element.fit take), its area, how many vertices, the mean and the extreme deviation and which side (outside the reference or inside), the point of the extreme and the scan vertex there, and a few of its vertices (what element.fit_marked takes). With a map against the reference part the patch’s centre and extreme are given on the reference too (onReference — what the Deviation workspace shows and view.render { frame } takes there). grain is how close two vertices over tolerance have to be to be one patch, three point spacings by default. found and over say how many patches and vertices over tolerance there were in all. Needs a deviation map (deviation.align, or deviation.set_target). Changes nothing.',
+  input: obj({
+    tolerance: num('± mm; the map’s tolerance by default.', { exclusiveMinimum: 0 }),
+    patches: int(`How many patches to name; ${HOTSPOT_PATCHES} by default, 50 at most.`, { minimum: 1, maximum: 50 }),
+    grain: num('mm — how close two vertices over tolerance have to be to be one patch; three point spacings by default.', { exclusiveMinimum: 0 }),
+  }),
+  readOnly: true,
+  run: async ({ tolerance, patches = HOTSPOT_PATCHES, grain }) => {
+    requireScan()
+    const d = useDeviation.getState()
+    const maps = commandHost().session.maps
+    const values = d.source === 'element' ? maps.elementField.current : maps.deviation.current
+    const ready = d.source === 'element' ? d.elementStatus === 'ready' : d.mapStatus === 'ready'
+    if (!ready || !values) throw new CommandError('invalid_state', 'There is no deviation map to read — deviation.align measures one against the reference part, deviation.set_target one against an element.')
+    const client = commandHost().session.clientRef.current
+    if (!client) throw new CommandError('unavailable', 'The mesh worker is not running.')
+    const n = useStore.getState().vertexCount
+    const all = await client.query({ min: [-Infinity, -Infinity, -Infinity], max: [Infinity, Infinity, Infinity], limit: n })
+    if (all.positions.length !== values.length * 3) throw new CommandError('internal', `The map has ${values.length} readings and the scan ${all.positions.length / 3} vertices.`)
+    const tol = tolerance ?? d.tolerance
+    // Loaded when first asked for: the gathering is no part of the page
+    // that every session loads.
+    const { hotspots } = await import('../../core/deviation/hotspots')
+    const report = hotspots(all.positions, values, tol, { limit: patches, ...(grain !== undefined ? { grain } : {}) })
+    const m = d.source === 'reference' && d.align ? d.align.transform : null
+    const out = new Float64Array(3)
+    const onReference = (p: Vec3): Vec3 => {
+      rigidApply(m!, p[0], p[1], p[2], out)
+      return [round3(out[0]), round3(out[1]), round3(out[2])]
+    }
+    return {
+      source: d.source,
+      tolerance: tol,
+      over: report.over,
+      found: report.found,
+      spacing: round3(report.spacing),
+      grain: round3(report.grain),
+      patches: report.patches.map((p) => {
+        const stride = Math.max(1, Math.floor(p.members.length / HOTSPOT_VERTICES))
+        const vertices: number[] = []
+        for (let k = 0; k < p.members.length && vertices.length < HOTSPOT_VERTICES; k += stride) vertices.push(p.members[k])
+        return {
+          centroid: p.centroid.map(round3),
+          box: { min: p.min.map(round3), max: p.max.map(round3) },
+          area: round3(p.area),
+          count: p.count,
+          mean: round3(p.mean),
+          extreme: round3(p.extreme),
+          side: p.extreme > 0 ? 'outside' : 'inside',
+          at: p.at.map(round3),
+          vertex: p.index,
+          vertices,
+          ...(m ? { onReference: { centroid: onReference(p.centroid), at: onReference(p.at) } } : {}),
+        }
+      }),
+    }
+  },
+}
+
+export const deviationCommands = [openReference, align, measure, setTarget, settings, hotspotsCommand]
