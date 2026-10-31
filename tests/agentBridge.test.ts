@@ -56,6 +56,13 @@ class FakeSocket {
 /** The page's answer to request `id` — not its progress lines. */
 const answerTo = (socket: FakeSocket, id: number) => socket.messages().find((m) => m.id === id && ('result' in m || 'error' in m))
 
+it('refuses binary paths that can change object prototypes', () => {
+  const read = decoder(() => {})
+  expect(() => read(JSON.stringify({ binary: '__proto__.polluted' }))).toThrow(/unsafe binary path/i)
+  expect(() => read(JSON.stringify({ binary: 'constructor.prototype.polluted' }))).toThrow(/unsafe binary path/i)
+  expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined()
+})
+
 const until = async <T>(read: () => T | undefined | null | false, what: string): Promise<T> => {
   for (let i = 0; i < 400; i++) {
     const v = read()
