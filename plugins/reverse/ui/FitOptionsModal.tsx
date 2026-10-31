@@ -43,7 +43,7 @@ export function FitOptionsModal({ open, onClose, chainsOf }: { open: boolean; on
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      if (e.key !== 'Escape' || document.querySelector('dialog:modal')) return
       e.stopPropagation()
       onClose()
     }

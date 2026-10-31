@@ -1,1 +1,1 @@
-{ "e2e": ["scripts/e2e-reverse-undo.mjs", "scripts/e2e-agent-reverse.mjs", "scripts/e2e-reverse-import-move.mjs", "scripts/e2e-reverse-body-tree.mjs", "scripts/e2e-reverse-notes.mjs", "scripts/e2e-patch-network.mjs"] }
+{ "e2e": ["scripts/e2e-reverse-undo.mjs", "scripts/e2e-modal-focus.mjs", "scripts/e2e-agent-reverse.mjs", "scripts/e2e-reverse-import-move.mjs", "scripts/e2e-reverse-body-tree.mjs", "scripts/e2e-reverse-notes.mjs", "scripts/e2e-patch-network.mjs"] }

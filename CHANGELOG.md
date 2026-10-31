@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Keep keyboard focus in dialogs** (2026-10-31). Settings, units, agent
+  consent, support and imprint windows now take focus, keep Tab inside, and
+  return focus when closed. Escape closes only the top window, leaving
+  background editors and popovers alone.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All
