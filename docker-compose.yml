@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# `docker compose up -d --build`, then open http://localhost:8080
+#
+# scanruler-mcp, the agent connection, is not started by `up`: the agent
+# starts it, talking over stdin and stdout. See docs/docker.md.
+#   docker compose run --rm scanruler-mcp --pair      the pairing link
+#   docker compose -f <this file> run --rm -T --service-ports scanruler-mcp
+#                                                     the agent's command
+services:
+  scanruler:
+    build:
+      context: .
+      args:
+        VITE_FILES_URL: ${SCANRULER_FILES_URL:-}
+    image: scanruler
+    ports:
+      - "${SCANRULER_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  scanruler-mcp:
+    profiles: [mcp]
+    build: ./mcp
+    image: scanruler-mcp
+    init: true
+    stdin_open: true
+    # The tab connects here: on this computer only.
+    ports:
+      - "127.0.0.1:7317:7317"
+    # Where exports land and files are read from, at the same path as on
+    # this computer, so the paths the agent names are the same on both.
+    volumes:
+      - scanruler-mcp:/config
+      - ${SCANRULER_FILES:-${HOME}/ScanRuler}:${SCANRULER_FILES:-${HOME}/ScanRuler}
+    working_dir: ${SCANRULER_FILES:-${HOME}/ScanRuler}
+    # --app in the entrypoint, so that what `run` is given goes after it.
+    entrypoint: ["node", "/opt/scanruler-mcp/bin/scanruler-mcp.js", "--app", "http://localhost:${SCANRULER_PORT:-8080}/"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  scanruler-mcp:
+    name: scanruler-mcp

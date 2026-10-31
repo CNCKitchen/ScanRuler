@@ -351,6 +351,8 @@ The app is a static Vite + React + three.js build, with heavy geometry in a
 Web Worker. Tests, the browser checks, releases and deployment are described
 in [docs/development.md](docs/development.md). Reverse engineer and Mesh Tools
 are plugins, in [plugins/](plugins/README.md).
+To run it in Docker instead — `docker compose up -d --build`, then
+<http://localhost:8080> — see [docs/docker.md](docs/docker.md).
 `node scripts/readme-shots.mjs` and `node plugins/readme-shots.mjs` retake the
 pictures above.
 

@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+mcp/node_modules
+dist
+dist-engine
+e2e-out
+e2e-*.png
+.wrangler
+*.local
+*.stl
+*.ply
+*.obj
+.DS_Store
