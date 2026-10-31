@@ -94,8 +94,10 @@ export function deviationWorkspace({
 
   /** An STL is asked about first — what units it is in — unless `units` is
    *  given: a file the instrument wrote itself, in millimetres like
-   *  everything it holds. A question dismissed leaves the file unopened. */
-  const openNominal = async (file: File, units?: MeshUnits, options: ReferenceOptions = {}): Promise<void> => {
+   *  everything it holds. A question dismissed leaves the file unopened.
+   *  The UI can supply a replacement decision at the queue head; commands
+   *  and references derived from the current session need no browser prompt. */
+  const openNominal = async (file: File, units?: MeshUnits, options: ReferenceOptions = {}, shouldStart?: () => boolean): Promise<void> => {
     const read = units ?? (await meshUnitsFor(file.name))
     if (!read) return
     await runImport(imports,
@@ -134,7 +136,7 @@ export function deviationWorkspace({
         prepared.view.dispose()
         await client.discardImport([prepared.id])
       }
-    })
+    }, shouldStart)
   }
 
   const runDeviation = async () => {

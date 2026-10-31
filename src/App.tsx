@@ -10,6 +10,9 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { useProjectHistory } from './app/useProjectHistory'
+import { confirmImport } from './app/importGuard'
+import type { MeshUnits } from './core/meshUnits'
+import type { ReferenceOptions } from './app/deviationWorkspace'
 import { clearHistory, historyAction } from './state/historyStore'
 import { MeshWorkerClient } from './core/workerClient'
 import { creaseSetting, type CreaseSetting } from './core/geometry/crease'
@@ -144,7 +147,8 @@ export default function App() {
     cancelDraft: handleCancelDraft,
     findSymmetry: handleFindSymmetry,
   } = session.measure
-  const { commitScan, openScan: openFile } = session.scan
+  const { commitScan } = session.scan
+  const openFile = (file: File, units?: MeshUnits) => session.scan.openScan(file, units, () => confirmImport('scan'))
   // In development the viewport, the worker and the Measure store are
   // reachable from the console and the browser checks — nothing in a
   // production build.
@@ -264,13 +268,13 @@ export default function App() {
     clearHistory()
   }
 
-  const openImage = (file: File) => runImport(imports, 'Reading image…', async () => {
+  const openImage = (file: File, settled = false) => runImport(imports, 'Reading image…', async () => {
     const image = await prepareImage(file)
     commitImage(image)
     useShell.getState().setWorkspace('flat')
     void runEdgeDetect()
     useStore.getState().setStatus(`Image loaded — ${file.name}.`)
-  })
+  }, () => settled || confirmImport('image'))
 
   /** A section laid flat for the 2D sheet: its cut projected into its own
    *  plane, indexed for snapping, and the bounds of a sheet with room round
@@ -592,7 +596,6 @@ export default function App() {
   // ---- Deviation workspace -------------------------------------------------
 
   const {
-    openNominal,
     commitNominal,
     runAlign,
     abortAlign,
@@ -609,6 +612,8 @@ export default function App() {
     handleCopyReport,
     selectTarget: handleSelectTarget,
   } = session.deviation
+  const openNominal = (file: File, units?: MeshUnits, options: ReferenceOptions = {}) =>
+    session.deviation.openNominal(file, units, options, () => !!options.fromSession || confirmImport('reference'))
 
   // ---- Deviation from a fitted element -------------------------------------
 
@@ -1322,7 +1327,7 @@ export default function App() {
       open: (file, discard) => openProject(file, false, discard),
     },
     flat: {
-      openImage,
+      openImage: (file) => openImage(file, true),
       closeImage: () => commitImage(null),
       detectEdges: async (sensitivity) => {
         const flat = useFlat.getState()
