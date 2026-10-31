@@ -69,7 +69,14 @@ export function httpServer({ serve, allowOrigin = () => false, version = '' }) {
       res.end('scanruler-mcp: waiting for the ScanRuler page. Switch on "Local agent connection" in ScanRuler’s Settings.\n')
       return
     }
-    let file = fileFor(root, req.url ?? '/')
+    let file
+    try {
+      file = fileFor(root, req.url ?? '/')
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error
+      res.writeHead(400).end()
+      return
+    }
     if (!file) {
       res.writeHead(404).end()
       return

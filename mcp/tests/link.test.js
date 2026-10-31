@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { get } from 'node:http'
+import { fileURLToPath } from 'node:url'
 import { CLOSE, originAllowed, PageLink } from '../src/link.js'
 import { PeerLink } from '../src/relay.js'
 import { HELLO_PATH, httpServer } from '../src/serve.js'
@@ -36,13 +37,14 @@ test('pages are let in from the hosted app, loopback, and origins named', () => 
 })
 
 /** GET a path with an Origin header; resolves with the status, headers and body. */
-const fetchWithOrigin = (path, origin) =>
+const fetchWithOrigin = (path, origin, at = port) =>
   new Promise((resolve, reject) => {
-    get({ host: '127.0.0.1', port, path, headers: origin ? { origin } : {} }, (res) => {
+    const request = get({ host: '127.0.0.1', port: at, path, headers: origin ? { origin } : {} }, (res) => {
       let body = ''
       res.on('data', (d) => (body += d))
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }))
     }).on('error', reject)
+    request.setTimeout(500, () => request.destroy(new Error('request timed out')))
   })
 
 test('the hello a page fetches first answers an allowed origin, and only that one, with CORS', async () => {
@@ -55,6 +57,17 @@ test('the hello a page fetches first answers an allowed origin, and only that on
   assert.equal(other.headers['access-control-allow-origin'], undefined)
   const root = await fetchWithOrigin('/', 'https://scanruler.com')
   assert.match(root.body, /waiting for the ScanRuler page/)
+})
+
+test('a malformed URL path is refused without leaving the request hanging', async () => {
+  const served = httpServer({ serve: fileURLToPath(new URL('../', import.meta.url)) })
+  await new Promise((resolve) => served.listen(0, '127.0.0.1', resolve))
+  try {
+    const response = await fetchWithOrigin('/%E0%A4%A', null, served.address().port)
+    assert.equal(response.status, 400)
+  } finally {
+    served.close()
+  }
 })
 
 test('a page from another origin is turned away before it can say anything', async () => {
