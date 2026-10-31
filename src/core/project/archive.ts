@@ -4,6 +4,7 @@
 // pulled back out with any archive tool should the app ever go away.
 
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate'
+import { EXPANDED_ARCHIVE_BYTES } from '../archiveLimits'
 import { MANIFEST_NAME, validateManifest, type ProjectManifest } from './manifest'
 
 export interface ArchiveMember {
@@ -47,7 +48,7 @@ export interface UnpackedProject {
   members: Map<string, Uint8Array>
 }
 
-const PROJECT_LIMITS = { members: 16, manifestBytes: 64 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 }
+const PROJECT_LIMITS = { members: 16, manifestBytes: 64 * 1024 * 1024, totalBytes: EXPANDED_ARCHIVE_BYTES }
 class ArchiveLimitError extends Error {}
 
 /** Read the archive back and check it is a project this build can open. */

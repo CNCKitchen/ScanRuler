@@ -7,6 +7,12 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Check 3MF expansion before allocating** (2026-10-31). Model and texture
+  readers now inspect the complete archive directory against the existing
+  1 GiB project-archive budget before expanding entries. Ignored sidecars and
+  thumbnails are excluded. Oversized declarations, including 3MF files nested
+  in saved projects, fail with a recovery message and preserve current work.
+
 - **Keep 3MF texture extraction off the UI thread** (2026-10-31). Packed
   images now expand in a short-lived worker, so large textured scans do
   not freeze interaction during decompression. Original archive bytes and

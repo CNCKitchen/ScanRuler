@@ -25,6 +25,7 @@
 // 3MF model holds.
 
 import { unzipSync, strFromU8 } from 'fflate'
+import { inspect3MFArchive, is3MFModelData, ThreeMFArchiveSizeError } from './threemfArchive'
 import type { ParsedMesh } from '../types'
 import { baseName, sampleTexture, type ObjCompanions, type TextureImage } from './objTexture'
 
@@ -391,8 +392,11 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   onProgress?.('Reading 3MF…')
   let zipped: Record<string, Uint8Array>
   try {
-    zipped = unzipSync(new Uint8Array(buffer), { filter: (f) => /\.(model|rels|config)$/i.test(f.name) })
-  } catch {
+    const bytes = new Uint8Array(buffer)
+    inspect3MFArchive(bytes)
+    zipped = unzipSync(bytes, { filter: ({ name }) => is3MFModelData(name) })
+  } catch (error) {
+    if (error instanceof ThreeMFArchiveSizeError) throw error
     throw new Error('This 3MF could not be unzipped — the file is damaged or not a 3MF.')
   }
   const files: Record<string, Uint8Array> = {}
