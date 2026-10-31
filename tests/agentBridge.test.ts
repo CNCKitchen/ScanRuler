@@ -4,7 +4,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { serverTooOld, takePairingLink, useAgentLink, WANTS_SERVER } from '../src/commands/agentLink'
 import { registerGuide } from '../src/commands/guides'
-import { runCommand } from '../src/commands/registry'
+import { registerCommands, runCommand } from '../src/commands/registry'
 import { isStaleImport, resetPageStale } from '../src/commands/stalePage'
 import { CommandError } from '../src/commands/types'
 import { startBridge } from '../src/commands/bridge'
@@ -255,5 +255,24 @@ describe('the agent bridge', () => {
     expect(usePrefs.getState()).toMatchObject({ agentLink: false, agentDataOk: true })
     usePrefs.getState().setAgentLink(true)
     expect(usePrefs.getState()).toMatchObject({ agentLink: true, agentDataAsking: false })
+  })
+  it('answers a command on the connection it came on, not on the one after', async () => {
+    let finish!: () => void
+    registerCommands('test', [{
+      name: 'wait', title: 'Wait', description: 'Waits to be let go.', input: { type: 'object', properties: {} }, readOnly: true,
+      run: () => new Promise((resolve) => (finish = () => resolve({ done: true }))),
+    } as never])
+    const first = await connect()
+    first.say({ welcome: { server: 'scanruler-mcp', version: '0.5.0' } })
+    first.say({ id: 3, method: 'run', name: 'test.wait', input: {} })
+    await until(() => finish, 'the command to start')
+    // The server stops; a new one — counting its ids from 1 again — takes the port.
+    first.close(1006)
+    const second = await until(() => FakeSocket.made[1], 'the page to reconnect')
+    second.open()
+    second.say({ welcome: { server: 'scanruler-mcp', version: '0.5.0' } })
+    finish()
+    await new Promise((r) => setTimeout(r, 20))
+    expect(answerTo(second, 3)).toBeUndefined()
   })
 })
