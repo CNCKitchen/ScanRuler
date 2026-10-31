@@ -9,7 +9,7 @@
 // with it ride on it here, out of the way of the paths that have no use for
 // them, and are read where the scan is prepared.
 
-import { unzipSync } from 'fflate'
+import { textureArchive } from './textureArchive'
 import { is3mfFile, isModelFile, isTextureFile } from '../core/formats'
 import type { ObjCompanions, TextureImage } from '../core/parsers/objTexture'
 
@@ -96,12 +96,8 @@ export async function readCompanions(files: readonly { name: string; bytes: Uint
  *  package. The package's thumbnails, under Metadata/, are not the part's. */
 export async function scanCompanions(name: string, bytes: Uint8Array, extras: readonly { name: string; bytes: Uint8Array }[]): Promise<ObjCompanions | undefined> {
   if (!is3mfFile(name)) return readCompanions(extras)
-  let packed: Record<string, Uint8Array>
-  try {
-    packed = unzipSync(bytes, { filter: (f) => /\.(png|jpe?g)$/i.test(f.name) && !/^\/?metadata\//i.test(f.name) })
-  } catch {
-    return undefined // the worker says what is wrong with the file
-  }
+  const packed = await textureArchive(bytes)
+  if (!packed) return undefined // the worker says what is wrong with the file
   const images: TextureImage[] = []
   for (const [path, data] of Object.entries(packed)) {
     const img = await decodeImage(path, data).catch(() => null)

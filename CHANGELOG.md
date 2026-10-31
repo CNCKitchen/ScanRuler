@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Keep 3MF texture extraction off the UI thread** (2026-10-31). Packed
+  images now expand in a short-lived worker, so large textured scans do
+  not freeze interaction during decompression. Original archive bytes and
+  texture colours survive save/reopen; worker failures preserve current work.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All
