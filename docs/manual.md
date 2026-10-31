@@ -87,7 +87,11 @@ current session, but history itself is not stored in project or recovery files.
    are picked or dropped together, or their folder is dropped; a 3MF packs
    its images and colours and opens in colour by itself. A slicer's 3MF
    opens as its parts, without the modifiers and support volumes the slicer
-   kept beside them.
+   kept beside them. The model, relationship/configuration files and textures
+   read from a 3MF share a **1 GiB expanded-data limit**, also when the 3MF is
+   inside a saved project. This is checked before any entry is expanded.
+   Unused slicer sidecars and metadata thumbnails are not counted or unpacked.
+   An over-limit import leaves the current project and unfinished work intact.
 2. Press **Sphere**, **Cylinder** or **Plane**, then **click a point on that
    feature** in the 3D view. The tool automatically selects the surface around
    your click — the spherical patch without leaking onto the connecting rod,
