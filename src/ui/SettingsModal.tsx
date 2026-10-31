@@ -28,7 +28,7 @@ import {
   type SpaceMouseAxisId,
 } from '../viewer/spaceMouse'
 import { VIEW_THEMES, themeById } from '../viewer/viewThemes'
-import { useDismiss } from './useDismiss'
+import { Modal } from './Modal'
 
 /** The puck's six motions by 3Dconnexion's names, in the order its trainer
  *  walks through them. */
@@ -121,7 +121,6 @@ export function SettingsModal() {
   const setHintsOn = useHintPrefs((s) => s.setOn)
   const agentLink = usePrefs((s) => s.agentLink)
   const setAgentLink = usePrefs((s) => s.setAgentLink)
-  const agentDataAsking = usePrefs((s) => s.agentDataAsking)
   const agentPort = usePrefs((s) => s.agentPort)
   const setAgentPort = usePrefs((s) => s.setAgentPort)
   const agentToken = usePrefs((s) => s.agentToken)
@@ -134,22 +133,15 @@ export function SettingsModal() {
   const puckReverse = usePrefs((s) => s.spaceMouseReverse)
   const setPuckReversed = usePrefs((s) => s.setSpaceMouseReversed)
 
-  // Escape closes it. Captured, like the imprint's, so the workspace's own
-  // Escape handling — which would discard the draft behind the dialog — never
-  // sees the key. With the agent warning up over it, the key is the warning's.
-  useDismiss(open && !agentDataAsking, () => close(false))
-
   if (!open) return null
   const scheme = schemeById(navScheme)
   const theme = themeById(viewTheme)
   const map = colormapById(colormap)
   return (
-    <div className="modalback" onClick={() => close(false)}>
+    <Modal labelledBy="settings-title" onClose={() => close(false)}>
       <div
         className="modal settings"
         data-test="settings-modal"
-        role="dialog"
-        aria-labelledby="settings-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modalhead">
@@ -567,6 +559,6 @@ export function SettingsModal() {
           </span>
         </label>
       </div>
-    </div>
+    </Modal>
   )
 }

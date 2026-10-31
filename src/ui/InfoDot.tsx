@@ -75,7 +75,7 @@ export function InfoDot({
     const onKey = (e: KeyboardEvent) => {
       // Swallowed, or Esc would close the card and cancel the draft behind it
       // in the same keystroke.
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !document.querySelector('dialog:modal')) {
         e.stopPropagation()
         setOpen(false)
         dotRef.current?.focus()

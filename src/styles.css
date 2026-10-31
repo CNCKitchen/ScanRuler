@@ -2589,6 +2589,21 @@ button.x:disabled {
   z-index: 50;
 }
 
+/* Keep the existing overlay geometry when the browser promotes a modal to
+   its top layer. Closed dialogs must stay hidden until showModal runs. */
+dialog.modalback {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+dialog.modalback:not([open]) { display: none; }
+dialog.modalback::backdrop { background: transparent; }
+
 .modal {
   width: 560px;
   max-width: 92vw;

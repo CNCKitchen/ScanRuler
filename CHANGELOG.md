@@ -7,6 +7,10 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Keep keyboard focus in dialogs** (2026-11-01). Settings, units, agent
+  consent, support and imprint windows keep Tab inside and restore focus on
+  close. Escape closes the top window without changing background editors.
+
 - **Contributors are credited** (2026-11-01). Each publish to this repository now
   names the people whose work it brings as co-authors, starting with Jozkah and
   Starzrng. CONTRIBUTING.md says how it works.

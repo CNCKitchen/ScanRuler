@@ -24,7 +24,9 @@ export function useDismiss(open: boolean, onClose: () => void, options: DismissO
     const close = () => closeRef.current()
     const take = escape === 'take'
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
+      // A native modal owns Escape even when this background menu installed
+      // its capture listener first.
+      if (e.key !== 'Escape' || document.querySelector('dialog:modal')) return
       if (take) e.stopPropagation()
       close()
     }

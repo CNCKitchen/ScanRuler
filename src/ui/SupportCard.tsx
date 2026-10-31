@@ -25,6 +25,7 @@
 // it and works in the tool every day.
 
 import { useEffect, useState } from 'react'
+import { Modal } from './Modal'
 import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import { ASK_OFF_MS, useSupportAsk } from '../state/supportAskStore'
@@ -112,36 +113,13 @@ export function SupportAsk() {
     if (open && errorText) closeAsk()
   }, [open, errorText, closeAsk])
 
-  // While it is up the workspace behind sees no keys: what it would do to them
-  // cannot be seen through the blur. Caught on the way down, which leaves the
-  // browser's own handling alone: Tab, and Enter on the focused button.
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      e.stopPropagation()
-      const onLink = (e.target as Element | null)?.closest?.('a, button')
-      if (e.key === 'Escape' || (e.key === 'Enter' && !onLink)) close()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
-
   if (!open) return null
   const store = LINKS[0]
   return (
-    <div
-      className="modalback supportask-back"
-      // Only the press stops here, for the middle-button confirm on the window.
-      // A release still has to reach whatever drag it ends.
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={close}
-    >
+    <Modal labelledBy="support-ask-title" className="supportask-back" onClose={close} onEnter={close} initialFocus="[data-test=support-ask-close]">
       <div
         className="modal supportask"
         data-test="support-ask"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="support-ask-title"
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="support-ask-title">Thanks for using ScanRuler by CNC Kitchen!</h2>
@@ -164,11 +142,11 @@ export function SupportAsk() {
           Don't show this again for a week
         </label>
         <div className="supportask-foot">
-          <button data-test="support-ask-close" autoFocus onClick={close}>
+          <button data-test="support-ask-close" onClick={close}>
             Close &amp; Continue
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

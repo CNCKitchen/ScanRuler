@@ -7,24 +7,20 @@
 import { plugins } from '../plugins/registry'
 import { useStore } from '../state/store'
 import { APP_VERSION } from '../version'
-import { useDismiss } from './useDismiss'
+import { Modal } from './Modal'
 
 export function ImprintModal() {
   const open = useStore((s) => s.imprintOpen)
   const close = useStore((s) => s.openImprint)
 
-  // Escape closes it. Captured, so the workspace's own Escape handling — which
-  // would discard the draft behind the dialog — never sees the key.
-  useDismiss(open, () => close(false))
-
   if (!open) return null
   // The plugins' notices on the third-party software they ship.
   const notices = plugins().flatMap((p) => (p.notices ? [{ id: p.id, Notices: p.notices }] : []))
   return (
-    <div className="modalback" onClick={() => close(false)}>
+    <Modal labelledBy="imprint-title" onClose={() => close(false)}>
       <div className="modal imprint" onClick={(e) => e.stopPropagation()}>
         <div className="modalhead">
-          <h2>Imprint &amp; Privacy Policy</h2>
+          <h2 id="imprint-title">Imprint &amp; Privacy Policy</h2>
           <button className="x" onClick={() => close(false)} aria-label="Close">
             ×
           </button>
@@ -118,6 +114,6 @@ export function ImprintModal() {
           </li>
         </ul>
       </div>
-    </div>
+    </Modal>
   )
 }
