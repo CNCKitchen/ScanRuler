@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Import keyboard controls and signed zeros** (2026-10-31). Enter on Cancel
+  in the units question now cancels; Enter on a unit selects it without opening
+  the file. STL vertices at `+0` and `-0` now merge at the same position, so
+  the sign of zero cannot leave an artificial seam in the mesh.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All
