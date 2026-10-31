@@ -6,22 +6,18 @@
 // answer "yes" is remembered in this browser.
 
 import { usePrefs } from '../state/prefsStore'
-import { useDismiss } from './useDismiss'
+import { Modal } from './Modal'
 
 export function AgentDataWarning() {
   const asking = usePrefs((s) => s.agentDataAsking)
   const answer = usePrefs((s) => s.answerAgentData)
-  useDismiss(asking, () => answer(false))
 
   if (!asking) return null
   return (
-    <div className="modalback" onClick={() => answer(false)}>
+    <Modal labelledBy="agent-data-title" onClose={() => answer(false)}>
       <div
         className="modal agentdata"
         data-test="agent-data-warning"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="agent-data-title"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modalhead">
@@ -54,6 +50,6 @@ export function AgentDataWarning() {
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

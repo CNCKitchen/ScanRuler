@@ -384,6 +384,11 @@ last over. On a flat 2D sheet it pans and zooms and does not turn.
 
 ### Settings
 
+Settings and other modal windows keep keyboard focus inside: **Tab** and
+**Shift+Tab** cycle through their controls, and **Escape** closes only the
+top window. Focus returns to the control that opened it; the work behind
+the window stays in place. **Enter** activates the focused button.
+
 **⚙ Settings** in the top bar holds what is set once and left, all of it
 remembered per browser and none of it saved with a project:
 
