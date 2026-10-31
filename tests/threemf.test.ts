@@ -122,6 +122,23 @@ describe('3MF import', () => {
     await expect(scanCompanions('large.3mf', new Uint8Array(archive), [], limits)).rejects.toThrow(/supported archive size limits/)
   })
 
+  it('counts a stored member at its stored size, whatever size it declares', () => {
+    const files = unzipSync(new Uint8Array(pack({
+      '3D/3dmodel.model': model(`<resources><object id="1" type="model">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`),
+    })))
+    // Stored, not deflated — then every member said to expand to nothing,
+    // in its local header and in the central directory both.
+    const stored = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, [v, { level: 0 }]])))
+    const view = new DataView(stored.buffer)
+    for (let i = 0; i + 4 <= stored.length; i++) {
+      const signature = view.getUint32(i, true)
+      if (signature === 0x04034b50) view.setUint32(i + 22, 0, true)
+      else if (signature === 0x02014b50) view.setUint32(i + 24, 0, true)
+    }
+    const limits = { members: 10, entryBytes: 1024, totalBytes: 200 }
+    expect(() => parse3MF(stored.buffer as ArrayBuffer, undefined, undefined, limits)).toThrow(/supported archive size limits/)
+  })
+
   it('reads the model’s unit into millimetres', () => {
     const inch = parse3MF(pack({ '3D/3dmodel.model': model(`<resources><object id="1" type="model">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`, 'inch') }))
     expect(Array.from(inch.positions)).toEqual([0, 0, 0, 25.4, 0, 0, 0, 25.4, 0].map((v) => Math.fround(v)))
