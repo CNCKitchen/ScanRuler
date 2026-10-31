@@ -73,6 +73,11 @@ are running. Successful scan, reference, image or project replacement starts
 fresh history; failed imports preserve it. Saving preserves history in the
 current session, but history itself is not stored in project or recovery files.
 
+Opening a scan, image or reference from a button, drop or link asks before
+replacing work or clearing undo and redo. The warning also protects unfinished
+picks and work held only in redo. **Cancel** keeps the current files and work;
+save the project first if you want to keep a copy before continuing.
+
 ## 3D Measure: fitting and measuring features
 
 ### How to use it

@@ -73,7 +73,7 @@ try {
   })
   try {
     await dev.listen()
-    for (const check of ['e2e-import', 'e2e-recovery', 'e2e-history', 'e2e-agent', 'e2e-agent-warning', 'e2e-units', ...pluginChecks()]) await run(check, dev.resolvedUrls.local[0])
+    for (const check of ['e2e-import', 'e2e-replacement', 'e2e-recovery', 'e2e-history', 'e2e-agent', 'e2e-agent-warning', 'e2e-units', ...pluginChecks()]) await run(check, dev.resolvedUrls.local[0])
   } finally { await dev.close() }
 
   const production = await preview({ root, preview: { host: '127.0.0.1', port: 5194, strictPort: false, open: false } })

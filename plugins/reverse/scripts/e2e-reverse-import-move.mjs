@@ -194,7 +194,15 @@ await page.screenshot({ path: shotPath('reverse-move-copied.png') })
 // ---- On a scan: the part moved onto it, read by the live map -------------------------
 await re(() => window.__re.store.getState().clearFeatures())
 await waitBuilt(0)
+// The earlier body edits still exist in undo history. Loading this scan is
+// an intentional replacement, so answer the browser's warning explicitly.
+let replacementAsked = false
+page.once('dialog', async (dialog) => {
+  replacementAsked = dialog.type() === 'confirm' && dialog.message().includes('Opening another scan')
+  await dialog.accept()
+})
 await loadScan(page, scanPath, { inputSelector: '[data-test=slot-scan] input[type=file]', settle: 500 })
+check(replacementAsked, 'opening the scan asks before clearing the earlier body edits from undo history')
 await (await page.$('[data-test=feature-import-file]')).uploadFile(stepPath)
 await page.waitForSelector('[data-test=import-editor]', { timeout: 10_000 })
 await page.waitForFunction(() => window.__re.store.getState().preview.status === 'ok', { timeout: 60_000 })

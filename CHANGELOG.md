@@ -7,6 +7,10 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Confirm replacement imports** (2026-10-31). Opening a scan, image or
+  reference now asks before replacing work or clearing undo and redo. Cancel
+  keeps the current sources and measurements, including unfinished picks.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All
