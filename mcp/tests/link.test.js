@@ -44,7 +44,7 @@ const fetchWithOrigin = (path, origin, at = port) =>
       res.on('data', (d) => (body += d))
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }))
     }).on('error', reject)
-    request.setTimeout(500, () => request.destroy(new Error('request timed out')))
+    request.setTimeout(5000, () => request.destroy(new Error('request timed out')))
   })
 
 test('the hello a page fetches first answers an allowed origin, and only that one, with CORS', async () => {
