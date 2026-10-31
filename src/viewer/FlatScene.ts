@@ -25,6 +25,7 @@ import { EDGE_LINE_DEFAULT, SHEET_LINE_DEFAULT } from './lineWidths'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
 import { pinLabel } from './overlays'
+import { modHeld } from '../ui/platform'
 import type { ViewTheme } from './viewThemes'
 import { LineWidthRegistry } from './lineWidthRegistry'
 import { labelSpot } from '../core/flat/drawing'
@@ -273,7 +274,7 @@ export class FlatScene {
           this.onPick?.(p, {
             alt: e?.altKey ?? false,
             shift: e?.shiftKey ?? false,
-            ctrl: e?.ctrlKey ?? false,
+            ctrl: modHeld(e),
             unitsPerScreenPx: this.unitsPerScreenPx(),
           })
         }
@@ -296,7 +297,7 @@ export class FlatScene {
         // drag; Shift and Meta are left to the navigator's chords.
         if (this.onSheetDown && !e.shiftKey && !e.metaKey) {
           const p = this.pick(e.clientX, e.clientY)
-          if (p && this.onSheetDown(p, { alt: e.altKey, ctrl: e.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() })) {
+          if (p && this.onSheetDown(p, { alt: e.altKey, ctrl: modHeld(e), unitsPerScreenPx: this.unitsPerScreenPx() })) {
             this.beginSheetDrag(e)
             return true
           }
@@ -1047,7 +1048,7 @@ export class FlatScene {
       else if (!moved) {
         // The navigator never saw the press, so the click is said from here.
         const p = this.pick(start.x, start.y)
-        if (p) this.onPick?.(p, { alt: ev.altKey, shift: ev.shiftKey, ctrl: ev.ctrlKey, unitsPerScreenPx: this.unitsPerScreenPx() })
+        if (p) this.onPick?.(p, { alt: ev.altKey, shift: ev.shiftKey, ctrl: modHeld(ev), unitsPerScreenPx: this.unitsPerScreenPx() })
       }
     }
     const cancel = (ev: PointerEvent) => {
@@ -1078,7 +1079,7 @@ export class FlatScene {
       this.planeAt(start.x, e.clientY),
     ]
     if (corners.some((c) => c === null)) return null
-    return { corners: corners as SheetBox['corners'], crossing: e.clientX < start.x, additive: e.ctrlKey || e.shiftKey }
+    return { corners: corners as SheetBox['corners'], crossing: e.clientX < start.x, additive: modHeld(e) || e.shiftKey }
   }
 
   private layoutBox(div: HTMLDivElement, start: { x: number; y: number }, x: number, y: number): void {
