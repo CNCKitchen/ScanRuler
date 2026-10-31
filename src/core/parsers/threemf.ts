@@ -25,6 +25,7 @@
 // 3MF model holds.
 
 import { unzipSync, strFromU8 } from 'fflate'
+import { ArchiveLimitError, limitedArchiveFilter, THREE_MF_LIMITS, type ArchiveLimits } from './archiveLimits'
 import type { ParsedMesh } from '../types'
 import { baseName, sampleTexture, type ObjCompanions, type TextureImage } from './objTexture'
 
@@ -387,12 +388,13 @@ const NOT_THE_PART = new Set(['support', 'solidsupport', 'other'])
 /** Deeper than this, components are taken to name each other in a ring. */
 const MAX_DEPTH = 32
 
-export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => void, companions?: ObjCompanions): ParsedMesh {
+export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => void, companions?: ObjCompanions, limits: ArchiveLimits = THREE_MF_LIMITS): ParsedMesh {
   onProgress?.('Reading 3MF…')
   let zipped: Record<string, Uint8Array>
   try {
-    zipped = unzipSync(new Uint8Array(buffer), { filter: (f) => /\.(model|rels|config)$/i.test(f.name) })
-  } catch {
+    zipped = unzipSync(new Uint8Array(buffer), { filter: limitedArchiveFilter((f) => /\.(model|rels|config)$/i.test(f.name), limits) })
+  } catch (error) {
+    if (error instanceof ArchiveLimitError) throw error
     throw new Error('This 3MF could not be unzipped — the file is damaged or not a 3MF.')
   }
   const files: Record<string, Uint8Array> = {}

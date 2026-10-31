@@ -5,6 +5,7 @@ import { build3mf, weldExact } from '../src/core/export3mf'
 import { buildMeshFile } from '../src/core/exportMesh'
 import { parse3MF } from '../src/core/parsers/threemf'
 import { parseSTL } from '../src/core/parsers/stl'
+import { scanCompanions } from '../src/app/scanFiles'
 
 /** A unit cube as a triangle soup: twelve triangles, each corner its own
  *  vertex — how an STL lays a mesh out. */
@@ -110,6 +111,17 @@ describe('3MF export', () => {
 })
 
 describe('3MF import', () => {
+  it('refuses archives whose expanded contents exceed the supported limits', async () => {
+    const archive = pack({
+      '3D/3dmodel.model': model(`<resources><object id="1" type="model">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`),
+      'Metadata/large.rels': 'x'.repeat(256),
+      '3D/Textures/large.png': new Uint8Array(256),
+    })
+    const limits = { members: 10, entryBytes: 1024, totalBytes: 200 }
+    expect(() => parse3MF(archive, undefined, undefined, limits)).toThrow(/supported archive size limits/)
+    await expect(scanCompanions('large.3mf', new Uint8Array(archive), [], limits)).rejects.toThrow(/supported archive size limits/)
+  })
+
   it('reads the model’s unit into millimetres', () => {
     const inch = parse3MF(pack({ '3D/3dmodel.model': model(`<resources><object id="1" type="model">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`, 'inch') }))
     expect(Array.from(inch.positions)).toEqual([0, 0, 0, 25.4, 0, 0, 0, 25.4, 0].map((v) => Math.fround(v)))
