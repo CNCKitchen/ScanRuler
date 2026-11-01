@@ -475,10 +475,14 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     }
     // A mirroring transform turns the triangles inside out; turned back.
     const flip = determinant(m) < 0
-    const skip = slicer.triangles.get(id) ?? []
+    // The modifier runs are marked out once rather than each looked through
+    // for every triangle: a slicer project can hold tens of thousands.
     const t = mesh.triangles
-    for (let k = 0; k < t.length / 3; k++) {
-      if (skip.some(([a, b]) => k >= a && k <= b)) continue
+    const triCount = t.length / 3
+    const skipped = new Uint8Array(triCount)
+    for (const [first, last] of slicer.triangles.get(id) ?? []) skipped.fill(1, first, Math.min(last, triCount - 1) + 1)
+    for (let k = 0; k < triCount; k++) {
+      if (skipped[k]) continue
       const a = base + t[k * 3]
       const b = base + t[k * 3 + (flip ? 2 : 1)]
       const c = base + t[k * 3 + (flip ? 1 : 2)]
