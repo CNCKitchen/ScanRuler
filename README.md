@@ -355,6 +355,65 @@ are plugins, in [plugins/](plugins/README.md).
 `node scripts/readme-shots.mjs` and `node plugins/readme-shots.mjs` retake the
 pictures above.
 
+### Docker
+
+The app and the agent helper both run in containers, so neither Node nor a
+local build is needed:
+
+```bash
+docker compose up -d --build              # the app, on http://localhost:8080
+docker compose --profile mcp build        # the agent helper: built, not started
+
+# add it to the agent once, with the compose file's full path
+claude mcp add --scope user scanruler -- docker compose \
+  -f "$PWD/docker-compose.yml" run --rm -T --service-ports scanruler-mcp
+
+docker compose run --rm scanruler-mcp --pair   # pair the tab once: open the link
+```
+
+Then restart the agent (in Claude Code: `/mcp`, reconnect). From then on the
+agent starts the helper container itself whenever it needs it.
+
+How it fits together:
+
+```
+ agent ──stdin/stdout (MCP)──▶ scanruler-mcp container
+                                   │  WebSocket on :7317, published to 127.0.0.1 only
+ ScanRuler tab ──WebSocket + pairing token──┘
+     │
+     └─ loading, measuring and exporting all happen in the browser
+```
+
+- **The `scanruler` container** is nginx serving the static build. It only
+  hands out files: scans never reach it, everything runs in the browser.
+- **The `scanruler-mcp` container** is the bridge. The agent starts it
+  (`docker compose run` in place of `npx`) and speaks MCP over stdin/stdout,
+  where `-T` keeps a terminal from getting in the way. The ScanRuler tab
+  connects to its WebSocket on port 7317 with the pairing token
+  (`#agent=7317:<token>` in the pairing link). An agent's tool call goes to the
+  tab, the tab carries it out, and the result goes back to the agent.
+- Inside the container the helper listens on all interfaces
+  (`SCANRULER_MCP_HOST=0.0.0.0`), but the port is published to the host's
+  `127.0.0.1` only, so only this computer can reach it. The token is kept in
+  the `scanruler-mcp` volume and survives `--rm`. `~/ScanRuler` is mounted at
+  the same path (`SCANRULER_FILES` picks another folder): exports land there,
+  and it is the only place the helper can read files from.
+
+Unlike with `npx`:
+
+- **Only one copy can run.** With `npx`, a second copy joins the first through
+  the port. Each container has a network of its own, so a second one gets
+  `port is already allocated` and the agent reports *Connection closed*. A
+  leftover container causes the same thing: find it with
+  `docker ps --filter name=scanruler-mcp` and `docker stop` it.
+- `scanruler_open` fails, since a container cannot open your browser. Open
+  ScanRuler yourself.
+- The image does not update itself. Run `docker compose --profile mcp build`
+  again to get a new version.
+
+More options, such as your own domain, a file store for short links, HTTPS,
+or running without Compose, are in [docs/docker.md](docs/docker.md).
+
 ## Roadmap
 
 - Minimum-zone, minimum-circumscribed and maximum-inscribed fits
