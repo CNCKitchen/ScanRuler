@@ -223,6 +223,13 @@ is processed by the agent and goes to its model's provider, unless the model
 runs on your computer. Setup per agent, troubleshooting and every option are in
 [mcp/README.md](mcp/README.md).
 
+## Desktop shell
+
+An Electron shell for Windows lives in [desktop/](desktop/README.md): it runs the
+local build with no browser, picks the graphics backend (DirectX 11/12, Vulkan,
+OpenGL), translates the page at run time (Portuguese today), opens Creality Scan
+`project.obp` files, and pairs the agent relay with the window you have open.
+
 ## Automatic reverse engineering
 
 An AI agent can drive Reverse engineer from start to finish: give it a scan
