@@ -2,7 +2,7 @@
 // The Mesh Tools workspace's part of a project file.
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { validateManifest } from '../../../src/core/project/manifest'
-import { collectProject, prepareProjectState, readAs } from '../../../src/app/project'
+import { collectProject, prepareProjectState, readAs, sessionHolds, sessionIsDirty } from '../../../src/app/project'
 import { useMeshTools } from '../state/meshStore'
 import { editedCopy } from '../state/editedCopy'
 import type { MeshPart } from '../app/projectSection'
@@ -285,4 +285,13 @@ describe('the Mesh Tools part of a project', () => {
     expect(useMeshTools.getState().maxTriangles).toBe(50_000)
   })
 
+  it('counts edits waiting on the copy as work a new session would lose', () => {
+    useMeshTools.setState({ edits: [], pending: [{ kind: 'smooth', size: 2, limit: 0.5, maxMove: 0.12 }] })
+    expect(meshSection.holdsWork!()).toBe(true)
+    expect(sessionIsDirty()).toBe(true)
+    expect(sessionHolds()).toMatchObject({ copyEdits: 1 })
+    expect(sessionHolds()).not.toHaveProperty('scanEdits')
+    useMeshTools.setState({ pending: [] })
+    expect(meshSection.holdsWork!()).toBe(false)
+  })
 })

@@ -356,10 +356,17 @@ export const meshSection: ProjectSection<MeshPart> = {
     if (manifest.scan && part.reduced) await meshToolsSession()?.runReduce(usePrefs.getState().units)
   },
   // The settings alone are no work; an edited scan is, the file it came from
-  // no longer saying it.
+  // no longer saying it, and so is a copy with edits not yet taken into use,
+  // which nothing but this session holds.
   hasContent: () => false,
-  holdsWork: () => useMeshTools.getState().edits.length > 0,
-  holds: () => ({ scanEdits: useMeshTools.getState().edits.length }),
+  holdsWork: () => {
+    const s = useMeshTools.getState()
+    return s.edits.length > 0 || s.pending.length > 0
+  },
+  holds: () => {
+    const s = useMeshTools.getState()
+    return { scanEdits: s.edits.length, copyEdits: s.pending.length }
+  },
   watch(changed) {
     // The edits come with the scan's file changing under them — the file is
     // not in any store, so the list of them is what is watched.
