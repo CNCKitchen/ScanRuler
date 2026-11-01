@@ -9,13 +9,13 @@ from the local `dist/`, with no browser and no scanruler.com, paired with the
 cd desktop
 npm install
 npm start        # runs the app from the checkout
-npm run dist     # packages release/win-unpacked/ScanRuler.exe
+npm run dist     # packages release/win-unpacked/ScanRuler.exe (@electron/packager)
 npm test         # dictionaries, smoke (isolation, threads, WebGL2, WebGPU), Creality watcher
 node test/i18n.mjs       # the page stays translated as React redraws
 node test/e2e-agent.mjs  # an MCP client reaches the page through the relay
 ```
 
-Windows x64 only for now (`electron-builder --win dir`).
+Windows x64 only for now. Packaged with `@electron/packager`, not electron-builder, whose bundled 7-Zip is LGPL (see CONTRIBUTING.md).
 
 ## What it adds
 
@@ -45,4 +45,3 @@ Windows x64 only for now (`electron-builder --win dir`).
   codex mcp add scanruler -- "<path>\release\win-unpacked\scanruler-mcp.cmd"
   ```
 
-- File associations for `.scanruler`, `.stl`, `.ply`, `.obj`, `.3mf`, `.step` and `.obp`.
