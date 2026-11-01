@@ -214,6 +214,42 @@ try {
     return results
   })
   for (const result of checks) check(result.ok, result.name)
+
+  // Real keyboard events are needed here: dispatching a keydown alone does
+  // not exercise the focused button's native Enter activation.
+  const beforeKeyboardImport = await page.$eval('.file-info', (el) => el.textContent)
+  const askForKeyboardImport = async () => {
+    await page.evaluate(async () => {
+      const { usePrefs } = await import('/src/state/prefsStore.ts')
+      usePrefs.getState().setAskStlUnits(true)
+      const stl = 'solid keyboard\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid keyboard'
+      const dataTransfer = new DataTransfer()
+      dataTransfer.items.add(new File([stl], 'keyboard.stl'))
+      window.dispatchEvent(new DragEvent('drop', { dataTransfer, bubbles: true, cancelable: true }))
+    })
+    await page.waitForSelector('[data-test="units-modal"]')
+  }
+  await askForKeyboardImport()
+  await page.focus('[data-test="units-cancel"]')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => !document.querySelector('[data-test="units-modal"]'))
+  await page.waitForFunction(async () => !(await import('/src/state/store.ts')).useStore.getState().busy)
+  check(await page.$eval('.file-info', (el) => el.textContent) === beforeKeyboardImport,
+    'Enter on Cancel leaves the current scan unchanged')
+
+  await askForKeyboardImport()
+  await page.focus('[data-test="units-in"]')
+  await page.keyboard.press('Enter')
+  check(await page.$eval('[data-test="units-in"]', (el) => el.getAttribute('aria-checked')) === 'true',
+    'Enter on a unit selects it without submitting the import')
+  await page.focus('[data-test="units-open"]')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(async () => {
+    const s = (await import('/src/state/store.ts')).useStore.getState()
+    return !s.busy && s.fileName === 'keyboard.stl'
+  })
+  check(await page.evaluate(async () => (await import('/src/state/store.ts')).useStore.getState().modelCenter[0] > 8),
+    'Enter on Open imports in the unit selected by keyboard')
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e))
 } finally {

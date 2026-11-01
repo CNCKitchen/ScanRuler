@@ -27,8 +27,9 @@ export function UnitsModal() {
     setRemember(false)
   }, [request])
 
-  // Escape dismisses, Enter opens. Captured, like the settings window's
-  // keys, so the workspace behind never sees them.
+  // Escape dismisses, Enter opens unless a focused control has its own
+  // activation (Cancel, a unit button, or Open). Capture both keys so the
+  // workspace behind never sees them, but retain native control activation.
   useEffect(() => {
     if (!request) return
     const onKey = (e: KeyboardEvent) => {
@@ -37,7 +38,11 @@ export function UnitsModal() {
         cancel()
       } else if (e.key === 'Enter') {
         e.stopPropagation()
-        answer(units, remember)
+        const target = e.target
+        if (!(target instanceof Element && target.closest('button, input, select, textarea, a, [contenteditable]'))) {
+          e.preventDefault()
+          answer(units, remember)
+        }
       }
     }
     window.addEventListener('keydown', onKey, true)

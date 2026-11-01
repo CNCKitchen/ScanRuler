@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /** Merge duplicated vertices of an STL triangle soup into an indexed mesh.
  *  Vertices are matched on exact float bit patterns via an open-addressing
- *  hash table (binary STL repeats vertices bit-identically). */
+ *  hash table (binary STL repeats vertices bit-identically), except that
+ *  signed zeros describe the same coordinate. */
 export function weldTriangleSoup(
   soup: Float32Array,
   onProgress?: (text: string) => void,
@@ -21,18 +22,20 @@ export function weldTriangleSoup(
 
   for (let i = 0; i < vertCount; i++) {
     const j = i * 3
-    const bx = bits[j]
-    const by = bits[j + 1]
-    const bz = bits[j + 2]
+    // Canonicalise zero both in the hash and in the saved comparison key.
+    // Otherwise +0 and -0 can split a shared edge into two open rims.
+    const bx = soup[j] === 0 ? 0 : bits[j]
+    const by = soup[j + 1] === 0 ? 0 : bits[j + 1]
+    const bz = soup[j + 2] === 0 ? 0 : bits[j + 2]
     let h = hash3(bx, by, bz) & mask
     for (;;) {
       const slot = table[h]
       if (slot === -1) {
         table[h] = outCount
         const o = outCount * 3
-        outPos[o] = soup[j]
-        outPos[o + 1] = soup[j + 1]
-        outPos[o + 2] = soup[j + 2]
+        outBits[o] = bx
+        outBits[o + 1] = by
+        outBits[o + 2] = bz
         indices[i] = outCount
         outCount++
         break
