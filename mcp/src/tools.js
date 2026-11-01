@@ -376,6 +376,16 @@ export async function batchedPicture(result, args, { cwd, outDir, folder }) {
   }
 }
 
+/** A name the page gave a file, made one this computer's file system takes
+ *  as a plain file name. A colon on Windows would write the bytes to a
+ *  hidden stream and leave an empty file, and a device name such as CON
+ *  is no file at all, so reserved characters become `_` and a device name
+ *  is prefixed with one. */
+export const safeFileName = (name) => {
+  const plain = String(name).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '') || 'file'
+  return /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(plain) ? `_${plain}` : plain
+}
+
 /** Write a returned file where the call asked, or into `outDir`; the result
  *  then says where, in place of the bytes. A file path given is written,
  *  over one there; a folder — one there, or a path ending in a separator —
@@ -384,7 +394,7 @@ export async function batchedPicture(result, args, { cwd, outDir, folder }) {
 export async function saveFileResult(result, args, { cwd, outDir }) {
   const file = result?.file
   if (!file || !(file.bytes instanceof Uint8Array)) return result
-  const name = basename(String(file.name ?? 'file'))
+  const name = safeFileName(String(file.name ?? 'file').split(/[\\/]/).pop())
   const given = args?.path ? absolute(String(args.path), cwd) : null
   const folder = given === null ? outDir : /[\\/]$/.test(String(args.path)) || (await stat(given).catch(() => null))?.isDirectory() ? given : null
   let target
