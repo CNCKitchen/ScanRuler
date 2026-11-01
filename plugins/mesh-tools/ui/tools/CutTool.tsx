@@ -2,6 +2,7 @@
 // Cut: the scan cut by a plane, one side taken off and the cut capped flat
 // where the part was closed.
 
+import { useShallow } from 'zustand/react/shallow'
 import { isWorldAxis, SECTION_REF_KINDS, type SectionRef } from '../../../../src/core/section/frame'
 import { useStore } from '../../../../src/state/store'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -13,7 +14,23 @@ import { type CutOutcome, useMeshTools } from '../../state/meshStore'
 import { count } from '../meshFormat'
 
 export function CutTool({ ready, busy, onCut }: { ready: boolean; busy: boolean; onCut: () => void }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the cut preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      cutCap: s.cutCap,
+      cutKeep: s.cutKeep,
+      cutOffset: s.cutOffset,
+      cutOffsetAuto: s.cutOffsetAuto,
+      cutPreview: s.cutPreview,
+      cutRef: s.cutRef,
+      editing: s.editing,
+      setCutCap: s.setCutCap,
+      setCutKeep: s.setCutKeep,
+      setCutOffset: s.setCutOffset,
+      setCutRef: s.setCutRef,
+    })),
+  )
   const elements = useStore((s) => s.elements)
   const modelCenter = useStore((s) => s.modelCenter)
   const options = providersFor(['plane', 'axis'], elements, undefined, SECTION_REF_KINDS)

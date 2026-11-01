@@ -2,6 +2,7 @@
 // Shell: a closed part hollowed to a wall, or an open surface thickened to
 // one, on the side chosen.
 
+import { useShallow } from 'zustand/react/shallow'
 import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -17,7 +18,19 @@ const SIDES: { id: ThickenSide; label: string; title: string }[] = [
 ]
 
 export function ShellTool({ ready, busy, onShell }: { ready: boolean; busy: boolean; onShell: (mode: 'hollow' | 'thicken') => void }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the cut preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      editing: s.editing,
+      setShellSide: s.setShellSide,
+      setShellThickness: s.setShellThickness,
+      setTool: s.setTool,
+      shellSide: s.shellSide,
+      shellSurvey: s.shellSurvey,
+      shellThickness: s.shellThickness,
+    })),
+  )
   const survey = m.shellSurvey
   const mode = survey ? shellModeOf(survey) : null
   const len = useLength()
