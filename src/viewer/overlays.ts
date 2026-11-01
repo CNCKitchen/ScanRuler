@@ -809,6 +809,11 @@ export class Overlays {
       transparent: true,
       opacity: 0.4,
       depthWrite: false,
+      // Like committed shells, a preview can lie exactly on the scan.
+      // Bias only raster depth, preserving the actual fitted geometry.
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
       roughness: 0.4,
       metalness: 0,
       side: THREE.DoubleSide,
