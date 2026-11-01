@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Keep the build context small and the image clean.
+node_modules
+mcp/node_modules
+plugins/*/node_modules
+dist
+dist-engine
+.wrangler
+.git
+.github
+.DS_Store
+
+# Local test scans and generated e2e output (see .gitignore)
+/*.stl
+/*.ply
+/*.obj
+e2e-*.png
+e2e-out
+
+# Local env overrides should not leak into the image
+.env.local
+*.local

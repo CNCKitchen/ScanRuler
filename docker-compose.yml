@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Run ScanRuler locally. Two profiles:
+#
+#   Production-like (default): builds the static bundle and serves it on :8080
+#     docker compose up --build scanruler
+#
+#   Development (hot reload): Vite dev server on :5173, source bind-mounted
+#     docker compose --profile dev up --build dev
+#
+services:
+  # Static production build served by nginx.
+  scanruler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Point at your own short-link file store if you have one.
+        VITE_FILES_URL: ${VITE_FILES_URL:-https://files.scanruler.com/}
+    image: scanruler:local
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  # Vite dev server with hot-module reload. Enabled only with `--profile dev`.
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: scanruler-dev:local
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_FILES_URL: ${VITE_FILES_URL:-https://files.scanruler.com/}
+    volumes:
+      # Live source for hot reload...
+      - .:/app
+      # ...but keep the container's own node_modules (platform-correct binaries).
+      - /app/node_modules
+    restart: unless-stopped
