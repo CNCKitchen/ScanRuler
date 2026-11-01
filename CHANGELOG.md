@@ -5,6 +5,12 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Contributors are credited** (2026-11-01). Each publish to this repository now
+  names the people whose work it brings as co-authors, starting with Jozkah and
+  Starzrng. CONTRIBUTING.md says how it works.
+
 ## 0.9.4 — 2026-11-01
 
 - **A Notes key on the view bar** (2026-11-01, Reverse engineer, from issue 21).

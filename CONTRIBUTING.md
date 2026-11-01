@@ -134,3 +134,12 @@ npx license-checker --excludePrivatePackages --summary
 - Match the surrounding style: comments explain *why* a non-obvious approach
   was chosen (see the ones about scoring ICP candidates on all samples, or
   signing deviation by pseudonormal), not what the line does.
+
+## How you are credited
+
+This repository is published from a development repository, so a pull request is
+applied there and closed here rather than merged. It goes out with the next
+publish, as one commit of the whole tree, with you as a co-author of that commit:
+that is what puts you among the contributors. The changelog thanks you by name.
+For the credit to count, the email on your commits has to be on your GitHub
+account, or be its no-reply address.
