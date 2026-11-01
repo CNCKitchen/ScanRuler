@@ -1040,7 +1040,9 @@ element fits and alignments put 3D Measure on screen, and notes that went
 with this workspace came and went with every one — and take clicks only
 here. While the Note key is in hand every click on the part is the note's:
 a measured element, a sketch or a coordinate plane drawn there does not
-take it.
+take it. The view bar's **Notes** key puts the pins away and brings them back,
+while there are notes; the notes stay, the agent still reads them, and pinning or
+opening a note brings the pins back.
 
 A project file can hold notes, and anyone may have written the file. So every
 note a file brings is marked for this session (`Note.fromFile`, in

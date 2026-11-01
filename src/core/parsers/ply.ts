@@ -6,6 +6,7 @@
 // (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
 
 import type { ParsedMesh } from '../types'
+import { gatherIndices, Words } from './textChunks'
 
 interface PlyProperty {
   name: string
@@ -320,16 +321,31 @@ function parseAsciiBody(
   onProgress?: (text: string) => void,
 ): ParsedMesh {
   onProgress?.('Reading PLY…')
-  const body = new TextDecoder().decode(bytes.subarray(bodyStart))
-  const tokens = body.split(/\s+/).filter((t) => t.length > 0)
-  let ti = 0
+  // A word at a time, as a large file is too long to hold as text.
+  const words = new Words(bytes.subarray(bodyStart), (done) => onProgress?.(`Reading PLY… ${Math.round(done * 100)}%`))
+  // A word and the space after it take two bytes at least, so the body
+  // holds no more words than this — what the header counts are checked
+  // against before anything is allocated for them.
+  const wordsAtMost = Math.ceil((bytes.length - bodyStart) / 2)
+  let read = 0
+  let reading = ''
+  const next = () => {
+    const word = words.next()
+    if (word === undefined) throw new Error(`PLY element "${reading}" runs past the end of the file.`)
+    read++
+    return word
+  }
+  const skip = (n: number) => {
+    for (let k = 0; k < n; k++) next()
+  }
   let positions: Float32Array | null = null
   let colors: Uint8Array | null = null
-  const indices: number[] = []
+  const indices = gatherIndices()
 
   for (const el of elements) {
-    // In text every property takes at least one token.
-    checkRoom(el, el.props.length, tokens.length - ti)
+    reading = el.name
+    // In text every property takes at least one word.
+    checkRoom(el, el.props.length, wordsAtMost - read)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
@@ -342,10 +358,9 @@ function parseAsciiBody(
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
           if (prop.list) {
-            const n = listLength(parseInt(tokens[ti++], 10))
-            ti += n
+            skip(listLength(parseInt(next(), 10)))
           } else {
-            const v = parseFloat(tokens[ti++])
+            const v = parseFloat(next())
             if (p === xi) positions[i * 3] = v
             else if (p === yi) positions[i * 3 + 1] = v
             else if (p === zi) positions[i * 3 + 2] = v
@@ -357,16 +372,20 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = listLength(parseInt(tokens[ti++], 10))
-            if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
-              const first = parseInt(tokens[ti], 10)
+            const n = listLength(parseInt(next(), 10))
+            if ((prop.name === 'vertex_indices' || prop.name === 'vertex_index') && n >= 2) {
+              const first = parseInt(next(), 10)
+              let last = parseInt(next(), 10)
               for (let k = 2; k < n; k++) {
-                indices.push(first, parseInt(tokens[ti + k - 1], 10), parseInt(tokens[ti + k], 10))
+                const corner = parseInt(next(), 10)
+                indices.push3(first, last, corner)
+                last = corner
               }
+            } else {
+              skip(n)
             }
-            ti += n
           } else {
-            ti++
+            next()
           }
         }
       }
@@ -374,17 +393,15 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = listLength(parseInt(tokens[ti++], 10))
-            ti += n
+            skip(listLength(parseInt(next(), 10)))
           } else {
-            ti++
+            next()
           }
         }
       }
     }
-    if (ti > tokens.length) throw new Error(`PLY element "${el.name}" runs past the end of the file.`)
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return withColors({ kind: 'indexed', positions, indices: Uint32Array.from(indices) }, colors)
+  return withColors({ kind: 'indexed', positions, indices: indices.take() }, colors)
 }

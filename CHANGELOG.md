@@ -5,6 +5,34 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Contributors are credited** (2026-11-01). Each publish to this repository now
+  names the people whose work it brings as co-authors, starting with Jozkah and
+  Starzrng. CONTRIBUTING.md says how it works.
+
+## 0.9.4 — 2026-11-01
+
+- **A Notes key on the view bar** (2026-11-01, Reverse engineer, from issue 21).
+  While there are notes for the agent, the key puts their pins away and brings
+  them back. Only agents could do that before. The notes stay and the agent still
+  reads them, and pinning or opening a note brings the pins back.
+- **Small features stay visible on a large scan** (2026-11-01, issue 47). What is
+  drawn at a size of its own was sized to the whole scan: on a frame two metres
+  across, the arrows on a cylinder being made were wider than the Ø32 bore they
+  stood on, and a point was a ball 200 pixels across. These marks are now a fixed
+  size on the screen at any zoom, so they leave the feature in view zoomed in and
+  can be clicked zoomed out: the grips of the element being made, points, the
+  thickness of lines and circles, centre dots, selection strokes, angle arcs and
+  pinned readings. Cylinders, spheres, cones, tori and plane patches keep their true
+  size. While you brush, the grips are put away, as they cannot be taken hold of
+  then, and the ghost of the fit is drawn faint.
+- **OBJ, ASCII STL and ASCII PLY files of any size open** (2026-11-01). Above
+  about 512 MB, a file of text came up as having no triangles, because a browser
+  cannot hold that much text in one piece and says nothing when it cannot. They
+  are now read a piece at a time. 3MF and STEP files that large still cannot be
+  read, and now say that they are too large, in place of the false message.
+
 ## 0.9.3 — 2026-11-01
 
 - **Ask your agent to update its connector** (2026-10-31). The banner that says

@@ -49,6 +49,8 @@ import { LineWidthRegistry } from './lineWidthRegistry'
  *  where a plane through the middle of a solid part would never be seen,
  *  and faint, brighter under the cursor. */
 const WORLD_PLANE_HALF = 0.2
+/** A point on a section, its radius in pixels of the canvas. */
+const POINT_DOT_PX = 4
 const WORLD_SHEET_OPACITY = 0.18
 const WORLD_SHEET_LIT_OPACITY = 0.4
 const WORLD_BORDER_OPACITY = 0.7
@@ -79,6 +81,9 @@ export class SectionOverlay {
   private group = new THREE.Group()
   private previewGroup = new THREE.Group()
   private cleanup: (() => void)[] = []
+  /** The dots of points on the sections, and what a pixel is worth. */
+  private pointDots = new Set<THREE.Mesh>()
+  private worldPerPixel = 0
   private previewCleanup: (() => void)[] = []
   private worldGroup = new THREE.Group()
   private worldPlanes: {
@@ -116,6 +121,21 @@ export class SectionOverlay {
    *  coordinate planes on offer. See SceneManager.dressClipped. */
   clipRoots(): THREE.Object3D[] {
     return [this.group]
+  }
+
+  /** What a pixel is worth now, from the viewport, for the points drawn on the
+   *  sections: a dot held in pixels, not one sized to the whole scan. */
+  setPixelScale(worldPerPixel: number): void {
+    if (worldPerPixel === this.worldPerPixel) return
+    this.worldPerPixel = worldPerPixel
+    if (this.pointDots.size === 0) return
+    const r = this.pointDotRadius()
+    for (const dot of this.pointDots) dot.scale.setScalar(r)
+    this.ctx.invalidate()
+  }
+
+  private pointDotRadius(): number {
+    return Math.max(POINT_DOT_PX * (this.worldPerPixel || this.ctx.modelRadius() / 400), 1e-5)
   }
 
   /** Whether the finished sections are on screen. */
@@ -489,7 +509,9 @@ export class SectionOverlay {
         dotMat ??= new THREE.MeshBasicMaterial({ color })
         const dot = new THREE.Mesh(this.unitSphere, dotMat)
         dot.position.set(g.center[0], g.center[1], g.center[2])
-        dot.scale.setScalar(Math.max(this.ctx.modelRadius() * 0.008, 1e-4))
+        this.pointDots.add(dot)
+        cleanup.push(() => this.pointDots.delete(dot))
+        dot.scale.setScalar(this.pointDotRadius())
         dot.renderOrder = 4
         group.add(dot)
         continue

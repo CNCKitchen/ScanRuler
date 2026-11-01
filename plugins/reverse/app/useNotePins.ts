@@ -121,6 +121,17 @@ export function useNotePins(sceneRef: RefObject<SceneManager | null>): void {
     notePinsOf(scene).setPins(items, shown)
   }, [sceneRef, notes, editing, shown])
 
+  // As it changes, not after the next render: a picture that puts the pins away
+  // is taken right after asking.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    notePinsOf(scene).setPutAway(!useNotes.getState().pinsShown)
+    return useNotes.subscribe((s, prev) => {
+      if (s.pinsShown !== prev.pinsShown) notePinsOf(scene).setPutAway(!s.pinsShown)
+    })
+  }, [sceneRef])
+
   useEffect(() => {
     const scene = sceneRef.current
     if (scene) notePinsOf(scene).setLit(editing)

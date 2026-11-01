@@ -24,6 +24,10 @@ interface NotesState {
   /** The Note key in hand: the next click on the part pins a note there. */
   placing: boolean
   editing: NoteEditing | null
+  /** The pins on the part: put away by the view bar's Notes key, or for a
+   *  picture. The notes stay. A note being pinned or opened brings them back. */
+  pinsShown: boolean
+  setPinsShown: (on: boolean) => void
   setPlacing: (on: boolean) => void
   /** A new note, empty, its box opened at `screen` for the text. Returns
    *  its id. */
@@ -59,15 +63,17 @@ export const useNotes = create<NotesState>((set, get) => ({
   nextId: 1,
   placing: false,
   editing: null,
-  setPlacing: (placing) => set({ placing }),
+  pinsShown: true,
+  setPinsShown: (pinsShown) => set({ pinsShown }),
+  setPlacing: (placing) => set({ placing, ...(placing ? { pinsShown: true } : {}) }),
   addNote: (note, screen) => {
     const id = get().nextId
-    set((s) => ({ notes: [...s.notes, { id, text: '', ...note }], nextId: id + 1, placing: false, editing: { id, at: screen } }))
+    set((s) => ({ notes: [...s.notes, { id, text: '', ...note }], nextId: id + 1, placing: false, editing: { id, at: screen }, pinsShown: true }))
     return id
   },
   addAgentNote: (note) => {
     const id = get().nextId
-    set((s) => ({ notes: [...s.notes, { id, by: 'agent', ...note }], nextId: id + 1 }))
+    set((s) => ({ notes: [...s.notes, { id, by: 'agent', ...note }], nextId: id + 1, pinsShown: true }))
     return id
   },
   setText: (id, text) =>
@@ -103,7 +109,7 @@ export const useNotes = create<NotesState>((set, get) => ({
     })),
   removeNote: (id) => set((s) => ({ notes: s.notes.filter((n) => n.id !== id), editing: s.editing?.id === id ? null : s.editing })),
   removeAll: () => set({ notes: [], editing: null }),
-  edit: (editing) => set({ editing, ...(editing ? { placing: false } : {}) }),
+  edit: (editing) => set({ editing, ...(editing ? { placing: false, pinsShown: true } : {}) }),
   closeEditor: () =>
     set((s) => {
       const id = s.editing?.id

@@ -25,6 +25,7 @@
 // 3MF model holds.
 
 import { unzipSync, strFromU8 } from 'fflate'
+import { checkTextSize } from './text'
 import type { ParsedMesh } from '../types'
 import { baseName, sampleTexture, type ObjCompanions, type TextureImage } from './objTexture'
 
@@ -397,6 +398,10 @@ const MAX_DEPTH = 32
  *  of a few bytes each would make a billion copies. Far past any real part. */
 const MAX_PLACED = { objects: 1_000_000, vertices: 30_000_000 }
 
+/** A model is XML whatever the zip makes of it: past the size text can be held
+ *  at, about 7.5 million triangles at the 71 bytes a triangle ScanRuler writes. */
+const THREEMF_INSTEAD = 'Export it as binary STL or binary PLY, which have no such limit.'
+
 export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => void, companions?: ObjCompanions): ParsedMesh {
   onProgress?.('Reading 3MF…')
   let zipped: Record<string, Uint8Array>
@@ -412,6 +417,7 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
 
   const rootPath = rootModelPath(files)
   const models = new Map<string, ModelFile>()
+  checkTextSize(files[rootPath].byteLength, 'This 3MF', THREEMF_INSTEAD)
   const root = readModel(strFromU8(files[rootPath]), 1)
   models.set(rootPath, root)
   const modelAt = (path: string | undefined): ModelFile => {
@@ -421,6 +427,7 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     if (!m) {
       const bytes = files[key]
       if (!bytes) throw new Error(`This 3MF names ${path}, which it does not hold.`)
+      checkTextSize(bytes.byteLength, 'This 3MF', THREEMF_INSTEAD)
       m = readModel(strFromU8(bytes), root.scale)
       models.set(key, m)
     }
