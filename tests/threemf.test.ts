@@ -194,4 +194,20 @@ describe('3MF import', () => {
     expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources/><build/>') }))).toThrow(/no triangles/)
     expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources/><build><item objectid="4"/></build>') }))).toThrow(/object 4/)
   })
+
+  it('reads a numeric entity past Unicode as a replacement character, not a RangeError', () => {
+    expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources><object id="&#x110000;"/></resources><build/>') })))
+      .toThrow(/no triangles/)
+  })
+
+  it('does not take Object members for package parts', () => {
+    const rels = RELS.replace('/3D/3dmodel.model', 'constructor')
+    const zip = zipSync({
+      '_rels/.rels': strToU8(rels),
+      '3D/3dmodel.model': strToU8(model(`<resources><object id="1">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`)),
+    })
+    expect(parse3MF(zip.buffer as ArrayBuffer).indices!.length).toBe(3)
+    const component = model(`<resources><object id="2"><components><component objectid="1" p:path="toString"/></components></object><object id="1">${TRIANGLE}</object></resources><build><item objectid="2"/></build>`)
+    expect(() => parse3MF(pack({ '3D/3dmodel.model': component }))).toThrow('This 3MF names toString, which it does not hold.')
+  })
 })
