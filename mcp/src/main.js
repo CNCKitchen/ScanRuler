@@ -174,7 +174,9 @@ export async function main(argv = process.argv.slice(2)) {
   const updates = startUpdates({ version: VERSION, argv })
   watchParent()
   const cwd = process.cwd()
-  const outDir = values.out ? (values.out.match(/^([A-Za-z]:)?[\\/]/) ? values.out : `${cwd}/${values.out}`) : cwd
+  // Resolved, so "../reports" is a plain absolute folder with this
+  // system's separators in the status and the answers.
+  const outDir = values.out ? resolve(cwd, values.out) : cwd
   const traceDir = values.trace ?? process.env.SCANRULER_MCP_TRACE
   const trace = traceDir ? createTrace(resolve(cwd, traceDir), { args: values['trace-args'] === true }) : null
   if (trace) log(`Tracing every call to ${trace.file}${trace.args ? ', arguments too' : ''}.`)
