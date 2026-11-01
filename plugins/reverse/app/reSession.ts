@@ -282,13 +282,22 @@ export function createReverseSession({
     // A build of a kernel a stop let go answers nothing: the stop took it
     // off the count.
     const c = client
+    // Taken off the count once only: a throw while the answer is written
+    // into the store lands in the catch below, which must not count it off
+    // a second time.
+    let counted = true
+    const uncount = () => {
+      if (!counted) return
+      counted = false
+      running--
+      kernelBuilds--
+    }
     c.build(steps, sketches, stepFilesFor(steps))
       .then((answer) => {
         if (c !== client) return
         // Not running any more before the store says what landed, so that
         // what waits on the store finds the session idle when it looks.
-        running--
-        kernelBuilds--
+        uncount()
         if (!answer) return
         // A body the build left as it was comes back the very object it
         // was, so what the viewport made of its mesh stays.
@@ -317,8 +326,7 @@ export function createReverseSession({
       })
       .catch((e) => {
         if (c !== client) return
-        running--
-        kernelBuilds--
+        uncount()
         landed = version
         useReverse.getState().failBuild(message(e))
       })
@@ -352,8 +360,11 @@ export function createReverseSession({
         }
         return { features: s.features.map(patch), rolledBack: s.rolledBack.map(patch), buildVersion: s.buildVersion + 1 }
       })
-      running--
     })
+      // Off the count whatever happened, or a wait for the build would wait
+      // out its whole limit for a read that is over.
+      .catch((e) => useReverse.getState().failBuild(message(e)))
+      .finally(() => running--)
   }
 
   const schedule = () => {

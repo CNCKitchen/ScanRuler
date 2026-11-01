@@ -44,3 +44,36 @@ describe('the scan handed to the kernel', () => {
     expect(client.sent).toBe(2)
   })
 })
+
+describe('the builds a session counts', () => {
+  it('counts a build off once when writing its answer throws, so the next build still reads as building', async () => {
+    const client = fakeClient()
+    let builds = 0
+    Object.assign(client, {
+      // The first build answers; the second never does.
+      build: () => (++builds === 1 ? Promise.resolve({ results: [], bodies: [] }) : new Promise(() => {})),
+    })
+    const session = createReverseSession({ sceneRef: { current: null }, kernel: () => client as unknown as ReClient })
+    await session.startKernel()
+    const finishBuild = useReverse.getState().finishBuild
+    useReverse.setState({
+      finishBuild: () => {
+        throw new Error('the store refused the answer')
+      },
+    })
+    const stop = session.watch()
+    try {
+      const feature = { id: 1, kind: 'import', name: 'Import 1', file: { key: 'k1', name: 'a.step', size: 13 }, visible: true }
+      useReverse.setState((s) => ({ features: [feature as never], buildVersion: s.buildVersion + 1 }))
+      await vi.waitFor(() => expect(builds).toBe(1))
+      await new Promise((r) => setTimeout(r, 0))
+      useReverse.setState({ finishBuild })
+      useReverse.setState((s) => ({ buildVersion: s.buildVersion + 1 }))
+      await vi.waitFor(() => expect(builds).toBe(2))
+      expect(session.buildState()).toBe('building')
+    } finally {
+      stop()
+      useReverse.setState({ finishBuild })
+    }
+  })
+})
