@@ -25,7 +25,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { absolute, agentJson, batchedPicture, fileKind, imageContent, inputFor, relativeFrom, replacesSession, saveFileResult, TEXT_FILES, toolFor, toolName, waitIn, withFiles, wholeUtf8, writeNew } from './tools.js'
@@ -420,6 +420,71 @@ const failure = (e) => {
   const code = e?.code ?? 'failed'
   const message = e?.message ?? String(e)
   return { ...text(`${code}: ${message}`), isError: true }
+}
+
+/** Whether `target` lies in `folder` — or is it, with `orSame`. A name that
+ *  merely starts with two dots, such as "..notes.md", is in it; only a
+ *  ".." segment climbs out. */
+function liesIn(folder, target, orSame = false) {
+  const r = relative(folder, target)
+  if (r === '') return orSame
+  return r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)
+}
+
+/** `path` with every link in it followed: the real path of the deepest
+ *  part that is there, the rest as given — a file about to be written is
+ *  not there yet, but the folder it goes into may be a link. */
+async function realOf(path) {
+  const tail = []
+  for (let at = path; ; ) {
+    try {
+      return join(await realpath(at), ...tail)
+    } catch {
+      const up = dirname(at)
+      if (up === at) return path
+      tail.unshift(basename(at))
+      at = up
+    }
+  }
+}
+
+/** The folders of `folders` that `target` lies in both as written and with
+ *  links followed: a link in the scan's folder that points elsewhere does
+ *  not carry scanruler_read, _write or _files out of it. */
+async function holding(folders, target, orSame = false) {
+  const real = await realOf(target)
+  const out = []
+  for (const folder of folders) if (liesIn(folder, target, orSame) && liesIn(await realOf(folder), real, orSame)) out.push(folder)
+  return out
+}
+
+/** What is wrong with `args` against a tool's input schema, as a message —
+ *  each top-level number's and boolean's type, an enum, and numeric bounds — or null when
+ *  nothing is. Only the parts of JSON Schema this server's own tools use
+ *  are checked. */
+export function schemaMismatch(schema, args) {
+  if (args === undefined || args === null) return null
+  if (typeof args !== 'object' || Array.isArray(args)) return 'give the arguments as an object.'
+  for (const [key, value] of Object.entries(args)) {
+    const want = schema?.properties?.[key]
+    if (!want || value === undefined) continue
+    // Lists and objects are left to the tools, some of which take them given
+    // as a string of JSON too.
+    const types = [want.type].flat().filter(Boolean)
+    const is = (type) =>
+      type === 'integer' ? Number.isInteger(value)
+        : type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+        : type === 'boolean' ? typeof value === 'boolean'
+        : true
+    if (types.length && !types.some(is)) return `${key}: give ${types.join(' or ')}, not ${JSON.stringify(value)}.`
+    if (want.enum && !want.enum.includes(value)) return `${key}: give one of ${want.enum.map((v) => JSON.stringify(v)).join(', ')}.`
+    if (typeof value === 'number') {
+      if (want.minimum !== undefined && value < want.minimum) return `${key}: give ${want.minimum} or more.`
+      if (want.exclusiveMinimum !== undefined && value <= want.exclusiveMinimum) return `${key}: give more than ${want.exclusiveMinimum}.`
+      if (want.maximum !== undefined && value > want.maximum) return `${key}: give ${want.maximum} or less.`
+    }
+  }
+  return null
 }
 
 /**
@@ -1138,11 +1203,7 @@ export function createMcpServer({
     }
     if (typeof path === 'string' && path.split(/[\\/]/).includes('..')) throw { code: 'invalid_input', message: 'path: ".." is not taken — give a folder in the scan’s folder or under it.' }
     const folder = typeof path === 'string' && path ? (isAbsolute(path) ? resolve(path) : resolve(folders[0], path)) : folders[0]
-    const within = (f) => {
-      const r = relative(f, folder)
-      return r === '' || (!r.startsWith('..') && !isAbsolute(r))
-    }
-    if (!folders.some(within)) throw { code: 'invalid_input', message: `path: ${folder} is outside the folders a scan or a project was opened from — ${folders.join(', ')}.` }
+    if ((await holding(folders, folder, true)).length === 0) throw { code: 'invalid_input', message: `path: ${folder} is outside the folders a scan or a project was opened from — ${folders.join(', ')}.` }
     let entries
     try {
       entries = await readdir(folder, { withFileTypes: true })
@@ -1180,13 +1241,9 @@ export function createMcpServer({
     if (path.split(/[\\/]/).includes('..')) throw { code: 'invalid_input', message: 'path: ".." is not taken — give a path in the scan’s folder or under it.' }
     const folders = knownFolders()
     const target = resolve(folders[0] ?? outDir, path)
-    const inside = (folder) => {
-      const r = relative(folder, target)
-      return r !== '' && !r.startsWith('..') && !isAbsolute(r)
-    }
     if (!spilled.has(target)) {
       if (folders.length === 0) throw { code: 'invalid_state', message: 'This server has opened no scan or project from a folder, so it has none to read from. Open the scan with scan_open (or a project with project_load) by its path first.' }
-      if (!folders.some(inside)) throw { code: 'invalid_input', message: `path: ${target} is outside the folders a scan or a project was opened from — ${folders.join(', ')}.` }
+      if ((await holding(folders, target)).length === 0) throw { code: 'invalid_input', message: `path: ${target} is outside the folders a scan or a project was opened from — ${folders.join(', ')}.` }
     }
     const most = Math.min(limit, answerCap)
     let size
@@ -1756,7 +1813,13 @@ export function createMcpServer({
   const dispatch = async (request, extra, ctx) => {
     const { name, arguments: args } = request.params
     const mine = own.find((t) => t.name === name)
-    if (mine) return mine.call(args, ctx)
+    if (mine) {
+      // The SDK does not check arguments against a tool's schema, so a
+      // timeoutSeconds of "abc" would wait no time at all; this server's own
+      // tools are checked here.
+      const wrong = schemaMismatch(mine.inputSchema, args)
+      return wrong ? failure({ code: 'invalid_input', message: wrong }) : mine.call(args, ctx)
+    }
     // Progress lines from the page: kept on the call's job, for the status
     // and scanruler_wait to answer, and sent on to a client that asked for
     // them.
