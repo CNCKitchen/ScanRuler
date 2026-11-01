@@ -80,6 +80,13 @@ export interface DeviationOptions {
    *  here. Only the face is taken from it: the reading itself is resolved on
    *  that face in doubles, so it is the one the tree search gives. */
   nearestFaces?: Int32Array | null
+  /** Measure only vertices from..to; the answer, and `directions`, then hold
+   *  just those, the first at index 0 — how the map is cut into slices for
+   *  several workers (parallel.ts). */
+  range?: { from: number; to: number }
+  /** Which way the scan's normals point, when the caller has settled it for the
+   *  whole scan already (a slice cannot, being only part of it). */
+  outward?: 1 | -1
 }
 
 /**
@@ -108,9 +115,11 @@ export function computeDeviation(
   surface: NominalSurface,
   scanPositions: Float32Array,
   transform: Rigid,
-  { onProgress, directions, normals, maxNormalDeviation = null, nearestFaces = null }: DeviationOptions = {},
+  { onProgress, directions, normals, maxNormalDeviation = null, nearestFaces = null, range, outward: settledOutward }: DeviationOptions = {},
 ): Float32Array {
-  const n = scanPositions.length / 3
+  const from = range?.from ?? 0
+  const to = range?.to ?? scanPositions.length / 3
+  const n = to - from
   const values = new Float32Array(n)
   const hit = emptyHit()
   const p = new Float64Array(3)
@@ -119,9 +128,9 @@ export function computeDeviation(
   const chunk = Math.max(1, Math.floor(n / 50))
   const minFacing = normals && maxNormalDeviation !== null ? Math.cos(maxNormalDeviation) : null
   const reach = surface.bboxDiagonal * FACING_REACH
-  const outward = minFacing === null ? 1 : scanNormalsSign(surface, scanPositions, normals!, transform)
+  const outward = settledOutward ?? (minFacing === null ? 1 : scanNormalsSign(surface, scanPositions, normals!, transform))
 
-  for (let v = 0; v < n; v++) {
+  for (let v = from; v < to; v++) {
     rigidApply(transform, scanPositions[v * 3], scanPositions[v * 3 + 1], scanPositions[v * 3 + 2], p)
     let found: boolean
     const face = nearestFaces ? nearestFaces[v] : -1
@@ -143,9 +152,9 @@ export function computeDeviation(
       }
     }
     if (!found) {
-      values[v] = NaN
+      values[v - from] = NaN
     } else {
-      values[v] = hit.signed
+      values[v - from] = hit.signed
       if (directions) {
         // From the closest point to the scan point, over the signed reading so
         // that it points off the outside of the reference either way. A point
@@ -160,14 +169,14 @@ export function computeDeviation(
         // Back into the scan's frame: the transpose of the fit's rotation.
         writeDirection(
           directions,
-          v,
+          v - from,
           r[0] * dx + r[3] * dy + r[6] * dz,
           r[1] * dx + r[4] * dy + r[7] * dz,
           r[2] * dx + r[5] * dy + r[8] * dz,
         )
       }
     }
-    if (onProgress && v % chunk === 0) onProgress(v / n)
+    if (onProgress && (v - from) % chunk === 0) onProgress((v - from) / n)
   }
   onProgress?.(1)
   return values

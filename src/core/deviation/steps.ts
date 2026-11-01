@@ -15,12 +15,17 @@
  * `alignLocal` functions do.
  */
 
-/** A computation that yields between steps and finally produces a `T`. */
-export type Steps<T> = Generator<void, T, void>
+/** A computation that yields between steps and finally produces a `T`. A step that
+ *  hands back a promise is waiting on helper workers: whoever drives it waits for
+ *  the promise (it never rejects) before asking for the next one. */
+export type Steps<T> = Generator<void | Promise<void>, T, void>
 
 /** Run one to the end, ignoring the seams. */
 export function runSteps<T>(steps: Steps<T>): T {
   let step = steps.next()
-  while (!step.done) step = steps.next()
+  while (!step.done) {
+    if (step.value instanceof Promise) throw new Error('This computation waits on helpers; drive it with the worker pump.')
+    step = steps.next()
+  }
   return step.value
 }

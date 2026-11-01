@@ -31,9 +31,12 @@ import {
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { GPU_MIN_VERTICES, gpuNearestFaces } from './deviation/gpuNearest'
+import { icpPoolFor } from './deviation/icpPool'
+import { computeDeviationAuto } from './deviation/parallel'
 import { rigidApplyToPoints, rigidInvert, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap } from './deviation/onReference'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
+import { computeThicknessParallel, helpersFor } from './thickness/parallel'
 import { sliceMesh } from './section/slice'
 import { shadowMesh } from './section/shadow'
 import { meshCentroid } from './geometry/centroid'
@@ -200,7 +203,7 @@ function parseNominal(
  * fit is a generator (see deviation/steps.ts) driven a slice at a time, and
  * between slices the inbox is read — which is where the abort arrives.
  */
-let alignRun: { steps: Steps<AlignResult>; requestId: number } | null = null
+let alignRun: { steps: Steps<AlignResult>; requestId: number; pool: { close(): void } | null } | null = null
 let alignAborted = false
 /** A plugin's request that awaits — a library loading, say. Nothing may run
  *  inside the wait: a scan committed in the gap would be worked on as the
@@ -445,6 +448,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       })
       return
     }
+    let pool: ReturnType<typeof icpPoolFor> = null
     try {
       const options = {
         onProgress: progress,
@@ -462,7 +466,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       }
       let steps
       if (msg.mode === 'auto') {
-        steps = autoAlignSteps(nominal, graph.positions, graph.normals, options)
+        // Helpers for the closest-point passes, started now so they build their copy of
+        // the reference while the first passes run here.
+        pool = icpPoolFor(nominal, graph.vertexCount)
+        steps = autoAlignSteps(nominal, graph.positions, graph.normals, { ...options, pool: pool ?? undefined })
       } else if (msg.mode === 'points') {
         checkVertices(msg.vertices, graph.vertexCount)
         steps = alignFromPairsSteps(
@@ -480,10 +487,11 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           maxDistance: msg.maxDistance,
         })
       }
-      alignRun = { steps, requestId: msg.requestId }
+      alignRun = { steps, requestId: msg.requestId, pool }
       alignAborted = false
       pumpAlign()
     } catch (e) {
+      pool?.close()
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
     return
@@ -782,40 +790,46 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
         scanSolid = buildSolidIndex(graph.positions, graph.indices)
       }
       let lastPercent = -1
-      const values = computeThickness(
-        scanSolid,
-        graph.positions,
-        graph.normals,
-        {
-          method: msg.method,
-          coneRays: msg.coneRays,
-          coneAngle: (msg.coneAngleDeg * Math.PI) / 180,
-          maxNormalDeviation:
-            msg.normalDeviationDeg === null ? null : (msg.normalDeviationDeg * Math.PI) / 180,
-          maxThickness: msg.maxThickness,
-          // A hair off the surface, scaled to the part: enough that a ray
-          // never scores a hit on the triangle it left from, small enough
-          // never to reach across a real wall.
-          epsilon: Math.max(1e-6, graph.bboxDiag * 1e-5),
-        },
-        (f) => {
-          const percent = Math.round(f * 100)
-          if (percent === lastPercent) return
-          lastPercent = percent
-          progress(`Measuring wall thickness — ${percent}%…`)
-        },
-      )
-      const { low, high } = suggestThicknessScale(values)
-      post(
-        {
-          type: 'thickness-ok',
-          requestId: msg.requestId,
-          values,
-          suggestedLow: low,
-          suggestedHigh: high,
-        },
-        [values.buffer],
-      )
+      const options = {
+        method: msg.method,
+        coneRays: msg.coneRays,
+        coneAngle: (msg.coneAngleDeg * Math.PI) / 180,
+        maxNormalDeviation:
+          msg.normalDeviationDeg === null ? null : (msg.normalDeviationDeg * Math.PI) / 180,
+        maxThickness: msg.maxThickness,
+        // A hair off the surface, scaled to the part: enough that a ray
+        // never scores a hit on the triangle it left from, small enough
+        // never to reach across a real wall.
+        epsilon: Math.max(1e-6, graph.bboxDiag * 1e-5),
+      }
+      const onFraction = (f: number) => {
+        const percent = Math.round(f * 100)
+        if (percent === lastPercent) return
+        lastPercent = percent
+        progress(`Measuring wall thickness — ${percent}%…`)
+      }
+      const finish = (values: Float32Array) => {
+        const { low, high } = suggestThicknessScale(values)
+        post({ type: 'thickness-ok', requestId: msg.requestId, values, suggestedLow: low, suggestedHigh: high }, [values.buffer])
+      }
+      const solid = scanSolid
+      const { positions, normals } = graph
+      const helpers = helpersFor(positions.length / 3, options.method === 'sphere' ? 8 : 1 + options.coneRays)
+      if (helpers > 0) {
+        // On every core. The queue is held meanwhile, as for any request that awaits.
+        holding = true
+        computeThicknessParallel(solid, positions, normals, options, helpers, onFraction)
+          // Helpers that would not start, or died: measure the ordinary way.
+          .catch(() => computeThickness(solid, positions, normals, options, onFraction))
+          .then(finish)
+          .catch((e) => post({ type: 'error', requestId: msg.requestId, message: errorText(e) }))
+          .finally(() => {
+            holding = false
+            drainQueue()
+          })
+        return
+      }
+      finish(computeThickness(solid, positions, normals, options, onFraction))
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
@@ -913,18 +927,18 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       progress(`Measuring the scan against the reference — ${percent}%…`)
     }
     const deviate = (nearestFaces: Int32Array | null) => {
-      try {
-        const directions = new Int8Array(scan.positions.length)
-        const values = computeDeviation(reference, scan.positions, transform, {
-          // With the faces in hand the GPU had the first half of the bar.
-          onProgress: (f) => report(nearestFaces ? 0.5 + f * 0.5 : f),
-          nearestFaces,
-          directions,
-          // Rotated along with the positions whenever an alignment is baked in,
-          // so they stand in the same frame the transform starts from.
-          normals: scan.normals,
-          maxNormalDeviation: msg.facingDeg === null ? null : (msg.facingDeg * Math.PI) / 180,
-        })
+      const directions = new Int8Array(scan.positions.length)
+      const options = {
+        // With the faces in hand the GPU had the first half of the bar.
+        onProgress: (f: number) => report(nearestFaces ? 0.5 + f * 0.5 : f),
+        nearestFaces,
+        directions,
+        // Rotated along with the positions whenever an alignment is baked in,
+        // so they stand in the same frame the transform starts from.
+        normals: scan.normals,
+        maxNormalDeviation: msg.facingDeg === null ? null : (msg.facingDeg * Math.PI) / 180,
+      }
+      const finish = (values: Float32Array) => {
         const suggestedMaxDistance = defaultMaxDistance(scan.bboxDiag)
         post(
           {
@@ -937,8 +951,21 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           },
           [values.buffer, directions.buffer],
         )
+      }
+      const fail = (e: unknown) => post({ type: 'error', requestId, message: errorText(e) })
+      try {
+        // Faces from the GPU leave only the readings, quick on one thread; a
+        // CPU search is sliced across helpers (parallel.ts) when big enough.
+        const map = nearestFaces ? computeDeviation(reference, scan.positions, transform, options) : computeDeviationAuto(reference, scan.positions, transform, options)
+        if (!(map instanceof Promise)) return finish(map)
+        // Gone out to helpers: held meanwhile, as for any request that awaits.
+        holding = true
+        map.then(finish, fail).finally(() => {
+          holding = false
+          drainQueue()
+        })
       } catch (e) {
-        post({ type: 'error', requestId, message: errorText(e) })
+        fail(e)
       }
     }
     // A big scan's nearest faces are looked up on the GPU first, where there
@@ -980,19 +1007,28 @@ function checkVertices(vertices: Uint32Array | undefined, vertexCount: number): 
 function pumpAlign(): void {
   const run = alignRun
   if (!run) return
+  const end = () => {
+    alignRun = null
+    run.pool?.close()
+  }
   try {
     const until = performance.now() + ALIGN_SLICE_MS
     for (;;) {
       if (alignAborted) {
-        alignRun = null
+        end()
         post({ type: 'align-stopped', requestId: run.requestId })
         break
       }
       const step = run.steps.next()
       if (step.done) {
-        alignRun = null
+        end()
         post({ type: 'align-ok', requestId: run.requestId, result: step.value })
         break
+      }
+      if (step.value instanceof Promise) {
+        // A pass is out with the helpers (it never rejects); an abort is read when it is back.
+        step.value.then(pumpAlign)
+        return
       }
       if (performance.now() >= until) {
         setTimeout(pumpAlign, 0)
@@ -1000,7 +1036,7 @@ function pumpAlign(): void {
       }
     }
   } catch (e) {
-    alignRun = null
+    end()
     post({ type: 'error', requestId: run.requestId, message: errorText(e) })
   }
   drainQueue()

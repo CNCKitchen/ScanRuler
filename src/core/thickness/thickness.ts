@@ -83,6 +83,10 @@ export function buildSolidIndex(positions: Float32Array, indices: Uint32Array): 
  * Both sides of every triangle are tested. A scan is not reliably wound, and a
  * far wall whose winding disagrees with the near one would otherwise be
  * invisible to the ray that is trying to find it.
+ *
+ * With `range`, only vertices from..to are measured, and the answer holds just
+ * those, the first at index 0: how the measurement is cut into slices for
+ * several workers (parallel.ts). Each vertex is read the same way either way.
  */
 export function computeThickness(
   bvh: MeshBVH,
@@ -90,13 +94,16 @@ export function computeThickness(
   normals: Float32Array,
   options: ThicknessOptions,
   onProgress?: (fraction: number) => void,
+  range?: { from: number; to: number },
 ): Float32Array {
   const { method, coneRays, coneAngle, maxThickness, epsilon } = options
   // Compared as |cos|: the winding of the far surface is not to be trusted, so
   // only how squarely it faces the ray counts, not which way round it is.
   const facing =
     options.maxNormalDeviation === null ? -1 : Math.cos(Math.min(Math.PI / 2, options.maxNormalDeviation))
-  const count = positions.length / 3
+  const from = range?.from ?? 0
+  const to = range?.to ?? positions.length / 3
+  const count = to - from
   const out = new Float32Array(count)
   const ray = new THREE.Ray()
   const centre = new THREE.Vector3()
@@ -121,7 +128,7 @@ export function computeThickness(
     sinPhi[k] = Math.sin(phi)
   }
 
-  for (let v = 0; v < count; v++) {
+  for (let v = from; v < to; v++) {
     const px = positions[v * 3]
     const py = positions[v * 3 + 1]
     const pz = positions[v * 3 + 2]
@@ -137,7 +144,7 @@ export function computeThickness(
     if (method === 'sphere') {
       // The ray gives the sphere somewhere to start: the largest sphere
       // touching here can be no bigger than the wall the normal crosses.
-      out[v] = best === Infinity ? NaN : inscribedDiameter(bvh, px, py, pz, dx, dy, dz, best, centre, target)
+      out[v - from] = best === Infinity ? NaN : inscribedDiameter(bvh, px, py, pz, dx, dy, dz, best, centre, target)
     } else {
       if (coneRays > 0 && best > epsilon) {
         // Any two directions perpendicular to the axis will do; building the
@@ -174,10 +181,10 @@ export function computeThickness(
           }
         }
       }
-      out[v] = best === Infinity ? NaN : best
+      out[v - from] = best === Infinity ? NaN : best
     }
 
-    if (onProgress && v % chunk === 0) onProgress(v / count)
+    if (onProgress && (v - from) % chunk === 0) onProgress((v - from) / count)
   }
   onProgress?.(1)
   return out
