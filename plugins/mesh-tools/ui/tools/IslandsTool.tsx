@@ -6,6 +6,7 @@ import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
 import { useMeshTools } from '../../state/meshStore'
+import { SurveyWait } from '../SurveyWait'
 import { count, typedLen } from '../meshFormat'
 
 export function IslandsTool({ ready, busy, onRemove }: { ready: boolean; busy: boolean; onRemove: () => void }) {
@@ -58,11 +59,7 @@ export function IslandsTool({ ready, busy, onRemove }: { ready: boolean; busy: b
         hint="A piece whose bounding box is smaller than this across is an island. It starts at a hundredth of the part's size."
       />
 
-      {ready && !s && (
-        <p className="hint">
-          <span className="spinner" /> Looking for islands…
-        </p>
-      )}
+      {ready && !s && <SurveyWait looking="Looking for islands…" />}
       {s && (
         <>
           <div className="kv" data-test="islands-pieces">

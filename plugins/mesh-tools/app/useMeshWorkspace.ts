@@ -27,6 +27,25 @@ import type { EditRun, MeshToolsSession } from './meshToolsSession'
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
+/**
+ * Make a survey for the tool in hand: `ask` the worker, and hand what it
+ * found to `done` while `current` still says it is wanted. A failure is
+ * said, and kept as the survey's state — with only a toast, the panel would
+ * go on showing it as still being made, with no way to ask again.
+ */
+export function runSurvey<T>(ask: () => Promise<T>, current: () => boolean, done: (found: T) => void | Promise<void>): Promise<void> {
+  useMeshTools.getState().setSurveyFailed(null)
+  return ask()
+    .then((found) => {
+      if (current()) return done(found)
+    })
+    .catch((e: unknown) => {
+      if (!current()) return
+      useMeshTools.getState().setSurveyFailed(message(e))
+      useStore.getState().setError(message(e))
+    })
+}
+
 export function useMeshWorkspace(session: MeshToolsSession) {
   const { clientRef, sceneRef, copyField, copyRgb, meshOfSolid, trimBodyOf } = session
 
@@ -70,6 +89,7 @@ export function useMeshWorkspace(session: MeshToolsSession) {
   const triangleCount = useStore((s) => s.triangleCount)
   const appliedAlignment = useStore((s) => s.appliedAlignment)
   const copyVersion = useMeshTools((s) => s.copyVersion)
+  const surveyAttempt = useMeshTools((s) => s.surveyAttempt)
   const surveying = workspace === 'mesh' && tool === 'islands' && fileName !== null && triangleCount > 0
   const islands = useRef<{ triangles: Float32Array; centres: Float32Array } | null>(null)
   useEffect(() => {
@@ -79,20 +99,18 @@ export function useMeshWorkspace(session: MeshToolsSession) {
     const editedVersion = client.editedVersion
     let stale = false
     useMeshTools.getState().setSurvey(null)
-    client
-      .surveyIslands(pieceSize)
-      .then(({ survey, triangles, centres }) => {
-        if (stale || scanVersion !== client.scanVersion || editedVersion !== client.editedVersion) return
+    void runSurvey(
+      () => client.surveyIslands(pieceSize),
+      () => !stale && scanVersion === client.scanVersion && editedVersion === client.editedVersion,
+      ({ survey, triangles, centres }) => {
         islands.current = { triangles, centres }
         useMeshTools.getState().setSurvey({ ...survey, minSize: pieceSize })
-      })
-      .catch((e: unknown) => {
-        if (!stale) useStore.getState().setError(e instanceof Error ? e.message : String(e))
-      })
+      },
+    )
     return () => {
       stale = true
     }
-  }, [surveying, pieceSize, triangleCount, edits, copyVersion, appliedAlignment, clientRef])
+  }, [surveying, pieceSize, triangleCount, edits, copyVersion, appliedAlignment, surveyAttempt, clientRef])
 
   const surveyVersion = useMeshTools((s) => s.surveyVersion)
   useEffect(() => {
@@ -297,20 +315,18 @@ export function useMeshWorkspace(session: MeshToolsSession) {
     const editedVersion = client.editedVersion
     let stale = false
     useMeshTools.getState().setHoleSurvey(null)
-    client
-      .surveyHoles(holeSize)
-      .then(({ survey, holes, centres, open }) => {
-        if (stale || scanVersion !== client.scanVersion || editedVersion !== client.editedVersion) return
+    void runSurvey(
+      () => client.surveyHoles(holeSize),
+      () => !stale && scanVersion === client.scanVersion && editedVersion === client.editedVersion,
+      ({ survey, holes, centres, open }) => {
         rims.current = { holes, centres, open }
         useMeshTools.getState().setHoleSurvey({ ...survey, maxSize: holeSize })
-      })
-      .catch((e: unknown) => {
-        if (!stale) useStore.getState().setError(e instanceof Error ? e.message : String(e))
-      })
+      },
+    )
     return () => {
       stale = true
     }
-  }, [sortingHoles, holeSize, triangleCount, edits, copyVersion, appliedAlignment, clientRef])
+  }, [sortingHoles, holeSize, triangleCount, edits, copyVersion, appliedAlignment, surveyAttempt, clientRef])
 
   // What Shell will do with the mesh, looked at while it is in hand and again
   // for each version of the mesh: hollow it, closed; thicken it, open; or,
@@ -324,24 +340,20 @@ export function useMeshWorkspace(session: MeshToolsSession) {
     let stale = false
     const current = () => !stale && scanVersion === client.scanVersion && editedVersion === client.editedVersion
     useMeshTools.getState().setShellSurvey(null)
-    client
-      .closedness()
-      .then(async (c) => {
-        if (!current()) return
-        if (c.open === 0) {
-          useMeshTools.getState().setShellSurvey({ ...c, rims: 0, holes: 0, holeSize })
-          return
-        }
+    void runSurvey(
+      async () => {
+        const c = await client.closedness()
+        if (c.open === 0 || !current()) return { ...c, rims: 0, holes: 0 }
         const { survey } = await client.surveyHoles(holeSize)
-        if (current()) useMeshTools.getState().setShellSurvey({ ...c, rims: survey.rims, holes: survey.holes, holeSize })
-      })
-      .catch((e: unknown) => {
-        if (!stale) useStore.getState().setError(e instanceof Error ? e.message : String(e))
-      })
+        return { ...c, rims: survey.rims, holes: survey.holes }
+      },
+      current,
+      (found) => useMeshTools.getState().setShellSurvey({ ...found, holeSize }),
+    )
     return () => {
       stale = true
     }
-  }, [shelling, holeSize, triangleCount, edits, copyVersion, clientRef])
+  }, [shelling, holeSize, triangleCount, edits, copyVersion, surveyAttempt, clientRef])
 
   const holeSurveyVersion = useMeshTools((s) => s.holeSurveyVersion)
   useEffect(() => {

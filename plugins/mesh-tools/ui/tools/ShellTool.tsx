@@ -8,6 +8,7 @@ import { NumberField } from '../../../../src/ui/NumberField'
 import type { ThickenSide } from '../../core/offset'
 import { shellModeOf, useMeshTools } from '../../state/meshStore'
 import { count, typedLen } from '../meshFormat'
+import { SurveyWait } from '../SurveyWait'
 
 const SIDES: { id: ThickenSide; label: string; title: string }[] = [
   { id: 'in', label: 'Inward', title: 'The wall grows behind the surface — the scanned surface stays the outside' },
@@ -85,11 +86,7 @@ export function ShellTool({ ready, busy, onShell }: { ready: boolean; busy: bool
         </div>
       )}
 
-      {ready && survey === null && (
-        <p className="hint">
-          <span className="spinner" /> Looking at the mesh…
-        </p>
-      )}
+      {ready && survey === null && <SurveyWait looking="Looking at the mesh…" />}
       {survey && mode === 'hollow' && (
         <p className="hint" data-test="shell-closed">
           The mesh is closed, so it is hollowed: the outside stays as it is, and an inner wall {t}
