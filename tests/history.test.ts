@@ -243,6 +243,17 @@ describe('async steps and edit groups', () => {
   })
 })
 
+describe('history section keys', () => {
+  it('refuses a key the app or another participant already holds', () => {
+    const section = (key: string) => ({ key, capture: () => null, apply: () => {} })
+    expect(() => registerHistory({ sections: [section('measure')] })).toThrow(/share the key "measure"/)
+    const stop = registerHistory({ sections: [section('mine')] })
+    try {
+      expect(() => registerHistory({ sections: [section('mine')] })).toThrow(/share the key "mine"/)
+    } finally { stop() }
+  })
+})
+
 describe('a failing participant', () => {
   it('puts the scan back when a participant fails before a step', async () => {
     const older = { name: 'older' }, newer = { name: 'newer' }

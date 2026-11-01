@@ -278,6 +278,13 @@ let wrapActions: ((a: HistoryActions) => () => void) | null = null
 /** Take part in the history — see HistoryParticipant. The returned function
  *  ends it. */
 export function registerHistory(participant: HistoryParticipant): () => void {
+  // A section shares the snapshot with the app's parts and every other
+  // participant's: a key taken twice would silently overwrite one of them.
+  const taken = new Set([...Object.keys(captureCore()), ...participants.flatMap((p) => (p.sections ?? []).map((s) => s.key))])
+  for (const s of participant.sections ?? []) {
+    if (taken.has(s.key)) throw new Error(`Two history sections share the key "${s.key}".`)
+    taken.add(s.key)
+  }
   participants.push(participant)
   const unwrap = wrapActions ? (participant.actions ?? []).map((a) => wrapActions!(a)) : []
   return () => {

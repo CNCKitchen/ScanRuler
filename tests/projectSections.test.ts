@@ -112,3 +112,9 @@ describe('a project’s name', () => {
     expect(useStore.getState().projectName).toBeNull()
   })
 })
+
+describe('a section key', () => {
+  it('may not be one the app writes itself', () => {
+    expect(() => registerProjectSection({ key: 'scan' } as Parameters<typeof registerProjectSection>[0])).toThrow(/app's own/)
+  })
+})
