@@ -223,7 +223,7 @@ export function collectReversePart(ctx?: Pick<CollectContext, 'addMember'>): Rev
   const all = [...re.features, ...re.rolledBack]
   if (all.length === 0) return undefined
   const keys = importedKeys(all)
-  const texts = Object.fromEntries(keys.flatMap((k) => (re.stepFiles[k] !== undefined ? [[k, re.stepFiles[k]]] : [])))
+  const texts = Object.fromEntries(keys.flatMap((k) => (Object.hasOwn(re.stepFiles, k) ? [[k, re.stepFiles[k]]] : [])))
   const steps = ctx && Object.keys(texts).length > 0
   if (steps) {
     const json = JSON.stringify(texts)

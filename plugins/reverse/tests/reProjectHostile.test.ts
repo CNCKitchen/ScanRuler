@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { snapshotKey } from '../../../src/app/projectSnapshot'
 import { collectReversePart, reverseSection } from '../app/projectSection'
+import { stepFilesFor } from '../app/reSession'
 import { useReverse } from '../state/reStore'
 
 beforeEach(() => useReverse.getState().reset())
@@ -19,6 +20,18 @@ describe('a Reverse project file', () => {
     }
     const key = snapshotKey()
     expect(key(capture())).toBe(key(capture()))
+  })
+})
+
+describe('a Reverse project file with an Import keyed like an object property', () => {
+  it('finds no STEP file for the key and saves none', () => {
+    const feature = { id: 1, kind: 'import', name: 'Import 1', file: { key: 'constructor', name: 'a.step', size: 1 } }
+    useReverse.setState({ features: [feature as never], rolledBack: [], stepFiles: {} })
+    expect(stepFilesFor([{ kind: 'import', file: 'constructor' }]).size).toBe(0)
+    const members: string[] = []
+    const part = collectReversePart({ addMember: (name) => members.push(name) })
+    expect(members).toEqual([])
+    expect(part?.stepFiles).toBeUndefined()
   })
 })
 

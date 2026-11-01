@@ -567,7 +567,7 @@ export const useReverse = create<ReState>()((set, get) => ({
   stepFiles: {},
   addStepFile: (name, text) => {
     const file: StepFileRef = { key: stepFileKey(text), name, size: text.length }
-    if (get().stepFiles[file.key] === undefined) set((s) => ({ stepFiles: { ...s.stepFiles, [file.key]: text } }))
+    if (!Object.hasOwn(get().stepFiles, file.key)) set((s) => ({ stepFiles: { ...s.stepFiles, [file.key]: text } }))
     return file
   },
   setBodyStyle: (id, patch) =>

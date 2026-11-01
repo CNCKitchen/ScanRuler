@@ -83,7 +83,9 @@ export function meshDiagonal(mesh: KernelMesh): number {
 export function stepFilesFor(steps: readonly { kind: string; file?: unknown }[]): Map<string, string> {
   const stored = useReverse.getState().stepFiles
   const out = new Map<string, string>()
-  for (const s of steps) if (s.kind === 'import' && typeof s.file === 'string' && stored[s.file] !== undefined) out.set(s.file, stored[s.file])
+  // Own keys only: a key a project file gives may be `constructor` or the
+  // like, which a plain object answers from its prototype.
+  for (const s of steps) if (s.kind === 'import' && typeof s.file === 'string' && Object.hasOwn(stored, s.file)) out.set(s.file, stored[s.file])
   return out
 }
 
