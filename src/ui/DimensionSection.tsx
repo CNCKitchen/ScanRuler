@@ -3,6 +3,7 @@
 // rows the finished dimensions are read from.
 
 import { useMemo } from 'react'
+import { ToolActions } from './ToolActions'
 import {
   DIMENSION_TYPES,
   dimensionTypeInfo,
@@ -51,11 +52,13 @@ export function DimDraftHead({
 }
 
 export function DimensionSection({
+  part = 'all',
   editorOpen,
   onPickPoint,
 }: {
   /** True while any editor is open — element, dimension or alignment. */
   editorOpen: boolean
+  part?: 'all' | 'editor' | 'results'
   /** Fill dimension slot n by picking a new point on the scan. */
   onPickPoint: (slot: number) => void
 }) {
@@ -129,6 +132,7 @@ export function DimensionSection({
 
   return (
     <div className="group">
+      {part !== 'results' && <>
       <div className="sec-head">
         Create dimensions
         <InfoDot title="Dimensions">
@@ -262,6 +266,7 @@ export function DimensionSection({
               </div>
             )}
 
+            <ToolActions>
             <button
               className={pulseAdd ? 'primary block pulse' : 'primary block'}
               data-test="add-dimension"
@@ -275,13 +280,16 @@ export function DimensionSection({
                 Cancel
               </button>
             </div>
+            </ToolActions>
           </div>
         )
       )}
 
+      </>}
+      {part !== 'editor' && <>
       {own.length > 0 && (
         <div className="g-label">
-          <span>Dimensions</span>
+          {part !== 'results' && <span>Dimensions</span>}
           <ShowAllButton
             anyVisible={own.some((d) => d.visible !== false)}
             what="dimensions"
@@ -304,6 +312,7 @@ export function DimensionSection({
           onDelete={() => removeDimension(dim.id)}
         />
       ))}
+      </>}
     </div>
   )
 }

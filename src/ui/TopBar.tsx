@@ -176,6 +176,17 @@ export function TopBar({
   const agent = useAgentLink()
   const openRef = useRef<HTMLInputElement>(null)
   const barRef = useRef<HTMLElement>(null)
+  const fileMenu = useRef<HTMLDetailsElement>(null)
+  const closeFileMenu = (restoreFocus = false) => {
+    if (!fileMenu.current?.open) return
+    fileMenu.current.open = false
+    if (restoreFocus) fileMenu.current.querySelector('summary')?.focus()
+  }
+  useEffect(() => {
+    const outside = (e: PointerEvent) => { if (!fileMenu.current?.contains(e.target as Node)) closeFileMenu() }
+    document.addEventListener('pointerdown', outside)
+    return () => document.removeEventListener('pointerdown', outside)
+  }, [])
   useFit(barRef)
 
   const onLoad = (file: File | undefined) => {
@@ -214,7 +225,7 @@ export function TopBar({
       </div>
       {/* Both workspaces share the loaded scan, the scene and the camera, so
           switching is free and neither side loses what it had. */}
-      <div className="modeswitch" role="tablist">
+      <div className="modeswitch" role="tablist" aria-label="Workspaces">
         {workspaceTabs().map((w) => (
           <button
             key={w.id}
@@ -243,6 +254,22 @@ export function TopBar({
         </div>
       )}
       <div className="grow" />
+      {workspace === 'elements' && <>
+        <button className="measure-search-key" data-test="measure-search" onClick={() => useShell.getState().setMeasurePanel('search')} title="Find a tool (⌘/Ctrl K)" aria-label="Find a tool">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><span>Find a tool</span><kbd>{typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'}</kbd>
+        </button>
+        <details ref={fileMenu} className="measure-file-menu" onKeyDown={(e) => {
+          if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFileMenu(true) }
+        }} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) closeFileMenu() }} onClick={(e) => {
+          if ((e.target as HTMLElement).closest('button')) closeFileMenu(true)
+        }}><summary>File</summary><div>
+          <p className="file-save-status">{recovery.dirty ? 'Unsaved changes' : 'No unsaved changes'}<small>{recovery.status}</small></p>
+          <button onClick={onNewProject} disabled={busy}>New project</button>
+          <button onClick={() => openRef.current?.click()} disabled={busy}>Open project / scan</button>
+          <button onClick={() => useShell.getState().setMeasurePanel('export')} disabled={!fileName}>Export…</button>
+          <button onClick={() => useShell.getState().setMeasurePanel('search')}>Find a tool</button>
+        </div></details>
+      </>}
       {/* While the agent connection is on, where it stands — and the way to
           its settings. */}
       {agentLink && (
@@ -276,6 +303,7 @@ export function TopBar({
       <button
         className="ghost withicon"
         data-test="new-project"
+        aria-label="New project"
         onClick={onNewProject}
         disabled={busy}
         title="Start a new project: the scan, the reference and the image closed, every measurement and every workspace's work let go, the name taken off — after asking, when there are changes not saved"
@@ -286,6 +314,8 @@ export function TopBar({
       <button
         className="ghost withicon"
         data-test="save-project"
+        data-dirty={recovery.dirty}
+        aria-label="Save project"
         onClick={onSaveProject}
         disabled={busy || !savable}
         title={`Save the scan, the reference, the image and every measurement as one .${PROJECT_EXTENSION} file`}
@@ -296,6 +326,7 @@ export function TopBar({
       <button
         className="ghost withicon"
         data-test="load-project"
+        aria-label="Open project or scan"
         onClick={() => openRef.current?.click()}
         disabled={busy}
         title={`Open a .${PROJECT_EXTENSION} project — or a plain scan or image to start fresh`}
@@ -309,6 +340,7 @@ export function TopBar({
       <button
         className="ghost withicon"
         data-test="open-settings"
+        aria-label="Settings"
         onClick={() => openSettings(true)}
         title="Interface theme, colour mode, mouse controls, line widths and guided hints"
       >

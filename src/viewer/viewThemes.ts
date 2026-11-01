@@ -193,8 +193,9 @@ export function themeById(id: string | null | undefined): ViewTheme {
  *  working marks that read over it. Everything a viewport is handed comes
  *  through here, so the stage behind every part — the split view's halves,
  *  the point picker, the 2D sheet — follows the chassis together. */
-export function sceneTheme(id: string | null | undefined, dark: boolean): ViewTheme {
+export function sceneTheme(id: string | null | undefined, dark: boolean, measureDesign = false): ViewTheme {
   const theme = themeById(id)
+  if (measureDesign) return { ...theme, stage: dark ? 0x202833 : 0xe9edf2, accents: dark ? theme.darkAccents ?? theme.accents : theme.accents }
   if (!dark) return theme
   return { ...theme, stage: STAGE_DARK, accents: theme.darkAccents ?? theme.accents }
 }

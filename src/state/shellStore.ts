@@ -22,9 +22,21 @@ export type Workspace = CoreWorkspace | (string & {})
 interface ShellState {
   workspace: Workspace
   setWorkspace: (w: Workspace) => void
+  measurePanel: 'create' | 'alignment' | 'export' | 'search' | null
+  setMeasurePanel: (panel: ShellState['measurePanel']) => void
+  projectOpen: boolean
+  setProjectOpen: (open: boolean) => void
+  contextCollapsed: boolean
+  setContextCollapsed: (collapsed: boolean) => void
 }
 
 export const useShell = create<ShellState>()((set) => ({
   workspace: 'elements',
   setWorkspace: (workspace) => set({ workspace }),
+  measurePanel: null,
+  setMeasurePanel: (measurePanel) => set({ measurePanel }),
+  projectOpen: typeof matchMedia !== 'function' || matchMedia('(min-width: 768px)').matches,
+  setProjectOpen: (projectOpen) => set({ projectOpen }),
+  contextCollapsed: false,
+  setContextCollapsed: (contextCollapsed) => set({ contextCollapsed }),
 }))

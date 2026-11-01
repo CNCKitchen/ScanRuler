@@ -84,6 +84,7 @@ export function StartPane({
   slots,
   skip,
   onOpenSample,
+  sample,
 }: {
   title: string
   blurb: string
@@ -93,6 +94,7 @@ export function StartPane({
   skip?: { label: string; title: string; onClick: () => void }
   /** For someone with no scan to hand: the one that ships with the build. */
   onOpenSample?: () => Promise<void>
+  sample?: { onClick: () => void; caption: string }
 }) {
   // A workspace that wants two models can have the second one dropped first —
   // a STEP file can only ever be the reference — so the prompt says what is
@@ -131,6 +133,7 @@ export function StartPane({
           <small>No scan to hand? {SAMPLE_DETAIL}.</small>
         </div>
       )}
+      {sample && <div className="start-sample"><button data-test="open-measure-sample" onClick={sample.onClick}>Try a measurement sample</button><span>{sample.caption}</span></div>}
       {skip && (
         <div className="startskip">
           <button className="ghost" data-test="start-skip" title={skip.title} onClick={skip.onClick}>

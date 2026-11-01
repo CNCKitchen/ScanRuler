@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end test for the three things that make a best fit recoverable when it
 // goes wrong: stopping one that is running, fitting the view back onto a model
 // that has been orbited off screen, and selecting the surface a picked-point fit
@@ -116,7 +117,7 @@ const countText = () =>
 
 // The support card sits over the top-right of the stage; closed up front,
 // because the framing checks below are read off the pixels underneath it.
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 
 // ---- both models ------------------------------------------------------------
 await page.click('[data-test=workspace-deviation]')

@@ -2,6 +2,10 @@
 // The left faceplate: everything the operator sets, and every number the tool
 // reports. Controls at the top, readouts below, in the order the work happens.
 
+import { useEffect } from 'react'
+import { useShell } from '../state/shellStore'
+import { DockPanel, ProjectTree, MeasureSearch, type MeasureAction } from './MeasurePanels'
+import { dimensionTypeInfo } from '../core/dimensions'
 import { draftHolds, useStore, type SelectMode } from '../state/store'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
@@ -174,8 +178,45 @@ export function Panel({
     ].filter((r): r is number => typeof r === 'number'),
   )
 
-  return (
-    <aside className="panel">
+  const panel = useShell((s) => s.measurePanel)
+  const setPanel = useShell((s) => s.setMeasurePanel)
+  const projectOpen = useShell((s) => s.projectOpen)
+  const setProjectOpen = useShell((s) => s.setProjectOpen)
+  const selection = useStore((s) => s.selectedElementIds)
+  const collapsed = useShell((s) => s.contextCollapsed)
+  const setCollapsed = useShell((s) => s.setContextCollapsed)
+  useEffect(() => { setCollapsed(false) }, [draft?.kind, draft?.editId, dimDraft?.type, alignDraft !== null, sectionDraft !== null, panel, setCollapsed])
+  const activeTool = Boolean(draft || dimDraft || alignDraft || sectionDraft)
+  const contextOpen = (activeTool || panel !== null) && !collapsed
+  const utilityPanel = panel === 'search' || panel === 'export'
+  const title = utilityPanel ? (panel === 'search' ? 'Find a tool' : 'Export') : draft ? (draft.editId !== undefined ? 'Edit element' : `Create ${elementKindInfo(draft.kind).noun}`)
+    : dimDraft ? (dimensionTypeInfo(dimDraft.type).family === 'tolerance' ? 'Tolerance' : 'Dimension')
+    : alignDraft ? 'Align scan' : sectionDraft ? 'Cross section'
+    : panel === 'alignment' ? 'Align / move scan' : 'Create'
+  const begin = (kind: ElementKind) => { setPanel(null); onStartDraft(kind) }
+  const closeContext = () => { if (utilityPanel) setPanel(null); else if (activeTool) setCollapsed(true); else setPanel(null) }
+  const actions: MeasureAction[] = [
+    ...ELEMENT_KINDS.map((kind) => ({ name: `Create ${kind.noun}`, keywords: kind.id === 'cylinder' ? 'Hole, bore, shaft, diameter' : kind.id === 'plane' ? 'Flat face, datum, surface' : `Fit or construct a ${kind.noun}`, run: () => begin(kind.id), reason: busy ? 'Wait for the current operation to finish' : !fileName ? 'Open a scan first' : activeTool ? 'Finish or cancel the current tool first' : undefined })),
+    { name: 'New dimension', keywords: 'Distance, angle, diameter, measurement', run: () => { setPanel(null); useStore.getState().startDimension('dist-point-point') }, reason: busy ? 'Wait for the current operation to finish' : activeTool ? 'Finish or cancel the current tool first' : elements.some((e) => e.fit) ? undefined : 'Create an element first' },
+    { name: 'Cross section', keywords: 'Slice, cut, 2D outline', run: () => { setPanel(null); onStartSection() }, reason: busy ? 'Wait for the current operation to finish' : !fileName ? 'Open a scan first' : activeTool ? 'Finish or cancel the current tool first' : undefined },
+    { name: 'Align / move scan', keywords: 'Position, rotate, datum', run: () => setPanel('alignment'), reason: busy ? 'Wait for the current operation to finish' : !fileName ? 'Open a scan first' : activeTool ? 'Finish or cancel the current tool first' : undefined },
+    { name: 'Export', keywords: 'STEP, mesh, point cloud, summary', run: () => setPanel('export'), reason: fileName ? undefined : 'Open a scan first' },
+  ]
+
+  return <>
+    <div className="measure-actions" aria-label="Measurement tools">
+      {activeTool && collapsed && <button className="primary" onClick={() => setCollapsed(false)}>Show {title.toLowerCase()}</button>}
+      <button className="project-toggle" aria-controls="measure-project" aria-expanded={projectOpen} onClick={() => {
+        if (contextOpen && matchMedia('(max-width: 1199px)').matches) { setCollapsed(true); setProjectOpen(true) }
+        else setProjectOpen(!projectOpen)
+      }}>Project</button>
+      {(['plane', 'cylinder', 'sphere', 'point'] as const).map((kind) => <button key={kind}
+        data-test={`fit-${kind}`} aria-pressed={draft?.kind === kind && draft.editId === undefined}
+        disabled={!fileName || busy || draft?.editId !== undefined || dimDraft !== null || alignDraft !== null || sectionDraft !== null}
+        onClick={() => begin(kind)}><Icon name={KIND_ICON[kind]} size={20} /><span>{elementKindInfo(kind).label}</span></button>)}
+      <button data-test="measure-more" disabled={activeTool} title={activeTool ? 'Finish or cancel the current tool first' : 'All measurement tools'} aria-expanded={panel === 'create'} onClick={() => setPanel(panel === 'create' ? null : 'create')}>More</button>
+    </div>
+    <DockPanel side="project" title="Project" open={projectOpen} onClose={() => setProjectOpen(false)}>
       <div className="group">
         <div className="sec-head">
           Model
@@ -185,7 +226,7 @@ export function Panel({
               it anywhere in the window, or use the button.
             </p>
             <p>
-              Units are assumed to be millimetres. Nothing is uploaded: the file is read and the
+              Choose the source units when opening an STL. PLY and OBJ are read in millimetres; 3MF carries its own units. Nothing is uploaded: the file is read and the
               whole measurement runs in this browser.
             </p>
           </InfoDot>
@@ -198,121 +239,11 @@ export function Panel({
         />
       </div>
 
-      <AlignmentSection
-        onAutoAlign={onAutoAlign}
-        onAlignSymmetry={onAlignSymmetry}
-        onStartAlignment={onStartAlignment}
-        onApplyAlignment={onApplyAlignment}
-        onApplyManual={onApplyManual}
-        onResetAlignment={onResetAlignment}
-      />
 
-      {sectionDraft === null && (
-        <div className="group">
-          <div className="sec-head">
-            Create element
-            <InfoDot title="Elements">
-              <p>
-                Every measurement here starts with an element — a plane, a cylinder, a sphere, a
-                circle, a point or a line. Dimensions are then measured between them, never between
-                raw triangles.
-              </p>
-              <p>
-                An element is either <b>fitted</b> to the scan, by clicking the feature and letting
-                the tool find the surface; <b>picked</b> straight off the mesh, for a single point;
-                or <b>constructed</b> from elements you already have — an axis through two circles,
-                a midpoint between two points, a plane offset from another.
-              </p>
-              <p>
-                Which of those a kind offers appears as <i>Created</i> once you choose it.
-              </p>
-              <p>
-                The kind stays in hand after <b>Create</b>, ready for the next one, as a sketch
-                tool does — <b>Cancel</b> or <b>Esc</b> puts it down; on a box with picks in it,
-                <b> Esc</b> first empties the box.
-              </p>
-              <p>
-                <b>Section</b> is not an element but a cut: the scan sliced with a plane taken
-                across an element&apos;s direction, to be measured on the sheet of the 2D Measure
-                workspace.
-              </p>
-            </InfoDot>
-          </div>
-          <div className={pulseKind && !busy ? 'kindrow featurekeys three pulse' : 'kindrow featurekeys three'}>
-            {ELEMENT_KINDS.map((k) => (
-              // The kind in hand is shown pressed, as the sketch's tools are;
-              // while an element is being edited, or a dimension or tolerance
-              // assembled, that box is the one thing open and the row stands
-              // down.
-              <button
-                key={k.id}
-                data-test={`fit-${k.id}`}
-                className={draft?.kind === k.id && draft.editId === undefined ? 'on' : undefined}
-                aria-pressed={draft?.kind === k.id && draft.editId === undefined}
-                disabled={!fileName || busy || draft?.editId !== undefined || dimDraft !== null}
-                onClick={() => onStartDraft(k.id)}
-              >
-                <Icon name={KIND_ICON[k.id]} />
-                <span>{k.label}</span>
-              </button>
-            ))}
-            <button
-              data-test="fit-section"
-              disabled={!fileName || busy || dimDraft !== null}
-              title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
-              onClick={onStartSection}
-            >
-              <Icon name="section" />
-              <span>Section</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* A draft discarded with a marked surface on it — a second Esc, a slip
-          onto Cancel, another editor taking the panel — is not gone: the
-          marking is minutes of work, so it waits here, where the draft was,
-          until the next element is started. Out of the way while an
-          alignment or a section has the panel; back when they close. */}
-      {discarded?.selection && !draft && !alignDraft && !sectionDraft && (
-        <div className="group" data-test="discarded-draft">
-          <div className="g-label">
-            <span>
-              Discarded{' '}
-              {discarded.editId !== undefined
-                ? `edit of ${elements.find((e) => e.id === discarded.editId)?.name ?? 'element'}`
-                : elementKindInfo(discarded.kind).noun}
-            </span>
-            <b>{discarded.selection.length.toLocaleString('en-US')} points</b>
-          </div>
-          <p className="hint">
-            Its marked surface is kept until the next element is started — bring it back to carry
-            on where you were, marking and all.
-          </p>
-          <div className="toolrow">
-            <button data-test="restore-draft" onClick={onRestoreDraft}>
-              Restore
-            </button>
-            <button data-test="forget-draft" onClick={forgetDiscarded}>
-              Forget
-            </button>
-          </div>
-        </div>
-      )}
-
-      <DraftEditor
-        onSelectMode={onSelectMode}
-        onDraftSigma={onDraftSigma}
-        onDraftKnownDiameter={onDraftKnownDiameter}
-        onClearPaint={onClearPaint}
-        onUndoPick={onUndoPick}
-        onCancelDraft={onCancelDraft}
-        onConfirmDraft={onConfirmDraft}
-        onFindSymmetry={onFindSymmetry}
-      />
-
-      <SectionEditor onCancel={onCancelSection} onConfirm={onConfirmSection} />
-
+      <div className="project-commands">
+        <button data-test="measure-align" onClick={() => setPanel('alignment')} disabled={!fileName || activeTool}>Align / move</button>
+        <button data-test="measure-export" onClick={() => setPanel('export')} disabled={!fileName}>Export</button>
+      </div>
       {elements.length > 0 && (
         <div className="group">
           <div className="g-label">
@@ -325,7 +256,7 @@ export function Panel({
             />
             <b>{elements.length}</b>
           </div>
-          {elements.map((el) => (
+          <ProjectTree>{elements.map((el) => (
             <ElementRow
               key={el.id}
               name={el.name}
@@ -345,14 +276,17 @@ export function Panel({
                   </b>
                 )
               }
-              selected={selectedIds.has(el.id) || draft?.editId === el.id}
+              selected={selectedIds.has(el.id) || selection.includes(el.id) || draft?.editId === el.id}
+              onSelect={(additive) => { if (!activeTool) useStore.getState().selectElement(el.id, additive) }}
+              onRename={(name) => useStore.getState().renameElement(el.id, name)}
+              icon={KIND_ICON[el.kind]}
               editorOpen={editorOpen}
               editDisabled={el.status === 'fitting'}
               onEdit={() => onEditElement(el.id)}
               onToggleVisible={() => toggleElementVisible(el.id)}
               onDelete={() => onDelete(el.id)}
             />
-          ))}
+          ))}</ProjectTree>
         </div>
       )}
 
@@ -418,9 +352,153 @@ export function Panel({
         </div>
       )}
 
-      <DimensionSection editorOpen={editorOpen} onPickPoint={onPickPoint} />
-      <ToleranceSection editorOpen={editorOpen} />
 
+      {fileName && <div className="project-measurements">
+        <div className="section-title"><h3>Dimensions</h3><button data-test="new-dimension" disabled={!elements.some((e) => e.fit) || activeTool} onClick={() => { setPanel(null); useStore.getState().startDimension('dist-point-point') }}>+ New</button></div>
+        {elements.length === 0 && <p className="hint">Fit a surface or pick a point, then measure it.</p>}
+        <DimensionSection part="results" editorOpen={editorOpen} onPickPoint={onPickPoint} />
+        <details className="tolerance-disclosure"><summary>Geometric tolerances</summary>
+          <button data-test="new-tolerance" disabled={!elements.some((e) => e.fit) || activeTool} onClick={() => { setPanel(null); useStore.getState().startDimension('form-flatness') }}>New tolerance</button>
+          <ToleranceSection part="results" editorOpen={editorOpen} />
+        </details>
+      </div>}
+      {selection.length > 0 && !activeTool && <div className="selection-actions" aria-label="Selected element actions">
+        <p>{selection.length} {selection.length === 1 ? 'element' : 'elements'} selected</p>
+        {selection.length === 1 && <button onClick={() => onEditElement(selection[0])}>Edit selected element</button>}
+        <button onClick={() => { setPanel(null); useStore.getState().startDimension('dist-point-point'); selection.forEach((id) => useStore.getState().selectDimensionElement(id)) }}>Measure selection</button>
+        <button className="ghost" onClick={() => useStore.getState().selectElement(null)}>Clear selection</button>
+      </div>}
+    </DockPanel>
+    <DockPanel side="context" title={title} open={contextOpen} onClose={closeContext} hideActions={utilityPanel}>
+      {utilityPanel && activeTool && <button className="block" onClick={() => setPanel(null)}>Return to current tool</button>}
+      {panel === 'search' && <MeasureSearch actions={actions} />}
+      {panel === 'create' && !activeTool && <><p className="hint">Choose the shape that matches the feature on your scan.</p>
+      {sectionDraft === null && (
+        <div className="group">
+          <div className="sec-head">
+            Create element
+            <InfoDot title="Elements">
+              <p>
+                Every measurement here starts with an element — a plane, a cylinder, a sphere, a
+                circle, a point or a line. Dimensions are then measured between them, never between
+                raw triangles.
+              </p>
+              <p>
+                An element is either <b>fitted</b> to the scan, by clicking the feature and letting
+                the tool find the surface; <b>picked</b> straight off the mesh, for a single point;
+                or <b>constructed</b> from elements you already have — an axis through two circles,
+                a midpoint between two points, a plane offset from another.
+              </p>
+              <p>
+                Which of those a kind offers appears as <i>Created</i> once you choose it.
+              </p>
+              <p>
+                The kind stays in hand after <b>Create</b>, ready for the next one, as a sketch
+                tool does — <b>Cancel</b> or <b>Esc</b> puts it down; on a box with picks in it,
+                <b> Esc</b> first empties the box.
+              </p>
+              <p>
+                <b>Section</b> is not an element but a cut: the scan sliced with a plane taken
+                across an element&apos;s direction, to be measured on the sheet of the 2D Measure
+                workspace.
+              </p>
+            </InfoDot>
+          </div>
+          <div className={pulseKind && !busy ? 'kindrow featurekeys three pulse' : 'kindrow featurekeys three'}>
+            {ELEMENT_KINDS.map((k) => (
+              // The kind in hand is shown pressed, as the sketch's tools are;
+              // while an element is being edited, or a dimension or tolerance
+              // assembled, that box is the one thing open and the row stands
+              // down.
+              <button
+                key={k.id}
+                data-test={['plane', 'cylinder', 'sphere', 'point'].includes(k.id) ? undefined : `fit-${k.id}`}
+                className={draft?.kind === k.id && draft.editId === undefined ? 'on' : undefined}
+                aria-pressed={draft?.kind === k.id && draft.editId === undefined}
+                disabled={!fileName || busy || draft?.editId !== undefined || dimDraft !== null}
+                onClick={() => begin(k.id)}
+              >
+                <Icon name={KIND_ICON[k.id]} />
+                <span>{k.label}</span>
+              </button>
+            ))}
+            <button
+              data-test="fit-section"
+              disabled={!fileName || busy || dimDraft !== null}
+              title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
+              onClick={onStartSection}
+            >
+              <Icon name="section" />
+              <span>Section</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+
+      </>}
+      <div hidden={utilityPanel || (panel !== 'alignment' && alignDraft === null)}>
+      <AlignmentSection
+        dockActions={panel === 'alignment' || alignDraft !== null}
+        onAutoAlign={onAutoAlign}
+        onAlignSymmetry={onAlignSymmetry}
+        onStartAlignment={onStartAlignment}
+        onApplyAlignment={onApplyAlignment}
+        onApplyManual={onApplyManual}
+        onResetAlignment={onResetAlignment}
+      />
+
+      </div>
+      {/* A draft discarded with a marked surface on it — a second Esc, a slip
+          onto Cancel, another editor taking the panel — is not gone: the
+          marking is minutes of work, so it waits here, where the draft was,
+          until the next element is started. Out of the way while an
+          alignment or a section has the panel; back when they close. */}
+      {discarded?.selection && !draft && !alignDraft && !sectionDraft && (
+        <div className="group" data-test="discarded-draft">
+          <div className="g-label">
+            <span>
+              Discarded{' '}
+              {discarded.editId !== undefined
+                ? `edit of ${elements.find((e) => e.id === discarded.editId)?.name ?? 'element'}`
+                : elementKindInfo(discarded.kind).noun}
+            </span>
+            <b>{discarded.selection.length.toLocaleString('en-US')} points</b>
+          </div>
+          <p className="hint">
+            Its marked surface is kept until the next element is started — bring it back to carry
+            on where you were, marking and all.
+          </p>
+          <div className="toolrow">
+            <button data-test="restore-draft" onClick={onRestoreDraft}>
+              Restore
+            </button>
+            <button data-test="forget-draft" onClick={forgetDiscarded}>
+              Forget
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div hidden={utilityPanel}>
+      <DraftEditor
+        onSelectMode={onSelectMode}
+        onDraftSigma={onDraftSigma}
+        onDraftKnownDiameter={onDraftKnownDiameter}
+        onClearPaint={onClearPaint}
+        onUndoPick={onUndoPick}
+        onCancelDraft={onCancelDraft}
+        onConfirmDraft={onConfirmDraft}
+        onFindSymmetry={onFindSymmetry}
+      />
+
+      <SectionEditor onCancel={onCancelSection} onConfirm={onConfirmSection} />
+
+
+      {dimDraft !== null && dimensionTypeInfo(dimDraft.type).family === 'dimension' && <DimensionSection part="editor" editorOpen={editorOpen} onPickPoint={onPickPoint} />}
+      {dimDraft !== null && dimensionTypeInfo(dimDraft.type).family === 'tolerance' && <ToleranceSection part="editor" editorOpen={editorOpen} />}
+      </div>
+      {panel === 'export' && <>
       {fileName && (
         <>
           <div className="divider" />
@@ -522,8 +600,11 @@ export function Panel({
           </div>
         </>
       )}
-    </aside>
-  )
+      </>}
+    </DockPanel>
+    <div className="sr-only" aria-live="polite">{activeTool ? title : `${selection.length} elements selected`}{draft ? `. Preview ${draft.status}.` : ''}</div>
+  </>
+
 }
 
 // Kept out of the main component so the file-slot block reads as one unit.

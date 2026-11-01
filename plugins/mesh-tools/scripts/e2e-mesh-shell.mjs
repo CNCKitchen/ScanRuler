@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test for Shrink / expand and Shell: drives the real app in
 // headless Chrome on a generated scan — a closed noisy box standing on the XY
 // plane — shrinks it and reads off the Deviation view that the surface moved
@@ -73,7 +74,7 @@ const closedNow = async () => {
 }
 
 await setViewTheme(page, 'studio')
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await page.click('[data-test=workspace-mesh]')
 await page.waitForSelector('[data-test=start-pane]')
 await loadScan(page, SCAN, { inputSelector: '[data-test=start-scan] input[type=file]', timeout: 120_000, settle: 600 })

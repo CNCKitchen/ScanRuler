@@ -221,6 +221,10 @@ interface AppState {
   resolveFit: (id: number, r: FitOutput) => void
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
+  /** One selection shared by the project tree and the 3D viewport. */
+  selectedElementIds: number[]
+  selectElement: (id: number | null, additive?: boolean) => void
+  renameElement: (id: number, name: string) => void
   toggleElementVisible: (id: number) => void
   /** Show or hide every element at once. */
   setAllElementsVisible: (visible: boolean) => void
@@ -467,6 +471,7 @@ const storedCreaseAngle = (): number => {
  *  mesh's size. Element and dimension ids run on across scans. */
 function freshScanState() {
   return {
+    selectedElementIds: [],
     elements: [],
     draft: null,
     // A marking indexes the vertices of the scan it was made on.
@@ -515,6 +520,7 @@ function withoutRefs(s: AppState, doomed: ReadonlySet<number>): Partial<AppState
   const dd = s.dimDraft
   return {
     elements,
+    selectedElementIds: s.selectedElementIds.filter((id) => !doomed.has(id)),
     dimensions,
     // A section keeps its frozen plane whatever happens to the element
     // it was cut along; only the name in the record goes.
@@ -644,6 +650,15 @@ export const useStore = create<AppState>()((set, get) => ({
   // Deleting an element takes every construction built on it along, and every
   // dimension that references anything removed.
   removeElement: (id) => set((s) => withoutRefs(s, dependentsOf(id, s.elements))),
+  selectElement: (id, additive = false) => set((s) => ({
+    selectedElementIds: id === null ? [] : !s.elements.some((e) => e.id === id) ? s.selectedElementIds
+      : additive ? s.selectedElementIds.includes(id) ? s.selectedElementIds.filter((v) => v !== id) : [...s.selectedElementIds, id] : [id],
+  })),
+  renameElement: (id, name) => set((s) => {
+    const trimmed = name.trim()
+    if (!trimmed || !s.elements.some((e) => e.id === id && e.name !== trimmed)) return s
+    return { elements: s.elements.map((e) => e.id === id ? { ...e, name: trimmed } : e) }
+  }),
 
   toggleElementVisible: (id) =>
     set((s) => ({

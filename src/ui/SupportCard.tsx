@@ -70,7 +70,7 @@ const supportLinks = (onOpen?: () => void) =>
     </a>
   ))
 
-export function SupportCard() {
+export function SupportCard({ compact = false }: { compact?: boolean }) {
   const [closed, setClosed] = useState(closedThisLoad)
   const shown = usePrefs((s) => s.supportCard)
   if (closed || !shown) return null
@@ -78,7 +78,7 @@ export function SupportCard() {
     closedThisLoad = true
     setClosed(true)
   }
-  return (
+  const card = (
     <aside className="supportcard" data-test="support-card">
       <div className="sc-head">
         <b>Thanks for using ScanRuler!</b>
@@ -93,6 +93,7 @@ export function SupportCard() {
       {supportLinks()}
     </aside>
   )
+  return compact ? <details className="measure-support"><summary>Support CNC Kitchen</summary>{card}</details> : card
 }
 
 export function SupportAsk() {

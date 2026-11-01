@@ -6,6 +6,7 @@
 // ever open across the two groups.
 
 import { useMemo } from 'react'
+import { ToolActions } from './ToolActions'
 import {
   dimensionTypeInfo,
   evaluateDimension,
@@ -33,10 +34,12 @@ const GROUPS: { id: DimensionGroup; label: string }[] = [
 ]
 
 export function ToleranceSection({
+  part = 'all',
   editorOpen,
 }: {
   /** True while any editor is open — element, dimension or alignment. */
   editorOpen: boolean
+  part?: 'all' | 'editor' | 'results'
 }) {
   const elements = useStore((s) => s.elements)
   const dimensions = useStore((s) => s.dimensions)
@@ -95,6 +98,7 @@ export function ToleranceSection({
 
   return (
     <div className="group">
+      {part !== 'results' && <>
       <div className="sec-head">
         GD&amp;T
         <InfoDot title="Geometric tolerances">
@@ -216,6 +220,7 @@ export function ToleranceSection({
               </div>
             )}
 
+            <ToolActions>
             <button
               className="primary block"
               data-test="add-tolerance"
@@ -229,10 +234,13 @@ export function ToleranceSection({
                 Cancel
               </button>
             </div>
+            </ToolActions>
           </div>
         )
       )}
 
+      </>}
+      {part !== 'editor' && <>
       {own.length > 0 && (
         <div className="g-label">
           <span>Tolerances</span>
@@ -259,6 +267,7 @@ export function ToleranceSection({
           onDelete={() => removeDimension(dim.id)}
         />
       ))}
+      </>}
     </div>
   )
 }

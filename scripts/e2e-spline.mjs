@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end test of the spline in 2D Measure: drives the real app in
 // headless Chrome on the synthetic flatbed scan — clicks fit points along the
 // disc's edge (each snapping onto it), inserts one by clicking on the curve,
@@ -39,7 +40,7 @@ await cdp.send('Browser.setDownloadBehavior', {
 })
 
 await click(page, '[data-test=workspace-flat]')
-await click(page, '[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 const input = await page.$('input[type=file][accept*=".png"]')
 await input.uploadFile(fixture)
 await page.waitForFunction(

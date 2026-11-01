@@ -245,6 +245,15 @@ export async function selectByLabel(page, sel, label) {
   await page.select(sel, value)
 }
 
+/** Dismiss attribution through its visible controls. Measure nests the card
+ *  in a disclosure; other workspaces display it directly. */
+export async function dismissSupportCard(page) {
+  if (!(await page.$('[data-test=support-card]'))) return
+  if (await page.$('.measure-support:not([open])')) await page.click('.measure-support > summary')
+  await page.click('[data-test=support-card] .sc-x')
+  await page.waitForSelector('[data-test=support-card]', { hidden: true })
+}
+
 /** The settings dialog: open it, do something in it, close it again — so the
  *  stage underneath is free for whatever the script does next. */
 export async function withSettings(page, fn) {

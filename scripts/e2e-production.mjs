@@ -67,6 +67,7 @@ try {
   }
   archive['project.json'] = strToU8(JSON.stringify(manifest))
   await drop(Array.from(zipSync(archive)), 'export-fixture.scanruler')
+  await page.click('[data-test="measure-export"]')
   await page.waitForFunction(() => document.querySelector('[data-test="export-step"]')?.disabled === false)
   await page.waitForFunction(() => !document.querySelector('[data-test="save-project"]').disabled)
   await page.evaluate(() => {

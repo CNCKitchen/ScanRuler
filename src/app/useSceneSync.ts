@@ -297,9 +297,11 @@ export function useSceneSync({
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
   const sectionDraft = useStore((s) => s.sectionDraft)
+  const selectedElementIds = useStore((s) => s.selectedElementIds)
   // Elements referenced by the dimension, construction, alignment or section
   // being built read as selected in the viewport, however they were chosen.
   const highlightIds = [
+    ...(elementsWorkspace ? selectedElementIds : []),
     ...(dimDraft?.refs ?? []),
     ...(draft?.refs ?? []),
     ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
@@ -654,15 +656,19 @@ export function useSceneSync({
   // outside the measure workspace, and a hidden region owns no clicks.
   const wantsElementPicks =
     candidates ||
+    (elementsWorkspace && !draft && !dimDraft && !alignDraft && !sectionDraft) ||
     (elementsWorkspace &&
       (((dimDraft !== null ||
         sectionDraft !== null ||
         (alignDraft !== null && alignDraft.pickSlot === null)) &&
         draft === null) ||
         (draft !== null && creationMethod(draft.kind, draft.method).mode === 'construct')))
+  // A plugin with an element-pick handler controls its own pick modes. The
+  // core effect must not overwrite those when leaving an idle Measure view.
+  const pluginPicksElements = Boolean(plugin?.elementPick)
   useEffect(() => {
-    sceneRef.current?.setElementPickEnabled(wantsElementPicks)
-  }, [wantsElementPicks])
+    if (!pluginPicksElements) sceneRef.current?.setElementPickEnabled(wantsElementPicks)
+  }, [wantsElementPicks, pluginPicksElements])
   // A section being made lights the element under the cursor, as it lights
   // the coordinate planes on offer: either is what a click would cut along.
   const sectionLights = elementsWorkspace && sectionDraft !== null && draft === null
@@ -905,8 +911,8 @@ export function useSceneSync({
   const viewTheme = useStore((s) => s.viewTheme)
   const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
-  }, [viewTheme, dark])
+    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark, elementsWorkspace))
+  }, [viewTheme, dark, elementsWorkspace])
 
   // How heavy the section cuts are drawn — the operator's, like the scheme.
   const sectionLines = usePrefs((s) => s.sectionLines)

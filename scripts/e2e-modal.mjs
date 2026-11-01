@@ -133,6 +133,7 @@ try {
     window.dispatchEvent(new DragEvent('drop', { dataTransfer, bubbles: true, cancelable: true }))
   })
   await page.waitForFunction(() => /[1-9][\d,]* triangles/.test(document.querySelector('.file-info')?.textContent ?? ''))
+await click(page, '[data-test=measure-export]')
   await click(page, '[data-test=export-mesh]')
   await page.waitForSelector('[data-test=export-mesh-stl]')
   await askUnits()

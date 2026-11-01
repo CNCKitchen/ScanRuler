@@ -21,7 +21,7 @@ export const pick = <T, K extends keyof T>(state: T, keys: readonly K[]): Pick<T
 
 function captureCore() {
   return {
-    measure: pick(useStore.getState(), ['elements', 'dimensions', 'sections', 'nextId', 'nextNumber', 'nextOfKind', 'nextDimensionId', 'nextOfDimGroup', 'nextSectionNumber', 'appliedAlignment', 'modelCenter']),
+    measure: pick(useStore.getState(), ['elements', 'selectedElementIds', 'dimensions', 'sections', 'nextId', 'nextNumber', 'nextOfKind', 'nextDimensionId', 'nextOfDimGroup', 'nextSectionNumber', 'appliedAlignment', 'modelCenter']),
     flat: pick(useFlat.getState(), ['subject', 'sheets', 'pxPerMm', 'calSource', 'elements', 'nextId', 'nameCounts', 'dimensions', 'nextDimId', 'dimCounts', 'datum', 'counts', 'nextCountId', 'notes', 'nextNoteId', 'turns', 'mirror', 'splitAxes', 'edgeSensitivity', 'showEdges', 'snapToEdge', 'showGrid']),
     deviation: pick(useDeviation.getState(), ['source', 'align', 'globalAlign', 'pairs', 'localMaxDistance', 'targetId', 'targetSide', 'targetFacingDeg', 'mapFacingDeg', 'targetScope', 'scopeCount', 'showElement', 'range', 'rangeAuto', 'maxDistance', 'maxDistanceAuto', 'bands', 'tolerance', 'showHistogram', 'showNominal', 'showScan', 'showMap', 'mapOn', 'split', 'probes', 'nextProbeId']),
     thickness: pick(useThickness.getState(), ['method', 'maxThickness', 'maxThicknessAuto', 'coneRays', 'coneAngleDeg', 'normalDeviationDeg', 'low', 'high', 'scaleAuto', 'bands', 'limit', 'showHistogram', 'probes', 'nextProbeId']),
@@ -318,7 +318,7 @@ export function installHistory(): () => void {
       }
     }
   }
-  wrap(useStore, ['commitDraft', 'pickDraftPoint', 'removeElement', 'toggleElementVisible', 'setAllElementsVisible', 'commitDimension', 'removeDimension', 'toggleDimensionVisible', 'setAllDimensionsVisible', 'commitSection', 'removeSection', 'toggleSectionVisible', 'setAllSectionsVisible'], '3D Measure')
+  wrap(useStore, ['commitDraft', 'pickDraftPoint', 'renameElement', 'removeElement', 'toggleElementVisible', 'setAllElementsVisible', 'commitDimension', 'removeDimension', 'toggleDimensionVisible', 'setAllDimensionsVisible', 'commitSection', 'removeSection', 'toggleSectionVisible', 'setAllSectionsVisible'], '3D Measure')
   wrap(useFlat, ['commitDraft', 'deleteElement', 'toggleElementVisible', 'setAllElementsVisible', 'commitDim', 'deleteDimension', 'toggleDimensionVisible', 'setAllDimensionsVisible', 'finishCount', 'deleteCount', 'toggleCountVisible', 'addNote', 'setNoteText', 'moveNote', 'finishNote', 'deleteNote', 'toggleNoteVisible', 'addDatumPick', 'clearDatum', 'turnSheet', 'mirrorSheet', 'applyCalibration', 'applyProfile', 'setSplitAxes', 'setEdgeSensitivity', 'setShowEdges', 'setSnapToEdge', 'setShowGrid'], '2D Measure')
   wrap(useDeviation, ['setSource', 'setTarget', 'flipTargetSide', 'setTargetFacing', 'setMapFacing', 'setShowElement', 'setTargetScope', 'markScope', 'clearScope', 'resolveAlign', 'revertToGlobal', 'clearAlign', 'setLocalMaxDistance', 'setRange', 'setMaxDistance', 'setBands', 'setTolerance', 'setShowHistogram', 'setShowNominal', 'setShowScan', 'setShowMap', 'setMapOn', 'setSplit', 'addProbe', 'removeProbe', 'clearProbes', 'addPickPoint', 'undoPair', 'clearPairs'], 'Deviation')
   wrap(useThickness, ['setMethod', 'setMaxThickness', 'setConeRays', 'setConeAngle', 'setNormalDeviation', 'setLow', 'setHigh', 'setBands', 'setLimit', 'setShowHistogram', 'addProbe', 'removeProbe', 'clearProbes'], 'Thickness')

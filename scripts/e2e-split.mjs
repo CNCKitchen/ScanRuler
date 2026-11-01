@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end smoke test for the two ways of *looking* at a deviation map: the
 // scan and the reference side by side in two viewports held in one pose, and the
 // colour plot switched off to leave the bare surface.
@@ -141,7 +142,7 @@ async function bothHalves(when) {
 // The support card sits over the top-right of the stage — which is the reference
 // half once the split view is open. Closed up front, because everything below is
 // read off the pixels underneath it.
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 
 // ---- both switches are on the view bar, and dead until they would do something
 await page.click('[data-test=workspace-deviation]')

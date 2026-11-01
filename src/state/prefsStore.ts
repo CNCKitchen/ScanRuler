@@ -87,12 +87,11 @@ const write = (key: string, value: string): void => {
   }
 }
 
-/** System unless told otherwise: an instrument that comes up in the chassis
- *  the rest of the desktop wears. index.html reads the same key the same way
- *  for the first paint. */
+/** Start in the supplied light design; retain explicit Dark/System choices.
+ *  index.html reads the same key for the first paint. */
 const storedUiTheme = (): UiTheme => {
   const v = read(UI_THEME_KEY)
-  return v === 'dark' || v === 'light' ? v : 'system'
+  return v === 'dark' || v === 'system' ? v : 'light'
 }
 
 /** The operating system's preference, watched so that "System" follows it

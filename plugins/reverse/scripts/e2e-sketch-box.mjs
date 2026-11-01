@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test of the selection box on the sketch sheet, with the mouse,
 // on a blank stage: a rectangle and a lone line beside it; with the Select
 // tool a left-drag over the bare sheet draws a box instead of panning —
@@ -21,7 +22,7 @@ const { re } = reverseHelpers(page)
 await openReverse(page)
 await sleep(300)
 // The support card sits over the stage's lower left, where the boxes start.
-if (await page.$('[data-test=support-card] .sc-x')) await click(page, '[data-test=support-card] .sc-x')
+await dismissSupportCard(page)
 
 // ---- a rectangle and a lone line beside it --------------------------------------------
 const ids = await re(() => {

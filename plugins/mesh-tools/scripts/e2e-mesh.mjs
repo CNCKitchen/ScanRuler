@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test for the Mesh Tools workspace: drives the real app in
 // headless Chrome — switches workspace, loads a scan from the stage, reduces
 // the mesh, orbits about the reduced mesh, looks at the result three ways,
@@ -66,7 +67,7 @@ const setField = fieldSetter(page)
 // The grey scheme, so bare scan and a painted map are told apart by colour,
 // and the support card out of the corner of the stage it would be counted in.
 await setViewTheme(page, 'studio')
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 
 // ---- workspace first, then the scan -----------------------------------------
 await page.click('[data-test=workspace-mesh]')

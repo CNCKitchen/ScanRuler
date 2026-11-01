@@ -135,6 +135,8 @@ try {
     let workerTransforms = 0
     const transform = MeshWorkerClient.prototype.transform
     MeshWorkerClient.prototype.transform = async function (...args) { workerTransforms++; return transform.apply(this, args) }
+    click('measure-align')
+    await new Promise((r) => setTimeout(r, 100))
     click('start-manual')
     await pause()
     const field = document.querySelector('[data-test="manual-mx"]')

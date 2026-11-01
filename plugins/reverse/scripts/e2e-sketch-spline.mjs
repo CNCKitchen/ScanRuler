@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test of the sketch's Spline tool, with the mouse, on a blank
 // stage: the key in the tool row and on S takes it in hand; clicks lay its
 // points with the curve following the cursor; a second click on the last
@@ -17,7 +18,7 @@ const { re, built } = reverseHelpers(page)
 
 await openReverse(page)
 await sleep(300)
-if (await page.$('[data-test=support-card] .sc-x')) await click(page, '[data-test=support-card] .sc-x')
+await dismissSupportCard(page)
 
 // A sketch with two lines laid above and below where the curves go, so
 // the sheet is framed over them.

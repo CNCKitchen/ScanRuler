@@ -174,6 +174,7 @@ await page.screenshot({ path: shotPath('e2e-units-inches.png') })
 // ---- the scan as an STL in inches ------------------------------------------------
 const downloads = mkdtempSync(join(tmpdir(), 'scanruler-units-stl-'))
 await downloadsTo(page, downloads)
+await click(page, '[data-test=measure-export]')
 await click(page, '[data-test="export-mesh"]')
 await click(page, '[data-test="export-mesh-stl-in"]')
 const file = await awaitDownload(downloads, '.stl')

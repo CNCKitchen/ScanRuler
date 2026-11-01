@@ -1,16 +1,13 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 
-<html lang="en">
+<html lang="en" data-design="measure">
   <head>
     <meta charset="UTF-8" />
-    <!-- The page never zooms: on a phone a pinch belongs to the 3D viewport,
-         and a page zoomed by one left the instrument stuck in a corner of
-         the window. maximum-scale also keeps iOS from zooming in on a
-         focused field and staying there. -->
+    <!-- Page zoom remains available; the canvas owns its own gestures. -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0"
     />
     <title>ScanRuler by CNC Kitchen</title>
     <meta
@@ -21,20 +18,15 @@
          for browsers that take no SVG. The full logo set is in docs/brand. -->
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 24x24 32x32 48x48" />
-    <link rel="preload" href="/fonts/barlow-400.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/barlow-600.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/b612-mono-400.woff2" as="font" type="font/woff2" crossorigin />
     <style>
-      /* pre-CSS paint: chassis gray instead of a white flash — and the dark
-         chassis where that is what was chosen (the same key the settings
-         store keeps it under; the figures match --chassis in styles.css). */
-      html { background: #e7e6e1; }
-      html[data-theme='dark'] { background: #1b1d20; }
+      /* Match the Measure shell before its stylesheet arrives. */
+      html { background: #e9edf2; }
+      html[data-theme='dark'] { background: #202833; }
     </style>
     <script>
       try {
         var t = localStorage.getItem('scanruler.uitheme')
-        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
+        if (t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches))
           document.documentElement.dataset.theme = 'dark'
       } catch (e) {}
     </script>

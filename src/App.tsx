@@ -49,6 +49,7 @@ import { dimensionRefsOf, isShadow } from './state/sectionModel'
 import type { GripSide, SceneManager, PickHit } from './viewer/SceneManager'
 import { isCoreSide } from './viewer/extendGrips'
 import { schemeById } from './viewer/navSchemes'
+import { useMeasureShell } from './ui/MeasurePanels'
 import { sceneTheme } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
@@ -813,7 +814,7 @@ export default function App() {
   /** A viewport click that landed on an existing element: hand it to whichever
    *  editor is collecting references — the dimension draft, or a construction
    *  draft's slots. Clicking an element that is already used takes it out. */
-  const handleElementPick = (id: number, clientX = 0, clientY = 0) => {
+  const handleElementPick = (id: number, clientX = 0, clientY = 0, additive = false) => {
     if (commandRunning()) return
     const store = useStore.getState()
     // A section's cut, clicked while a dimension takes it as a plane.
@@ -893,6 +894,7 @@ export default function App() {
       return
     }
     if (store.dimDraft) store.selectDimensionElement(id)
+    else store.selectElement(id, additive)
   }
 
   /** Re-open an element in the box it was created in. Everything it was made
@@ -1228,6 +1230,7 @@ export default function App() {
   const marking = useDeviation((s) => s.marking)
   const markGesture = useMark((s) => s.gesture)
   const workspace = useShell((s) => s.workspace)
+  useMeasureShell(workspace === 'elements')
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
   const bands = useDeviation((s) => s.bands)
@@ -1545,7 +1548,7 @@ export default function App() {
       .catch((e: unknown) => useStore.setState({ errorText: e instanceof Error ? e.message : String(e) }))
 
   return (
-    <div className="app">
+    <div className={workspace === 'elements' ? 'app design-measure' : 'app'}>
       <TopBar
         recovery={recovery}
         onNewProject={() => void newProject()}
@@ -1643,7 +1646,7 @@ export default function App() {
                 sceneRef.current = s
                 attachSurfaceScene(() => sceneRef.current)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
-                s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
+                s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark, useShell.getState().workspace === 'elements'))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
               }}
               onPick={handlePick}
@@ -1762,6 +1765,10 @@ export default function App() {
           {needsModels && !picking && !onFlat && active?.startPane !== null && (
             <StartPane
               skip={active?.startPane?.skip}
+              sample={workspace === 'elements' ? { caption: `A ${len.fmt(30, 0, { bare: true })} × ${len.fmt(20, 0, { bare: true })} × ${len.fmt(12, 0)} block. No file needed.`, onClick: () => {
+                // units-ok: the filename records the sample's fixed source units, not display units.
+                void import('./core/sampleScan').then(({ measurementSample }) => openFile(new File([measurementSample()], 'measurement-sample-30x20x12mm.obj')))
+              } } : undefined}
               title={
                 active?.startPane
                   ? active.startPane.title
@@ -1771,7 +1778,7 @@ export default function App() {
                     : 'Deviation from a nominal part'
                   : onThickness
                     ? 'Wall thickness'
-                    : 'Fitting elements'
+                    : 'Measure your scan'
               }
               blurb={
                 active?.startPane
@@ -1782,7 +1789,7 @@ export default function App() {
                     : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan and reference as STL, PLY, OBJ, 3MF in millimetres or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
                     ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
-                      : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
+                      : 'Open a scan to measure holes, flat faces and distances. Select the shape that matches a feature, check its fit, then create a dimension. Your files stay in this browser.'
               }
               slots={startSlots}
               onOpenSample={openSample}
@@ -1797,7 +1804,7 @@ export default function App() {
               the stage and both go with it; the 2D sheet has no surface for
               the bar's switches to act on. */}
           <div className="stagecorner">
-            {!picking && <SupportCard />}
+            {!picking && <SupportCard compact={workspace === 'elements'} />}
             {!picking && !onFlat && <ViewBar partKeys={active?.partKeys} sideKeys={active?.viewKeys} scanKey={active?.scanKey} hideModelKeys={active?.hideModelKeys} viewDirection={() => sceneRef.current?.viewDirection() ?? [0, 0, -1]} stageCentre={() => sceneRef.current?.stageCentre() ?? [0, 0, 0]} />}
           </div>
           {/* With no card on the stage any more, the step that is still

@@ -24,7 +24,7 @@ export function Viewer({
   onHover?: (hit: PickHit | null) => void
   /** A click that landed on an existing element while element picking is
    *  on, with where the click was in client pixels. */
-  onElementPick?: (id: number, clientX: number, clientY: number) => void
+  onElementPick?: (id: number, clientX: number, clientY: number, additive?: boolean) => void
   /** A click on one of the coordinate planes offered to a section. */
   onWorldPlanePick?: (axis: WorldAxis) => void
   /** A brush stroke ended, with this many vertices marked in total. */
@@ -67,7 +67,7 @@ export function Viewer({
     }
     scene.onPick = (hit) => pickRef.current(hit)
     scene.onHover = (hit) => hoverRef.current?.(hit)
-    scene.onElementPick = (id, x, y) => elementPickRef.current?.(id, x, y)
+    scene.onElementPick = (id, x, y, additive) => elementPickRef.current?.(id, x, y, additive)
     scene.onWorldPlanePick = (axis) => worldPlaneRef.current?.(axis)
     scene.onPaintChange = (count) => paintRef.current?.(count)
     scene.onExtendDrag = (side, delta, phase) => extendRef.current?.(side, delta, phase)

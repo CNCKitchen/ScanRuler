@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end check of the two surface switches in the status strip: TRANSPARENT
 // and MESH. Loads ballbar.stl, flips each switch, and reads the part back from
 // screenshots — it has to change when a switch goes on, change back when it
@@ -34,7 +35,7 @@ const { browser, page, consoleErrors } = await launchApp()
 await loadScan(page, STL)
 // The support card sits over the lower-left of the stage, blue buttons and
 // all, right where the part is looked for. Closed up front.
-await click(page, '[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await sleep(200)
 const rect = await canvasRect(page)
 const canvasClip = { x: rect.x, y: rect.y, width: rect.w, height: rect.h }

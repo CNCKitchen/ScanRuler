@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test for the Mesh Tools edits beyond Remove islands: drives the
 // real app in headless Chrome on a generated scan — a noisy box standing on
 // the XY plane with two holes in its top — and fills one hole by clicking its
@@ -156,7 +157,7 @@ const step = async (key, word) => {
 }
 
 await setViewTheme(page, 'studio')
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await page.click('[data-test=workspace-mesh]')
 await page.waitForSelector('[data-test=start-pane]')
 await loadScan(page, SCAN, { inputSelector: '[data-test=start-scan] input[type=file]', timeout: 120_000, settle: 600 })
