@@ -362,9 +362,9 @@ export async function fitBall(page, rect, farEnd, want, { ready } = {}) {
  *  and left; then `settle` ms for the app to take it. */
 export const fieldSetter = (page, { settle = 300 } = {}) => async (sel, value) => {
   await page.click(sel)
-  await page.keyboard.down(MOD)
-  await page.keyboard.press('KeyA')
-  await page.keyboard.up(MOD)
+  // Headless Chrome does not reliably apply the host's select-all binding
+  // to number inputs. Send its native editing command through the keyboard.
+  await page.keyboard.press('KeyA', { commands: ['selectAll'] })
   await page.keyboard.press('Backspace')
   await page.type(sel, String(value))
   await page.$eval(sel, (el) => el.blur())
