@@ -191,7 +191,7 @@ export class NotePins {
         const dot = new THREE.Sprite(spriteMaterial(this.dot))
         dot.renderOrder = 10
         const el = document.createElement('div')
-        el.className = 'note-label'
+        el.className = 're-note-label'
         el.dataset.test = 'note-label'
         const label = new CSS2DObject(el)
         label.center.set(0, 0.5)
