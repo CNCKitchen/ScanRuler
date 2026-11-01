@@ -45,8 +45,10 @@ export function replyHead(reply) {
  *  list handed out), "call" (a tool call answered), "entry" (one call of a
  *  batch), "job" (a change started with wait: false, finished) and
  *  "visibility" (the tab hidden or shown). Times are ms since the epoch
- *  (`t`, the start) and durations ms. */
-export function createTrace(dir, { args = false, now = () => Date.now(), pid = process.pid } = {}) {
+ *  (`t`, the start) and durations ms. `secrets` are written as
+ *  "[redacted]" wherever they appear — the pairing token, which the help on
+ *  connecting gives in full: a trace is made to be shared. */
+export function createTrace(dir, { args = false, now = () => Date.now(), pid = process.pid, secrets = [] } = {}) {
   if (!dir) return null
   mkdirSync(dir, { recursive: true })
   const stamp = new Date(now()).toISOString().replace(/[:.]/g, '-').replace(/Z$/, '')
@@ -55,7 +57,9 @@ export function createTrace(dir, { args = false, now = () => Date.now(), pid = p
   const write = (line) => {
     if (broken) return
     try {
-      appendFileSync(file, `${JSON.stringify(line)}\n`)
+      let json = JSON.stringify(line)
+      for (const secret of secrets) if (secret) json = json.split(secret).join('[redacted]')
+      appendFileSync(file, `${json}\n`)
     } catch (e) {
       // A trace that cannot be written is not a reason to fail the call.
       broken = true

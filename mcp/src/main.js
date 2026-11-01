@@ -176,7 +176,7 @@ export async function main(argv = process.argv.slice(2)) {
   const cwd = process.cwd()
   const outDir = values.out ? (values.out.match(/^([A-Za-z]:)?[\\/]/) ? values.out : `${cwd}/${values.out}`) : cwd
   const traceDir = values.trace ?? process.env.SCANRULER_MCP_TRACE
-  const trace = traceDir ? createTrace(resolve(cwd, traceDir), { args: values['trace-args'] === true }) : null
+  const trace = traceDir ? createTrace(resolve(cwd, traceDir), { args: values['trace-args'] === true, secrets: [token] }) : null
   if (trace) log(`Tracing every call to ${trace.file}${trace.args ? ', arguments too' : ''}.`)
   const engineFile = values.engine ?? process.env.SCANRULER_ENGINE ?? (values.headless ? CHECKOUT_ENGINE : null)
   if (engineFile) return headless(resolve(cwd, engineFile), { cwd, outDir, tools, trace, answerWithinMs, updates })
