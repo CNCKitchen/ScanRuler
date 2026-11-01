@@ -19,3 +19,4 @@ dist/
 # The agent server bundled per platform (npm run bundle:agent)
 /dist-agent/
 /dist-engine-standalone/
+/dist-electron/
