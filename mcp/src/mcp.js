@@ -422,6 +422,35 @@ const failure = (e) => {
   return { ...text(`${code}: ${message}`), isError: true }
 }
 
+/** What is wrong with `args` against a tool's input schema, as a message —
+ *  each top-level number's and boolean's type, an enum, and numeric bounds — or null when
+ *  nothing is. Only the parts of JSON Schema this server's own tools use
+ *  are checked. */
+export function schemaMismatch(schema, args) {
+  if (args === undefined || args === null) return null
+  if (typeof args !== 'object' || Array.isArray(args)) return 'give the arguments as an object.'
+  for (const [key, value] of Object.entries(args)) {
+    const want = schema?.properties?.[key]
+    if (!want || value === undefined) continue
+    // Lists and objects are left to the tools, some of which take them given
+    // as a string of JSON too.
+    const types = [want.type].flat().filter(Boolean)
+    const is = (type) =>
+      type === 'integer' ? Number.isInteger(value)
+        : type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+        : type === 'boolean' ? typeof value === 'boolean'
+        : true
+    if (types.length && !types.some(is)) return `${key}: give ${types.join(' or ')}, not ${JSON.stringify(value)}.`
+    if (want.enum && !want.enum.includes(value)) return `${key}: give one of ${want.enum.map((v) => JSON.stringify(v)).join(', ')}.`
+    if (typeof value === 'number') {
+      if (want.minimum !== undefined && value < want.minimum) return `${key}: give ${want.minimum} or more.`
+      if (want.exclusiveMinimum !== undefined && value <= want.exclusiveMinimum) return `${key}: give more than ${want.exclusiveMinimum}.`
+      if (want.maximum !== undefined && value > want.maximum) return `${key}: give ${want.maximum} or less.`
+    }
+  }
+  return null
+}
+
 /**
  * @param {{
  *   link: import('./relay.js').SharedLink | import('./link.js').PageLink,
@@ -1756,7 +1785,13 @@ export function createMcpServer({
   const dispatch = async (request, extra, ctx) => {
     const { name, arguments: args } = request.params
     const mine = own.find((t) => t.name === name)
-    if (mine) return mine.call(args, ctx)
+    if (mine) {
+      // The SDK does not check arguments against a tool's schema, so a
+      // timeoutSeconds of "abc" would wait no time at all; this server's own
+      // tools are checked here.
+      const wrong = schemaMismatch(mine.inputSchema, args)
+      return wrong ? failure({ code: 'invalid_input', message: wrong }) : mine.call(args, ctx)
+    }
     // Progress lines from the page: kept on the call's job, for the status
     // and scanruler_wait to answer, and sent on to a client that asked for
     // them.
