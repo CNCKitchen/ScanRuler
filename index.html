@@ -31,13 +31,10 @@
       html { background: #e7e6e1; }
       html[data-theme='dark'] { background: #1b1d20; }
     </style>
-    <script>
-      try {
-        var t = localStorage.getItem('scanruler.uitheme')
-        if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches))
-          document.documentElement.dataset.theme = 'dark'
-      } catch (e) {}
-    </script>
+    <!-- A file, not an inline script, so the Content-Security-Policy in
+         public/_headers needs no hash or 'unsafe-inline' for it. Classic and
+         blocking on purpose: it must run before the first paint. -->
+    <script src="/theme.js"></script>
   </head>
   <body>
     <div id="root"></div>
