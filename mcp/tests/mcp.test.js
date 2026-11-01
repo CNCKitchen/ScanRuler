@@ -233,7 +233,7 @@ test('a session someone left: the status says what it holds, scan_open with save
     assert.equal(await readFile(join(folder, 'report.md'), 'utf8'), '# Sigma\n\nRMS 0.067 mm')
     assert.equal((await on('scanruler_write', { path: 'out/readings.csv', text: 'a,b' })).json.path, join(folder, 'out', 'readings.csv'), 'a folder under it')
     assert.equal((await on('scanruler_write', { path: join(dir, 'beside-the-project.txt'), text: 'x' })).error, false, 'the folder a project was saved into')
-    for (const [path, why] of [['report.exe', /only \.md/], ['../escape.md', /"\.\."/], [join(tmpdir(), 'elsewhere.md'), /outside/]]) {
+    for (const [path, why] of [['report.exe', /only \.md/], ['../escape.md', /"\.\."/], [join(tmpdir(), 'elsewhere.md'), /outside/], ['.claude/settings.json', /hidden/], [join(folder, '.github', 'notes.md'), /hidden/], ['CLAUDE.md', /instructions/], ['sub/package.json', /settings/]]) {
       const refused = await on('scanruler_write', { path, text: 'x' })
       assert.equal(refused.error, true, path)
       assert.match(refused.text, why)

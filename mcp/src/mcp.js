@@ -25,7 +25,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { absolute, agentJson, batchedPicture, fileKind, imageContent, inputFor, relativeFrom, replacesSession, saveFileResult, TEXT_FILES, toolFor, toolName, waitIn, withFiles, wholeUtf8, writeNew } from './tools.js'
@@ -282,6 +282,10 @@ const SESSION_WITHIN_MS = 3_000
 
 /** The kinds of file scanruler_write writes: text, for a report. */
 const TEXT_KINDS = ['.md', '.txt', '.csv', '.json']
+
+/** Names scanruler_write does not write, in any folder: files other tools
+ *  read as their instructions or settings, which a report never needs. */
+const PROTECTED_NAMES = ['claude.md', 'agents.md', 'gemini.md', 'package.json', 'package-lock.json', 'tsconfig.json', 'jsconfig.json']
 
 /** A change answered directly that took longer than this has likely
  *  outlived its client's wait (Claude Desktop's is a minute): its answer
@@ -1005,7 +1009,7 @@ export function createMcpServer({
     own.push({
       name: 'scanruler_write',
       title: 'Write a text file beside the scan',
-      description: `Write a text file — a report, notes, a table of readings — next to the scan, as UTF-8: ${TEXT_KINDS.join(', ')} only, and only inside the folder this server last opened a scan or a project from (scan_open, project_load) or saved one into (saveTo), or a folder under it. A relative path is taken in that folder; an absolute one must lie in one of those folders, and a path may not climb out with "..". A file already there is replaced. Returns its path and size in bytes. Refused while this server has opened no scan or project from a folder — then open the scan with scan_open first, or write the file yourself.`,
+      description: `Write a text file — a report, notes, a table of readings — next to the scan, as UTF-8: ${TEXT_KINDS.join(', ')} only, and only inside the folder this server last opened a scan or a project from (scan_open, project_load) or saved one into (saveTo), or a folder under it. A relative path is taken in that folder; an absolute one must lie in one of those folders, and a path may not climb out with "..". Hidden files and folders (a name starting with ".") and files other tools read as instructions or settings (CLAUDE.md, AGENTS.md, package.json …) are refused. A file already there is replaced. Returns its path and size in bytes. Refused while this server has opened no scan or project from a folder — then open the scan with scan_open first, or write the file yourself.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -1196,6 +1200,16 @@ export function createMcpServer({
     }
     if (!folders.some(inside)) {
       throw { code: 'invalid_input', message: `path: ${target} is outside the folders a scan or a project was opened from — ${folders.join(', ')}. Give a path in one of them.` }
+    }
+    // A scan folder may sit inside a code project, where a hidden folder
+    // (.claude, .github, .vscode) or an agent's instruction file is read as
+    // settings or instructions by other tools later run there; those are
+    // not written.
+    if (folders.filter(inside).some((folder) => relative(folder, target).split(/[\\/]/).some((part) => part.startsWith('.')))) {
+      throw { code: 'invalid_input', message: 'path: a hidden file or folder (a name starting with ".") is not written — give a plain name.' }
+    }
+    if (PROTECTED_NAMES.includes(basename(target).toLowerCase())) {
+      throw { code: 'invalid_input', message: `path: ${basename(target)} is read by other tools as settings or instructions, so it is not written — give another name.` }
     }
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, body, 'utf8')
