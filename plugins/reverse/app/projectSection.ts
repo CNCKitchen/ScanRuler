@@ -165,7 +165,7 @@ export function validateReversePart(raw: unknown): ReversePart {
   const r = object(raw, 'reverse')
   fields(r, 'nextFeatureId', 'number', 'reverse')
   if (r.version !== undefined && (typeof r.version !== 'number' || !Number.isFinite(r.version))) invalid('reverse.version')
-  object(r.nextOfKind, 'reverse.nextOfKind')
+  for (const n of Object.values(object(r.nextOfKind, 'reverse.nextOfKind'))) if (!Number.isSafeInteger(n)) invalid('reverse.nextOfKind')
   entries(r.features, 'reverse.features', validateFeatureJson)
   if (r.rolledTo !== undefined && (!Number.isSafeInteger(r.rolledTo) || (r.rolledTo as number) < 0 || (r.rolledTo as number) > (r.features as unknown[]).length)) invalid('reverse.rolledTo')
   if (r.parameters !== undefined) {
@@ -326,6 +326,14 @@ export function migrateFeatures(features: readonly Feature[], version: number): 
   return out
 }
 
+/** The next id to give, from the one a file holds: past every id already
+ *  taken whatever the file says, so a hand-edited or hostile counter cannot
+ *  hand out an id twice and make one removal take two features. */
+function nextIdPast(given: number | undefined, taken: readonly number[]): number {
+  const past = taken.reduce((m, id) => (Number.isFinite(id) ? Math.max(m, Math.floor(id) + 1) : m), 1)
+  return given !== undefined && Number.isSafeInteger(given) && given > past ? given : past
+}
+
 /** The features as the store holds them, split at the rollback bar. */
 function reversePartState(p: ReversePart | undefined, ctx?: RestoreContext) {
   if (!p) return null
@@ -336,10 +344,10 @@ function reversePartState(p: ReversePart | undefined, ctx?: RestoreContext) {
   return {
     features: all.slice(0, at),
     rolledBack: all.slice(at),
-    nextFeatureId: p.nextFeatureId,
+    nextFeatureId: nextIdPast(p.nextFeatureId, all.map((f) => f.id)),
     nextOfKind: p.nextOfKind,
     parameters,
-    nextParameterId: p.nextParameterId ?? parameters.reduce((m, q) => Math.max(m, q.id + 1), 1),
+    nextParameterId: nextIdPast(p.nextParameterId, parameters.map((q) => q.id)),
     parameterTable: evaluateParameters(parameters),
     bodyStyles: Object.fromEntries(Object.entries(p.bodyStyles ?? {}).map(([id, st]) => [Number(id), st])) as BodyStyles,
     hiddenBodies: p.hiddenBodies ?? [],

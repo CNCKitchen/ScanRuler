@@ -3,7 +3,7 @@
 // project reads back as, and what a hostile file cannot make of the store.
 import { beforeEach, describe, expect, it } from 'vitest'
 import { snapshotKey } from '../../../src/app/projectSnapshot'
-import { collectReversePart } from '../app/projectSection'
+import { collectReversePart, reverseSection } from '../app/projectSection'
 import { useReverse } from '../state/reStore'
 
 beforeEach(() => useReverse.getState().reset())
@@ -19,5 +19,31 @@ describe('a Reverse project file', () => {
     }
     const key = snapshotKey()
     expect(key(capture())).toBe(key(capture()))
+  })
+})
+
+describe('a Reverse project file with hostile counters', () => {
+  const part = (nextFeatureId: number, extra: object = {}) => ({
+    version: 3,
+    features: [{ id: 7, kind: 'import', name: 'Import 1', file: { key: 'k', name: 'a.step', size: 1 }, visible: true }],
+    nextFeatureId,
+    nextOfKind: {},
+    elementsShown: true,
+    ...extra,
+  })
+  const load = (value: unknown) => reverseSection.prepare(value as never, { manifest: {} as never, members: new Map() })()
+
+  it('never hands out an id a feature or a parameter already has', () => {
+    for (const bad of [7, 3, -3, 0.5, 0]) {
+      load(part(bad, { parameters: [{ id: 4, name: 'a', kind: 'number', expression: '1' }], nextParameterId: 2 }))
+      expect(useReverse.getState().nextFeatureId).toBe(8)
+      expect(useReverse.getState().nextParameterId).toBe(5)
+    }
+    load(part(20))
+    expect(useReverse.getState().nextFeatureId).toBe(20)
+  })
+
+  it('refuses a name counter that is not a whole number', () => {
+    expect(() => load(part(8, { nextOfKind: { extrude: 0.5 } }))).toThrow()
   })
 })
