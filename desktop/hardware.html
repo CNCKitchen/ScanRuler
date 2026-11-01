@@ -14,12 +14,12 @@
   .row { margin: 14px 0; display: flex; gap: 8px; align-items: center }
   .warn { color: #e0b050 }
 </style>
-<h1>Hardware</h1>
+<h1 id="h">Hardware</h1>
 <table id="t"></table>
 <div class="row">
-  <label for="b">Graphics backend:</label>
+  <label for="b" id="l"></label>
   <select id="b"></select>
-  <button id="r">Restart to apply</button>
+  <button id="r"></button>
 </div>
 <p class="warn" id="note"></p>
 <script>
@@ -27,20 +27,27 @@ const $ = (id) => document.getElementById(id)
 const row = (k, v) => `<tr><td>${k}</td><td>${String(v).replace(/[<&]/g, (c) => ({ '<': '&lt;', '&': '&amp;' })[c])}</td></tr>`
 async function load() {
   const i = await hw.info()
+  const s = i.strings
+  // A probe answer is a description, true (present, unnamed) or false (absent).
+  const present = (v, name) => (v === false ? s.unavailable : v === true ? name ?? s.available : v)
+  document.title = `ScanRuler — ${s.title}`
+  $('h').textContent = s.title
+  $('l').textContent = s.backend
+  $('r').textContent = s.restart
   $('t').innerHTML = [
-    row('GPU', i.gpus.join(' | ') || '—'),
-    row('ANGLE backend chosen', i.backendLabel),
-    row('ANGLE backend running', i.angleActive || '—'),
-    row('WebGL2 / renderer', i.page.renderer || '—'),
-    row('WebGPU', i.page.webgpu),
-    row('CPU (threads)', `${i.cpu} — ${i.page.threads} logical threads`),
-    row('Cross-origin isolation (WASM threads)', i.page.isolated ? 'yes' : 'no'),
-    row('NPU / WebNN', i.page.webnn ? 'available' : 'unavailable'),
-    row('Electron / Chromium', i.versions),
+    row(s.gpu, i.gpus.join(' | ') || '—'),
+    row(s.backendChosen, i.backends[i.backendRunning]),
+    row(s.backendRunning, i.angleActive || '—'),
+    row(s.renderer, present(i.page.renderer, 'WebGL2')),
+    row(s.webgpu, present(i.page.webgpu)),
+    row(s.cpu, `${i.cpu} — ${i.page.threads} ${s.threads}`),
+    row(s.isolation, i.page.isolated ? s.yes : s.no),
+    row(s.npu, i.page.webnn ? s.available : s.unavailable),
+    row(s.versions, i.versions),
   ].join('')
   $('b').innerHTML = Object.entries(i.backends).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')
   $('b').value = i.backend
-  $('note').textContent = i.backend !== i.backendRunning ? 'Backend changed: restart to apply.' : ''
+  $('note').textContent = i.backend !== i.backendRunning ? s.changed : ''
 }
 $('b').onchange = async () => { await hw.setBackend($('b').value); load() }
 $('r').onclick = () => hw.restart()

@@ -3,23 +3,51 @@
 // swapped for the dictionary's text, node by node, and kept in step as React
 // redraws. The ScanRuler source is not touched. Text drawn on a canvas (3D
 // labels) and text built from numbers at run time are not covered.
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
-export const LANGUAGES = { 'pt-BR': 'Português (Brasil)', en: 'English' }
+// The shell's own text, in English; a dictionary's "_menu" and "_hw" override it.
+const MENU = { file: 'File', open: 'Open scan…', quit: 'Quit', view: 'View', help: 'Help', hardware: 'Hardware…', language: 'Language', watch: 'Watch Creality Scan folder…', unwatch: 'Stop watching Creality Scan', fresh: 'New Mesh.ply from project', openIt: 'Open in ScanRuler', ignore: 'Ignore' }
+const HW = { title: 'Hardware', gpu: 'GPU', backendChosen: 'ANGLE backend chosen', backendRunning: 'ANGLE backend running', renderer: 'WebGL2 / renderer', webgpu: 'WebGPU', cpu: 'CPU (threads)', threads: 'logical threads', isolation: 'Cross-origin isolation (WASM threads)', npu: 'NPU / WebNN', versions: 'Electron / Chromium', backend: 'Graphics backend:', restart: 'Restart to apply', changed: 'Backend changed: restart to apply.', yes: 'yes', no: 'no', available: 'available', unavailable: 'unavailable', default: 'default', experimental: 'experimental' }
 
-/** The dictionary of a language, or null for English (the page as it is). */
-export function loadDict(lang) {
-  if (lang === 'en') return null
-  try {
-    return JSON.parse(readFileSync(join(here, 'i18n', `${lang}.json`), 'utf8'))
-  } catch {
-    return null
+const files = new Map() // lang -> parsed i18n/<lang>.json
+const read = (lang) => {
+  if (!files.has(lang)) {
+    try {
+      files.set(lang, JSON.parse(readFileSync(join(here, 'i18n', `${lang}.json`), 'utf8')))
+    } catch {
+      files.set(lang, null)
+    }
   }
+  return files.get(lang)
 }
+
+/** Every language with a file in i18n/, plus English: id -> its own name. */
+export const LANGUAGES = Object.fromEntries([
+  ['en', 'English'],
+  ...readdirSync(join(here, 'i18n'))
+    .filter((f) => f.endsWith('.json') && !f.startsWith('_')) // _english-keys.json lists the source strings for translators
+    .map((f) => f.slice(0, -5))
+    .map((lang) => [lang, read(lang)?._name ?? lang]),
+])
+
+/** The language to start in: the OS's, where a file for it exists, else English. */
+export function defaultLanguage(locale) {
+  const ids = Object.keys(LANGUAGES)
+  return ids.find((id) => id.toLowerCase() === locale.toLowerCase()) ?? ids.find((id) => id.split('-')[0] === locale.split('-')[0]) ?? 'en'
+}
+
+/** The page's words of a language, or null for English (the page as it is). */
+export function loadDict(lang) {
+  const d = read(lang)
+  return d ? Object.fromEntries(Object.entries(d).filter(([k]) => !k.startsWith('_'))) : null
+}
+
+export const menuOf = (lang) => ({ ...MENU, ...read(lang)?._menu })
+export const hwOf = (lang) => ({ ...HW, ...read(lang)?._hw })
 
 /** A script that installs the translator in the page, or switches its dictionary. */
 export function injectScript(dict) {

@@ -4,17 +4,18 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-/** The graphics backend ANGLE translates WebGL to, by the name the panel shows. */
+import { LANGUAGES, defaultLanguage } from './i18n.js'
+
+/** The graphics backend ANGLE translates WebGL to: the API's name, and whether it is the default or experimental. */
 export const BACKENDS = {
-  d3d11: { label: 'DirectX 11 (default)', angle: 'd3d11' },
-  d3d12: { label: 'DirectX 12 (experimental)', angle: 'd3d11on12' },
-  vulkan: { label: 'Vulkan (experimental)', angle: 'vulkan' },
-  gl: { label: 'OpenGL (experimental)', angle: 'gl' },
+  d3d11: { name: 'DirectX 11', tag: 'default', angle: 'd3d11' },
+  d3d12: { name: 'DirectX 12', tag: 'experimental', angle: 'd3d11on12' },
+  vulkan: { name: 'Vulkan', tag: 'experimental', angle: 'vulkan' },
+  gl: { name: 'OpenGL', tag: 'experimental', angle: 'gl' },
 }
 
-const LANGS = ['pt-BR', 'en']
 // The OS language picks the first language; the menu changes it.
-const DEFAULTS = { backend: 'd3d11', language: Intl.DateTimeFormat().resolvedOptions().locale.startsWith('pt') ? 'pt-BR' : 'en', crealityDir: '' }
+const DEFAULTS = { backend: 'd3d11', language: defaultLanguage(Intl.DateTimeFormat().resolvedOptions().locale), crealityDir: '' }
 
 export function loadSettings(dir) {
   try {
@@ -22,7 +23,7 @@ export function loadSettings(dir) {
     return {
       ...DEFAULTS,
       ...(saved.backend in BACKENDS ? { backend: saved.backend } : {}),
-      ...(LANGS.includes(saved.language) ? { language: saved.language } : {}),
+      ...(saved.language in LANGUAGES ? { language: saved.language } : {}),
       ...(typeof saved.crealityDir === 'string' ? { crealityDir: saved.crealityDir } : {}),
     }
   } catch {
