@@ -5,10 +5,27 @@
 
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate'
 import { MANIFEST_NAME, validateManifest, type ProjectManifest } from './manifest'
+import { readSourceFile } from '../sourceFile'
 
+/** A member as the session hands it over: the scan and the reference are
+ *  the files they were opened from (see core/sourceFile), read only when the
+ *  archive is built. */
 export interface ArchiveMember {
   name: string
+  bytes: Uint8Array | Blob
+}
+
+/** A member with its bytes in hand, as the archive is built from. */
+export interface ArchiveFile {
+  name: string
   bytes: Uint8Array
+}
+
+/** Every member's bytes, the files among them read now — a copy that lives
+ *  only as long as the packing does. */
+export async function readMembers(members: readonly ArchiveMember[]): Promise<ArchiveFile[]> {
+  return Promise.all(members.map(async ({ name, bytes }) =>
+    ({ name, bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(await readSourceFile(bytes, name)) })))
 }
 
 /** Past this many characters of compact JSON the manifest is written
@@ -29,7 +46,7 @@ export function manifestText(manifest: ProjectManifest, prettyLimit = PRETTY_LIM
  *  is the one member a person might open — and every model file is deflated
  *  at a level that gets most of the gain without waiting on the last few
  *  percent. */
-export function packProject(manifest: ProjectManifest, members: ArchiveMember[], limits = PROJECT_LIMITS): Uint8Array {
+export function packProject(manifest: ProjectManifest, members: ArchiveFile[], limits = PROJECT_LIMITS): Uint8Array {
   const manifestBytes = strToU8(manifestText(manifest))
   const total = members.reduce((sum, member) => sum + member.bytes.byteLength, manifestBytes.byteLength)
   if (members.length + 1 > limits.members || manifestBytes.byteLength > limits.manifestBytes || total > limits.totalBytes) {

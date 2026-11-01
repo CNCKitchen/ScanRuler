@@ -12,7 +12,7 @@ try {
     const { useFlat } = await import('/src/state/flatStore.ts')
     const { useShell } = await import('/src/state/shellStore.ts')
     const { collectProject, emptySources } = await import('/src/app/project.ts')
-    const { packProject, unpackProject } = await import('/src/core/project/archive.ts')
+    const { packProject, readMembers, unpackProject } = await import('/src/core/project/archive.ts')
     const { SceneManager } = await import('/src/viewer/SceneManager.ts')
     const { MeshWorkerClient } = await import('/src/core/workerClient.ts')
     const results = []
@@ -62,12 +62,12 @@ try {
       record(useStore.getState() === beforeCancel, 'cancelling project replacement preserves state and status')
     } finally { window.confirm = confirm }
 
-    const sources = { scan: { name: 'replacement.obj', bytes: bytes(aText) }, reference: null, image: null }
+    const sources = { scan: { name: 'replacement.obj', file: new Blob([aText]) }, reference: null, image: null }
     const candidate = collectProject(sources, null, 'test')
     candidate.manifest.scan.fileName = 'replacement.obj'
     candidate.manifest.deviation.reference = { fileName: 'broken.obj', member: 'reference.obj' }
     candidate.members.push({ name: 'reference.obj', bytes: bytes('broken reference') })
-    drop(new File([packProject(candidate.manifest, candidate.members)], 'broken-reference.scanruler'))
+    drop(new File([packProject(candidate.manifest, await readMembers(candidate.members))], 'broken-reference.scanruler'))
     await wait(() => !useStore.getState().busy && !!useStore.getState().errorText)
     record(useStore.getState().elements === beforeElements && useStore.getState().fileName === 'fast-B.obj' && useStore.getState().triangleCount === 2,
       'failure in a project reference does not install its already-prepared scan')
@@ -75,7 +75,7 @@ try {
     candidate.manifest.deviation.reference = null
     candidate.manifest.flat.image = { fileName: 'broken.png', member: 'image.png' }
     candidate.members.push({ name: 'image.png', bytes: bytes('broken image') })
-    drop(new File([packProject(candidate.manifest, candidate.members)], 'broken-image.scanruler'))
+    drop(new File([packProject(candidate.manifest, await readMembers(candidate.members))], 'broken-image.scanruler'))
     await wait(() => !useStore.getState().busy && !!useStore.getState().errorText)
     record(useStore.getState().elements === beforeElements && useStore.getState().fileName === 'fast-B.obj',
       'failure decoding the last project member preserves the current session')
@@ -107,7 +107,7 @@ try {
     // A valid aligned project must still measure and render in the saved frame.
     candidate.manifest.flat.image = null
     candidate.manifest.scan.appliedAlignment = { r: [1,0,0,0,1,0,0,0,1], t: [10,0,0] }
-    drop(new File([packProject(candidate.manifest, candidate.members)], 'aligned.scanruler'))
+    drop(new File([packProject(candidate.manifest, await readMembers(candidate.members))], 'aligned.scanruler'))
     await wait(() => !useStore.getState().busy && useStore.getState().statusText.includes('Project opened'))
     record(useStore.getState().fileName === 'replacement.obj' && useStore.getState().triangleCount === 1 && useStore.getState().modelCenter[0] > 10,
       'a successful project commits its geometry and saved alignment')
@@ -203,9 +203,9 @@ try {
         'dismissing the question leaves the file unopened')
 
       // A project remembers the units its scan was read in and asks nothing.
-      const inchProject = collectProject({ scan: { name: 'inch.stl', bytes: stlBytes(1), units: 'in' }, reference: null, image: null }, null, 'test')
+      const inchProject = collectProject({ scan: { name: 'inch.stl', file: new Blob([stlBytes(1)]), units: 'in' }, reference: null, image: null }, null, 'test')
       inchProject.manifest.scan.fileName = 'inch.stl'
-      drop(new File([packProject(inchProject.manifest, inchProject.members)], 'inch.scanruler'))
+      drop(new File([packProject(inchProject.manifest, await readMembers(inchProject.members))], 'inch.scanruler'))
       await wait(() => !useStore.getState().busy && useStore.getState().fileName === 'inch.stl')
       record(!modal() && inInches(), 'a project reads its STL in the units it was saved with, without asking')
     } finally {

@@ -8,7 +8,7 @@ import { scanLoaded } from '../src/app/scanEvents'
 import { useStore } from '../src/state/store'
 import type { ProjectManifest } from '../src/core/project/manifest'
 
-const sources = () => ({ ...emptySources(), scan: { name: 'part.stl', bytes: new Uint8Array([1, 2, 3]) } })
+const sources = () => ({ ...emptySources(), scan: { name: 'part.stl', file: new Blob([new Uint8Array([1, 2, 3])]) } })
 
 function saved(extra: Record<string, unknown>): ProjectManifest {
   useStore.getState().beginLoad('part.stl')
