@@ -237,12 +237,12 @@ const detectEdges: Command<{ sensitivity?: number }> = {
     'Find the edges in the image again at a sensitivity from 0 (only the strongest) to 1 (every faint one) — what the edge methods of flat.fit and the snapping of every place follow. The chains are numbered afresh. Needs the browser. Returns how many edge chains were found.',
   input: obj({ sensitivity: num('0 to 1.', { minimum: 0, maximum: 1 }) }),
   label: () => 'detect edges',
-  run: async ({ sensitivity }) => {
+  run: async ({ sensitivity }, ctx) => {
     const flat = commandHost().flat
     if (!flat) throw new CommandError('unavailable', 'Edge detection needs the browser.')
     requireSheet()
     showWorkspace('flat')
-    const chains = await flat.detectEdges(sensitivity ?? useFlat.getState().edgeSensitivity)
+    const chains = await flat.detectEdges(sensitivity ?? useFlat.getState().edgeSensitivity, ctx.signal)
     return { chains }
   },
 }
