@@ -84,6 +84,8 @@ cannot see this one, because `occt-wasm`'s package declares only its wrapper's
 licenses, so this paragraph is the record. That is the whole of the exemption: no
 other LGPL code, and nothing GPL, ever.
 
+**The desktop app ships a second LGPL library, also loaded, not linked.** Electron builds Chromium's FFmpeg (LGPL-2.1 or later) as a separate shared library (`libffmpeg`) beside the executable, on purpose: its release build files say they build it so for "users who have an LGPL requirement to ship ffmpeg as a dynamically linked library". The app loads it at run time and anyone can replace it with another build, which is the relinking the LGPL asks to keep possible. Only the desktop app ships it: the web app and the agent server contain none. Electron itself is MIT; Chromium and its other components are listed with their licences in `LICENSES.chromium.html`, which Electron ships in every build. CI cannot see this one, because `electron`'s package declares only MIT, so this paragraph is the record. It needs the maintainer's decision, as the exemption above does, and the commit that adds it can be dropped without touching the rest.
+
 Assets follow the same rule with one carve-out: the bundled fonts in
 [public/fonts/](public/fonts/) are SIL OFL 1.1, which permits bundling with
 software of any license as long as the font files keep their own license text

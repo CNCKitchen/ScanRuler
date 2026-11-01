@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": [
+      "ES2023"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "scripts/bundle-agent.ts",
+    "scripts/smoke-agent-bundle.ts",
+    "scripts/package-electron.ts",
+    "scripts/smoke-electron.ts",
+    "scripts/lib/*.ts",
+    "scripts/types/*.d.ts",
+    "electron/**/*.ts",
+    "scripts/make-installer.ts",
+    "scripts/smoke-installer.ts"
+  ]
+}

@@ -5,7 +5,6 @@
 // user; the scan goes from this computer to the browser on it and nowhere
 // else. Everything this prints goes to stderr — stdout is the MCP channel.
 
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { format, parseArgs } from 'node:util'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -17,12 +16,13 @@ import { ANSWER_WITHIN_MS, createMcpServer, parseToolMode } from './mcp.js'
 import { SharedLink } from './relay.js'
 import { createTrace } from './trace.js'
 import { httpServer } from './serve.js'
+import { announce, DEFAULT_PORT } from './daemon.js'
 import { NO_UPDATE_ENV, startUpdates, watchParent } from './update.js'
+import PACKAGE from '../package.json' with { type: 'json' }
 
-const DEFAULT_PORT = 7317
 const HOSTED_APP = 'https://scanruler.com/'
 
-const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+const VERSION = PACKAGE.version
 
 const HELP = `scanruler-mcp ${VERSION} — drive ScanRuler from an AI agent
 
@@ -60,6 +60,9 @@ Usage: scanruler-mcp [options]
                          minute a client or a bridge may cut a call at; 0 holds a call
                          to its end
   --no-update            do not keep this server current (${NO_UPDATE_ENV}=1)
+  --daemon               run as the background server: hold the port, serve --serve <dir>
+                         and relay to the page, with no agent attached; recorded in the
+                         config directory so scanruler-agent start, status, open and stop find it
   --pair                 print the pairing token and link, and exit
   --version              print this server's version, and exit
   --help                 this
@@ -134,6 +137,7 @@ export async function main(argv = process.argv.slice(2)) {
       'trace-args': { type: 'boolean' },
       'answer-within': { type: 'string' },
       'no-update': { type: 'boolean' },
+      daemon: { type: 'boolean' },
       pair: { type: 'boolean' },
       version: { type: 'boolean' },
       help: { type: 'boolean' },
@@ -189,7 +193,20 @@ export async function main(argv = process.argv.slice(2)) {
       ? `Listening for the ScanRuler page on ws://127.0.0.1:${port}/${values.serve ? `, serving ${values.serve} at http://127.0.0.1:${port}/` : ''}.`
       : `Port ${port} is held by another scanruler-mcp; this one sends its calls through it.`),
   )
+  if (values.daemon) {
+    if (!values.serve) throw new Error('--daemon serves the app, so it needs --serve <folder>.')
+    link.on('role', (role) => {
+      if (role === 'relay') {
+        log(`Port ${port} is held by another scanruler-mcp, which is the background server if one is running; this one ends.`)
+        link.close()
+        process.exit(0)
+      }
+      announce({ port, version: VERSION })
+    })
+  }
   link.start()
+  // The background server has no agent on stdio: the port it holds keeps it running.
+  if (values.daemon) return
 
   const server = createMcpServer({
     link,

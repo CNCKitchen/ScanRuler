@@ -23,13 +23,13 @@
 // or a batch still running then answers with its job, and runs on.
 
 import { randomBytes } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { lstat, mkdir, open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { absolute, agentJson, batchedPicture, fileKind, imageContent, inputFor, relativeFrom, replacesSession, saveFileResult, TEXT_FILES, toolFor, toolName, waitIn, withFiles, wholeUtf8, writeNew } from './tools.js'
 import { jsonBytes, replyHead, replyMeasure } from './trace.js'
+import SNAPSHOT_FILE from './commands.json' with { type: 'json' }
 
 /** The app's own commands as of this release, so the tools are there before
  *  a page connects — unless a page has connected before whose list was kept
@@ -37,7 +37,6 @@ import { jsonBytes, replyHead, replyMeasure } from './trace.js'
  *  either, its plugins' commands included. Kept in step by the app's tests
  *  (tests/mcpCommands.test.ts), with the app's version and when it was
  *  written (SNAPSHOT_OF). */
-const SNAPSHOT_FILE = JSON.parse(readFileSync(new URL('./commands.json', import.meta.url), 'utf8'))
 export const SNAPSHOT = Array.isArray(SNAPSHOT_FILE) ? SNAPSHOT_FILE : SNAPSHOT_FILE.commands
 export const SNAPSHOT_OF = { version: SNAPSHOT_FILE.app ?? null, saved: SNAPSHOT_FILE.saved ?? null }
 
