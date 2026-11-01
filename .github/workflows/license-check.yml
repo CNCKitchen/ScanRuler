@@ -34,19 +34,27 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: license-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   npm-licenses:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - name: npm license allowlist
         run: >-
-          npx --yes license-checker --excludePrivatePackages
+          npx --yes license-checker@25.0.1 --excludePrivatePackages
           --excludePackages "meshstep@0.1.1"
           --onlyAllow "MIT;Apache-2.0;MIT OR Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
           --summary
@@ -55,7 +63,7 @@ jobs:
       - run: npm --prefix mcp ci
       - name: npm license allowlist (mcp/)
         run: >-
-          npx --yes license-checker --start mcp
+          npx --yes license-checker@25.0.1 --start mcp
           --excludePackages "scanruler-mcp@$(node -p "require('./mcp/package.json').version")"
           --onlyAllow "MIT;Apache-2.0;MIT OR Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;Zlib;CC0-1.0;MPL-2.0;Unicode-3.0;Unicode-DFS-2016;Unlicense;CC-BY-4.0;BlueOak-1.0.0"
           --summary
