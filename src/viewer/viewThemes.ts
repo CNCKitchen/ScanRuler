@@ -97,8 +97,8 @@ export interface ViewTheme {
 
 /** Chassis grey behind the parts, one for each interface theme — matching
  *  `--stage` in the stylesheet, light and dark. */
-export const STAGE_LIGHT = 0xdedcd6
-export const STAGE_DARK = 0x2e3135
+export const STAGE_LIGHT = 0xe9edf2
+export const STAGE_DARK = 0x080c12
 const STAGE = STAGE_LIGHT
 
 export const VIEW_THEMES: readonly ViewTheme[] = [

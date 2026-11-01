@@ -326,6 +326,7 @@ export const freshSectionSheet = () => freshSheet({ x: 1, y: 1 }, 'section')
 /** What putting a sheet on the stage clears besides the sheet itself: the
  *  editors and the tool, which belonged to the sheet that was there. */
 export const STAGE_CLEARED = {
+  selectedElementIds: [] as number[],
   draft: null,
   dimDraft: null,
   tool: NO_TOOL,

@@ -83,6 +83,16 @@ let st = await bodies()
 check(JSON.stringify(st.map((b) => b.name)) === JSON.stringify(['Base', 'Shaft', 'Cap']), `three parts, named as the file names them (${st.map((b) => b.name)})`)
 const id = Object.fromEntries(st.map((b) => [b.name, b.id]))
 
+// Keyboard selection reaches the same real body state as pointer selection.
+await page.focus(`[data-test=body-row][data-body="${id.Base}"]`)
+await page.keyboard.press('ArrowDown')
+check(await page.evaluate(() => document.activeElement?.querySelector('[data-test=body-name]')?.textContent === 'Shaft'), 'body-tree arrow key moves focus to Shaft')
+await page.keyboard.press('Space')
+check(await re((id) => window.__re.store.getState().listSelection.bodies.includes(id), id.Shaft), 'keyboard selection updates the existing body selection')
+check(await page.$$eval('[data-test=body-list] [role=treeitem]', rows => rows.filter(r => r.tabIndex === 0).length === 1), 'body tree has one roving Tab stop')
+await click(page, '[data-test=body-selection-clear]')
+
+
 // ---- a component made, named, and a part dragged into it ---------------------------------
 await click(page, '[data-test=body-folder-new]')
 await page.waitForSelector('[data-test=body-folder-name-input]')

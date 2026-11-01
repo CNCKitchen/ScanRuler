@@ -115,8 +115,20 @@ try {
   await page.screenshot({ path: shotPath(`${prefix}-0-bore.png`) })
 
   // ---- a cylinder being made, its grips on the stage -------------------------------
-  const onWall = [rect.x + rect.w * 0.5 + rect.h * 0.19, rect.y + rect.h * 0.5]
+  // Keep the same world-space ray when opening the tool resizes the canvas.
+  // A screen position captured before the panel opens points elsewhere after it.
+  const wallRay = await page.evaluate(({ w, h }) => {
+    const camera = window.__scanruler.scene().viewport.camera
+    return camera.position.clone().set(2 * h * 0.19 / w, 0, 0).unproject(camera).toArray()
+  }, rect)
   await click(page, '[data-test="fit-cylinder"]')
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+  const onWall = await page.evaluate(ray => {
+    const scene = window.__scanruler.scene()
+    const p = scene.viewport.camera.position.clone().set(...ray).project(scene.viewport.camera)
+    const r = scene.viewport.renderer.domElement.getBoundingClientRect()
+    return [r.x + (p.x + 1) * r.width / 2, r.y + (1 - p.y) * r.height / 2]
+  }, wallRay)
   await page.mouse.move(onWall[0], onWall[1])
   await sleep(100)
   await page.mouse.click(onWall[0], onWall[1])

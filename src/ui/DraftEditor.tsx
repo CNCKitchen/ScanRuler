@@ -24,6 +24,7 @@ import { OrientFields } from './OrientFields'
 import { NameField, providersFor, RefSelect } from './RefSelect'
 import { tintStyle } from './tint'
 import { useLength } from '../app/useUnits'
+import { ToolActions } from './ToolActions'
 
 export function DraftEditor({
   onSelectMode,
@@ -375,6 +376,7 @@ export function DraftEditor({
           {(draft.status === 'ready' || (draft.status === 'failed' && draft.fit !== undefined)) &&
             isExtendable(shownFit) && <ExtendFields fit={shownFit} />}
 
+          <ToolActions>
           <button
             className={pulse ? 'primary block pulse' : 'primary block'}
             data-test="create-element"
@@ -393,6 +395,7 @@ export function DraftEditor({
               Cancel
             </button>
           </div>
+          </ToolActions>
         </div>
       )}
 

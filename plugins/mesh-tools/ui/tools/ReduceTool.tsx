@@ -2,6 +2,7 @@
 // Reduce mesh: a light copy of the scan to model over in CAD, held within a
 // tolerance, its sharp edges kept.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { usePulse } from '../../../../src/app/useHints'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -98,7 +99,7 @@ export function ReduceTool({
           }
         />
 
-        <button
+        <ToolActions><button
           className={pulse ? 'primary block pulse' : 'primary block'}
           data-test="reduce-mesh"
           data-confirm={r && !stale ? undefined : 1}
@@ -115,7 +116,7 @@ export function ReduceTool({
           ) : (
             'Reduce'
           )}
-        </button>
+        </button></ToolActions>
         <p className="hint">Both figures shape the reduction, so changing them means reducing again.</p>
         {m.message && <p className="alarmtext">{m.message}</p>}
       </div>

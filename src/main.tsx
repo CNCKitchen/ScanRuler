@@ -2,6 +2,7 @@
 // The app's stylesheet first: a plugin's own stylesheet, loaded with the
 // plugin, builds on it and has to come after it.
 import './styles.css'
+import './measure.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'

@@ -554,6 +554,7 @@ export class OrthoViewport {
    * the part turns about a point at its own depth.
    */
   animateLook(dir: THREE.Vector3, up: THREE.Vector3, target: THREE.Vector3, ms = 500, zoom?: number): void {
+    if (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) ms = 0
     const goal = this.poseOf(dir, up, target, zoom)
     const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion)
     const t0 = this.controls.target.clone()

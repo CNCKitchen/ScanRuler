@@ -7,6 +7,7 @@ workspaces have references of their own, in
 [plugins/reverse/README.md](../plugins/reverse/README.md) and
 [plugins/mesh-tools/README.md](../plugins/mesh-tools/README.md).
 
+- [Workspace layout and guided measurement](#workspace-layout-and-guided-measurement)
 - [Undo and redo](#undo-and-redo)
 - [3D Measure: fitting and measuring features](#3d-measure-fitting-and-measuring-features)
   - [How to use it](#how-to-use-it)
@@ -50,6 +51,38 @@ workspaces have references of their own, in
   - [Edges, and the three ways to fit](#edges-and-the-three-ways-to-fit)
   - [Alignment, dimensions, and what leaves the tool](#alignment-dimensions-and-what-leaves-the-tool)
   - [Measuring a section](#measuring-a-section)
+
+## Workspace layout and guided measurement
+
+All six workspaces share a top bar, workspace rail, Project panel and active-tool
+panel. Drag a panel divider to resize it, or focus the divider and use the arrow
+keys; Home and End choose its smallest and largest widths. On a narrow screen,
+Project and tool controls open as sheets. The active tool's commit and cancel
+buttons stay at the bottom of its panel.
+
+**Find a tool** or **Ctrl+K** (Mac: **Cmd+K**) searches the current workspace.
+In 3D Measure it starts the selected tool; in the other workspaces it reveals
+and focuses the existing control. **More** holds additional tools. **File**
+contains New, Open and Export; Save Project downloads the editable project.
+A browser recovery checkpoint is separate from that downloaded copy.
+
+In 3D Measure, **Guided measurement** walks through opening a scan, checking
+its scale, choosing a measurement, fitting surfaces, adding a dimension, trying
+Undo and Redo, and saving. It follows actual work in the project. Back reviews
+instructions without undoing anything, and Skip closes the guide. The supported
+paths are an angle between faces, distance between parallel faces, and a hole or
+shaft diameter. The scale check is an acknowledgement, not a calibration: compare
+a known size with the physical part before trusting a measurement.
+
+**Try a measurement sample** opens a generated 30 × 20 × 12 mm block through
+the normal importer. It is ideal geometry for practice, not a scanner accuracy
+test. **Open a sample scan** still opens the bundled fridge-bracket scan.
+
+Click a fitted element in the viewport or Project tree to select it. Shift adds
+to the selection; Ctrl or Command also works in the viewport. Tree arrow keys
+move focus, Space selects, and F2 renames. Visibility controls keep the geometry
+while hiding it. Settings offers light, dark and system themes; reduced-motion
+preferences disable interface transitions.
 
 ## Undo and redo
 
@@ -383,6 +416,11 @@ or the two halves of the point picker, the puck drives the one the mouse was
 last over. On a flat 2D sheet it pans and zooms and does not turn.
 
 ### Settings
+
+Settings and other modal windows keep keyboard focus inside: **Tab** and
+**Shift+Tab** cycle through their controls, and **Escape** closes only the
+top window. Focus returns to the control that opened it; the work behind
+the window stays in place. **Enter** activates the focused button.
 
 **⚙ Settings** in the top bar holds what is set once and left, all of it
 remembered per browser and none of it saved with a project:

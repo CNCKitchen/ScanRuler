@@ -189,7 +189,8 @@ export function sheetToScreen(rect, w, h) {
 /** Click a selector, waiting for it to exist first. */
 export async function click(page, sel, { timeout = 10_000 } = {}) {
   await page.waitForSelector(sel, { timeout })
-  await page.click(sel)
+  if (/data-test=["']?(mesh-tool-|feature-|flat-fit-)/.test(sel)) await clickTool(page, sel)
+  else await page.click(sel)
 }
 
 /** A switch in the menu over a part's key on the view bar (ui/PartKey), by
@@ -243,6 +244,15 @@ export async function selectByLabel(page, sel, label) {
   )
   if (!value) throw new Error(`option "${label}" not found in ${sel}`)
   await page.select(sel, value)
+}
+
+/** Dismiss attribution through its visible controls. Measure nests the card
+ *  in a disclosure; other workspaces display it directly. */
+export async function dismissSupportCard(page) {
+  if (!(await page.$('[data-test=support-card]'))) return
+  if (await page.$('.measure-support:not([open])')) await page.click('.measure-support > summary')
+  await page.click('[data-test=support-card] .sc-x')
+  await page.waitForSelector('[data-test=support-card]', { hidden: true })
 }
 
 /** The settings dialog: open it, do something in it, close it again — so the
@@ -352,9 +362,9 @@ export async function fitBall(page, rect, farEnd, want, { ready } = {}) {
  *  and left; then `settle` ms for the app to take it. */
 export const fieldSetter = (page, { settle = 300 } = {}) => async (sel, value) => {
   await page.click(sel)
-  await page.keyboard.down(MOD)
-  await page.keyboard.press('KeyA')
-  await page.keyboard.up(MOD)
+  // Headless Chrome does not reliably apply the host's select-all binding
+  // to number inputs. Send its native editing command through the keyboard.
+  await page.keyboard.press('KeyA', { commands: ['selectAll'] })
   await page.keyboard.press('Backspace')
   await page.type(sel, String(value))
   await page.$eval(sel, (el) => el.blur())
@@ -489,4 +499,21 @@ export async function colouredFraction(page) {
     }
     return painted / total
   }, shot)
+}
+
+/** Follow the visible More-tools disclosure before clicking a catalog tool.
+ * Only navigation changes; the real button and original assertions remain. */
+export async function clickTool(page, selector) {
+  await page.waitForSelector(selector)
+  for (;;) {
+    const summary = await page.$eval(selector, (el) => {
+      let parent = el.parentElement, outer = null
+      while (parent) { if (parent.tagName === 'DETAILS' && !parent.open) outer = parent; parent = parent.parentElement }
+      return outer ? Array.from(document.querySelectorAll('details > summary')).indexOf(outer.querySelector(':scope > summary')) : -1
+    })
+    if (summary < 0) break
+    const controls = await page.$$('details > summary')
+    await controls[summary].click()
+  }
+  await page.click(selector)
 }

@@ -14,7 +14,7 @@
 // standing for what it holds. While a Move is open, a click on a row puts
 // the body into the Move or takes it out.
 
-import { useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react'
 import { bodiesOfPick, bodiesWithin, commonFolder, folderOf, folderPath, foldersWithin, moveInto, NO_PICK, outermost, type BodyFolder, type FolderMove, type ListPick } from '../core/bodyFolders'
 import { BODY_SWATCHES, bodyColor, reEditorOpen, selectionItems, useReverse, type BodyInfo } from '../state/reStore'
 import { useLength } from '../../../src/app/useUnits'
@@ -110,6 +110,12 @@ export function BodyList({ bodies, children }: { bodies: BodyInfo[]; children?: 
   /** Where a drop would put what is dragged: a component, the head of the
    *  list (null), or nowhere (undefined). */
   const [dropAt, setDropAt] = useState<number | null | undefined>(undefined)
+  const tree = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const rows = Array.from(tree.current?.querySelectorAll<HTMLElement>('[role=treeitem]') ?? [])
+    const active = rows.find(r => r === document.activeElement) ?? rows.find(r => r.tabIndex === 0) ?? rows[0]
+    rows.forEach(r => { r.tabIndex = r === active ? 0 : -1 })
+  })
   const [menu, setMenu] = useState<{ x: number; y: number; pick: ListPick } | null>(null)
   const [naming, setNaming] = useState<number | null>(null)
   /** The row a Shift+click picks every row up to. */
@@ -285,6 +291,20 @@ export function BodyList({ bodies, children }: { bodies: BodyInfo[]; children?: 
     <div
       className="group"
       data-test="body-list"
+      ref={tree} role="tree" aria-label="Bodies and components" aria-multiselectable="true"
+      onFocus={e => { const row = (e.target as HTMLElement).closest('[role=treeitem]'); if (row) tree.current?.querySelectorAll<HTMLElement>('[role=treeitem]').forEach(r => { r.tabIndex = r === row ? 0 : -1 }) }}
+      onKeyDown={e => {
+        if ((e.target as HTMLElement).closest('input,button')) return
+        const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role=treeitem]'))
+        const at = rows.indexOf(e.target as HTMLElement)
+        if (['ArrowDown','ArrowUp','Home','End'].includes(e.key)) {
+          e.preventDefault(); e.stopPropagation()
+          rows[e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))]?.focus()
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault(); e.stopPropagation()
+          rows[at]?.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey }))
+        }
+      }}
       // A click on the list where there is no row lets the rows picked go.
       onClick={(e) => {
         if (pickCount > 0 && !move && !(e.target as Element).closest('[data-test=body-row], [data-test=body-folder], button, input, .bodysel, .re-menu')) re.getState().setListSelection(NO_PICK)
@@ -409,6 +429,8 @@ function FolderRow({
       className={'kv folderrow' + (inside.length > 0 && !visible ? ' ghost' : '') + marks(m) + (drop ? ' drop' : '')}
       style={{ paddingLeft: 1 + depth * INDENT_PX }}
       data-test="body-folder"
+      role="treeitem" tabIndex={-1} aria-level={depth + 1} aria-expanded={open}
+      onKeyDown={e => { if ((e.target as HTMLElement).closest('input,button')) return; if (e.key === 'F2') { e.preventDefault(); setNaming(true) } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); re.getState().setFolderOpen(f.id, e.key === 'ArrowRight') } }}
       data-folder={f.id}
       aria-selected={m.selected}
       title={`${f.name} — ${inside.length} bod${inside.length === 1 ? 'y' : 'ies'}. Drag bodies onto it to put them in; right-click for more`}
@@ -481,6 +503,8 @@ function BodyRow({ body: b, depth, onPick, onMenu, rowEvents, ...m }: RowMarks &
         className={'kv bodyrow' + (b.visible ? '' : ' ghost') + marks(m)}
         style={{ paddingLeft: 1 + depth * INDENT_PX }}
         data-test="body-row"
+        role="treeitem" tabIndex={-1} aria-level={depth + 1}
+        onKeyDown={e => { if (e.key === 'F2' && !(e.target as HTMLElement).closest('input,button')) { e.preventDefault(); setNaming(true) } }}
         data-body={b.id}
         aria-selected={m.selected}
         onPointerEnter={() => hoverRows([b.id])}

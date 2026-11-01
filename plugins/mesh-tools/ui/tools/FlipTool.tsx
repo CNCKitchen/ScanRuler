@@ -2,6 +2,7 @@
 // Flip normals: the triangles turned over, so they face the other way — the
 // whole part, or the surface marked on it.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useState } from 'react'
 import { useMark } from '../../../../src/state/markStore'
 import { useStore } from '../../../../src/state/store'
@@ -71,7 +72,7 @@ export function FlipTool({
       <MarkTools escapeNote="The marking stays until it is flipped or cleared." onClear={onClear} />
 
       <div className="toolrow">
-        <button
+        <ToolActions><button
           className={marked > 0 ? 'primary' : undefined}
           data-test="flip-marked"
           // Enter, or a middle click, flips what was just marked — never the
@@ -82,8 +83,8 @@ export function FlipTool({
           title="Turn the marked surface over — the triangles with all three corners marked"
         >
           {label('marked', 'Flip marked')}
-        </button>
-        <button
+        </button></ToolActions>
+        <ToolActions><button
           className={marked > 0 ? undefined : 'primary'}
           data-test="flip-all"
           disabled={!ready || busy}
@@ -91,7 +92,7 @@ export function FlipTool({
           title="Turn every triangle of the part over"
         >
           {label('all', 'Flip all')}
-        </button>
+        </button></ToolActions>
       </div>
       {ready && marked === 0 && !editing && (
         <p className="hint">Mark the surface that faces the wrong way — pick Window, Brush or Lasso — or flip the whole part.</p>

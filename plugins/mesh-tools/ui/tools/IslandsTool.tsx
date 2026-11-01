@@ -2,6 +2,7 @@
 // Remove islands: the specks floating off the scan, under a size, found,
 // marked on the part and deleted once asked.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -107,7 +108,7 @@ export function IslandsTool({ ready, busy, onRemove }: { ready: boolean; busy: b
             <button data-test="islands-keep" onClick={() => setConfirming(false)} title="Leave the scan as it is (Esc)">
               Keep them
             </button>
-            <button
+            <ToolActions><button
               className="primary"
               data-test="islands-delete"
               data-confirm={1}
@@ -116,11 +117,11 @@ export function IslandsTool({ ready, busy, onRemove }: { ready: boolean; busy: b
               title="Take the marked islands off the scan (Enter)"
             >
               Delete {islands(s.islands)}
-            </button>
+            </button></ToolActions>
           </div>
         </div>
       ) : (
-        <button
+        <ToolActions><button
           className="primary block"
           data-test="remove-islands"
           disabled={!ready || busy || !removable}
@@ -136,7 +137,7 @@ export function IslandsTool({ ready, busy, onRemove }: { ready: boolean; busy: b
           ) : (
             'Remove'
           )}
-        </button>
+        </button></ToolActions>
       )}
     </div>
   )

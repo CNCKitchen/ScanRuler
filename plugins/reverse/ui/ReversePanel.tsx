@@ -6,6 +6,8 @@
 // clicked in the viewport, the body shows as a ghost with grips to drag,
 // and the numbers in the box follow the grips as the grips follow them.
 
+import { ToolPalette } from '../../../src/ui/ToolPalette'
+import { WorkspacePanels } from '../../../src/ui/WorkspacePanels'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { bodyMaker, dependentsOf, type Feature, type PlaneRef, type SketchFeature } from '../core/features'
 import { describePlaneRef } from '../core/resolve'
@@ -205,7 +207,8 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
   const featureMenu = useFeatureMenu(featureListRef, editorOpen)
 
   return (
-    <aside className="panel">
+    <WorkspacePanels title="Reverse engineer" activeKey={editorOpen ? `${sketchDraft ? "sketch" : extrudeDraft ? "extrude" : revolveDraft ? "revolve" : featureDraft?.kind}:${editingId ?? "new"}` : null} project={<>
+
       <div className="group">
         <div className="sec-head">
           Model
@@ -243,149 +246,6 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
       </div>
 
       <ParameterList />
-
-      {!editorOpen && (
-        <div className="group">
-          <div className="sec-head">
-            Create feature
-            <InfoDot title="Features">
-              <p>
-                <b>Sketch</b> on a plane: the slice the plane cuts through the scan is fitted with
-                lines and arcs, corners are inferred and the profile closed. The sketch then shows
-                on the part. <b>Extrude</b> picks the sketch's regions in the viewport and pulls
-                them by a distance, to a plane, between two planes or symmetrically; <b>Revolve</b>{' '}
-                turns them about a line, a cylinder's axis or a sketch line. Both show the body
-                as a ghost with grips to drag while they are set up.
-              </p>
-              <p>
-                Every extrude or revolve makes a <b>new body</b>, or <b>joins</b> or <b>cuts</b>{' '}
-                one made before. Features rebuild in order whenever one changes; one whose plane or
-                sketch has gone says so and the rest still build.
-              </p>
-            </InfoDot>
-          </div>
-          <label className="field">
-            <span>Sketch on</span>
-            <PlaneSelect value={null} testId="sketch-plane-select" placeholder="Choose a plane…" onChange={startSketchOn} />
-          </label>
-          <div className="kindrow featurekeys" data-test="feature-keys">
-            <button data-test="feature-extrude" disabled={!ready || sketches.length === 0} title="Extrude a sketch's regions — pick them in the viewport" onClick={() => re.getState().startExtrude()}>
-              <Icon name="extrude" />
-              <span>Extrude</span>
-            </button>
-            <button data-test="feature-revolve" disabled={!ready || sketches.length === 0} title="Revolve a sketch's regions about an axis" onClick={() => re.getState().startRevolve()}>
-              <Icon name="revolve" />
-              <span>Revolve</span>
-            </button>
-            <button data-test="feature-extract" disabled={!fileName || !ready || (!hasSolidElement && !hasShadow)} title="A measured plane, cylinder, cone or sphere as a body at its extents, extended as in 3D Measure — a boss or a pin without a sketch — or a shadow section as its block, the outline through the part's thickness" onClick={() => re.getState().startFeature('extract')}>
-              <Icon name="extract" />
-              <span>Extract</span>
-            </button>
-            <StepFileKey testId="feature-import" disabled={!ready} title="Bring a STEP file in as bodies of its own — a bought-in part, a mating part, the CAD model to check the scan against. A body for every solid in the file, named as the file names its parts; Move body puts them where they belong" onFile={(file) => re.getState().startFeature('import', { file, name: file.name.replace(/\.(step|stp)$/i, '') })}>
-              <KeyIcon name="importStep" />
-              <span>Import STEP</span>
-            </StepFileKey>
-            <button data-test="feature-shell" disabled={!hasBody} title="Hollow the body to a wall — click the faces to open, or none for a closed hollow; the wall comes from the Thickness map when one was measured" onClick={() => startShell()}>
-              <Icon name="shell" />
-              <span>Shell</span>
-            </button>
-            <button data-test="feature-fillet" disabled={!hasBody} title="Round edges of the body — click them; the radius is read off the scan across the first" onClick={() => re.getState().startFeature('fillet')}>
-              <Icon name="fillet" />
-              <span>Fillet</span>
-            </button>
-            <button data-test="feature-chamfer" disabled={!hasBody} title="Chamfer edges of the body — click them" onClick={() => re.getState().startFeature('chamfer')}>
-              <Icon name="chamfer" />
-              <span>Chamfer</span>
-            </button>
-            <button data-test="feature-draft" disabled={!hasBody} title="Lean faces of the body about a neutral plane — a moulding's draft, put on after the fact: click the flat face that stays, then the faces to lean" onClick={() => re.getState().startFeature('draft')}>
-              <Icon name="draft" />
-              <span>Draft</span>
-            </button>
-            <button data-test="feature-move-face" disabled={!hasBody} title="Offset faces of the body by a distance — a flat face along its normal, a round face in radius; several picked together grow or shrink as a whole, a cylinder's wall and its ends. One face can be snapped onto the scan instead: pick it, take Snap to scan, and click the scan where it should lie" onClick={() => re.getState().startFeature('moveFace')}>
-              <Icon name="moveFace" />
-              <span>Move face</span>
-            </button>
-            <button data-test="feature-delete-face" disabled={!hasBody} title="Delete faces of the body and heal the gap — a fillet, a chamfer, a hole or a boss taken out, the faces round it run on to close over where it was: click a face of it, and the rest of the round or hole comes with it" onClick={() => re.getState().startFeature('deleteFace')}>
-              <KeyIcon name="deleteFace" />
-              <span>Delete face</span>
-            </button>
-            <button data-test="feature-hole" disabled={!hasBody} title="A hole through the body along a cylinder or circle element, or a round face of the body" onClick={() => re.getState().startFeature('hole')}>
-              <Icon name="hole" />
-              <span>Hole</span>
-            </button>
-            <button data-test="feature-thread" disabled={!hasBody} title="A modeled screw thread on a round face of the body — a bolt's on a boss, a nut's in a bore: ISO metric, UNC or UNF, a 45° form that prints without supports, or a diameter and pitch of your own, with an offset for clearance when printing" onClick={() => re.getState().startFeature('thread')}>
-              <ThreadIcon />
-              <span>Thread</span>
-            </button>
-            <button data-test="feature-cut-plane" disabled={!hasBody} title="Cut the body at a plane and keep one side" onClick={() => re.getState().startFeature('cutPlane')}>
-              <Icon name="cutPlane" />
-              <span>Cut by plane</span>
-            </button>
-            <button data-test="feature-mirror" disabled={!hasBody} title="Mirror the body about a plane, joined with the source" onClick={() => re.getState().startFeature('mirror')}>
-              <Icon name="mirror" />
-              <span>Mirror</span>
-            </button>
-            <button data-test="feature-boolean" disabled={!hasBody || bodies.length < 2} title="Join, cut or intersect two bodies made separately — or trim a sheet by a solid, or sew two sheets into one, before Thicken" onClick={() => re.getState().startFeature('boolean')}>
-              <Icon name="combine" />
-              <span>Combine</span>
-            </button>
-            <button data-test="feature-sheet" disabled={!ready || sketches.length === 0} title="A sketch's pieces — an open chain will do — extruded as a surface: a cutter to split a body with" onClick={() => re.getState().startFeature('sheet')}>
-              <Icon name="sheet" />
-              <span>Sheet</span>
-            </button>
-            <button data-test="feature-split" disabled={!hasBody || bodies.length < 2} title="Split a body by a sheet and keep the fragments that lie on the scan — or trim a sheet by sheets or solids, keeping its pieces on the scan" onClick={() => re.getState().startFeature('split')}>
-              <Icon name="split" />
-              <span>Split</span>
-            </button>
-            <button data-test="feature-loft" disabled={!ready || sketches.length < 2} title="A solid through the profiles of two or more sketches on their own planes" onClick={() => re.getState().startFeature('loft')}>
-              <Icon name="loft" />
-              <span>Loft</span>
-            </button>
-            <button data-test="feature-sweep" disabled={!ready || sketches.length < 2} title="A sketch's region swept along a chain of lines and arcs in another sketch — a bent bar, a handle, a rim that follows a curve" onClick={() => re.getState().startFeature('sweep')}>
-              <SweepIcon />
-              <span>Sweep</span>
-            </button>
-            <button data-test="feature-pattern" disabled={!hasBody} title="Copies of the body about an axis, along a direction, or in a grid" onClick={() => re.getState().startFeature('pattern')}>
-              <Icon name="pattern" />
-              <span>Pattern</span>
-            </button>
-            <button data-test="feature-move-body" disabled={!hasBody} title="Move and turn bodies — the ones selected on the part or picked in the body list (Ctrl+click or Shift+click rows for several), or click them on the part: drag the gizmo's arrows and rings, or type the distances and angles. Tick Copy to move a copy and leave the body where it is" onClick={() => re.getState().startFeature('moveBody', { bodies: movingBodies() })}>
-              <KeyIcon name="moveBody" />
-              <span>Move body</span>
-            </button>
-            <button data-test="feature-offset-body" disabled={!hasBody} title="Grow a body all round by a distance, or shrink it — kept beside it as a body of its own, a keep-out round a part or the pocket that holds it with clearance" onClick={() => re.getState().startFeature('offsetBody')}>
-              <KeyIcon name="offsetBody" />
-              <span>Offset body</span>
-            </button>
-            <button data-test="feature-surface" disabled={!fileName || !ready} title="A smooth freeform surface fitted through a region of the scan — click faces or mark them — for the trim to close into a solid with the others" onClick={() => re.getState().startFeature('surface')}>
-              <Icon name="surface" />
-              <span>Fit surface</span>
-            </button>
-            <button data-test="feature-network" disabled={!fileName || !ready} title="Curves drawn on the scan, and the regions they close filled with patches fitted to the scan together — tangent across every curve not marked a crease, sharing their edges: a sheet, or a solid where the network closes. For a freeform skin that folds back or wants more than one patch" onClick={() => re.getState().startFeature('network')}>
-              <Icon name="surface" />
-              <span>Patch network</span>
-            </button>
-            <button data-test="feature-trim" disabled={!fileName || !ready || (!bodies.some((b) => b.surface) && !hasSolidElement)} title="Close a set of fitted surfaces, sheets and measured planes, cylinders, cones and spheres into a solid: the faces they cut space into are kept where they lie on the scan and sewn" onClick={() => re.getState().startFeature('trim')}>
-              <Icon name="trim" />
-              <span>Trim</span>
-            </button>
-            <button data-test="feature-thicken" disabled={!ready || !bodies.some((b) => b.surface)} title="Make a sheet or a fitted surface a solid of a thickness — a freeform thin shell's wall from its one skin, where a shell or an offset of a lofted body will not go" onClick={() => re.getState().startFeature('thicken')}>
-              <KeyIcon name="shell" />
-              <span>Thicken</span>
-            </button>
-          </div>
-          {sketches.length === 0 && fileName && <p className="hint">Start with a sketch: choose a plane above, or cut a section in the 3D Measure workspace.</p>}
-          {sketches.length === 0 && !fileName && <p className="hint">Start with a sketch: choose a coordinate plane above. No scan is needed to model.</p>}
-        </div>
-      )}
-
-      <ContextChips />
-      <div ref={editorRef} data-test="re-editor">
-        <SketchEditor chainsOf={chainsOf} />
-        <ExtrudeEditor />
-        <RevolveEditor />
-        <FeatureEditor />
-      </div>
 
       {features.length + rolledBack.length > 0 && (
         <div className="group" ref={featureListRef}>
@@ -581,7 +441,152 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
           </div>
         </>
       )}
-    </aside>
+
+    </>}>
+      {!editorOpen && (
+        <div className="group">
+          <div className="sec-head">
+            Create feature
+            <InfoDot title="Features">
+              <p>
+                <b>Sketch</b> on a plane: the slice the plane cuts through the scan is fitted with
+                lines and arcs, corners are inferred and the profile closed. The sketch then shows
+                on the part. <b>Extrude</b> picks the sketch's regions in the viewport and pulls
+                them by a distance, to a plane, between two planes or symmetrically; <b>Revolve</b>{' '}
+                turns them about a line, a cylinder's axis or a sketch line. Both show the body
+                as a ghost with grips to drag while they are set up.
+              </p>
+              <p>
+                Every extrude or revolve makes a <b>new body</b>, or <b>joins</b> or <b>cuts</b>{' '}
+                one made before. Features rebuild in order whenever one changes; one whose plane or
+                sketch has gone says so and the rest still build.
+              </p>
+            </InfoDot>
+          </div>
+          <label className="field">
+            <span>Sketch on</span>
+            <PlaneSelect value={null} testId="sketch-plane-select" placeholder="Choose a plane…" onChange={startSketchOn} />
+          </label>
+          <ToolPalette data-test="feature-keys">
+            <button data-test="feature-extrude" disabled={!ready || sketches.length === 0} title="Extrude a sketch's regions — pick them in the viewport" onClick={() => re.getState().startExtrude()}>
+              <Icon name="extrude" />
+              <span>Extrude</span>
+            </button>
+            <button data-test="feature-revolve" disabled={!ready || sketches.length === 0} title="Revolve a sketch's regions about an axis" onClick={() => re.getState().startRevolve()}>
+              <Icon name="revolve" />
+              <span>Revolve</span>
+            </button>
+            <button data-test="feature-extract" disabled={!fileName || !ready || (!hasSolidElement && !hasShadow)} title="A measured plane, cylinder, cone or sphere as a body at its extents, extended as in 3D Measure — a boss or a pin without a sketch — or a shadow section as its block, the outline through the part's thickness" onClick={() => re.getState().startFeature('extract')}>
+              <Icon name="extract" />
+              <span>Extract</span>
+            </button>
+            <StepFileKey testId="feature-import" disabled={!ready} title="Bring a STEP file in as bodies of its own — a bought-in part, a mating part, the CAD model to check the scan against. A body for every solid in the file, named as the file names its parts; Move body puts them where they belong" onFile={(file) => re.getState().startFeature('import', { file, name: file.name.replace(/\.(step|stp)$/i, '') })}>
+              <KeyIcon name="importStep" />
+              <span>Import STEP</span>
+            </StepFileKey>
+            <button data-test="feature-shell" disabled={!hasBody} title="Hollow the body to a wall — click the faces to open, or none for a closed hollow; the wall comes from the Thickness map when one was measured" onClick={() => startShell()}>
+              <Icon name="shell" />
+              <span>Shell</span>
+            </button>
+            <button data-test="feature-fillet" disabled={!hasBody} title="Round edges of the body — click them; the radius is read off the scan across the first" onClick={() => re.getState().startFeature('fillet')}>
+              <Icon name="fillet" />
+              <span>Fillet</span>
+            </button>
+            <button data-test="feature-chamfer" disabled={!hasBody} title="Chamfer edges of the body — click them" onClick={() => re.getState().startFeature('chamfer')}>
+              <Icon name="chamfer" />
+              <span>Chamfer</span>
+            </button>
+            <button data-test="feature-draft" disabled={!hasBody} title="Lean faces of the body about a neutral plane — a moulding's draft, put on after the fact: click the flat face that stays, then the faces to lean" onClick={() => re.getState().startFeature('draft')}>
+              <Icon name="draft" />
+              <span>Draft</span>
+            </button>
+            <button data-test="feature-move-face" disabled={!hasBody} title="Offset faces of the body by a distance — a flat face along its normal, a round face in radius; several picked together grow or shrink as a whole, a cylinder's wall and its ends. One face can be snapped onto the scan instead: pick it, take Snap to scan, and click the scan where it should lie" onClick={() => re.getState().startFeature('moveFace')}>
+              <Icon name="moveFace" />
+              <span>Move face</span>
+            </button>
+            <button data-test="feature-delete-face" disabled={!hasBody} title="Delete faces of the body and heal the gap — a fillet, a chamfer, a hole or a boss taken out, the faces round it run on to close over where it was: click a face of it, and the rest of the round or hole comes with it" onClick={() => re.getState().startFeature('deleteFace')}>
+              <KeyIcon name="deleteFace" />
+              <span>Delete face</span>
+            </button>
+            <button data-test="feature-hole" disabled={!hasBody} title="A hole through the body along a cylinder or circle element, or a round face of the body" onClick={() => re.getState().startFeature('hole')}>
+              <Icon name="hole" />
+              <span>Hole</span>
+            </button>
+            <button data-test="feature-thread" disabled={!hasBody} title="A modeled screw thread on a round face of the body — a bolt's on a boss, a nut's in a bore: ISO metric, UNC or UNF, a 45° form that prints without supports, or a diameter and pitch of your own, with an offset for clearance when printing" onClick={() => re.getState().startFeature('thread')}>
+              <ThreadIcon />
+              <span>Thread</span>
+            </button>
+            <button data-test="feature-cut-plane" disabled={!hasBody} title="Cut the body at a plane and keep one side" onClick={() => re.getState().startFeature('cutPlane')}>
+              <Icon name="cutPlane" />
+              <span>Cut by plane</span>
+            </button>
+            <button data-test="feature-mirror" disabled={!hasBody} title="Mirror the body about a plane, joined with the source" onClick={() => re.getState().startFeature('mirror')}>
+              <Icon name="mirror" />
+              <span>Mirror</span>
+            </button>
+            <button data-test="feature-boolean" disabled={!hasBody || bodies.length < 2} title="Join, cut or intersect two bodies made separately — or trim a sheet by a solid, or sew two sheets into one, before Thicken" onClick={() => re.getState().startFeature('boolean')}>
+              <Icon name="combine" />
+              <span>Combine</span>
+            </button>
+            <button data-test="feature-sheet" disabled={!ready || sketches.length === 0} title="A sketch's pieces — an open chain will do — extruded as a surface: a cutter to split a body with" onClick={() => re.getState().startFeature('sheet')}>
+              <Icon name="sheet" />
+              <span>Sheet</span>
+            </button>
+            <button data-test="feature-split" disabled={!hasBody || bodies.length < 2} title="Split a body by a sheet and keep the fragments that lie on the scan — or trim a sheet by sheets or solids, keeping its pieces on the scan" onClick={() => re.getState().startFeature('split')}>
+              <Icon name="split" />
+              <span>Split</span>
+            </button>
+            <button data-test="feature-loft" disabled={!ready || sketches.length < 2} title="A solid through the profiles of two or more sketches on their own planes" onClick={() => re.getState().startFeature('loft')}>
+              <Icon name="loft" />
+              <span>Loft</span>
+            </button>
+            <button data-test="feature-sweep" disabled={!ready || sketches.length < 2} title="A sketch's region swept along a chain of lines and arcs in another sketch — a bent bar, a handle, a rim that follows a curve" onClick={() => re.getState().startFeature('sweep')}>
+              <SweepIcon />
+              <span>Sweep</span>
+            </button>
+            <button data-test="feature-pattern" disabled={!hasBody} title="Copies of the body about an axis, along a direction, or in a grid" onClick={() => re.getState().startFeature('pattern')}>
+              <Icon name="pattern" />
+              <span>Pattern</span>
+            </button>
+            <button data-test="feature-move-body" disabled={!hasBody} title="Move and turn bodies — the ones selected on the part or picked in the body list (Ctrl+click or Shift+click rows for several), or click them on the part: drag the gizmo's arrows and rings, or type the distances and angles. Tick Copy to move a copy and leave the body where it is" onClick={() => re.getState().startFeature('moveBody', { bodies: movingBodies() })}>
+              <KeyIcon name="moveBody" />
+              <span>Move body</span>
+            </button>
+            <button data-test="feature-offset-body" disabled={!hasBody} title="Grow a body all round by a distance, or shrink it — kept beside it as a body of its own, a keep-out round a part or the pocket that holds it with clearance" onClick={() => re.getState().startFeature('offsetBody')}>
+              <KeyIcon name="offsetBody" />
+              <span>Offset body</span>
+            </button>
+            <button data-test="feature-surface" disabled={!fileName || !ready} title="A smooth freeform surface fitted through a region of the scan — click faces or mark them — for the trim to close into a solid with the others" onClick={() => re.getState().startFeature('surface')}>
+              <Icon name="surface" />
+              <span>Fit surface</span>
+            </button>
+            <button data-test="feature-network" disabled={!fileName || !ready} title="Curves drawn on the scan, and the regions they close filled with patches fitted to the scan together — tangent across every curve not marked a crease, sharing their edges: a sheet, or a solid where the network closes. For a freeform skin that folds back or wants more than one patch" onClick={() => re.getState().startFeature('network')}>
+              <Icon name="surface" />
+              <span>Patch network</span>
+            </button>
+            <button data-test="feature-trim" disabled={!fileName || !ready || (!bodies.some((b) => b.surface) && !hasSolidElement)} title="Close a set of fitted surfaces, sheets and measured planes, cylinders, cones and spheres into a solid: the faces they cut space into are kept where they lie on the scan and sewn" onClick={() => re.getState().startFeature('trim')}>
+              <Icon name="trim" />
+              <span>Trim</span>
+            </button>
+            <button data-test="feature-thicken" disabled={!ready || !bodies.some((b) => b.surface)} title="Make a sheet or a fitted surface a solid of a thickness — a freeform thin shell's wall from its one skin, where a shell or an offset of a lofted body will not go" onClick={() => re.getState().startFeature('thicken')}>
+              <KeyIcon name="shell" />
+              <span>Thicken</span>
+            </button>
+          </ToolPalette>
+          {sketches.length === 0 && fileName && <p className="hint">Start with a sketch: choose a plane above, or cut a section in the 3D Measure workspace.</p>}
+          {sketches.length === 0 && !fileName && <p className="hint">Start with a sketch: choose a coordinate plane above. No scan is needed to model.</p>}
+        </div>
+      )}
+
+      <ContextChips />
+      <div ref={editorRef} data-test="re-editor">
+        <SketchEditor chainsOf={chainsOf} />
+        <ExtrudeEditor />
+        <RevolveEditor />
+        <FeatureEditor />
+      </div>
+
+    </WorkspacePanels>
   )
 }
 

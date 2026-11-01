@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end check of the SpaceMouse: drives the real app in headless Chrome
 // with a stand-in puck behind navigator.getGamepads, and confirms the puck
 // pans, zooms, turns and rolls the main view the way the part should follow
@@ -214,7 +215,7 @@ await closeSettings()
 // ---- the 2D workspace takes the puck, and gives it back ---------------------
 await click(page, '[data-test=workspace-flat]')
 await sleep(600)
-await click(page, '[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 // A flatbed scan on the sheet, so a pan shows.
 const fixture = join(OUT_DIR, 'spacemouse-sheet.png')
 writeFileSync(fixture, buildPng())

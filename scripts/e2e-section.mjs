@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end test of sections: fits the two balls of the ball bar, runs a
 // line through their centres, cuts the scan with a plane across that line at
 // the far ball's centre, then measures the cut in the 2D workspace — the
@@ -175,7 +176,7 @@ check((await page.$('[data-test="section-editor"]')) === null, 'the box closes o
 
 // ---- measured in the 2D workspace ------------------------------------------
 await click(page, '[data-test="workspace-flat"]')
-await click(page, '[data-test="support-card"] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await page.waitForSelector('[data-test="flat-source"]', { timeout: 5_000 })
 const source = await page.$eval('[data-test="flat-source"]', (el) => el.options[el.selectedIndex].text)
 check(/^Section 1/.test(source), `the new section is the sheet’s source (${source})`)

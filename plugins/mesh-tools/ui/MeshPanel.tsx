@@ -10,6 +10,8 @@
 // thickness panel — what shapes the job, then what came of it — because each
 // is the same kind of instrument: set it, run it, read it.
 
+import { ToolPalette } from '../../../src/ui/ToolPalette'
+import { WorkspacePanels } from '../../../src/ui/WorkspacePanels'
 import { type ReactNode } from 'react'
 import {
   scanEditFigure,
@@ -164,7 +166,8 @@ export function MeshPanel({
   const busy = scanBusy || running
 
   return (
-    <aside className="panel">
+    <WorkspacePanels title="Mesh tools" activeKey={tool} project={<>
+
       <div className="group">
         <div className="sec-head">
           Model
@@ -195,6 +198,30 @@ export function MeshPanel({
         {!scanName && <p className="hint">Drop it anywhere in the window.</p>}
       </div>
 
+
+      <PartsList busy={busy} onExportReduced={onExport} onExportTrimmed={onExportTrimmed} />
+      <EditedCopy busy={busy} onUse={onUseEdited} onDiscard={onDiscardEdited} onExport={onExportEdited} />
+
+      {edits.length > 0 && (
+        <div className="group" data-test="scan-edits">
+          <div className="g-label">
+            <span>In use for analysis</span>
+            <span>{edits.length}</span>
+          </div>
+          {edits.map((e, i) => (
+            <div key={i} className="kv" data-test="scan-edit">
+              <span className="name">{scanEditText(e, units)}</span>
+              <b>{scanEditFigure(e, units)}</b>
+            </div>
+          ))}
+          <p className="hint">
+            Edits taken into use: every workspace measures the scan as these left it. Ctrl+Z steps
+            back through them; a saved project keeps the scan as it now is.
+          </p>
+        </div>
+      )}
+
+    </>}>
       <div className="group">
         <div className="sec-head">
           Tools
@@ -206,7 +233,7 @@ export function MeshPanel({
             </p>
           </InfoDot>
         </div>
-        <div className="kindrow featurekeys three" role="radiogroup" aria-label="Mesh tool">
+        <ToolPalette role="radiogroup" aria-label="Mesh operation">
           {TOOLS.map((t) => (
             <button
               key={t.id}
@@ -222,7 +249,7 @@ export function MeshPanel({
               <span>{t.label}</span>
             </button>
           ))}
-        </div>
+        </ToolPalette>
         {tool === null && (
           <p className="hint" data-test="mesh-no-tool">
             Pick a tool. <b>Escape</b>, or its key again, puts the one in hand away.
@@ -231,7 +258,7 @@ export function MeshPanel({
       </div>
 
       {tool === null ? (
-        <PartsList busy={busy} onExportReduced={onExport} onExportTrimmed={onExportTrimmed} />
+        <p className="hint">Choose a tool to preview an edit. The original scan stays available until you use the edited copy for analysis.</p>
       ) : tool === 'reduce' ? (
         <ReduceTool ready={Boolean(scanName)} busy={busy} onReduce={onReduce} onExport={onExport} />
       ) : tool === 'islands' ? (
@@ -256,27 +283,7 @@ export function MeshPanel({
         <SmoothTool ready={Boolean(scanName)} busy={busy} onSmooth={onSmooth} onClear={onClearMarking} />
       )}
 
-      <EditedCopy busy={busy} onUse={onUseEdited} onDiscard={onDiscardEdited} onExport={onExportEdited} />
-
-      {edits.length > 0 && (
-        <div className="group" data-test="scan-edits">
-          <div className="g-label">
-            <span>In use for analysis</span>
-            <span>{edits.length}</span>
-          </div>
-          {edits.map((e, i) => (
-            <div key={i} className="kv" data-test="scan-edit">
-              <span className="name">{scanEditText(e, units)}</span>
-              <b>{scanEditFigure(e, units)}</b>
-            </div>
-          ))}
-          <p className="hint">
-            Edits taken into use: every workspace measures the scan as these left it. Ctrl+Z steps
-            back through them; a saved project keeps the scan as it now is.
-          </p>
-        </div>
-      )}
-    </aside>
+    </WorkspacePanels>
   )
 }
 

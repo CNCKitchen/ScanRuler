@@ -167,7 +167,7 @@ body {
 }
 
 .project-save-status {
-  font-size: 11px;
+  font-size: 12px;
   max-width: 170px;
 }
 
@@ -176,7 +176,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid var(--line);
@@ -299,7 +299,7 @@ body {
 }
 
 .brand span {
-  font-size: 9.5px;
+  font-size: 12px;
   color: var(--dim);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -375,7 +375,7 @@ body {
 
 .partchip span {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--dim);
   white-space: nowrap;
 }
@@ -491,7 +491,7 @@ button.infodot {
   background: transparent;
   color: var(--dim);
   font-family: var(--cond);
-  font-size: 11px;
+  font-size: 12px;
   font-style: italic;
   font-weight: 700;
   line-height: 1;
@@ -747,7 +747,7 @@ select:disabled {
 /* Small-caps rule between sections — the panel's only headings. */
 .g-label {
   font-family: var(--cond);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -765,7 +765,7 @@ select:disabled {
 
 .g-label b {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--ink);
   letter-spacing: 0;
   font-weight: 400;
@@ -774,7 +774,7 @@ select:disabled {
 
 .sec-head {
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -790,7 +790,7 @@ select:disabled {
 .sec-head > b {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0;
   text-transform: none;
@@ -798,7 +798,7 @@ select:disabled {
 }
 
 .hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   line-height: 1.45;
   margin: 0;
@@ -980,7 +980,7 @@ button.block.on {
 .sidepick b {
   flex: 1;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   line-height: 1.25;
   color: var(--dim);
@@ -1149,7 +1149,7 @@ button.primary svg.icon .i-adt,
   min-width: 0;
   padding: 8px 2px 6px;
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.1;
 }
 
@@ -1181,7 +1181,7 @@ button.withicon {
 }
 
 .dro-label {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   margin-bottom: 6px;
   display: flex;
@@ -1212,7 +1212,7 @@ button.withicon {
 
 .dro-window span {
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 12px;
   color: var(--dim);
   letter-spacing: 0.06em;
   text-align: right;
@@ -1254,7 +1254,7 @@ button.withicon {
 /* Caveat under a measurement — worth reading, not an alarm. */
 .warnnote {
   margin: 4px 0 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--amber);
 }
@@ -1276,7 +1276,7 @@ button.withicon {
 }
 
 button.x.eye {
-  font-size: 10px;
+  font-size: 12px;
   padding: 0 5px;
 }
 
@@ -1287,7 +1287,7 @@ button.x.eye:hover:not(:disabled) {
 /* The whole-list eye in a label row: reads like the label, acts like the eye. */
 .g-label button.x.eye.all {
   font-family: var(--cond);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   line-height: 16px;
@@ -1296,7 +1296,7 @@ button.x.eye:hover:not(:disabled) {
 /* Re-open an element or a dimension. Sits with the hide key, and greys out
    while another editor already has the panel. */
 button.x.edit {
-  font-size: 11px;
+  font-size: 12px;
   padding: 0 5px;
 }
 
@@ -1376,7 +1376,7 @@ button.x:disabled {
 
 .dro-note {
   margin-top: 6px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.35;
   color: var(--dim);
 }
@@ -1436,7 +1436,7 @@ button.x:disabled {
 
 .kv b {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--ink);
   font-weight: 400;
   text-align: right;
@@ -1491,7 +1491,7 @@ button.x:disabled {
 
 .stephead .stepno {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: #fff;
   background: var(--accent);
   width: 16px;
@@ -1505,7 +1505,7 @@ button.x:disabled {
 
 .stephead .step-opt {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--dim);
 }
@@ -1540,7 +1540,7 @@ button.x:disabled {
    faceplate, and never wider than the figure it belongs to. */
 .extend-field > span {
   font-family: var(--cond);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--dim);
@@ -1830,7 +1830,7 @@ button.x:disabled {
 
 .busynote {
   font-family: var(--ui);
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0;
   line-height: 1.4;
   color: var(--dim);
@@ -2335,7 +2335,7 @@ button.x:disabled {
   border: 1px solid var(--line);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   text-align: center;
   white-space: nowrap;
@@ -2356,7 +2356,7 @@ button.x:disabled {
 
 .viewport-label .label-title {
   font-family: var(--cond);
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -2383,7 +2383,7 @@ button.x:disabled {
 
 .viewport-label .label-value {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -2394,7 +2394,7 @@ button.x:disabled {
 /* The small lines under a pin's value: the elements a tolerance is about,
    the limit and how the value stands to it. */
 .viewport-label .label-note {
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.3;
   color: var(--dim);
   white-space: nowrap;
@@ -2416,7 +2416,7 @@ button.x:disabled {
 }
 
 .stage-label .label-title {
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.08em;
 }
 
@@ -2429,7 +2429,7 @@ button.x:disabled {
   display: flex;
   align-items: center;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   flex: none;
   overflow: hidden;
 }
@@ -2473,7 +2473,7 @@ button.x:disabled {
   border-left: 1px solid #3a3c3e;
   border-radius: 0;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   height: 100%;
   padding: 0 13px;
   /* One row, same as the link above. */
@@ -2589,6 +2589,21 @@ button.x:disabled {
   z-index: 50;
 }
 
+/* Keep the existing overlay geometry when the browser promotes a modal to
+   its top layer. Closed dialogs must stay hidden until showModal runs. */
+dialog.modalback {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+}
+dialog.modalback:not([open]) { display: none; }
+dialog.modalback::backdrop { background: transparent; }
+
 .modal {
   width: 560px;
   max-width: 92vw;
@@ -2618,7 +2633,7 @@ button.x:disabled {
 .modal h3 {
   margin: 8px 0 0;
   font-family: var(--cond);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2717,12 +2732,12 @@ button.x:disabled {
 
 .setting > small code {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .setting > small {
   grid-column: 2;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--faint);
 }
@@ -2764,7 +2779,7 @@ button.x:disabled {
   align-items: stretch;
   gap: 4px;
   padding: 5px 6px 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   text-align: left;
@@ -2817,7 +2832,7 @@ button.x:disabled {
 
 .puckaxes button {
   padding: 4px 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--dim);
   background: var(--well);
@@ -2986,7 +3001,7 @@ button.x:disabled {
   background: none;
   box-shadow: none;
   font-family: var(--cond);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -3080,7 +3095,7 @@ button.x:disabled {
 
 .splitcap b {
   font-family: var(--cond);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -3088,7 +3103,7 @@ button.x:disabled {
 }
 
 .splitcap span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3106,7 +3121,7 @@ button.x:disabled {
    into the status strip. */
 .alarmtext {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--red);
   background: #fbeeea;
@@ -3161,7 +3176,7 @@ button.x:disabled {
 
 .devlegend-unit {
   font-family: var(--cond);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -3174,7 +3189,7 @@ button.x:disabled {
    before the panel does — so each end says in words what it means. */
 .devlegend-end {
   font-family: var(--cond);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -3263,7 +3278,7 @@ button.x:disabled {
   align-items: flex-end;
   gap: 1px;
   padding: 4px 7px;
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.25;
   white-space: nowrap;
   color: var(--ink);
@@ -3302,7 +3317,7 @@ button.x:disabled {
 .devticks {
   position: relative;
   width: 54px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--ink);
 }
 
@@ -3401,7 +3416,7 @@ button.x:disabled {
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 7px 9px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .devstats > div {
@@ -3469,7 +3484,7 @@ button.x:disabled {
 
 .splithead b {
   font-family: var(--cond);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -3477,7 +3492,7 @@ button.x:disabled {
 }
 
 .splithead span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3517,12 +3532,12 @@ button.x:disabled {
 }
 
 .picktools .moderow button {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
 }
 
 .picktools > button {
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 8px;
 }
 
@@ -3530,7 +3545,7 @@ button.x:disabled {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dim);
 }
 
@@ -3544,7 +3559,7 @@ button.x:disabled {
 }
 
 .pickcount {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dim);
   margin-left: auto;
 }
@@ -3592,7 +3607,7 @@ button.x:disabled {
 }
 
 .splitstep span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dim);
 }
 
@@ -3605,7 +3620,7 @@ button.x:disabled {
 
 .pinchip {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: #fff;
   min-width: 17px;
   height: 17px;
@@ -3623,7 +3638,7 @@ button.x:disabled {
 }
 
 .splitwarn {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--red);
   max-width: 300px;
 }
@@ -3633,7 +3648,7 @@ button.x:disabled {
    final alignment, which ICP still has to do. */
 .splitfit {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dim);
   white-space: nowrap;
 }
@@ -3642,7 +3657,7 @@ button.x:disabled {
    tying a point on the scan to its counterpart on the reference. */
 .pick-pin {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
   padding: 1px 5px;
@@ -3706,7 +3721,7 @@ button.x:disabled {
 }
 
 .slotname span {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3716,7 +3731,7 @@ button.x:disabled {
 .slot button {
   flex: none;
   padding: 4px 9px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* The unit belongs to the number, not to the label — a field that does not say
@@ -3740,7 +3755,7 @@ button.x:disabled {
   transform: translateY(-50%);
   font-style: normal;
   font-family: var(--cond);
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   color: var(--faint);
   pointer-events: none;
@@ -3748,7 +3763,7 @@ button.x:disabled {
 
 .probeno {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: #fff;
   background: var(--ink);
   min-width: 16px;
@@ -3840,18 +3855,18 @@ button.x:disabled {
 }
 
 .starttile-what {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
 .starttile-drop {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   margin: 7px 0 4px;
 }
 
 .starttile-name {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--green);
   margin: 7px 0 4px;
   max-width: 100%;
@@ -3861,7 +3876,7 @@ button.x:disabled {
 }
 
 .startfoot {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -3962,7 +3977,7 @@ button.x:disabled {
   background: var(--ink);
   color: var(--panel, var(--stage));
   font-family: var(--ui);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
@@ -3970,7 +3985,7 @@ button.x:disabled {
 
 .note-row-kind {
   font-family: var(--cond);
-  font-size: 9.5px;
+  font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--dim);
@@ -3998,7 +4013,7 @@ button.x:disabled {
 .viewport-label.grip-field input {
   width: 64px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 4px;
 }
 
@@ -4008,13 +4023,13 @@ button.x:disabled {
 
 .viewport-label.grip-field i {
   font-style: normal;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--dim);
 }
 
 .g-label .working {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   text-transform: none;
   letter-spacing: 0;
   display: inline-flex;
@@ -4105,7 +4120,7 @@ button.x:disabled {
 }
 
 .pickgroup-label {
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--dim);

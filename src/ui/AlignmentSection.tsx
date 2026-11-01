@@ -2,6 +2,7 @@
 // The alignment group: the 3-2-1 datum editor, the manual move / rotate box,
 // and the buttons that open them.
 
+import { ToolActions } from './ToolActions'
 import { useMemo, useState } from 'react'
 import {
   ALIGN_PICK_COUNT,
@@ -137,6 +138,7 @@ function AlignSelect({
 }
 
 export function AlignmentSection({
+  dockActions = true,
   onAutoAlign,
   onAlignSymmetry,
   onStartAlignment,
@@ -144,6 +146,7 @@ export function AlignmentSection({
   onApplyManual,
   onResetAlignment,
 }: {
+  dockActions?: boolean
   /** Ask the scan for a proposal and open the editor on it. */
   onAutoAlign: () => void
   /** Settle the pose being set up on the scan's own symmetry plane. */
@@ -262,7 +265,7 @@ export function AlignmentSection({
               />
             </label>
           ))}
-          <button
+          <ToolActions dock={dockActions}><button
             className="primary block"
             data-test="apply-manual"
             disabled={manualIdentity || busy}
@@ -283,7 +286,7 @@ export function AlignmentSection({
             <button data-test="cancel-manual" onClick={() => setManual(null)}>
               Cancel
             </button>
-          </div>
+          </div></ToolActions>
         </div>
       ) : alignDraft === null ? (
         <>
@@ -450,7 +453,7 @@ export function AlignmentSection({
           >
             Use symmetry
           </button>
-          <button
+          <ToolActions dock={dockActions}><button
             className="primary block"
             data-test="apply-alignment"
             data-confirm={1}
@@ -472,7 +475,7 @@ export function AlignmentSection({
             <button data-test="cancel-alignment" onClick={cancelAlignment}>
               Cancel
             </button>
-          </div>
+          </div></ToolActions>
         </div>
       )}
     </div>

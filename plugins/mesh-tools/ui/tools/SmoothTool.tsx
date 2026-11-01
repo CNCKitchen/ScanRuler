@@ -2,6 +2,7 @@
 // Smooth: the scan's noise taken out, over the whole part or a marked
 // region, its edges kept or let soften.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useMark } from '../../../../src/state/markStore'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { MarkTools } from '../../../../src/ui/MarkTools'
@@ -112,7 +113,7 @@ export function SmoothTool({
         <span>Keep sharp edges</span>
       </label>
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="smooth-scan"
         data-confirm={1}
@@ -129,7 +130,7 @@ export function SmoothTool({
         ) : (
           'Smooth'
         )}
-      </button>
+      </button></ToolActions>
       {regional && marked === 0 && (
         <p className="hint">Mark the surface to smooth — pick Window, Brush or Lasso above.</p>
       )}

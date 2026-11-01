@@ -37,6 +37,7 @@ export function RowTools({
         data-test={editTestId}
         disabled={editDisabled}
         title={editTitle}
+        aria-label={`Edit ${name}`}
         onClick={onEdit}
       >
         <Icon name="edit" size={14} />
@@ -45,12 +46,14 @@ export function RowTools({
         <button
           className="x eye"
           title={visible ? `Hide ${name} in the viewport` : `Show ${name}`}
+          aria-label={visible ? `Hide ${name} in the viewport` : `Show ${name}`}
+          aria-pressed={visible}
           onClick={onToggleVisible}
         >
           <Icon name={visible ? 'eye' : 'eyeOff'} size={14} />
         </button>
       )}
-      <button className="x" title={`Delete ${name}`} onClick={onDelete}>
+      <button className="x" aria-label={`Delete ${name}`} title={`Delete ${name}`} onClick={onDelete}>
         <Icon name="bin" size={14} />
       </button>
     </>

@@ -422,7 +422,7 @@ export class SceneManager {
   onHover: ((hit: PickHit | null) => void) | null = null
   /** A click on an element while element picking is on — with where the
    *  click was, for a chip bar to stand by. */
-  onElementPick: ((id: number, clientX: number, clientY: number) => void) | null = null
+  onElementPick: ((id: number, clientX: number, clientY: number, additive?: boolean) => void) | null = null
   /** A click on one of the coordinate planes offered to a section. */
   onWorldPlanePick: ((axis: WorldAxis) => void) | null = null
   /** How many vertices the brush has marked, reported when a stroke ends. */
@@ -456,7 +456,7 @@ export class SceneManager {
       // what it took and ends there, rather than being dragged across the part
       // by a hand that has started navigating.
       onMultiTouch: () => this.marking.endGesture(),
-      onClick: (x, y, e) => this.handleClick(x, y, modHeld(e)),
+      onClick: (x, y, e) => this.handleClick(x, y, modHeld(e) || Boolean(e?.shiftKey)),
       // The stroke and hover queues are what decide whether this frame has
       // anything new to show at all.
       onTick: () => {
@@ -698,11 +698,11 @@ export class SceneManager {
     const steps: { order: number; click: (x: number, y: number, additive: boolean) => boolean }[] = [
       {
         order: LAYER_ORDER.elements,
-        click: (x, y) => {
+        click: (x, y, additive) => {
           if (!this.elementPickEnabled) return false
           const id = this.elementAt(x, y)
           if (id === null) return false
-          this.onElementPick?.(id, x, y)
+          this.onElementPick?.(id, x, y, additive)
           return true
         },
       },

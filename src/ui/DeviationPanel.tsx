@@ -5,6 +5,8 @@
 // other workspaces — while a fitted element needs only to be chosen. Everything
 // below the two is the same, because the map they produce is the same map.
 
+import { ToolActions } from './ToolActions'
+import { WorkspacePanels } from './WorkspacePanels'
 import { useShallow } from 'zustand/react/shallow'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
@@ -184,7 +186,8 @@ export function DeviationPanel({
   const aside = d.marking ? 'group muted' : 'group'
 
   return (
-    <aside className="panel">
+    <WorkspacePanels title="Surface deviation" activeKey={scanName ? `${scanName}:${d.source}:${d.marking}` : null} project={<>
+
       <div className={aside}>
         <div className="sec-head">
           Measure against
@@ -274,6 +277,8 @@ export function DeviationPanel({
         )}
       </div>
 
+
+    </>}>
       {onElement && (
         /* Not `aside`: in element mode the marking tools live inside this very
            section, so it stays at full strength while they are out. */
@@ -316,7 +321,7 @@ export function DeviationPanel({
             </p>
           </InfoDot>
         </div>
-        <button
+        <ToolActions dock={!d.marking && !aligned}><button
           className={pulseAlign ? 'primary block pulse' : 'primary block'}
           data-test="align-auto"
           data-confirm={d.globalAlign ? undefined : 1}
@@ -331,14 +336,14 @@ export function DeviationPanel({
           ) : (
             'Align automatically'
           )}
-        </button>
+        </button></ToolActions>
         {/* A fit can run for a minute on a large reference, and the answer is
             sometimes visibly wrong long before it finishes. Stopping leaves
             everything as it was — see alignStopped. While the fine fit's tools
             are out the stop belongs beside *that* button instead, so there is
             never a pair of them to choose between. */}
         {d.alignStatus === 'running' && !d.marking ? (
-          <button
+          <ToolActions dock={!d.marking}><button
             className="block"
             data-test="align-stop"
             disabled={d.alignStopping}
@@ -346,7 +351,7 @@ export function DeviationPanel({
             onClick={onStopAlign}
           >
             {d.alignStopping ? 'Stopping…' : 'Stop aligning'}
-          </button>
+          </button></ToolActions>
         ) : (
           <button
             className="block"
@@ -386,7 +391,7 @@ export function DeviationPanel({
               </p>
             )}
             {d.mapStatus !== 'ready' && (
-              <button
+              <ToolActions dock={!d.marking}><button
                 className={pulseMeasure ? 'primary block pulse' : 'primary block'}
                 data-test="measure-deviation"
                 data-confirm={2}
@@ -401,7 +406,7 @@ export function DeviationPanel({
                 ) : (
                   'Measure deviation'
                 )}
-              </button>
+              </button></ToolActions>
             )}
           </>
         )}
@@ -473,7 +478,7 @@ export function DeviationPanel({
                 }
               />
 
-              <button
+              <ToolActions dock={true}><button
                 className="primary block"
                 data-test="local-fit"
                 data-confirm={1}
@@ -488,9 +493,9 @@ export function DeviationPanel({
                 ) : (
                   'Fit on marked surface'
                 )}
-              </button>
+              </button></ToolActions>
               {d.alignStatus === 'running' && (
-                <button
+                <ToolActions dock={true}><button
                   className="block"
                   data-test="local-stop"
                   disabled={d.alignStopping}
@@ -498,7 +503,7 @@ export function DeviationPanel({
                   onClick={onStopAlign}
                 >
                   {d.alignStopping ? 'Stopping…' : 'Stop fitting'}
-                </button>
+                </button></ToolActions>
               )}
               {!enough && (
                 <p className="hint">
@@ -506,14 +511,14 @@ export function DeviationPanel({
                   points. Right-drag rubs out, Shift-drag still orbits.
                 </p>
               )}
-              <button
+              <ToolActions dock={true}><button
                 className="block"
                 data-test="mark-done"
                 title="Closes this step and clears the marking — Esc does the same, once the camera has its buttons back"
                 onClick={onStopMarking}
               >
                 Put the marking tools away
-              </button>
+              </button></ToolActions>
             </>
           )}
 
@@ -844,6 +849,6 @@ export function DeviationPanel({
           />
         </div>
       )}
-    </aside>
+    </WorkspacePanels>
   )
 }

@@ -118,6 +118,7 @@ export function useGlobalShortcuts({
       // from standing the gesture down to discarding the draft, marking and
       // all, which is exactly the trap the two steps exist to avoid.
       if (e.repeat) return
+      if (e.defaultPrevented) return
       if ((e.ctrlKey || e.metaKey) && !e.altKey && ['z', 'y'].includes(e.key.toLowerCase())) {
         e.preventDefault()
         void (e.key.toLowerCase() === 'y' || e.shiftKey ? redo() : undo())
@@ -150,6 +151,13 @@ export function useGlobalShortcuts({
       }
       // A plugin's workspace has the keys first.
       if (pluginKeys()?.keydown?.(e, { confirmButton })) return
+      // Browsing tools or export never discards the measurement being edited.
+      const shell = useShell.getState()
+      if (shell.workspace === 'elements' && (shell.measurePanel === 'search' || shell.measurePanel === 'export')) {
+        if (e.key === 'Escape') { e.preventDefault(); shell.setMeasurePanel(null) }
+        return
+      }
+
       // A best fit that is running owns Escape, wherever it was started from:
       // it is the one thing on screen that cannot be waited out, and stopping
       // it costs nothing — the alignment in hand is kept and no measurement is
@@ -228,6 +236,10 @@ export function useGlobalShortcuts({
         if (e.key === 'Escape') store.cancelDimension()
         else if (e.key === 'Enter' && dimensionReady()) store.commitDimension()
         return
+      }
+      if (e.key === 'Escape' && useShell.getState().workspace === 'elements') {
+        store.selectElement(null)
+        useShell.getState().setMeasurePanel(null)
       }
       if (e.key === 'Enter') confirmButton()?.click()
     }

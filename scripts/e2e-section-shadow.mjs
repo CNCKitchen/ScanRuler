@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end test of a section's shadow: on a generated block notched top,
 // front and bottom — the label printer of issue 13 — a shadow across the XY
 // plane is the block's whole 40 × 30 mm outline, where every cut through a
@@ -107,7 +108,7 @@ await page.screenshot({ path: shotPath('e2e-shadow-3d.png') })
 
 // ---- the 2D sheet and the DXF ------------------------------------------------
 await click(page, '[data-test="workspace-flat"]')
-await click(page, '[data-test="support-card"] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await page.waitForSelector('[data-test="flat-source"]', { timeout: 5_000 })
 const source = await page.$eval('[data-test="flat-source"]', (el) => el.options[el.selectedIndex].text)
 check(/shadow onto XY plane/.test(source), `the shadow is the sheet’s source (${source})`)

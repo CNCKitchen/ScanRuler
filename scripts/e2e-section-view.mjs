@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end test of the section view: the Section key cuts the part open
 // at a plane through its middle, square to the view, the half toward the
 // camera taken away. A closed part is closed where it is cut — a cap in the
@@ -162,7 +163,7 @@ await browser.close()
 
 // ---- the reference, and the split view ------------------------------------------
 ;({ browser, page, consoleErrors } = await launchApp())
-await page.click('[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 await page.click('[data-test=workspace-deviation]')
 await loadScan(page, CLOSED, { inputSelector: '[data-test=start-scan] input[type=file]', settle: 0 })
 await (await page.$('[data-test=slot-reference] input[type=file]')).uploadFile(REFERENCE)

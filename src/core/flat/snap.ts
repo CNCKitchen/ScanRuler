@@ -134,6 +134,8 @@ export class EdgeIndex {
 
 /** What the stage knows about a click besides where it landed. */
 export interface PickMeta {
+  shift?: boolean
+  ctrl?: boolean
   /** Alt held — inverts the snap setting for this one pick. */
   alt: boolean
   /** Document units per screen pixel: how far zoomed in the sheet is. */

@@ -2,6 +2,7 @@
 // Offset: the surface moved along its normals, the whole part or a marked
 // region, by a distance either way.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useLength } from '../../../../src/app/useUnits'
 import { useMark } from '../../../../src/state/markStore'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -112,7 +113,7 @@ export function OffsetTool({
         hint="How far the surface moves along its normal. Meant for corrections small against the part's features: a slot narrower than twice the distance closes over itself when the part is expanded, as a rib thinner than it does when it is shrunk."
       />
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="offset-run"
         data-confirm={1}
@@ -127,7 +128,7 @@ export function OffsetTool({
         ) : (
           `${expand ? 'Expand' : 'Shrink'} ${regional ? 'the marked region ' : ''}by ${typedLen(m.offsetDistance, len.units)}`
         )}
-      </button>
+      </button></ToolActions>
       {regional && marked === 0 && (
         <p className="hint">Mark the surface to move — pick Window, Brush or Lasso above.</p>
       )}

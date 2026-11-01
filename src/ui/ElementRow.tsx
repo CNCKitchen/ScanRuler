@@ -3,7 +3,7 @@
 // Shared by the 3D and 2D workspaces — the row knows nothing about how its
 // element was measured, only what to read and which keys to offer.
 
-import type { ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Icon, type IconName } from './icons'
 import { RowTools } from './RowTools'
 
@@ -24,6 +24,8 @@ export function ElementRow({
   onToggleVisible,
   onDelete,
   eyeKey,
+  onSelect,
+  onRename,
 }: {
   name: string
   color: string
@@ -56,16 +58,34 @@ export function ElementRow({
   onDelete: () => void
   /** A key of the caller's own in the eye's place — see RowTools. */
   eyeKey?: ReactNode
+  onSelect?: (additive: boolean) => void
+  onRename?: (name: string) => void
 }) {
+  const row = useRef<HTMLDivElement>(null)
+  const focusRow = () => queueMicrotask(() => row.current?.focus())
+  const [renaming, setRenaming] = useState<string | null>(null)
   // A double click on the row opens it too, as a feature row in a CAD
   // tree does — with the same standing down as the ✎ key.
   const canEdit = !editorOpen && !editDisabled
   return (
     <div
+      ref={row}
       className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '') + (muted ? ' rolled' : '')}
       data-test={testId}
       data-rolled={muted ? 'true' : undefined}
       title={title}
+      role={onSelect ? 'treeitem' : undefined}
+      aria-selected={onSelect ? selected : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect ? (e) => {
+        if ((e.target as HTMLElement).closest('button,input')) return
+        onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
+      } : undefined}
+      onKeyDown={onSelect ? (e) => {
+        if ((e.target as HTMLElement).closest('input,button')) return
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSelect(e.shiftKey || e.metaKey || e.ctrlKey) }
+        if (e.key === 'F2' && onRename && canEdit) { e.preventDefault(); setRenaming(name) }
+      } : undefined}
       onDoubleClick={canEdit ? onEdit : undefined}
     >
       {icon || picture ? (
@@ -75,7 +95,16 @@ export function ElementRow({
       ) : (
         <span className="dot" style={{ background: color }} />
       )}
-      <span className="name">{name}</span>
+      {renaming !== null ? <input autoFocus aria-label={`Rename ${name}`} value={renaming}
+        onChange={(e) => setRenaming(e.target.value)}
+        onBlur={() => { if (renaming.trim()) onRename?.(renaming); setRenaming(null) }}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          if (e.key === 'Escape') { e.preventDefault(); setRenaming(null); focusRow() }
+          if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); focusRow() }
+        }} /> : <span className="name" onDoubleClick={onRename && canEdit ? (e) => {
+          e.stopPropagation(); setRenaming(name)
+        } : undefined}>{name}</span>}
       {reading}
       <RowTools
         name={name}

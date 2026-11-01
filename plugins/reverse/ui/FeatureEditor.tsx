@@ -4,6 +4,7 @@
 // the bodies — with the footer the kinds share. Lengths are shown in the
 // display units; what the draft holds is millimetres.
 
+import { ToolActions } from '../../../src/ui/ToolActions'
 import { useLength } from '../../../src/app/useUnits'
 import { round3 } from '../../../src/core/round'
 import { WORLD_AXES } from '../../../src/core/section/frame'
@@ -1190,7 +1191,7 @@ export function FeatureEditor() {
       {fields}
       {!planned && !leaning && <PreviewLine preview={ready ? preview : { status: 'idle' }} testPrefix={testKind} />}
       {!planned && !leaning && <AnalysisRow testPrefix={testKind} />}
-      <button className="primary block" data-test={`${testKind}-create`} disabled={!ready} title="Enter does the same" onClick={() => re.getState().commitFeature()}>
+      <ToolActions><button className="primary block" data-test={`${testKind}-create`} disabled={!ready} title="Enter does the same" onClick={() => re.getState().commitFeature()}>
         {d.featureId !== undefined
           ? 'Save changes'
           : planned
@@ -1204,11 +1205,11 @@ export function FeatureEditor() {
                 : d.kind === 'deleteFace'
                   ? `Delete the ${d.faces.length === 1 ? 'face' : 'faces'}${bodyNamed ? ` of ${bodyNamed}` : ''}`
                   : `Create ${title[d.kind].toLowerCase()}${bodyNamed ? ` on ${bodyNamed}` : ''}`}
-      </button>
+      </button></ToolActions>
       <div className="toolrow">
-        <button data-test={`${testKind}-cancel`} onClick={() => re.getState().cancelFeature()}>
+        <ToolActions><button data-test={`${testKind}-cancel`} onClick={() => re.getState().cancelFeature()}>
           Cancel
-        </button>
+        </button></ToolActions>
       </div>
     </div>
   )

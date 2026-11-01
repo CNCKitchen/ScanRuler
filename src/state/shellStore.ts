@@ -22,9 +22,35 @@ export type Workspace = CoreWorkspace | (string & {})
 interface ShellState {
   workspace: Workspace
   setWorkspace: (w: Workspace) => void
+  measureActions: { name: string; keywords: string; run: () => void; reason?: string }[]
+  setMeasureActions: (actions: ShellState['measureActions']) => void
+  saveDownloads: number
+  noteSaveDownload: () => void
+  searchQuery: string
+  searchOpen: boolean
+  setSearchOpen: (open: boolean, query?: string) => void
+  measurePanel: 'create' | 'alignment' | 'export' | 'search' | null
+  setMeasurePanel: (panel: ShellState['measurePanel']) => void
+  projectOpen: boolean
+  setProjectOpen: (open: boolean) => void
+  contextCollapsed: boolean
+  setContextCollapsed: (collapsed: boolean) => void
 }
 
 export const useShell = create<ShellState>()((set) => ({
   workspace: 'elements',
   setWorkspace: (workspace) => set({ workspace }),
+  measureActions: [],
+  setMeasureActions: (measureActions) => set({ measureActions }),
+  saveDownloads: 0,
+  noteSaveDownload: () => set((s) => ({ saveDownloads: s.saveDownloads + 1 })),
+  searchQuery: '',
+  searchOpen: false,
+  setSearchOpen: (searchOpen, searchQuery = '') => set({ searchOpen, searchQuery }),
+  measurePanel: null,
+  setMeasurePanel: (measurePanel) => set({ measurePanel }),
+  projectOpen: typeof matchMedia !== 'function' || matchMedia('(min-width: 768px)').matches,
+  setProjectOpen: (projectOpen) => set({ projectOpen }),
+  contextCollapsed: false,
+  setContextCollapsed: (contextCollapsed) => set({ contextCollapsed }),
 }))

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end regression test for a datum alignment set up after a deviation
 // best fit: drives the real app in headless Chrome — loads the scan, loads
 // the reference in the deviation workspace and runs the automatic fit, goes
@@ -145,7 +146,7 @@ const awaitStatus = (text, what) =>
 
 await loadScan(page, SCAN, { timeout: 300_000 })
 // The support card's coloured buttons would count as part.
-await page.$('[data-test=support-card] .sc-x').then((b) => b?.click())
+await dismissSupportCard(page)
 
 // ---- best fit in the deviation workspace ----------------------------------
 await page.click('[data-test=workspace-deviation]')

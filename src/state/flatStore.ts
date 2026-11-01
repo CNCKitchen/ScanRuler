@@ -83,6 +83,9 @@ function centerNear(
 }
 
 interface FlatState extends SheetState {
+  selectedElementIds: number[]
+  selectElement: (id: number | null, additive?: boolean) => void
+  renameElement: (id: number, name: string) => void
   imageName: string | null
   /** Pixel dimensions of the loaded image. */
   imageWidth: number
@@ -418,7 +421,11 @@ export const useFlat = create<FlatState>()((set, get) => ({
       s.clickSlotElement(spot, meta)
       return
     }
-    if (!s.draft) return
+    if (!s.draft) {
+      const hit = elementNear(spot, s.elements.filter(e => e.visible), 10 * meta.unitsPerScreenPx)
+      s.selectElement(hit?.id ?? null, Boolean(meta.shift || meta.ctrl))
+      return
+    }
     const mode = flatMethod(s.draft.method).mode
     if (mode === 'seed') {
       // A fit-to-edge tool grows the line or circle along the detected edge
@@ -570,6 +577,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
       s.cancelDimDraft()
       return true
     }
+    if (s.selectedElementIds.length) { s.selectElement(null); return true }
     return false
   },
 
@@ -778,6 +786,17 @@ export const useFlat = create<FlatState>()((set, get) => ({
   profiles: loadProfiles(),
 
   elements: [],
+  selectedElementIds: [],
+  selectElement: (id, additive = false) => set(s => {
+    if (id === null) return additive ? {} : { selectedElementIds: [] }
+    if (!s.elements.some(e => e.id === id && e.visible)) return {}
+    return { selectedElementIds: additive ? s.selectedElementIds.includes(id) ? s.selectedElementIds.filter(x => x !== id) : [...s.selectedElementIds, id] : [id] }
+  }),
+  renameElement: (id, name) => set(s => {
+    const text = name.trim()
+    if (!text || !s.elements.some(e => e.id === id && e.name !== text)) return {}
+    return { elements: s.elements.map(e => e.id === id ? { ...e, name: text } : e) }
+  }),
   draft: null,
   nextId: 1,
   nameCounts: {},
@@ -990,6 +1009,7 @@ export const useFlat = create<FlatState>()((set, get) => ({
       }
       return {
         elements,
+        selectedElementIds: s.selectedElementIds.filter(x => x !== id),
         draft,
         dimDraft: s.dimDraft ? { ...s.dimDraft, refs: s.dimDraft.refs.map(dropRef) } : null,
       }

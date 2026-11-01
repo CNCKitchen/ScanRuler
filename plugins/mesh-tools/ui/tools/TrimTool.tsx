@@ -2,6 +2,7 @@
 // Trim to scan: a solid trimmed where the scan breaks off, the piece kept
 // and handed on.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useSolids } from '../../../../src/app/solids'
 import { useLength } from '../../../../src/app/useUnits'
 import { useMark } from '../../../../src/state/markStore'
@@ -182,7 +183,7 @@ export function TrimTool({
           />
         )}
 
-        <button
+        <ToolActions><button
           className="primary block"
           data-test="trim-run"
           data-confirm={1}
@@ -199,7 +200,7 @@ export function TrimTool({
           ) : (
             'Trim to the break'
           )}
-        </button>
+        </button></ToolActions>
         {m.trimMessage && (
           <p className="alarmtext" data-test="trim-error">
             {m.trimMessage}

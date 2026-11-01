@@ -5,6 +5,7 @@
 // tilt the gizmo's rings have given it, a shadow's play and tolerance, and
 // what the cut produces. Renders nothing without a section draft.
 
+import { ToolActions } from './ToolActions'
 import { describeShadow } from '../core/section/shadow'
 import { useLength } from '../app/useUnits'
 import { useFieldUnits } from './NumberField'
@@ -395,7 +396,7 @@ export function SectionEditor({
         )}
       </div>
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="create-section"
         disabled={!ready}
@@ -407,7 +408,7 @@ export function SectionEditor({
         <button data-test="cancel-section" onClick={onCancel}>
           Cancel
         </button>
-      </div>
+      </div></ToolActions>
     </div>
   )
 }

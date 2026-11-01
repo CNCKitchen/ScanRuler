@@ -2,6 +2,7 @@
 // The Revolve box: the profiles picked, the axis, the angle or a coil's
 // pitch and turns, the body operation, with the preview and the live map.
 
+import { ToolActions } from '../../../src/ui/ToolActions'
 import { WORLD_AXES } from '../../../src/core/section/frame'
 import { useStore } from '../../../src/state/store'
 import { Icon } from '../../../src/ui/icons'
@@ -132,13 +133,13 @@ export function RevolveEditor() {
         </>
       )}
       <OpFields op={draft.op} canCut={targets.length > 0} testPrefix="revolve" onOp={(op) => set({ op })} />
-      <button className="primary block" data-test="revolve-create" disabled={!ready} title="Enter or a middle click does the same" onClick={() => { re.getState().setHint(null); re.getState().commitRevolve() }}>
+      <ToolActions><button className="primary block" data-test="revolve-create" disabled={!ready} title="Enter or a middle click does the same" onClick={() => { re.getState().setHint(null); re.getState().commitRevolve() }}>
         {draft.featureId !== undefined ? 'Save changes' : coil ? 'Create coil' : 'Create revolve'}
-      </button>
+      </button></ToolActions>
       <div className="toolrow">
-        <button data-test="revolve-cancel" onClick={() => { re.getState().setHint(null); re.getState().cancelRevolve() }}>
+        <ToolActions><button data-test="revolve-cancel" onClick={() => { re.getState().setHint(null); re.getState().cancelRevolve() }}>
           Cancel
-        </button>
+        </button></ToolActions>
       </div>
     </div>
   )

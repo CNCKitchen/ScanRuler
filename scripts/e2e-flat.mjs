@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { dismissSupportCard } from './e2e-lib.mjs'
 // End-to-end smoke test for the 2D Measure workspace: drives the real app in
 // headless Chrome — generates a synthetic flatbed scan (no binary fixtures in
 // this repo), loads it through the panel, waits for edge detection, fits a
@@ -63,7 +64,7 @@ await browser
 await click(page, '[data-test=workspace-flat]')
 // The support card overlays the lower stage, exactly where picks on the
 // fixture's rectangle land — close it before measuring through it.
-await click(page, '[data-test=support-card] .sc-x').catch(() => {})
+await dismissSupportCard(page)
 const input = await page.$('input[type=file][accept*=".png"]')
 await input.uploadFile(fixture)
 await page.waitForFunction(
@@ -464,6 +465,8 @@ check(
   /^3 counted/.test(await page.$eval('[data-test=flat-count-status]', (el) => el.textContent)),
   'undo takes one back',
 )
+// The store's count updates before the scene-sync effect paints its pins.
+await page.waitForFunction(() => document.querySelectorAll('.pick-pin').length >= 3)
 check((await page.$$('.pick-pin')).length >= 3, 'the tally wears its numbers on the sheet')
 // Back on the sheet for a fourth; Enter then creates it, the way it does in
 // the 3D workspace.

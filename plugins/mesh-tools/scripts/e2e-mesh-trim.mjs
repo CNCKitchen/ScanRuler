@@ -317,6 +317,6 @@ check(d.scan && d.piece && d.bodies === 0, 'and the box goes again, the scan bac
 check(Boolean(await page.$('[data-test=parts-export-trimmed]:not([disabled])')), 'the piece can be exported from the list')
 await click(page, '[data-test=mesh-tool-trim]')
 await sleep(300)
-check(!(await page.$('[data-test=mesh-parts]')), 'a tool in hand puts the list away')
+check(Boolean(await page.$('.measure-project [data-test=mesh-parts]')) && Boolean(await page.$('.measure-context [data-test=trim-tool]')), 'opening Trim keeps the parts tree in Project and the active tool in context')
 
 await finish(browser, consoleErrors)
