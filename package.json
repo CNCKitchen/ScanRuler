@@ -70,7 +70,10 @@
     "e2e:fit-chains": "node plugins/reverse/scripts/e2e-fit-chains.mjs",
     "e2e:reverse-blank": "node plugins/reverse/scripts/e2e-reverse-blank.mjs",
     "e2e:reverse-select": "node plugins/reverse/scripts/e2e-reverse-select.mjs",
-    "e2e:reverse-save": "node plugins/reverse/scripts/e2e-reverse-save.mjs"
+    "e2e:reverse-save": "node plugins/reverse/scripts/e2e-reverse-save.mjs",
+    "bundle:agent": "vite-node scripts/bundle-agent.ts",
+    "smoke:agent": "vite-node scripts/smoke-agent-bundle.ts",
+    "typecheck:node": "tsc -p tsconfig.node.json"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -90,6 +93,8 @@
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6",
     "puppeteer-core": "^25.6.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
