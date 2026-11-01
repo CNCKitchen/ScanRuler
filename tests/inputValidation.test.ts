@@ -80,6 +80,18 @@ describe('project input validation', () => {
     const compressed = zipSync({ 'large.bin': new Uint8Array(100_000) })
     expect(() => unpackProject(compressed, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
   })
+  it('bounds a stored member that declares no uncompressed size', () => {
+    // A stored member yields its compressed bytes whatever size it declares,
+    // so an archive saying 0 must not slip past the limits.
+    const manifest = strToU8(JSON.stringify({ app: 'ScanRuler', schemaVersion: 1, pad: 'x'.repeat(200_000) }))
+    const zip = zipSync({ 'project.json': [manifest, { level: 0 }] })
+    const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
+    for (let i = 0; i + 4 <= zip.byteLength; i++) {
+      if (dv.getUint32(i, true) === 0x04034b50) dv.setUint32(i + 22, 0, true)
+      if (dv.getUint32(i, true) === 0x02014b50) dv.setUint32(i + 24, 0, true)
+    }
+    expect(() => unpackProject(zip, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
+  })
   it('bounds the manifest and rejects unsafe member names', () => {
     const bytes = packProject(project(), [])
     expect(() => unpackProject(bytes, { totalBytes: 100_000, manifestBytes: 10, members: 16 })).toThrow('size limits')
