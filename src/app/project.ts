@@ -167,12 +167,16 @@ export function collectProject(
   // a section in use writes its part over a kept one of the same key.
   const kept = keptParts()
   Object.assign(manifest, kept.parts)
-  members.push(...kept.members)
   const ctx = { sources, scanSaved: manifest.scan !== null, addMember: (name: string, bytes: Uint8Array) => members.push({ name, bytes }) }
   for (const section of projectSections()) {
     const part = section.collect(ctx)
     if (part !== undefined) manifest[section.key] = part
   }
+  // A kept file goes in only under a name nothing in this session writes:
+  // the project it came from may have used a name the scan, reference or
+  // image is saved under, and the archive keeps the last file of a name.
+  const taken = new Set(members.map((m) => m.name))
+  members.push(...kept.members.filter((m) => !taken.has(m.name)))
   return { manifest, members }
 }
 
