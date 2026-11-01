@@ -75,7 +75,9 @@
     "smoke:agent": "vite-node scripts/smoke-agent-bundle.ts",
     "typecheck:node": "tsc -p tsconfig.node.json",
     "package:electron": "vite-node scripts/package-electron.ts",
-    "smoke:electron": "vite-node scripts/smoke-electron.ts"
+    "smoke:electron": "vite-node scripts/smoke-electron.ts",
+    "make:installer": "vite-node scripts/make-installer.ts",
+    "smoke:installer": "vite-node scripts/smoke-installer.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

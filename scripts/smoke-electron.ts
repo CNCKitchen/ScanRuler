@@ -18,7 +18,8 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const { platform, name: target } = thisTarget()
 const appDir = join(root, 'dist-electron', target, `ScanRuler-${target}`)
 const executables = { darwin: join('ScanRuler.app', 'Contents', 'MacOS', 'ScanRuler'), win32: 'ScanRuler.exe', linux: 'ScanRuler' }
-const exe = join(appDir, executables[platform])
+/** The app to run: the packaged one, or the installed copy a caller names in SCANRULER_APP_EXE. */
+const exe = process.env.SCANRULER_APP_EXE ?? join(appDir, executables[platform])
 if (!existsSync(exe)) {
   console.error(`FATAL: ${exe} does not exist. Run npm run package:electron first.`)
   process.exit(1)
