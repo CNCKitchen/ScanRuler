@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // PLY in all three encodings — ASCII, and binary of either byte order — read
-// for vertex positions and face lists alone; colours, normals and the other
-// properties a scanner writes are stepped over. One header comment is
+// for vertex positions, per-vertex colours and face lists; normals and the
+// other properties a scanner writes are stepped over. One header comment is
 // honoured besides: a file that says its winding is settled
 // (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
 
@@ -40,6 +40,35 @@ export const PLY_KEEP_WINDING = 'ScanRuler: keep winding'
 
 function checkType(type: string | undefined): void {
   if (type === undefined || !Object.hasOwn(TYPE_SIZE, type)) throw new Error(`Unsupported PLY type "${type}".`)
+}
+
+/** Where an element's colour properties sit, under the names scanners and
+ *  MeshLab write them; null when any of the three is missing. */
+function colorProps(el: PlyElement): [number, number, number] | null {
+  const find = (names: string[]) => el.props.findIndex((p) => !p.list && names.includes(p.name))
+  const r = find(['red', 'r', 'diffuse_red'])
+  const g = find(['green', 'g', 'diffuse_green'])
+  const b = find(['blue', 'b', 'diffuse_blue'])
+  return r < 0 || g < 0 || b < 0 ? null : [r, g, b]
+}
+
+/** A colour channel as a byte: floats run 0…1, integer types 0…255. */
+function channel(v: number, type: string): number {
+  const byte = type.startsWith('float') || type === 'double' ? v * 255 : v
+  return Math.max(0, Math.min(255, Math.round(byte)))
+}
+
+/** Puts the colours on the mesh when they say something: as for 3MF, a
+ *  single colour on every vertex is an exporter's default, not the part's. */
+function withColors(mesh: ParsedMesh, colors: Uint8Array | null): ParsedMesh {
+  if (!colors) return mesh
+  for (let i = 3; i < colors.length; i++) {
+    if (colors[i] !== colors[i % 3]) {
+      mesh.colors = colors
+      break
+    }
+  }
+  return mesh
 }
 
 /** The fewest bytes one item of the element can take: its fixed properties
@@ -162,6 +191,7 @@ function parseBinaryBody(
   const dv = new DataView(buffer)
   let off = bodyStart
   let positions: Float32Array | null = null
+  let colors: Uint8Array | null = null
   let indices = new Uint32Array(0)
 
   for (const el of elements) {
@@ -173,6 +203,8 @@ function parseBinaryBody(
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
       const hasList = el.props.some((p) => p.list)
       positions = new Float32Array(el.count * 3)
+      const rgb = colorProps(el)
+      if (rgb) colors = new Uint8Array(el.count * 3)
       if (!hasList) {
         // Fixed stride fast path.
         let stride = 0
@@ -186,6 +218,12 @@ function parseBinaryBody(
           positions[i * 3] = readScalar(dv, base + offsets[xi], el.props[xi].type, little)
           positions[i * 3 + 1] = readScalar(dv, base + offsets[yi], el.props[yi].type, little)
           positions[i * 3 + 2] = readScalar(dv, base + offsets[zi], el.props[zi].type, little)
+          if (rgb) {
+            for (let c = 0; c < 3; c++) {
+              const type = el.props[rgb[c]].type
+              colors![i * 3 + c] = channel(readScalar(dv, base + offsets[rgb[c]], type, little), type)
+            }
+          }
           if (onProgress && (i & 0xfffff) === 0 && i > 0) {
             onProgress(`Reading PLY vertices… ${Math.round((i / el.count) * 100)}%`)
           }
@@ -203,6 +241,7 @@ function parseBinaryBody(
               if (p === xi) positions[i * 3] = v
               else if (p === yi) positions[i * 3 + 1] = v
               else if (p === zi) positions[i * 3 + 2] = v
+              else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
               off += TYPE_SIZE[prop.type]
             }
           }
@@ -271,7 +310,7 @@ function parseBinaryBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return { kind: 'indexed', positions, indices }
+  return withColors({ kind: 'indexed', positions, indices }, colors)
 }
 
 function parseAsciiBody(
@@ -285,6 +324,7 @@ function parseAsciiBody(
   const tokens = body.split(/\s+/).filter((t) => t.length > 0)
   let ti = 0
   let positions: Float32Array | null = null
+  let colors: Uint8Array | null = null
   const indices: number[] = []
 
   for (const el of elements) {
@@ -296,6 +336,8 @@ function parseAsciiBody(
       const zi = el.props.findIndex((p) => p.name === 'z')
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
       positions = new Float32Array(el.count * 3)
+      const rgb = colorProps(el)
+      if (rgb) colors = new Uint8Array(el.count * 3)
       for (let i = 0; i < el.count; i++) {
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
@@ -307,6 +349,7 @@ function parseAsciiBody(
             if (p === xi) positions[i * 3] = v
             else if (p === yi) positions[i * 3 + 1] = v
             else if (p === zi) positions[i * 3 + 2] = v
+            else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
           }
         }
       }
@@ -343,5 +386,5 @@ function parseAsciiBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return { kind: 'indexed', positions, indices: Uint32Array.from(indices) }
+  return withColors({ kind: 'indexed', positions, indices: Uint32Array.from(indices) }, colors)
 }

@@ -93,6 +93,46 @@ describe('PLY property types', () => {
   })
 })
 
+describe('vertex colours', () => {
+  const RGB = ['property uchar red', 'property uchar green', 'property uchar blue']
+  const FACE = ['element face 1', 'property list uchar int vertex_indices']
+
+  it('reads red/green/blue from an ASCII PLY', () => {
+    const mesh = parsePLY(plyOf('ascii', ['element vertex 3', ...XYZ, ...RGB, ...FACE],
+      '0 0 0 255 0 0\n1 0 0 0 255 0\n0 1 0 0 0 255\n3 0 1 2\n'))
+    expect(Array.from(mesh.colors!)).toEqual([255, 0, 0, 0, 255, 0, 0, 0, 255])
+  })
+
+  it('reads red/green/blue from a binary PLY, as uchar and as float', () => {
+    const body: number[] = []
+    const f32 = (v: number) => Array.from(new Uint8Array(new Float32Array([v]).buffer))
+    const verts = [[0, 0, 0, 10, 20, 30], [1, 0, 0, 40, 50, 60], [0, 1, 0, 70, 80, 90]]
+    for (const [x, y, z, r, g, b] of verts) body.push(...f32(x), ...f32(y), ...f32(z), r, g, b)
+    body.push(3, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0)
+    const mesh = parsePLY(plyOf('binary_little_endian', ['element vertex 3', ...XYZ, ...RGB, ...FACE], body))
+    expect(Array.from(mesh.colors!)).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90])
+
+    const floats = parsePLY(plyOf('ascii', ['element vertex 3', ...XYZ,
+      'property float r', 'property float g', 'property float b', ...FACE],
+    '0 0 0 1 0 0\n1 0 0 0 1 0\n0 1 0 0 0 0.5\n3 0 1 2\n'))
+    expect(Array.from(floats.colors!)).toEqual([255, 0, 0, 0, 255, 0, 0, 0, 128])
+  })
+
+  it('reads v x y z r g b from an OBJ', () => {
+    const text = 'v 0 0 0 1 0 0\nv 1 0 0 0 1 0\nv 0 1 0 0 0 1\nf 1 2 3\n'
+    const mesh = parseOBJ(new TextEncoder().encode(text).buffer)
+    expect(Array.from(mesh.colors!)).toEqual([255, 0, 0, 0, 255, 0, 0, 0, 255])
+  })
+
+  it('leaves the colour off when every vertex has the same one, or none', () => {
+    const same = parsePLY(plyOf('ascii', ['element vertex 3', ...XYZ, ...RGB, ...FACE],
+      '0 0 0 9 9 9\n1 0 0 9 9 9\n0 1 0 9 9 9\n3 0 1 2\n'))
+    expect(same.colors).toBeUndefined()
+    expect(parsePLY(binaryPly(['plain'])).colors).toBeUndefined()
+    expect(parseOBJ(new TextEncoder().encode('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n').buffer).colors).toBeUndefined()
+  })
+})
+
 describe('PLY header counts', () => {
   // Three little-endian float vertices of one right triangle.
   const TRI = [0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63,

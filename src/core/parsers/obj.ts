@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Wavefront OBJ, read as far as a scan needs it: vertex positions, faces
-// fanned into triangles from their first corner, and — for a scan that
-// captured colour — the texture coordinates, materials and material
+// fanned into triangles from their first corner, the per-vertex colours of
+// the common "v x y z r g b" extension, and — for a scan that captured
+// colour as a texture — the texture coordinates, materials and material
 // libraries that give each vertex its colour (see objTexture). The file's
 // normals and groups are passed over — normals are worked out afresh from
 // the mesh — and a file with no faces is refused, as point clouds are not
@@ -14,6 +15,9 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   onProgress?.('Reading OBJ…')
   const text = new TextDecoder().decode(buffer)
   const coords: number[] = []
+  // Per vertex, the colour the "v x y z r g b" extension gives it, or -1.
+  const vertexColor: number[] = []
+  let colored = false
   const indices: number[] = []
   const uvs: number[] = []
   // Per vertex, the texture coordinate and material of its first textured
@@ -37,6 +41,13 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
       const xyz = parts.slice(1, 4).map(Number)
       if (xyz.length !== 3 || !xyz.every(Number.isFinite)) throw new Error(`Invalid OBJ vertex on line ${li + 1}.`)
       coords.push(...xyz)
+      const rgb = parts.length >= 7 ? parts.slice(4, 7).map(Number) : null
+      if (rgb && rgb.every(Number.isFinite)) {
+        vertexColor.push(...rgb)
+        colored = true
+      } else {
+        vertexColor.push(-1, -1, -1)
+      }
     } else if (c0 === 118 /* v */ && c1 === 116 /* t */ && (line.charCodeAt(2) === 32 || line.charCodeAt(2) === 9)) {
       const parts = line.split(/\s+/)
       const u = Number(parts[1])
@@ -90,6 +101,19 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   if (coords.length === 0) throw new Error('OBJ file has no vertices.')
   if (indices.length === 0) throw new Error('This OBJ contains no faces — point clouds are not supported yet.')
   const mesh: ParsedMesh = { kind: 'indexed', positions: Float32Array.from(coords), indices: Uint32Array.from(indices) }
+
+  if (colored) {
+    // Colours run 0…1 as most writers put them; a file with any channel
+    // above 1 is taken to write bytes instead. A vertex without one is grey.
+    const scale = vertexColor.some((c) => c > 1) ? 1 : 255
+    const colors = new Uint8Array(vertexColor.length)
+    for (let i = 0; i < vertexColor.length; i++) {
+      const c = vertexColor[i]
+      colors[i] = c < 0 ? 180 : Math.max(0, Math.min(255, Math.round(c * scale)))
+    }
+    // As for 3MF, one colour on every vertex is an exporter's default.
+    if (colors.some((c, i) => c !== colors[i % 3])) mesh.colors = colors
+  }
 
   if (uvs.length > 0) {
     const n = coords.length / 3
