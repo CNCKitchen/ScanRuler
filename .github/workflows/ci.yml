@@ -49,6 +49,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-  # The agent server bundled for every platform and architecture, so a platform that cannot be bundled fails here, not at a release.
-  agent-bundle:
-    uses: ./.github/workflows/agent-bundle.yml
+  # The agent server and the desktop app bundled for every platform and architecture, so a platform that cannot be bundled fails here, not at a release.
+  bundles:
+    uses: ./.github/workflows/bundle.yml

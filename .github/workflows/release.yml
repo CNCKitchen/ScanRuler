@@ -62,6 +62,6 @@ jobs:
     if: ${{ github.repository == 'CNCKitchen/scanruler' && (github.event_name == 'push' || inputs.tag != '') }}
     permissions:
       contents: write
-    uses: ./.github/workflows/agent-bundle.yml
+    uses: ./.github/workflows/bundle.yml
     with:
       tag: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
