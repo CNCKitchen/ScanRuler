@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Development image: runs the Vite dev server with hot-module reload. Your
+# working tree is bind-mounted over /app by docker-compose, so edits on the
+# host reload live in the browser. node_modules stays inside the container
+# (a named volume) so the host's platform/arch does not matter.
+FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+# Dependencies install into the image; the compose volume keeps them.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+
+EXPOSE 5173
+# --host makes Vite listen on all interfaces so the port is reachable from
+# outside the container.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
