@@ -92,3 +92,42 @@ describe('PLY property types', () => {
     expect(() => parsePLY(count)).toThrow('PLY list count type "float"')
   })
 })
+
+describe('PLY header counts', () => {
+  // Three little-endian float vertices of one right triangle.
+  const TRI = [0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63,
+    0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0]
+  const timed = (buf: ArrayBuffer, message: RegExp) => {
+    const t = performance.now()
+    expect(() => parsePLY(buf)).toThrow(message)
+    expect(performance.now() - t).toBeLessThan(500)
+  }
+
+  it('refuses a binary element with no properties and a huge count', () => {
+    timed(plyOf('binary_little_endian', ['element vertex 3', ...XYZ, 'element face 100000000'], TRI),
+      /PLY element "face"/)
+  })
+
+  it('refuses a binary list with a negative count', () => {
+    timed(plyOf('binary_little_endian',
+      ['element vertex 3', ...XYZ, 'element face 100000000', 'property list char char vertex_indices'],
+      [...TRI, 0xff, 0, 0, 0]), /PLY/)
+  })
+
+  it('refuses an ASCII body shorter than its header counts', () => {
+    timed(plyOf('ascii',
+      ['element vertex 3', ...XYZ, 'element face 100000000', 'property list uchar int vertex_indices'],
+      '0 0 0\n1 0 0\n0 1 0\n3 0 1 2\n'), /PLY/)
+  })
+
+  it('refuses counts the file is too short to hold before allocating them', () => {
+    timed(plyOf('binary_little_endian',
+      ['element vertex 10000000000', ...XYZ, 'element face 1', 'property list uchar int vertex_indices'], TRI),
+    /PLY/)
+    timed(plyOf('binary_little_endian',
+      ['element vertex 3', ...XYZ, 'element face 1', 'property list uint int vertex_indices'],
+      [...TRI, 0xff, 0xff, 0xff, 0x3f]), /PLY/)
+    timed(plyOf('binary_little_endian', ['element vertex -3', ...XYZ, 'element face 1',
+      'property list uchar int vertex_indices'], TRI), /PLY/)
+  })
+})

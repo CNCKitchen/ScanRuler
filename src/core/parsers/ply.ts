@@ -42,6 +42,28 @@ function checkType(type: string | undefined): void {
   if (type === undefined || !Object.hasOwn(TYPE_SIZE, type)) throw new Error(`Unsupported PLY type "${type}".`)
 }
 
+/** The fewest bytes one item of the element can take: its fixed properties
+ *  and the count of each list, with every list empty. */
+function minStride(el: PlyElement): number {
+  let stride = 0
+  for (const p of el.props) stride += TYPE_SIZE[p.list ? p.countType! : p.type]
+  return stride
+}
+
+/** Refuses an element the rest of the file cannot hold. Checked before the
+ *  element is read, so a header count no file backs up allocates nothing,
+ *  and an element with no properties cannot loop on without reading. */
+function checkRoom(el: PlyElement, perItem: number, left: number): void {
+  if (el.count > 0 && perItem === 0) throw new Error(`PLY element "${el.name}" has a count but no properties.`)
+  if (el.count * perItem > left) throw new Error(`PLY element "${el.name}" counts more items than the file holds.`)
+}
+
+/** A list length; a negative one would step the reading backwards. */
+function listLength(n: number): number {
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error(`Invalid PLY list length ${n}.`)
+  return n
+}
+
 function readScalar(dv: DataView, off: number, type: string, little: boolean): number {
   switch (type) {
     case 'char': case 'int8': return dv.getInt8(off)
@@ -79,7 +101,13 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     else if (parts[0] === 'comment') {
       if (parts.slice(1).join(' ') === PLY_KEEP_WINDING) keepWinding = true
     } else if (parts[0] === 'element') {
-      elements.push({ name: parts[1], count: parseInt(parts[2], 10), props: [] })
+      // The counts drive every loop and allocation below, so a sign, a
+      // fraction or a number past safe integers is refused here.
+      const count = Number(parts[2])
+      if (!/^\d+$/.test(parts[2] ?? '') || !Number.isSafeInteger(count)) {
+        throw new Error(`PLY element "${parts[1]}" has an invalid count "${parts[2]}".`)
+      }
+      elements.push({ name: parts[1], count, props: [] })
     } else if (parts[0] === 'property') {
       const el = elements[elements.length - 1]
       if (!el) continue
@@ -137,6 +165,7 @@ function parseBinaryBody(
   let indices = new Uint32Array(0)
 
   for (const el of elements) {
+    checkRoom(el, minStride(el), buffer.byteLength - off)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
@@ -167,7 +196,7 @@ function parseBinaryBody(
           for (let p = 0; p < el.props.length; p++) {
             const prop = el.props[p]
             if (prop.list) {
-              const n = readScalar(dv, off, prop.countType!, little)
+              const n = listLength(readScalar(dv, off, prop.countType!, little))
               off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             } else {
               const v = readScalar(dv, off, prop.type, little)
@@ -189,7 +218,7 @@ function parseBinaryBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = readScalar(dv, off, prop.countType!, little)
+            const n = listLength(readScalar(dv, off, prop.countType!, little))
             off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
               if (n >= 3) triTotal += n - 2
@@ -199,13 +228,14 @@ function parseBinaryBody(
           }
         }
       }
+      if (off > buffer.byteLength) throw new Error('PLY face lists run past the end of the file.')
       indices = new Uint32Array(triTotal * 3)
       off = faceStart
       let w = 0
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = readScalar(dv, off, prop.countType!, little)
+            const n = listLength(readScalar(dv, off, prop.countType!, little))
             off += TYPE_SIZE[prop.countType!]
             const itemSize = TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
@@ -258,6 +288,8 @@ function parseAsciiBody(
   const indices: number[] = []
 
   for (const el of elements) {
+    // In text every property takes at least one token.
+    checkRoom(el, el.props.length, tokens.length - ti)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
@@ -268,7 +300,7 @@ function parseAsciiBody(
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
           if (prop.list) {
-            const n = parseInt(tokens[ti++], 10)
+            const n = listLength(parseInt(tokens[ti++], 10))
             ti += n
           } else {
             const v = parseFloat(tokens[ti++])
@@ -282,7 +314,7 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = parseInt(tokens[ti++], 10)
+            const n = listLength(parseInt(tokens[ti++], 10))
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
               const first = parseInt(tokens[ti], 10)
               for (let k = 2; k < n; k++) {
@@ -299,7 +331,7 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = parseInt(tokens[ti++], 10)
+            const n = listLength(parseInt(tokens[ti++], 10))
             ti += n
           } else {
             ti++
@@ -307,6 +339,7 @@ function parseAsciiBody(
         }
       }
     }
+    if (ti > tokens.length) throw new Error(`PLY element "${el.name}" runs past the end of the file.`)
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
