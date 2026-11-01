@@ -59,3 +59,36 @@ describe('OBJ parsing', () => {
     expect(Array.from(mesh.indices!)).toEqual([0, 1, 2])
   })
 })
+
+
+/** A PLY made of the given header lines (after the format line) and body bytes. */
+function plyOf(format: string, lines: string[], body: number[] | string = []): ArrayBuffer {
+  const head = new TextEncoder().encode(['ply', `format ${format} 1.0`, ...lines, 'end_header', ''].join('\n'))
+  const tail = typeof body === 'string' ? new TextEncoder().encode(body) : Uint8Array.from(body)
+  const out = new Uint8Array(head.length + tail.length)
+  out.set(head, 0)
+  out.set(tail, head.length)
+  return out.buffer
+}
+
+const XYZ = ['property float x', 'property float y', 'property float z']
+
+describe('PLY property types', () => {
+  it('refuses a property type it does not know instead of reading garbage', () => {
+    const buf = plyOf('binary_little_endian',
+      ['element vertex 3', 'property int64 id', ...XYZ, 'element face 1', 'property list uchar int vertex_indices'],
+      new Array(3 * 20 + 13).fill(0))
+    expect(() => parsePLY(buf)).toThrow('Unsupported PLY type "int64".')
+  })
+
+  it('refuses an unknown list item type and a float list count', () => {
+    const items = plyOf('binary_little_endian',
+      ['element vertex 3', ...XYZ, 'element face 1', 'property list uchar uint64 vertex_indices'],
+      new Array(36 + 25).fill(0))
+    expect(() => parsePLY(items)).toThrow('Unsupported PLY type "uint64".')
+    const count = plyOf('binary_little_endian',
+      ['element vertex 3', ...XYZ, 'element face 1', 'property list float int vertex_indices'],
+      new Array(36 + 16).fill(0))
+    expect(() => parsePLY(count)).toThrow('PLY list count type "float"')
+  })
+})

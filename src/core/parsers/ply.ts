@@ -38,6 +38,10 @@ const TYPE_SIZE: Record<string, number> = {
  */
 export const PLY_KEEP_WINDING = 'ScanRuler: keep winding'
 
+function checkType(type: string | undefined): void {
+  if (type === undefined || !Object.hasOwn(TYPE_SIZE, type)) throw new Error(`Unsupported PLY type "${type}".`)
+}
+
 function readScalar(dv: DataView, off: number, type: string, little: boolean): number {
   switch (type) {
     case 'char': case 'int8': return dv.getInt8(off)
@@ -79,9 +83,16 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     } else if (parts[0] === 'property') {
       const el = elements[elements.length - 1]
       if (!el) continue
+      // Every type is checked against the table here: an unknown one would
+      // give NaN strides and offsets, which DataView reads as offset 0, so
+      // the file would turn into garbage geometry rather than an error.
       if (parts[1] === 'list') {
+        checkType(parts[2])
+        checkType(parts[3])
+        if (/^(float|double)/.test(parts[2])) throw new Error(`PLY list count type "${parts[2]}" is not an integer type.`)
         el.props.push({ name: parts[4], type: 'list', list: true, countType: parts[2], itemType: parts[3] })
       } else {
+        checkType(parts[1])
         el.props.push({ name: parts[2], type: parts[1], list: false })
       }
     }
