@@ -12,7 +12,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { openInBrowser } from './browser.js'
 import { configDir, loadConfig, loadFolders, loadLastProject, loadRemembered, saveFolders, saveLastProject, saveRemembered } from './config.js'
 import { CHECKOUT_ENGINE, EngineLink, loadEngine } from './engine.js'
-import { originAllowed } from './link.js'
+import { originAllowed, originOf } from './link.js'
 import { ANSWER_WITHIN_MS, createMcpServer, parseToolMode } from './mcp.js'
 import { SharedLink } from './relay.js'
 import { createTrace } from './trace.js'
@@ -180,7 +180,12 @@ export async function main(argv = process.argv.slice(2)) {
   if (trace) log(`Tracing every call to ${trace.file}${trace.args ? ', arguments too' : ''}.`)
   const engineFile = values.engine ?? process.env.SCANRULER_ENGINE ?? (values.headless ? CHECKOUT_ENGINE : null)
   if (engineFile) return headless(resolve(cwd, engineFile), { cwd, outDir, tools, trace, answerWithinMs, updates })
-  const origins = values['allow-origin'] ?? []
+  const origins = (values['allow-origin'] ?? []).map((url) => {
+    // A value that is no URL would silently never match, so it is refused.
+    const origin = originOf(url)
+    if (!origin) throw new Error(`--allow-origin ${url} is not a URL.`)
+    return origin
+  })
   const http = httpServer({ serve: values.serve, allowOrigin: (origin) => originAllowed(origin, origins), version: VERSION })
   // The port, or — when another copy holds it — the relay through that one.
   const link = new SharedLink({ http, port, token, version: VERSION, origins, log })

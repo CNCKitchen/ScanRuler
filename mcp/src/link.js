@@ -21,11 +21,23 @@ const HOSTED_ORIGINS = ['https://scanruler.com', 'https://www.scanruler.com']
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
 
+/** The origin of a URL given to --allow-origin, as a browser sends it in
+ *  its Origin header: a trailing slash, a path or an uppercase host would
+ *  otherwise never match. Null for a value that is not a URL. */
+export function originOf(url) {
+  try {
+    const { origin } = new URL(url)
+    return origin === 'null' ? null : origin
+  } catch {
+    return null
+  }
+}
+
 /** Whether a page from `origin` may connect. A connection without an Origin
  *  is not from a browser page; the token alone decides for it. */
 export function originAllowed(origin, extra = []) {
   if (!origin) return true
-  if (HOSTED_ORIGINS.includes(origin) || extra.includes(origin)) return true
+  if (HOSTED_ORIGINS.includes(origin) || extra.some((url) => originOf(url) === origin)) return true
   try {
     const url = new URL(origin)
     return (url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK.has(url.hostname)
