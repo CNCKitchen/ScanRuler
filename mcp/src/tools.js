@@ -402,7 +402,15 @@ export async function saveFileResult(result, args, { cwd, outDir }) {
   else {
     target = given
     await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, file.bytes)
+    // A picture comes from a tool marked read-only, which a client may run
+    // without asking, so it never replaces a file that is there.
+    const picture = String(file.mimeType ?? '').startsWith('image/')
+    try {
+      await writeFile(target, file.bytes, picture ? { flag: 'wx' } : undefined)
+    } catch (e) {
+      if (picture && e?.code === 'EEXIST') throw { code: 'invalid_input', message: `${target} is already there and a picture is not written over a file: give a new path, or a folder.` }
+      throw e
+    }
   }
   return { ...result, file: { name: file.name, mimeType: file.mimeType, size: file.bytes.byteLength, path: target } }
 }
