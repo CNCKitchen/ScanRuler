@@ -219,6 +219,14 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   // holding the queue up.
   if (msg.type === 'align-abort') {
     alignAborted = true
+    // A fit still waiting its turn is stopped where it waits: starting
+    // clears the flag, so it would otherwise run and apply as if never stopped.
+    for (let i = queued.length - 1; i >= 0; i--) {
+      const waiting = queued[i]
+      if (waiting.type !== 'align') continue
+      queued.splice(i, 1)
+      post({ type: 'align-stopped', requestId: waiting.requestId })
+    }
     return
   }
   if (alignRun || holding) {
