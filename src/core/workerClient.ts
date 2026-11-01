@@ -8,6 +8,7 @@
 // nominalVersion are there for callers to tell.
 
 import { WorkerRpc } from './workerRpc'
+import { readSourceFile } from './sourceFile'
 import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseSetting, CreaseReport } from './geometry/crease'
 import type { ScanSpot } from './geometry/nearest'
@@ -119,8 +120,8 @@ export class MeshWorkerClient {
   private rpc: WorkerRpc
   private recovering: Promise<void> | null = null
   restoreState: (() => {
-    scan: { name: string; bytes: Uint8Array; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number } | null
-    nominal: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
+    scan: { name: string; file: Blob; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number } | null
+    nominal: { name: string; file: Blob; units?: MeshUnits } | null
   }) | null = null
   /** What the plugins put back after a restart, once the scan and the
    *  reference are back — see onRestore. */
@@ -151,13 +152,13 @@ export class MeshWorkerClient {
       this.rpc.restart()
       const state = this.restoreState?.()
       if (state?.scan) {
-        const { name, bytes, crease, transform, units, scale } = state.scan
-        const buffer = bytes.slice().buffer
+        const { name, file, crease, transform, units, scale } = state.scan
+        const buffer = await readSourceFile(file, name)
         await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') * (scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
       }
       if (state?.nominal) {
-        const { name, bytes, units } = state.nominal
-        const buffer = bytes.slice().buffer
+        const { name, file, units } = state.nominal
+        const buffer = await readSourceFile(file, name)
         await this.rpc.request({ type: 'load-nominal', requestId: this.nextId++, name, buffer, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
       }
       const channel: RestoreChannel = {

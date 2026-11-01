@@ -136,12 +136,13 @@ describe('scan.scale on a 40 mm box', () => {
     expect(() => validateManifest(JSON.parse(JSON.stringify(manifest)))).not.toThrow()
     expect(() => validateManifest({ ...manifest, scan: { ...manifest.scan, scale: -1 } })).toThrow('scan.scale')
     useStore.setState({ scanScale: null })
-    prepareProjectState(manifest, new Map(members.map((m) => [m.name, m.bytes])))()
+    prepareProjectState(manifest, new Map(members.flatMap((m) => m.bytes instanceof Uint8Array ? [[m.name, m.bytes] as const] : [])))()
     expect(useStore.getState().scanScale?.factor).toBeCloseTo(0.75, 12)
     // Read again from its member at the saved factor, as opening it does.
     const client = session.clientRef.current!
     const member = members.find((m) => m.name === manifest.scan!.member)!
-    const { id, mesh } = await client.prepareScan('box.stl', member.bytes.slice().buffer, { mode: 'off' } as never, undefined, 'mm', undefined, manifest.scan!.scale)
+    const buffer = member.bytes instanceof Blob ? await member.bytes.arrayBuffer() : member.bytes.slice().buffer
+    const { id, mesh } = await client.prepareScan('box.stl', buffer, { mode: 'off' } as never, undefined, 'mm', undefined, manifest.scan!.scale)
     await client.discardImport([id])
     let lo = Infinity, hi = -Infinity
     for (let i = 2; i < mesh.positions.length; i += 3) { lo = Math.min(lo, mesh.positions[i]); hi = Math.max(hi, mesh.positions[i]) }

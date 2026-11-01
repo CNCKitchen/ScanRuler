@@ -12,7 +12,7 @@ export type ProjectSnapshot = ReturnType<typeof collectProject>
 
 /** Original bytes matter even when a replacement has the same filename. */
 export function snapshotKey() {
-  const ids = new WeakMap<Uint8Array, number>()
+  const ids = new WeakMap<Uint8Array | Blob, number>()
   let nextId = 0
   return ({ manifest, members }: ProjectSnapshot) => JSON.stringify(manifest) + '\n' + members.map(({ name, bytes }) => {
     if (!ids.has(bytes)) ids.set(bytes, ++nextId)

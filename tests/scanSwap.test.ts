@@ -25,7 +25,7 @@ describe('swapping the scan without a viewport', () => {
     const stop = onScan({ swapped: () => heard.push('swapped'), remeasure: async () => void heard.push('remeasure') })
     try {
       const { swap, sources } = headless.session
-      const source = { name: 'box.stl', bytes: stlBytes(boxMesh(10, 2)), units: 'mm' as const }
+      const source = { name: 'box.stl', file: new Blob([stlBytes(boxMesh(10, 2)) as BlobPart]), units: 'mm' as const }
       await swap.swapScan(source, null)
       const s = useStore.getState()
       expect(s.triangleCount).toBe(6 * 2 * 2 * 2)
