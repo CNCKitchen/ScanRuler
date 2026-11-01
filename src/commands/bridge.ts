@@ -161,7 +161,11 @@ export function startBridge({ port, token, socket = (url) => new WebSocket(url),
     const answered = onThisComputer() || (await reach(`http://127.0.0.1:${port}/scanruler-mcp`))
     if (stopped) return
     if (!answered) {
-      if (typeof navigator !== 'undefined' && navigator.permissions && (await loopbackDenied())) {
+      const denied = typeof navigator !== 'undefined' && !!navigator.permissions && (await loopbackDenied())
+      // The link may have been switched off while the browser answered; a
+      // stopped link stays off rather than showing a refusal or retrying.
+      if (stopped) return
+      if (denied) {
         useAgentLink.setState({
           status: 'refused',
           detail: 'The browser keeps this site from reaching apps on this computer — allow local network access for it in the site settings (the icon left of the address), then reload.',
