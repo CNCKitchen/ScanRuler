@@ -321,6 +321,24 @@ export class NominalSurface {
     return true
   }
 
+  /** The signed reading off one triangle already known to be the nearest —
+   *  the face a GPU search found (see gpuNearest.ts) — resolved here in
+   *  doubles, with the same pseudonormal sign `closest` gives. */
+  closestOnFace(x: number, y: number, z: number, face: number, out: ClosestHit): void {
+    this.fillHit(x, y, z, face, out)
+  }
+
+  /** The tree flattened for a GPU search: three-mesh-bvh's own node buffer,
+   *  32 bytes a node — six float bounds, then for a leaf the first triangle
+   *  and a 16-bit count flagged 0xFFFF, and for an inner node the word offset
+   *  of its right child, the left following directly. Its triangle order is
+   *  the reordered `index`, so a leaf's triangles are the face ids `closest`
+   *  reports. Null for a tree built in more than one root. */
+  flatTree(): Uint32Array | null {
+    const roots = (this.bvh as unknown as { _roots: ArrayBuffer[] })._roots
+    return roots.length === 1 ? new Uint32Array(roots[0]) : null
+  }
+
   /**
    * The same query, restricted to surface that faces roughly the way the query
    * point does: the nearest triangle whose outward normal satisfies
