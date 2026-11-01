@@ -3,8 +3,8 @@
 import { dirname, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { openInBrowser } from '../src/browser.js'
-import { pairingLink, start, status, stop } from '../src/daemon.js'
-import { DEFAULT_PORT, main } from '../src/main.js'
+import { DEFAULT_PORT, pairingLink, start, status, stop } from '../src/daemon.js'
+import { main } from '../src/main.js'
 import { NO_UPDATE_ENV } from '../src/update.js'
 
 process.env[NO_UPDATE_ENV] = '1'

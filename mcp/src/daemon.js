@@ -7,6 +7,9 @@ import { join } from 'node:path'
 import { configDir, loadConfig } from './config.js'
 import { HELLO_PATH } from './serve.js'
 
+/** The port the page connects to unless one is given. */
+export const DEFAULT_PORT = 7317
+
 /** The file in the config directory that names the running background server. */
 export const STATE_FILE = 'daemon.json'
 

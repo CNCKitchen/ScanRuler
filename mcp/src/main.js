@@ -16,11 +16,10 @@ import { ANSWER_WITHIN_MS, createMcpServer, parseToolMode } from './mcp.js'
 import { SharedLink } from './relay.js'
 import { createTrace } from './trace.js'
 import { httpServer } from './serve.js'
-import { announce } from './daemon.js'
+import { announce, DEFAULT_PORT } from './daemon.js'
 import { NO_UPDATE_ENV, startUpdates, watchParent } from './update.js'
 import PACKAGE from '../package.json' with { type: 'json' }
 
-export const DEFAULT_PORT = 7317
 const HOSTED_APP = 'https://scanruler.com/'
 
 const VERSION = PACKAGE.version
