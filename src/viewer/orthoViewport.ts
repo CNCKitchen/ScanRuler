@@ -137,6 +137,12 @@ export interface OrthoViewportOptions {
   /** A see-through canvas with no stage of its own: what a viewport laid
    *  over another one is — the sketch sheet over the 3D view. */
   transparent?: boolean
+  /** Pixels at the top and bottom of the canvas that something is laid
+   *  over — the hint above the part, the bar of view keys below it. A part
+   *  framed to the whole canvas would run under them; framing keeps clear
+   *  of the deeper of the two, top and bottom alike, so the part stays in
+   *  the middle. */
+  chrome?: { top: number; bottom: number }
 }
 
 export class OrthoViewport {
@@ -457,7 +463,10 @@ export class OrthoViewport {
     this.camera.lookAt(center)
     this.camera.updateMatrixWorld(true)
 
-    this.fitExtent = frameExtent(box, new THREE.Matrix4().copy(this.camera.matrixWorld).invert(), across)
+    const extent = frameExtent(box, new THREE.Matrix4().copy(this.camera.matrixWorld).invert(), across)
+    // A size asked for in millimetres is that size; a fit keeps clear of
+    // what is laid over the canvas.
+    this.fitExtent = across !== undefined && across > 0 ? extent : { halfW: extent.halfW, halfH: extent.halfH * this.chromeScale() }
     this.applyFrustum()
     this.controls.update()
     this.invalidate()
@@ -602,7 +611,7 @@ export class OrthoViewport {
       halfW = Math.max(halfW, Math.abs(corner.dot(right)))
       halfH = Math.max(halfH, Math.abs(corner.dot(screenUp)))
     }
-    const zoom = Math.min((this.camera.right - this.camera.left) / 2 / (halfW * FRAME_MARGIN), (this.camera.top - this.camera.bottom) / 2 / (halfH * FRAME_MARGIN))
+    const zoom = Math.min((this.camera.right - this.camera.left) / 2 / (halfW * FRAME_MARGIN), (this.camera.top - this.camera.bottom) / 2 / (halfH * FRAME_MARGIN * this.chromeScale()))
     this.animateLook(dir, up, center, ms, zoom)
   }
 
@@ -742,6 +751,17 @@ export class OrthoViewport {
       setExtents: (halfW, halfH) => this.setExtents(halfW, halfH),
       invalidate: this.invalidate,
     }
+  }
+
+  /** How much taller a framing has to be than the part for the part to
+   *  clear what is laid over the canvas top and bottom (options.chrome):
+   *  1 where nothing is. Never more than double, however short the canvas. */
+  private chromeScale(): number {
+    const chrome = this.opts.chrome
+    const h = this.container.clientHeight
+    if (!chrome || h <= 0) return 1
+    const clear = h - 2 * Math.max(chrome.top, chrome.bottom, 0)
+    return h / Math.max(clear, h / 2)
   }
 
   /** Rebuild the orthographic frustum for the current viewport aspect,

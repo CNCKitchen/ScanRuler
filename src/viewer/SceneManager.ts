@@ -440,6 +440,8 @@ export class SceneManager {
   constructor(container: HTMLDivElement) {
     this.viewport = new OrthoViewport(container, {
       theme: this.theme,
+      // The hint over the top of the stage and the view keys along its foot.
+      chrome: { top: 40, bottom: 52 },
       // An orbit pivots on whichever part is actually on screen: in the
       // deviation workspace the scan can be hidden behind the reference, or
       // the other way round, and turning about a surface nobody can see reads

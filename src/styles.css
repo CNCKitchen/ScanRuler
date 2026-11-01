@@ -159,6 +159,11 @@ body {
   /* The window itself never scrolls, so a drag that runs past the end of a
      panel must not rubber-band the chassis under it either. */
   overscroll-behavior: none;
+  /* Figures of one width: a count, a reading or a pick tally that changes
+     does not shove the words beside it about. */
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 :focus-visible {
@@ -401,6 +406,27 @@ button:disabled {
   cursor: default;
 }
 
+/* A press gives way under the finger: the key sinks a little and comes back.
+   Scale rather than transform, so it never fights a key's own transform. */
+button {
+  transition: scale 120ms ease-out;
+}
+
+button:active:not(:disabled) {
+  scale: 0.96;
+}
+
+/* Rows of a list are pointed at, not pressed: they keep still. */
+.pickoption:active:not(:disabled) {
+  scale: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled) {
+    scale: none;
+  }
+}
+
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -479,6 +505,7 @@ button.primary:hover:not(:disabled) {
    mark: present enough to be found, quiet enough that a faceplate full of them
    still reads as controls. It lights up once it has been opened. */
 button.infodot {
+  position: relative;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -503,6 +530,14 @@ button.infodot.on {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+/* The dot is drawn small; it is hit larger, so it is not a hunt for the
+   cursor beside a label. */
+button.infodot::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
 }
 
 button.infodot:focus-visible {
@@ -688,6 +723,12 @@ button.x {
   border-radius: var(--r);
   line-height: 18px;
   color: var(--faint);
+}
+
+/* A dialog's close is a target of its own, not a glyph to aim at. */
+.modalhead button.x {
+  min-width: 32px;
+  min-height: 32px;
 }
 
 button.x:hover:not(:disabled) {
@@ -1159,6 +1200,13 @@ button.primary svg.icon .i-adt,
   text-overflow: ellipsis;
 }
 
+/* A name too long for its key goes onto two lines rather than losing its
+   end — "Patch network" in a four-across row. */
+.kindrow.featurekeys:not(.three) button span {
+  white-space: normal;
+  text-wrap: balance;
+}
+
 /* A key with a picture beside its word. */
 button.withicon {
   white-space: nowrap;
@@ -1613,6 +1661,12 @@ button.x:disabled {
   opacity: 0.72;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(18, 22, 26, 0.14);
+}
+
+.viewfit::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
 }
 
 .viewfit:hover {
@@ -2613,6 +2667,7 @@ button.x:disabled {
 .modal h2 {
   margin: 0;
   font-size: 16px;
+  text-wrap: balance;
 }
 
 .modal h3 {
@@ -2713,6 +2768,20 @@ button.x:disabled {
 .setting > input[type='text'] {
   width: 100%;
   max-width: 240px;
+}
+
+/* Fields drawn the way the panel's are, not the browser's bevel. */
+.setting > input[type='number'],
+.setting > input[type='text'] {
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 5px 7px;
+  box-shadow: var(--inset);
 }
 
 .setting > small code {
@@ -2875,8 +2944,9 @@ button.x:disabled {
 
 /* ---------------- units of an STL ---------------- */
 
+/* Wide enough for the four units side by side beside their label. */
 .modal.units {
-  width: 480px;
+  width: 520px;
 }
 
 .modal.units > p.dim {
@@ -3796,6 +3866,7 @@ button.x:disabled {
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--faint);
+  text-wrap: balance;
 }
 
 .starttiles {
@@ -4157,8 +4228,15 @@ button.x:disabled {
   color: var(--dim);
 }
 
+.exportmesh .picklist {
+  left: auto;
+  min-width: 100%;
+  width: max-content;
+}
+
 .exportmesh .pickoption {
   display: block;
+  white-space: nowrap;
   width: 100%;
   text-align: left;
   font-family: var(--ui);
