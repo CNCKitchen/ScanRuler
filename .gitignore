@@ -15,3 +15,7 @@ dist/
 
 # The app built for Node, headless (npm run build:engine)
 /dist-engine/
+
+# The agent server bundled per platform (npm run bundle:agent)
+/dist-agent/
+/dist-engine-standalone/
