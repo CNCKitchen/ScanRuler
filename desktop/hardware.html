@@ -39,7 +39,7 @@ async function load() {
     row(s.backendChosen, i.backends[i.backendRunning]),
     row(s.backendRunning, i.angleActive || '—'),
     row(s.renderer, present(i.page.renderer, 'WebGL2')),
-    row(s.webgpu, present(i.page.webgpu)),
+    row(s.webgpu, i.page.webgpu === false && i.backendRunning !== 'd3d11' ? `${s.unavailable} — ${s.webgpuWhy}` : present(i.page.webgpu)),
     row(s.cpu, `${i.cpu} — ${i.page.threads} ${s.threads}`),
     row(s.isolation, i.page.isolated ? s.yes : s.no),
     row(s.npu, i.page.webnn ? s.available : s.unavailable),
