@@ -207,3 +207,15 @@ test('a page older than its app: a stale_page answer, or the page’s own word, 
   assert.equal(said.page.stale, true)
   assert.equal(said.page.staleNote, 'this tab is older than the app it came from')
 })
+
+test('the last project kept beside folders that cannot be read leaves them, not an empty list', async () => {
+  const kept = await mkdtemp(join(tmpdir(), 'scanruler-mcp-folders-'))
+  // Half of what another copy was writing, as a read in the middle of it saw.
+  await writeFile(join(kept, 'folders.json'), '{"saved":"2026-10-24T14:41:00.000Z","folders":["C:\\\\scans\\\\a",')
+  saveLastProject('C:\\scans\\a\\p.scanruler', kept)
+  assert.equal(loadFolders(kept), null, 'not written over with no folders')
+  saveFolders(['C:\\scans\\a'], kept)
+  saveLastProject('C:\\scans\\a\\p.scanruler', kept)
+  assert.deepEqual(loadFolders(kept), ['C:\\scans\\a'])
+  assert.equal(loadLastProject(kept), 'C:\\scans\\a\\p.scanruler')
+})

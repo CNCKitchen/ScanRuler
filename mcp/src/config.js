@@ -9,7 +9,7 @@
 // lists that one (mcp.js).
 
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -82,14 +82,23 @@ export function loadLastProject(dir = configDir()) {
   }
 }
 
-/** Keep the last project, the folders as they were. */
+/** Keep the last project, the folders as they were. A file there that
+ *  cannot be read is left as it is, the project not kept: written over, the
+ *  folders it held would be lost. */
 export function saveLastProject(project, dir = configDir()) {
-  writeKept(dir, { folders: loadFolders(dir) ?? [], project })
+  const folders = loadFolders(dir)
+  if (!folders && existsSync(join(dir, 'folders.json'))) return
+  writeKept(dir, { folders: folders ?? [], project })
 }
 
+/** Written whole and renamed into place, as update.json is: another copy
+ *  reading it meanwhile reads the old file or the new, never half of one. */
 const writeKept = (dir, { folders, project }) => {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'folders.json'), JSON.stringify({ saved: new Date().toISOString(), folders, ...(project ? { project } : {}) }) + '\n')
+  const file = join(dir, 'folders.json')
+  const part = `${file}.${process.pid}.part`
+  writeFileSync(part, JSON.stringify({ saved: new Date().toISOString(), folders, ...(project ? { project } : {}) }) + '\n')
+  renameSync(part, file)
 }
 
 /** The stored config, with a token made and saved if there was none. */
