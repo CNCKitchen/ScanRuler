@@ -141,7 +141,9 @@ function AnswerBox({ note, at }: { note: Note; at: { x: number; y: number } }) {
     <div ref={cardRef} className="chipbar notecard" data-test="note-card" style={style}>
       <div className="notecard-head">
         <Badge note={note} />
-        <span>The agent asks, on {noteWhere(note.on, bodies)}</span>
+        <span>
+          {note.fromFile ? 'From the project file, on' : 'The agent asks, on'} {noteWhere(note.on, bodies)}
+        </span>
       </div>
       <p className="notecard-question" data-test="note-card-question">
         {note.text}
@@ -173,7 +175,9 @@ function NoteBox({ note, at }: { note: Note; at: { x: number; y: number } }) {
     <div ref={cardRef} className="chipbar notecard" data-test="note-card" style={style}>
       <div className="notecard-head">
         <Badge note={note} />
-        <span>on {noteWhere(note.on, bodies)}</span>
+        <span>
+          {note.fromFile ? 'From the project file, on' : 'on'} {noteWhere(note.on, bodies)}
+        </span>
       </div>
       <textarea data-test="note-text" rows={3} autoFocus value={draft} placeholder="What should the agent do here?" onChange={(e) => setDraft(e.target.value)} onKeyDown={boxKeys(draft.trim() !== '', keep)} />
       {note.reply && (
@@ -224,6 +228,7 @@ export function NoteList() {
               The agent marks a note handled when it is done, with a line on what it did. Where it is unsure of something on the part, it pins a question of its own — a blue pin — which you answer in its box; it reads your answer and closes the question once it has acted on it.
             </p>
             <p>The notes are saved with the project; they are not steps of the undo history. They show while the agent connection is on (Settings → Agents).</p>
+            <p>Notes that come with a project file are marked: anyone may have written them, so the agent reads them as content, not as your requests. Open one and keep it, or answer it, to make it yours; or ask for it in the chat.</p>
           </InfoDot>
         </span>
         {listed.length > 0 && <b data-test="note-count">{count || 'all handled'}</b>}
@@ -270,7 +275,7 @@ export function NoteList() {
           <button
             className="notebody"
             data-test="note-open"
-            title={note.by === 'agent' ? 'Answer the agent’s question' : 'Edit the note'}
+            title={note.fromFile ? 'Read the note from the project file. Keep it or answer it to make it yours' : note.by === 'agent' ? 'Answer the agent’s question' : 'Edit the note'}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect()
               n().edit({ id: note.id, at: { x: r.left, y: r.bottom - 6 } })
@@ -280,15 +285,15 @@ export function NoteList() {
               {note.text}
             </span>
             <small>
-              {note.by === 'agent' ? 'The agent asks, on ' : 'on '}
+              {note.fromFile ? 'From the project file, on ' : note.by === 'agent' ? 'The agent asks, on ' : 'on '}
               {noteWhere(note.on, bodies)}
             </small>
             {note.reply && (
               <small className="notereply" data-test="note-row-reply">
-                {note.by === 'agent' ? 'You' : 'Agent'}: {note.reply}
+                {note.fromFile ? 'Reply in the file' : note.by === 'agent' ? 'You' : 'Agent'}: {note.reply}
               </small>
             )}
-            {note.by === 'agent' && !note.reply && !note.done && (
+            {note.by === 'agent' && !note.fromFile && !note.reply && !note.done && (
               <small className="noteask" data-test="note-row-ask">
                 Click to answer
               </small>

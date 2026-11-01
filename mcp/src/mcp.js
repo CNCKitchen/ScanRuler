@@ -24,8 +24,8 @@
 
 import { randomBytes } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises'
-import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
+import { lstat, mkdir, open, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { absolute, agentJson, batchedPicture, fileKind, imageContent, inputFor, relativeFrom, replacesSession, saveFileResult, TEXT_FILES, toolFor, toolName, waitIn, withFiles, wholeUtf8, writeNew } from './tools.js'
@@ -282,6 +282,67 @@ const SESSION_WITHIN_MS = 3_000
 
 /** The kinds of file scanruler_write writes: text, for a report. */
 const TEXT_KINDS = ['.md', '.txt', '.csv', '.json']
+
+/** Folders agents and tools keep their own settings and instructions in:
+ *  scanruler_write stays out of these wherever they stand in the path, even
+ *  when a scan or a project is in one, for a project can be saved anywhere. */
+const TOOL_FOLDERS = new Set([
+  '.agent', '.agents', '.aider', '.amazonq', '.claude', '.clinerules', '.codex', '.config', '.continue', '.cursor', '.devcontainer', '.gemini', '.git', '.github',
+  '.gitlab', '.husky', '.idea', '.junie', '.kiro', '.roo', '.ssh', '.vscode', '.windsurf', '.zed', 'node_modules',
+])
+
+/** Files an agent takes instructions from, or a tool settings or commands it
+ *  will run: scanruler_write refuses these names in any folder. A report is
+ *  rarely called any of them, and can always be called something else. */
+const TOOL_FILES = new Set([
+  'agent.md', 'agents.md', 'claude.local.md', 'claude.md', 'conventions.md', 'copilot-instructions.md', 'gemini.md', 'memory.md', 'skill.md', 'warp.md',
+  'biome.json', 'bower.json', 'bun.json', 'claude_desktop_config.json', 'cmakelists.txt', 'composer.json', 'constraints.txt', 'deno.json', 'devcontainer.json', 'jsconfig.json', 'launch.json', 'lerna.json',
+  'mcp.json', 'npm-shrinkwrap.json', 'nx.json', 'package-lock.json', 'package.json', 'renovate.json', 'requirements.txt', 'settings.json', 'settings.local.json', 'tasks.json', 'tsconfig.json', 'turbo.json', 'vercel.json',
+])
+
+/** A path's names as Windows and macOS compare them: in lower case, without
+ *  the trailing dots and spaces Windows drops. */
+const pathNames = (path) =>
+  path
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map((name) => name.toLowerCase().replace(/[. ]+$/, ''))
+
+/** Why scanruler_write leaves `target` alone, or null: what it writes must not
+ *  become something an agent or a tool acts on. A hidden folder is judged from
+ *  the folders it lies in, so a scan under ~/.local still gets its report. */
+function writeRefusal(target, folders) {
+  const names = pathNames(target)
+  const file = names.at(-1) ?? ''
+  const tool = names.slice(0, -1).find((name) => TOOL_FOLDERS.has(name))
+  if (tool) return `"${tool}" holds an agent's or a tool's own files`
+  if (file.startsWith('.')) return 'hidden files are not written'
+  if (TOOL_FILES.has(file)) return `agents and tools read or run "${basename(target)}" as instructions or settings`
+  for (const folder of folders) {
+    const r = relative(folder, target)
+    if (r.startsWith('..') || isAbsolute(r)) continue
+    if (r.includes(':')) return 'a colon in a name writes to a hidden stream on Windows'
+    if (pathNames(r).slice(0, -1).some((name) => name.startsWith('.'))) return 'hidden folders are not written into'
+  }
+  return null
+}
+
+/** A path as the disk has it, as far as it exists: links followed and short
+ *  names made long, the rest as given. Null for a link to nothing, which a
+ *  write would follow to wherever it points. */
+async function pathOnDisk(path) {
+  const rest = []
+  for (let at = path; ; at = dirname(at)) {
+    try {
+      return join(await realpath(at), ...rest)
+    } catch (e) {
+      if (e?.code !== 'ENOENT' && e?.code !== 'ENOTDIR') throw e
+    }
+    if ((await lstat(at).catch(() => null))?.isSymbolicLink()) return null
+    if (dirname(at) === at) return path
+    rest.unshift(basename(at))
+  }
+}
 
 /** A change answered directly that took longer than this has likely
  *  outlived its client's wait (Claude Desktop's is a minute): its answer
@@ -1005,7 +1066,7 @@ export function createMcpServer({
     own.push({
       name: 'scanruler_write',
       title: 'Write a text file beside the scan',
-      description: `Write a text file — a report, notes, a table of readings — next to the scan, as UTF-8: ${TEXT_KINDS.join(', ')} only, and only inside the folder this server last opened a scan or a project from (scan_open, project_load) or saved one into (saveTo), or a folder under it. A relative path is taken in that folder; an absolute one must lie in one of those folders, and a path may not climb out with "..". A file already there is replaced. Returns its path and size in bytes. Refused while this server has opened no scan or project from a folder — then open the scan with scan_open first, or write the file yourself.`,
+      description: `Write a text file — a report, notes, a table of readings — next to the scan, as UTF-8: ${TEXT_KINDS.join(', ')} only, and only inside the folder this server last opened a scan or a project from (scan_open, project_load) or saved one into (saveTo), or a folder under it. A relative path is taken in that folder; an absolute one must lie in one of those folders, and a path may not climb out with "..". Hidden folders and files, and files agents and tools take instructions or settings from (CLAUDE.md, AGENTS.md, package.json and the like), are refused: pick another name. A file already there is replaced. Returns its path and size in bytes. Refused while this server has opened no scan or project from a folder — then open the scan with scan_open first, or write the file yourself.`,
       inputSchema: {
         type: 'object',
         properties: {
@@ -1196,6 +1257,18 @@ export function createMcpServer({
     }
     if (!folders.some(inside)) {
       throw { code: 'invalid_input', message: `path: ${target} is outside the folders a scan or a project was opened from — ${folders.join(', ')}. Give a path in one of them.` }
+    }
+    // Again as the disk has it: a link inside the folder, or a Windows short
+    // name, must not lead where the name given may not go.
+    const onDisk = await pathOnDisk(target)
+    const foldersOnDisk = (await Promise.all(folders.map(pathOnDisk))).filter(Boolean)
+    const refusal = writeRefusal(target, folders) ?? (onDisk ? writeRefusal(onDisk, foldersOnDisk) : 'it is a link to nothing')
+    if (refusal) throw { code: 'invalid_input', message: `path: ${target} is refused: ${refusal}. Give the report another name, in the scan's folder or an ordinary folder under it.` }
+    if (!foldersOnDisk.some((folder) => {
+      const r = relative(folder, onDisk)
+      return r !== '' && !r.startsWith('..') && !isAbsolute(r)
+    })) {
+      throw { code: 'invalid_input', message: `path: ${target} leads to ${onDisk}, outside the folders a scan or a project was opened from.` }
     }
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, body, 'utf8')

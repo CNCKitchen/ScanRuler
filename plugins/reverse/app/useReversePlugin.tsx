@@ -46,7 +46,7 @@ import { stopPlayback } from './playback'
 import { SketchViewer } from '../ui/SketchViewer'
 import type { FlatScene } from '../../../src/viewer/FlatScene'
 import { useNotes } from '../state/noteStore'
-import { pinNoteOnBody, useNotePins } from './useNotePins'
+import { pinNoteOnBody, useNotePins, useNotesOn } from './useNotePins'
 import { useNetworkLayer } from './useNetworkLayer'
 import { readField } from '../ui/reLength'
 
@@ -486,6 +486,9 @@ export function useReversePlugin(host: PluginHost): PluginRuntime {
     ),
     menuChanged: !sketchStage && anyChanged([curvatureSwitch]),
   }
+  const notesOn = useNotesOn()
+  const hasNotes = useNotes((s) => s.notes.some((n) => n.text.trim() !== ''))
+  const pinsShown = useNotes((s) => s.pinsShown)
   const bodiesSolid: ViewSwitch = { on: bodiesSeeThrough, set: (on) => re().setBodiesSeeThrough(on), normal: false }
   const overlapsSwitch: ViewSwitch = { on: overlapsShown, set: (on) => re().setOverlapsShown(on), normal: true }
   const partKeys = sketchStage ? null : (
@@ -539,6 +542,15 @@ export function useReversePlugin(host: PluginHost): PluginRuntime {
         }}
         title="Show the elements and sections measured in the 3D Measure workspace on the part — the planes, cylinders and cuts the model is built against"
       />
+      {notesOn && hasNotes && (
+        <PartKey
+          icon={<KeyIcon name="note" size={16} />}
+          label="Notes"
+          testId="toggle-notes"
+          shown={{ on: pinsShown, set: (on) => useNotes.getState().setPinsShown(on) }}
+          title="Show the notes' pins on the part, or put them away. The notes stay, and the agent still reads them. Pinning or opening a note brings the pins back"
+        />
+      )}
     </>
   )
   const sketchPartView: SketchPartView = !sketchModelShown ? 'none' : sketchSliced ? 'cut' : 'full'

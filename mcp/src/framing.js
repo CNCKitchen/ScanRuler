@@ -40,6 +40,7 @@ export function decoder(onMessage) {
       const message = JSON.parse(frame)
       if (typeof message !== 'object' || message === null || Array.isArray(message)) throw new Error('A message must be a JSON object.')
       if (typeof message.binary === 'string') {
+        binaryPathKeys(message.binary)
         waiting = message
         return
       }
@@ -61,11 +62,19 @@ function getPath(object, path) {
 }
 
 function setPath(object, path, value) {
-  const keys = path.split('.')
+  const keys = binaryPathKeys(path)
   let at = object
   for (const key of keys.slice(0, -1)) {
     if (typeof at[key] !== 'object' || at[key] === null) at[key] = {}
     at = at[key]
   }
   at[keys.at(-1)] = value
+}
+
+const UNSAFE_PATH_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+
+function binaryPathKeys(path) {
+  const keys = path.split('.')
+  if (keys.some((key) => !key || UNSAFE_PATH_KEYS.has(key))) throw new Error(`Unsafe binary path: ${path}.`)
+  return keys
 }

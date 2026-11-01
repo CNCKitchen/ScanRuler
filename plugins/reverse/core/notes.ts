@@ -40,6 +40,12 @@ export interface Note {
   /** The other side's answer: the agent's to the person's note, the
    *  person's to the agent's question. */
   reply?: string
+  /** Came with a project file, so what it says is that file's, whoever wrote
+   *  it, and not what the person asked in this session: the agent is told to
+   *  read it as content. For this session only — never written to a file, and
+   *  what a file says of it is not read. Gone once the person keeps the note
+   *  or answers it here. */
+  fromFile?: true
 }
 
 /** The nearest point of a mesh's triangles to `p`. */
@@ -164,6 +170,18 @@ export function moveNote(note: Note, m: Rigid): Note {
 }
 
 const isVec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x))
+
+/** Notes as they come into the session from a file: every one marked, by
+ *  whatever name it claims to be from. */
+export const notesFromFile = (notes: readonly Note[]): Note[] => notes.map((n) => ({ ...n, fromFile: true }))
+
+/** Notes as they go into a file: where they came from is this session's. */
+export const notesForFile = (notes: readonly Note[]): Note[] =>
+  notes.map((n) => {
+    const { fromFile: _fromFile, ...rest } = n
+    void _fromFile
+    return rest
+  })
 
 /** Check notes as read from a file; throws on what would not load. */
 export function validateNotes(raw: unknown): Note[] {

@@ -100,3 +100,31 @@ describe('worker import transactions', () => {
     if (reply.type === 'deviation-ok') expect([...reply.values]).toEqual([0, 0, 0])
   })
 })
+
+describe('worker queue', () => {
+  it('answers a queued request that throws, and the ones behind it', async () => {
+    const replies: WorkerResponse[] = []
+    const scope = { onmessage: null as ((event: { data: WorkerRequest }) => void) | null, postMessage: (msg: WorkerResponse) => replies.push(msg) }
+    vi.stubGlobal('self', scope)
+    vi.resetModules()
+    await import('../src/core/meshWorker')
+    const { workerPlugins } = await import('../src/core/workerPlugins')
+    // A plugin request that awaits holds the queue, as Mesh Tools' do.
+    let release!: () => void
+    ;(workerPlugins as unknown as object[]).push({ id: 'test-hold', handle: () => new Promise((r) => (release = () => r({ result: null }))) })
+    try {
+      const send = (msg: WorkerRequest) => scope.onmessage!({ data: msg })
+      const answered = (id: number) => replies.find((r) => 'requestId' in r && r.requestId === id)
+      send({ type: 'plugin', requestId: 1, plugin: 'test-hold', op: 'hold', payload: null } as WorkerRequest)
+      send({ type: 'discard-import', requestId: 2, ids: null } as unknown as WorkerRequest)
+      send({ type: 'bounds', requestId: 3 } as WorkerRequest)
+      release()
+      await new Promise((r) => setTimeout(r, 20))
+      expect(answered(2)?.type).toBe('error')
+      expect(answered(3)).toBeDefined()
+    } finally {
+      ;(workerPlugins as unknown as object[]).pop()
+      vi.unstubAllGlobals()
+    }
+  })
+})

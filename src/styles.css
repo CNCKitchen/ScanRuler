@@ -3865,6 +3865,19 @@ button.x:disabled {
   color: var(--faint);
 }
 
+.startsample {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.startsample small {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
 .startskip {
   display: flex;
   justify-content: center;

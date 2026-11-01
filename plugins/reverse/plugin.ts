@@ -30,7 +30,7 @@ import { planBrief, planSection, watchPlan } from './app/rePlan'
 import { askMap, forgetMapWait, mapWhyNow, settleMap } from './app/reMapRead'
 import { sceneOf } from '../../src/commands/host'
 import { usePrefs } from '../../src/state/prefsStore'
-import { notePinsOf } from './viewer/notePins'
+import { useNotes } from './state/noteStore'
 import { reSceneOf } from './viewer/reScene'
 import { redoNetwork, undoNetwork } from './state/reNetworkDraft'
 
@@ -182,14 +182,8 @@ const plugin: ScanRulerPlugin = {
         key: 'notes',
         description: 'the pins of the notes on the part (put away, the notes stay)',
         applies: () => usePrefs.getState().agentLink,
-        shown: () => {
-          const scene = sceneOf()
-          return scene ? !notePinsOf(scene).isPutAway() : true
-        },
-        show: (on) => {
-          const scene = sceneOf()
-          if (scene) notePinsOf(scene).setPutAway(!on)
-        },
+        shown: () => useNotes.getState().pinsShown,
+        show: (on) => useNotes.getState().setPinsShown(on),
       },
     ])
     // A build under way is stopped for a change that throws the work away

@@ -7,12 +7,13 @@
 // they were pinned on, by its file name — not to the session: an agent
 // opening the same scan again, or starting the session over, takes none of
 // them away, and another part's scan puts them aside, to come back with that
-// part. They are carried with the part when an alignment moves it.
+// part. They are carried with the part when an alignment moves it. Those a
+// file brings are marked as its own (Note.fromFile), which no file holds.
 
 import type { ProjectSection } from '../../../src/app/projectSections'
 import { rigidCompose, rigidInvert, type Rigid } from '../../../src/core/deviation/rigid'
 import { useStore } from '../../../src/state/store'
-import { moveNote, validateNotes, type Note } from '../core/notes'
+import { moveNote, notesForFile, notesFromFile, validateNotes, type Note } from '../core/notes'
 import { useNotes } from '../state/noteStore'
 
 // A project of 0.5.3 also holds `changed`, the time its notes last changed,
@@ -25,11 +26,11 @@ export const notesSection: ProjectSection<NotesPart> = {
   key: 'reverseNotes',
   collect: () => {
     const { notes } = useNotes.getState()
-    return notes.length > 0 ? { notes } : undefined
+    return notes.length > 0 ? { notes: notesForFile(notes) } : undefined
   },
   prepare(value) {
     if (value !== undefined && (typeof value !== 'object' || value === null)) throw new Error('Malformed project: notes.')
-    const notes = value === undefined ? [] : validateNotes((value as NotesPart).notes)
+    const notes = value === undefined ? [] : notesFromFile(validateNotes((value as NotesPart).notes))
     // The project's, whatever was in hand — for its part or for another
     // (followPart) — as its model replaces the model in hand.
     return () => useNotes.getState().load(notes)
