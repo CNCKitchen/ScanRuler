@@ -53,6 +53,10 @@ export class OrthoNavigator {
    *  moving, the pivot marker coming or going — so an owner that only renders
    *  on demand knows the frame is worth drawing. */
   onChange: (() => void) | null = null
+  /** The camera the view is drawn through when it is not this one — a
+   *  perspective view set from it (OrthoViewport.view) — for picks to aim
+   *  through what is on the screen; null while the view is drawn in parallel. */
+  pickCamera: (() => THREE.Camera | null) | null = null
 
   private scheme: ControlScheme = SCHEMES[0]
   /** The active scheme's bindings, with plain left-drag handed over to the
@@ -302,6 +306,13 @@ export class OrthoNavigator {
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     )
+    // Drawn in perspective, picked in perspective: the ray leaves the eye,
+    // which stands behind everything in view, so it needs no walking back.
+    const drawnWith = this.pickCamera?.()
+    if (drawnWith) {
+      raycaster.setFromCamera(ndc, drawnWith)
+      return
+    }
     raycaster.setFromCamera(ndc, this.camera)
     const ray = raycaster.ray
     const along = this.tmp.copy(this.clipSphere.center).sub(ray.origin).dot(ray.direction)

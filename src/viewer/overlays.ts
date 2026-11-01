@@ -146,9 +146,9 @@ export interface OverlaysContext {
    *  until the first frame says, at about 400 pixels from the middle to it. */
   modelRadius(): number
   invalidate(): void
-  /** The viewport's camera and its raycaster, for asking whether a pin's spot
-   *  can be seen from where the camera stands. */
-  camera: THREE.Camera
+  /** The camera the viewport is drawn through, and its raycaster, for asking
+   *  whether a pin's spot can be seen from where the camera stands. */
+  camera(): THREE.Camera
   raycaster: THREE.Raycaster
   /** What can stand between the camera and a pin: the scan, while it is
    *  shown. Null puts every pin in view. */
@@ -1046,7 +1046,8 @@ export class Overlays {
    *  what a click would hit. */
   updateProbeOcclusion(): void {
     if (!this.hideOccludedProbes || this.probePins.length === 0) return
-    const { camera, partGroup, raycaster } = this.ctx
+    const { partGroup, raycaster } = this.ctx
+    const camera = this.ctx.camera()
     // The controls have moved the camera this frame; its matrices follow only
     // at render time, which is after this.
     camera.updateMatrixWorld()

@@ -1643,6 +1643,7 @@ export default function App() {
                 sceneRef.current = s
                 attachSurfaceScene(() => sceneRef.current)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
+                s.setProjection(useStore.getState().projection)
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
               }}

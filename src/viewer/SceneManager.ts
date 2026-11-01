@@ -10,7 +10,7 @@
 
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
-import { OrthoViewport, STANDARD_VIEWS, viewAcross, type StandardView } from './orthoViewport'
+import { OrthoViewport, STANDARD_VIEWS, viewAcross, type Projection, type StandardView } from './orthoViewport'
 import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
@@ -510,7 +510,7 @@ export class SceneManager {
 
     this.marking = new SurfaceMarking({
       container,
-      camera: this.camera,
+      camera: () => this.viewport.view,
       partGroup: this.partGroup,
       raycaster: this.raycaster,
       regions: this.regions,
@@ -533,7 +533,7 @@ export class SceneManager {
       partGroup: this.partGroup,
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
-      camera: this.camera,
+      camera: () => this.viewport.view,
       raycaster: this.raycaster,
       // Only the scan stands between the camera and a pin: the pins are
       // readings on the scan, and the reference is a translucent ghost a pin
@@ -605,6 +605,11 @@ export class SceneManager {
   /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
   setNavScheme(scheme: ControlScheme): void {
     this.viewport.setNavScheme(scheme)
+  }
+
+  /** Draw the view in parallel or in perspective — see Projection. */
+  setProjection(projection: Projection): void {
+    this.viewport.setProjection(projection)
   }
 
   /**
@@ -3006,7 +3011,7 @@ export class SceneManager {
       raycaster: this.raycaster,
       canvas: this.viewport.renderer.domElement,
       container: this.container,
-      camera: () => this.camera,
+      camera: () => this.viewport.view,
       setPickRay: (x, y) => this.setPickRay(x, y),
       invalidate: this.invalidate,
       requestHover: () => {

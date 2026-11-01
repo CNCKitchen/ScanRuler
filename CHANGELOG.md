@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Perspective view** (2026-11-01). A button beside **Fit to view** switches the
+  3D view between parallel (orthographic), still the default and what measuring
+  wants, and perspective. Picks, marking and the readings follow whichever is on
+  screen, the part keeps its size at the orbit centre when you switch, and the
+  choice is remembered in the browser. Asked for in #24.
 - **Contributors are credited** (2026-11-01). Each publish to this repository now
   names the people whose work it brings as co-authors, starting with Jozkah and
   Starzrng. CONTRIBUTING.md says how it works.
