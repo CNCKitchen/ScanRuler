@@ -283,3 +283,16 @@ test('--answer-within 0 holds a call to its end', async () => {
   assert.equal((await one.call('scanruler_status')).json.server.answerWithin, null)
   await one.close()
 })
+
+test('an answer limit or a wait too long for a timer still waits, as does a wait with a timeout that is not a number', async () => {
+  const one = await copy({ answerWithinMs: 1e10 })
+  assert.deepEqual((await one.call('demo_update', { n: 4, ms: 150 })).json, { n: 4 }, 'not queued at once')
+  await one.close()
+  const two = await copy({ answerWithinMs: 0 })
+  for (const timeoutSeconds of [1e10, 'soon', -1]) {
+    const { job } = (await two.call('demo_update', { n: 5, ms: 150, wait: false })).json
+    const waited = await two.call('scanruler_wait', { for: 'job', job, timeoutSeconds })
+    assert.equal(waited.json.state, 'done', `timeoutSeconds ${timeoutSeconds}`)
+  }
+  await two.close()
+})

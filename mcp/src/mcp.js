@@ -353,6 +353,9 @@ const SEEN_WITHIN_MS = 55_000
  *  the minute a client or a bridge may cut it at. */
 export const ANSWER_WITHIN_MS = 45_000
 
+/** The longest a Node timer waits, ms; one set for longer fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 /** How long a batch waits for the page to be idle — before it retries a
  *  call refused busy, and before it rolls back. */
 const IDLE_WAIT_MS = 60_000
@@ -481,9 +484,10 @@ export function createMcpServer({
   listWaitMs = LIST_WAIT_MS,
   answerCap = ANSWER_CAP,
 }) {
-  // The most any call is held, ms — Infinity with no limit.
-  const holdMs = answerWithinMs > 0 ? answerWithinMs : Infinity
-  const holdS = answerWithinMs > 0 ? answerWithinMs / 1000 : null
+  // The most any call is held, ms — Infinity with no limit. A limit past
+  // what a timer can wait is cut to that, or it would answer at once.
+  const holdMs = answerWithinMs > 0 ? Math.min(answerWithinMs, MAX_TIMER_MS) : Infinity
+  const holdS = answerWithinMs > 0 ? holdMs / 1000 : null
   const headless = link.backend === 'headless'
   // Full, compact, or the namespaces to list: a command of a namespace
   // left out is not listed, and not run either.
@@ -1017,7 +1021,11 @@ export function createMcpServer({
       call: async (args, ctx) => {
         if (ctx) ctx.fields.wait = args?.for ?? (args?.job !== undefined ? 'job' : 'page')
         // Never held past the answer limit: a cut call says nothing.
-        const until = Date.now() + Math.min(1000 * (args?.timeoutSeconds ?? 120), holdMs)
+        // The schema is not checked for it: a timeout that is not a number
+        // of seconds above 0 waits the default, and none waits past 600 s.
+        const asked = Number(args?.timeoutSeconds ?? 120)
+        const seconds = Number.isFinite(asked) && asked > 0 ? Math.min(asked, 600) : 120
+        const until = Date.now() + Math.min(1000 * seconds, holdMs)
         if (args?.for === 'job' || args?.job !== undefined) {
           const id = String(args?.job ?? '')
           const j = jobs.get(id)
