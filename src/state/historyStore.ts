@@ -150,7 +150,7 @@ export function clearHistory(): void {
 const sameValue = (a: unknown, b: unknown) => a === b ||
   (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => value === b[index]))
 const same = (a: object, b: object) => Object.keys(a).every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
-function record(before: HistorySnapshot, after: HistorySnapshot, label: string, workspace: Workspace, generation: number) {
+function record(before: HistorySnapshot, after: HistorySnapshot, label: string, workspace: Workspace, generation: number, stepGroup = group) {
   if (generation !== epoch) return // A source replacement starts another document.
   const keys = Object.keys(before).filter((key) =>
     comparedByIdentity(key) ? before[key] !== after[key] : !same(before[key] as object, after[key] as object))
@@ -158,8 +158,8 @@ function record(before: HistorySnapshot, after: HistorySnapshot, label: string, 
   const previous = pick(before, keys), next = pick(after, keys)
   useHistory.setState((state) => {
     const last = state.past.at(-1)
-    const entry = { before: previous, after: next, label, workspace, group }
-    if (group && !state.future.length && last?.group === group && last.workspace === workspace) {
+    const entry = { before: previous, after: next, label, workspace, group: stepGroup }
+    if (stepGroup && !state.future.length && last?.group === stepGroup && last.workspace === workspace) {
       return { past: [...state.past.slice(0, -1), { ...last, before: { ...previous, ...last.before }, after: { ...last.after, ...next } }], future: [] }
     }
     return { past: [...state.past.slice(-(LIMIT - 1)), entry], future: [] }
@@ -181,7 +181,9 @@ export async function historyAsync(label: string, job: () => Promise<void>): Pro
   const before = captureHistory(), workspace = useShell.getState().workspace, generation = epoch
   paused++
   try { await job() }
-  finally { paused--; record(before, captureHistory(), label, workspace, generation) }
+  // An async step is a command of its own: it never joins the edit group a
+  // focused field or a held pointer happens to have open while it runs.
+  finally { paused--; record(before, captureHistory(), label, workspace, generation, 0) }
 }
 
 /** A dimension box with something in it — a slot filled, or an edit. The

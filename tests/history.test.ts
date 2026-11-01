@@ -229,3 +229,17 @@ describe('project history', () => {
   })
 })
 
+describe('async steps and edit groups', () => {
+  it('keeps an async step out of the edit group open while it runs', async () => {
+    const s0 = m()
+    beginHistoryGroup()
+    historyAction('3D Measure: user edit', () => useStore.setState({ nextNumber: s0.nextNumber + 1 }))
+    await historyAsync('Agent: fit element', async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      useStore.setState({ nextDimensionId: s0.nextDimensionId + 7 })
+    })
+    endHistoryGroup()
+    expect(h().past.map((e) => e.label)).toEqual(['3D Measure: user edit', 'Agent: fit element'])
+  })
+})
+
