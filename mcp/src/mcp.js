@@ -353,9 +353,16 @@ const SEEN_WITHIN_MS = 55_000
  *  the minute a client or a bridge may cut it at. */
 export const ANSWER_WITHIN_MS = 45_000
 
+/** The longest a Node timer waits, ms; one set for longer fires at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
 /** How long a batch waits for the page to be idle — before it retries a
  *  call refused busy, and before it rolls back. */
 const IDLE_WAIT_MS = 60_000
+
+/** How long a wait at its end still gives the page to answer the one read
+ *  it asks, ms. */
+const IDLE_ASK_MS = 100
 
 /** How long a listing of the tools waits for a page that connected before
  *  and is not back yet, ms. */
@@ -481,9 +488,10 @@ export function createMcpServer({
   listWaitMs = LIST_WAIT_MS,
   answerCap = ANSWER_CAP,
 }) {
-  // The most any call is held, ms — Infinity with no limit.
-  const holdMs = answerWithinMs > 0 ? answerWithinMs : Infinity
-  const holdS = answerWithinMs > 0 ? answerWithinMs / 1000 : null
+  // The most any call is held, ms — Infinity with no limit. A limit past
+  // what a timer can wait is cut to that, or it would answer at once.
+  const holdMs = answerWithinMs > 0 ? Math.min(answerWithinMs, MAX_TIMER_MS) : Infinity
+  const holdS = answerWithinMs > 0 ? holdMs / 1000 : null
   const headless = link.backend === 'headless'
   // Full, compact, or the namespaces to list: a command of a namespace
   // left out is not listed, and not run either.
@@ -624,7 +632,15 @@ export function createMcpServer({
   let pageBusy = null
   const pageIdle = async (until) => {
     for (;;) {
-      const state = await link.run('session.state', {}).catch(() => null)
+      // Asked no longer than until — but long enough for a page that is
+      // there to answer — and a page that does not answer by then is not
+      // taken as idle.
+      let silent = false
+      const state = await link.run('session.state', {}, undefined, undefined, undefined, false, Math.max(IDLE_ASK_MS, until - Date.now())).catch((e) => {
+        silent = e?.code === 'timeout'
+        return null
+      })
+      if (silent) return false
       pageBusy = state && typeof state === 'object' ? { busy: state.busy ?? null, running: state.running ?? null, runningMs: state.runningMs ?? null } : null
       if (!state || typeof state !== 'object' || (state.busy == null && state.running == null)) return true
       if (Date.now() >= until) return false
@@ -640,7 +656,7 @@ export function createMcpServer({
     for (;;) {
       let outcomes
       try {
-        outcomes = (await link.run('session.recent', { job, limit: 100 }))?.outcomes
+        outcomes = (await link.run('session.recent', { job, limit: 100 }, undefined, undefined, undefined, false, Math.max(IDLE_ASK_MS, until - Date.now())))?.outcomes
       } catch {
         return null
       }
@@ -697,12 +713,7 @@ export function createMcpServer({
    *  not answer soon. */
   const sessionRead = async () => {
     if (!link.connected) return null
-    let timer
-    const state = await Promise.race([
-      link.run('session.state', {}).catch(() => null),
-      new Promise((r) => (timer = setTimeout(() => r(null), SESSION_WITHIN_MS))),
-    ])
-    clearTimeout(timer)
+    const state = await link.run('session.state', {}, undefined, undefined, undefined, false, SESSION_WITHIN_MS).catch(() => null)
     return state && typeof state === 'object' ? state : null
   }
   /** Whether a session holds work: a scan, or anything counted. */
@@ -1017,7 +1028,11 @@ export function createMcpServer({
       call: async (args, ctx) => {
         if (ctx) ctx.fields.wait = args?.for ?? (args?.job !== undefined ? 'job' : 'page')
         // Never held past the answer limit: a cut call says nothing.
-        const until = Date.now() + Math.min(1000 * (args?.timeoutSeconds ?? 120), holdMs)
+        // The schema is not checked for it: a timeout that is not a number
+        // of seconds above 0 waits the default, and none waits past 600 s.
+        const asked = Number(args?.timeoutSeconds ?? 120)
+        const seconds = Number.isFinite(asked) && asked > 0 ? Math.min(asked, 600) : 120
+        const until = Date.now() + Math.min(1000 * seconds, holdMs)
         if (args?.for === 'job' || args?.job !== undefined) {
           const id = String(args?.job ?? '')
           const j = jobs.get(id)
@@ -1381,7 +1396,7 @@ export function createMcpServer({
    *  `deferred`: more changes follow straight after it (a batch with
    *  build: "end"), and the page may leave their rebuild to the last.
    *  A `{ "$file": path }` anywhere in the arguments is that file's JSON. */
-  const runPageTool = async (name, given, onProgress, { timings = false, ms = false, batched = false, job, deferred = false } = {}) => {
+  const runPageTool = async (name, given, onProgress, { timings = false, ms = false, batched = false, job, deferred = false, within } = {}) => {
     const command = commands().find((c) => toolName(c) === name)
     const needsPage = !command && headless ? link.pageCommand(name) : null
     if (needsPage) return failure({ code: 'unavailable', message: `${name} needs the ScanRuler page — a scan, the viewport or the browser — and this server runs ScanRuler headless, with none. Start scanruler-mcp in page mode (without --engine or --headless) and pair it with a ScanRuler tab for it.` })
@@ -1402,7 +1417,7 @@ export function createMcpServer({
       const savedTo = replacesSession(command) && args?.saveTo !== undefined ? await saveSession(String(args.saveTo), job, base) : undefined
       if (savedTo !== undefined) input.discard = true
       const started = Date.now()
-      let result = await link.run(command.name, input, binaryKey, onProgress, job, deferred)
+      let result = await link.run(command.name, input, binaryKey, onProgress, job, deferred, within)
       // The folder a scan or a project was opened from, for scanruler_write.
       if (binaryKey && replacesSession(command) && file) {
         rememberFolder(file)
@@ -1670,7 +1685,9 @@ export function createMcpServer({
     // past it — then the whole goes to a file, and the answer keeps how
     // the batch ended. A call that may answer longer (a guide) lets the
     // batch it is in answer as long.
-    const cap = Math.max(...calls.map((c) => capOf(commandOf(String(c?.tool ?? '')))))
+    // Not Math.max(...): a batch read from a file may hold more calls than
+    // a spread can pass.
+    const cap = calls.reduce((most, c) => Math.max(most, capOf(commandOf(String(c?.tool ?? '')))), 0)
     return text(await fitted(answer, 'scanruler_batch', exact, ['failed', 'undone'], { cap }), exact)
   }
 
@@ -1773,7 +1790,9 @@ export function createMcpServer({
     // before it is done.
     const command = commands().find((c) => toolName(c) === name)
     if (!command || (command.readOnly && !command.long)) {
-      const answer = runPageTool(name, args, onProgress)
+      // Not a job, so held no longer than the answer limit by itself: a
+      // frozen tab keeps its link up while nothing it is asked comes back.
+      const answer = runPageTool(name, args, onProgress, { within: holdMs === Infinity ? undefined : holdMs })
       callsInFlight.add(answer)
       return answer.finally(() => callsInFlight.delete(answer))
     }
