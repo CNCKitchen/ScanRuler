@@ -7,6 +7,12 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Perspective view** (2026-11-01). A button beside **Fit to view** switches the
+  3D view between parallel (orthographic), still the default and what measuring
+  wants, and perspective. Picks, marking and the readings follow whichever is on
+  screen, the part keeps its size at the orbit centre when you switch, and the
+  choice is remembered in the browser. Asked for in #24.
+
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All

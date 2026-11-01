@@ -1638,6 +1638,11 @@ button.x:disabled {
   bottom: calc(var(--gizmo-size, 0px) + 22px);
 }
 
+/* Parallel or perspective, just left of Fit to view. */
+.viewport > .viewprojection {
+  right: 50px;
+}
+
 /* WebGL could not be started: the one state where the stage has nothing to
    show. A plain card in the middle of it, so the failure reads as a message
    from the tool rather than a page that never loaded. */

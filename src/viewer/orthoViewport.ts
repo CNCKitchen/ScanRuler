@@ -41,6 +41,15 @@ const PICTURE_KEY_UP = 0.4
 const PICTURE_KEY_LEFT = 0.25
 const PICTURE_FILL_MORE = 0.3
 
+/** How the view is drawn: in parallel — the default, and what measuring
+ *  wants: no foreshortening, equal features the same size wherever they
+ *  sit — or in perspective, the way the eye sees the part. */
+export type Projection = 'orthographic' | 'perspective'
+
+/** The perspective view's vertical angle: a long lens, so the part keeps
+ *  its proportions and only gains depth. */
+const PERSPECTIVE_FOV = 30
+
 /** The named camera poses: the six axis-aligned views and the four
  *  three-quarter ones from above, keyed the way PrusaSlicer keys them (0 iso,
  *  1 top, 2 bottom, 3 front, 4 rear, 5 left, 6 right) with the other three
@@ -139,11 +148,38 @@ export interface OrthoViewportOptions {
   transparent?: boolean
 }
 
+/**
+ * `into` set to show what `ortho` shows, in perspective: looking the same way,
+ * from far enough back along that line that at `target`'s depth the frame
+ * spans what the parallel one spans, with the same clip range about the
+ * target. A point at that depth lands on the same pixel in both.
+ */
+export function perspectiveFrom(ortho: THREE.OrthographicCamera, target: THREE.Vector3, into: THREE.PerspectiveCamera): THREE.PerspectiveCamera {
+  const halfH = (ortho.top - ortho.bottom) / 2 / ortho.zoom
+  const back = halfH / Math.tan(THREE.MathUtils.degToRad(into.fov / 2))
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(ortho.quaternion)
+  const targetDepth = new THREE.Vector3().subVectors(target, ortho.position).dot(forward)
+  into.position.copy(target).addScaledVector(forward, -back)
+  into.quaternion.copy(ortho.quaternion)
+  into.up.copy(ortho.up)
+  into.aspect = (ortho.right - ortho.left) / (ortho.top - ortho.bottom)
+  into.near = Math.max(back * 1e-3, back + ortho.near - targetDepth)
+  into.far = Math.max(into.near * 2, back + ortho.far - targetDepth)
+  into.updateProjectionMatrix()
+  into.updateMatrixWorld(true)
+  return into
+}
+
 export class OrthoViewport {
   readonly renderer: THREE.WebGLRenderer
   readonly labelRenderer: CSS2DRenderer
   readonly scene = new THREE.Scene()
+  /** The camera the view is held and navigated with. In perspective it is
+   *  still the one turned, panned and zoomed; the view is drawn and picked
+   *  through `perspective`, set from it each frame (see view). */
   readonly camera: THREE.OrthographicCamera
+  private readonly perspective = new THREE.PerspectiveCamera(PERSPECTIVE_FOV, 1, 0.01, 4000)
+  private projection: Projection = 'orthographic'
   /** Only the target and the per-frame lookAt: rotation, pan and zoom are all
    *  driven by hand from the active control scheme, because which button does
    *  what is not OrbitControls' to decide. */
@@ -250,6 +286,7 @@ export class OrthoViewport {
       this.clipSphere,
     )
     this.scene.add(this.nav.pivotMarker)
+    this.nav.pickCamera = () => (this.projection === 'perspective' ? this.view : null)
     // The navigator says when a gesture changed the view; the controls'
     // 'change' event is the safety net behind it, fired by update() whenever
     // the camera turns out to have moved since the last frame.
@@ -346,9 +383,10 @@ export class OrthoViewport {
     this.keyLight.position.copy(this.camera.position)
     this.keyLight.target.position.copy(this.controls.target)
     this.renderer.setViewport(0, 0, w, h)
-    this.renderer.render(this.scene, this.camera)
+    const view = this.view
+    this.renderer.render(this.scene, view)
     this.opts.onAfterRender?.(w, h)
-    this.labelRenderer.render(this.scene, this.camera)
+    this.labelRenderer.render(this.scene, view)
     spreadLabels(this.labelRenderer.domElement)
   }
 
@@ -396,6 +434,29 @@ export class OrthoViewport {
     return this.nav.navigating()
   }
 
+  /** How the view is drawn — see Projection. */
+  getProjection(): Projection {
+    return this.projection
+  }
+
+  setProjection(projection: Projection): void {
+    if (projection === this.projection) return
+    this.projection = projection
+    this.invalidate()
+  }
+
+  /**
+   * The camera the view is drawn and picked through: the orthographic one,
+   * or in perspective one set from it — looking the same way, from far
+   * enough back along that line that at the orbit target's depth a pixel
+   * spans what it spans in parallel. So switching keeps the part the size
+   * it was, and everything sized by worldPerPixel holds at that depth.
+   */
+  get view(): THREE.OrthographicCamera | THREE.PerspectiveCamera {
+    if (this.projection === 'orthographic') return this.camera
+    return perspectiveFrom(this.camera, this.controls.target, this.perspective)
+  }
+
   /** Aim the shared raycaster through the cursor. */
   setPickRay(clientX: number, clientY: number): void {
     this.nav.setPickRay(this.raycaster, clientX, clientY)
@@ -403,8 +464,9 @@ export class OrthoViewport {
 
   /** How many millimetres one pixel of the canvas spans at the current zoom.
    *  What anything that has to keep its size on *screen* rather than on the
-   *  part — a picked-point marker — is scaled by. Parallel projection, so the
-   *  figure is the same everywhere in the frame and at every depth. */
+   *  part — a picked-point marker — is scaled by. In parallel the figure is
+   *  the same everywhere in the frame and at every depth; in perspective it
+   *  holds at the depth of the orbit target. */
   worldPerPixel(): number {
     const h = this.container.clientHeight || 1
     return (this.camera.top - this.camera.bottom) / this.camera.zoom / h
@@ -796,7 +858,7 @@ export class OrthoViewport {
     this.keyLight.intensity = key * PICTURE_KEY_SHARE
     this.ambientLight.intensity = fill + PICTURE_FILL_MORE
     this.renderer.setViewport(0, 0, width, height)
-    this.renderer.render(this.scene, this.camera)
+    this.renderer.render(this.scene, this.view)
     this.opts.onAfterRender?.(width, height)
     const blob = new Promise<Blob>((resolve, reject) =>
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('The view could not be encoded as a PNG.'))), 'image/png'),

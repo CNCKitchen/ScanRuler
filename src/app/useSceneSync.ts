@@ -899,6 +899,12 @@ export function useSceneSync({
     sceneRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
 
+  // Parallel or perspective, for the same reason.
+  const projection = useStore((s) => s.projection)
+  useEffect(() => {
+    sceneRef.current?.setProjection(projection)
+  }, [projection])
+
   // What the part is made of and how it is lit, held in the store for the same
   // reasons: the settings dialog shows it and remembers it. The stage behind
   // the part follows the chassis, light or dark.

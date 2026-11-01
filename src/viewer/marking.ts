@@ -138,7 +138,8 @@ function facesCamera(
 /** Everything the marking is allowed to touch outside itself. */
 export interface MarkingContext {
   container: HTMLDivElement
-  camera: THREE.OrthographicCamera
+  /** The camera the view is drawn through, parallel or in perspective. */
+  camera(): THREE.Camera
   partGroup: THREE.Group
   raycaster: THREE.Raycaster
   regions: RegionColors
@@ -581,9 +582,10 @@ export class SurfaceMarking {
     const w = this.ctx.container.clientWidth || 1
     const h = this.ctx.container.clientHeight || 1
     this.ctx.partGroup.updateWorldMatrix(true, false)
-    this.ctx.camera.updateMatrixWorld()
+    const camera = this.ctx.camera()
+    camera.updateMatrixWorld()
     const toClip = new THREE.Matrix4()
-      .multiplyMatrices(this.ctx.camera.projectionMatrix, this.ctx.camera.matrixWorldInverse)
+      .multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
       .multiply(this.ctx.partGroup.matrixWorld)
 
     // Every vertex projected once, rather than three times per triangle: at a
@@ -607,7 +609,7 @@ export class SurfaceMarking {
     // a dot product against the triangle's own normal with no per-triangle
     // matrix work.
     const viewLocal = new THREE.Vector3(0, 0, -1)
-      .applyQuaternion(this.ctx.camera.quaternion)
+      .applyQuaternion(camera.quaternion)
       .applyMatrix3(new THREE.Matrix3().setFromMatrix4(this.ctx.partGroup.matrixWorld).invert())
     const anyFacing = marker.backfaces === true
 

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { WorldAxis } from '../core/section/frame'
 import { SceneManager, type GripSide, type PickHit } from '../viewer/SceneManager'
 import { FitButton } from './FitButton'
+import { ProjectionButton } from './ProjectionButton'
 
 export function Viewer({
   onReady,
@@ -82,6 +83,7 @@ export function Viewer({
   return (
     <div className="viewport" ref={containerRef}>
       {webglError === null && <FitButton onFit={() => sceneRef.current?.fitToView()} />}
+      {webglError === null && <ProjectionButton />}
       {webglError !== null && (
         <div className="webgl-missing" role="alert">
           <b>The 3D view could not be started.</b>

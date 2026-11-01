@@ -59,7 +59,7 @@ describe('the element overlays', () => {
   it('put away, take the selection strokes and the ghost of a fit with them', () => {
     const partGroup = new THREE.Group()
     const camera = new THREE.PerspectiveCamera()
-    const overlays = new Overlays({ partGroup, modelRadius: () => 10, invalidate: () => {}, camera, raycaster: new THREE.Raycaster(), occluder: () => null })
+    const overlays = new Overlays({ partGroup, modelRadius: () => 10, invalidate: () => {}, camera: () => camera, raycaster: new THREE.Raycaster(), occluder: () => null })
     const [elements, selection, preview] = overlays.clipRoots()
     overlays.setShown(false)
     expect([elements.visible, selection.visible, preview.visible]).toEqual([false, false, false])
