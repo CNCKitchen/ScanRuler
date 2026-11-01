@@ -240,7 +240,18 @@ async function travel(redo: boolean): Promise<void> {
   try {
     await hooks.runRestore(async () => {
       await hooks.beforeRestore(patch)
-      for (const p of participants) await p.beforeRestore?.(patch)
+      const done: HistoryParticipant[] = []
+      try {
+        for (const p of participants) { await p.beforeRestore?.(patch); done.push(p) }
+      } catch (error) {
+        // The app's part has already swapped the scan or moved it: a
+        // participant that fails puts it back, and those before it, so the
+        // scan stays on the same side of the step as the stores.
+        const back = pick(previous, Object.keys(patch))
+        await hooks.beforeRestore(back)
+        for (const p of done) await p.beforeRestore?.(back)
+        throw error
+      }
       apply(patch)
       useShell.getState().setWorkspace(entry.workspace)
       useHistory.setState((s) => redo
