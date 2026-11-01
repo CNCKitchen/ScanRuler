@@ -263,6 +263,10 @@ export class PageLink extends Asker {
     if (this.socket && this.socket.readyState === this.socket.OPEN) {
       return refuse(CLOSE.taken, 'Another ScanRuler tab is connected to this agent already — close the connection there first.')
     }
+    // A page still closing is replaced; its close comes after and is then
+    // not this link's, so what it was asked is turned down here, or it would
+    // wait for an answer that never comes.
+    if (this.socket) this.dropPending('The ScanRuler page closed the connection before it answered.')
     this.socket = ws
     const { token: _token, ...page } = hello
     this.page = { ...page, origin: origin ?? null, commands: Array.isArray(hello.commands) ? hello.commands : [] }

@@ -195,3 +195,23 @@ test('waiting for a page ends when one connects, or when the time is up', async 
   page.page.close()
   await new Promise((resolve) => link.once('disconnected', resolve))
 })
+
+test('a page taken over while its connection is still closing has its calls turned down', async () => {
+  const old = await fakePage(port, { token: TOKEN, answer: () => new Promise(() => {}) })
+  const call = link.run('session.state', {}).then(
+    () => 'answered',
+    (e) => e.code,
+  )
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  // It says goodbye but stops reading, so this side stays closing.
+  old.page.ws.close(1001, 'going away')
+  old.page.ws._socket.pause()
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  const next = await fakePage(port, { token: TOKEN })
+  assert.ok(next.welcome, 'the new page is taken in')
+  assert.equal(await Promise.race([call, new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1000))]), 'unavailable')
+  assert.equal(link.pending.size, 0)
+  old.page.ws._socket.destroy()
+  next.page.close()
+  await new Promise((resolve) => link.once('disconnected', resolve))
+})
