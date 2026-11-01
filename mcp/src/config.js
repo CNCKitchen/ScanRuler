@@ -9,7 +9,7 @@
 // lists that one (mcp.js).
 
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -95,18 +95,68 @@ const writeKept = (dir, { folders, project }) => {
 /** The stored config, with a token made and saved if there was none. */
 export function loadConfig(dir = configDir()) {
   const file = join(dir, 'config.json')
-  let config = {}
-  if (existsSync(file)) {
+  const hasToken = (c) => typeof c?.token === 'string' && c.token.length >= 16
+  for (let attempt = 0; ; attempt++) {
+    let config = {}
+    let raw = null
     try {
-      config = JSON.parse(readFileSync(file, 'utf8'))
-    } catch {
-      config = {}
+      raw = readFileSync(file, 'utf8')
+    } catch (e) {
+      // On Windows a file another copy is linking in place can refuse to be
+      // read for a moment (EBUSY, EPERM). That is no missing file: making a
+      // token now would give this copy one that is not on disk, so it waits.
+      if (e?.code !== 'ENOENT') {
+        if (attempt >= 400) throw e
+        sleepMs(25)
+        continue
+      }
     }
-  }
-  if (typeof config.token !== 'string' || config.token.length < 16) {
+    if (raw !== null) {
+      try {
+        config = JSON.parse(raw)
+      } catch {
+        // A file that does not parse may be one another copy is writing
+        // this moment; asked again shortly, it reads. One that still does
+        // not is kept aside as config.json.bad, not silently replaced.
+        if (attempt < 40) {
+          sleepMs(25)
+          continue
+        }
+        try {
+          renameSync(file, `${file}.bad`)
+        } catch {
+          // Gone already: another copy dealt with it.
+        }
+        continue
+      }
+    }
+    if (hasToken(config)) return { ...config, file }
     config = { ...config, token: newToken() }
     mkdirSync(dir, { recursive: true })
-    writeFileSync(file, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 })
+    const body = JSON.stringify(config, null, 2) + '\n'
+    if (raw !== null) {
+      // A config without a token: written whole through a temporary file,
+      // so a reader never sees half of it.
+      const part = `${file}.${process.pid}.part`
+      writeFileSync(part, body, { mode: 0o600 })
+      renameSync(part, file)
+      return { ...config, file }
+    }
+    // The first run: the file is made whole and then linked in place,
+    // which fails when another copy started at the same moment made it
+    // first — then its token is the one read and used, not a second one.
+    const part = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.part`
+    writeFileSync(part, body, { mode: 0o600 })
+    try {
+      linkSync(part, file)
+      return { ...config, file }
+    } catch (e) {
+      if (e?.code !== 'EEXIST') throw e
+    } finally {
+      rmSync(part, { force: true })
+    }
   }
-  return { ...config, file }
 }
+
+/** Block this thread for `ms`: loadConfig runs once, at start-up. */
+const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
