@@ -5,7 +5,6 @@
 // user; the scan goes from this computer to the browser on it and nowhere
 // else. Everything this prints goes to stderr — stdout is the MCP channel.
 
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { format, parseArgs } from 'node:util'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -18,11 +17,12 @@ import { SharedLink } from './relay.js'
 import { createTrace } from './trace.js'
 import { httpServer } from './serve.js'
 import { NO_UPDATE_ENV, startUpdates, watchParent } from './update.js'
+import PACKAGE from '../package.json' with { type: 'json' }
 
 const DEFAULT_PORT = 7317
 const HOSTED_APP = 'https://scanruler.com/'
 
-const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+const VERSION = PACKAGE.version
 
 const HELP = `scanruler-mcp ${VERSION} — drive ScanRuler from an AI agent
 
