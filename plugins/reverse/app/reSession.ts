@@ -15,6 +15,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import type { Vec3 } from '../../../src/core/types'
 import type { RefObject } from 'react'
 import { exportStem } from '../../../src/app/exports'
+import { onScan } from '../../../src/app/scanEvents'
 import { commandHost } from '../../../src/commands/host'
 import { useStore } from '../../../src/state/store'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
@@ -35,6 +36,16 @@ import { withStepsSaid } from '../core/stepWords'
 import { kernelUnavailableReason } from '../core/wasmSupport'
 import { bodyColor, featuresToBuild, useReverse } from '../state/reStore'
 import { regionOf } from './reSurfaceRegion'
+
+/** How many times a scan has been loaded or swapped for another version of
+ *  itself. A smoothed or offset copy keeps the file's name and its triangle
+ *  count, so the kernel's copy of the scan is told stale by this, not by
+ *  what the store says of the scan. */
+let scanChanges = 0
+onScan({
+  loaded: () => void scanChanges++,
+  swapped: () => void scanChanges++,
+})
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -591,7 +602,7 @@ export function createReverseSession({
   // The viewport's vertices, every datum alignment baked in — the frame the
   // bodies are built in — handed over once per file and once more per
   // alignment.
-  let scanSent: { fileName: string | null; triangles: number; alignment: unknown } | null = null
+  let scanSent: { fileName: string | null; triangles: number; alignment: unknown; changes: number } | null = null
   let scanSending: Promise<void> | null = null
 
   /** The scan's vertices without a viewport to read them off — every one
@@ -620,8 +631,8 @@ export function createReverseSession({
     if (!client || useReverse.getState().kernelStatus !== 'ready') return 'none'
     const s = useStore.getState()
     if (!scene && !s.fileName) return 'none'
-    const now = { fileName: s.fileName, triangles: s.triangleCount, alignment: s.appliedAlignment }
-    if (scanSent && scanSent.fileName === now.fileName && scanSent.triangles === now.triangles && scanSent.alignment === now.alignment) {
+    const now = { fileName: s.fileName, triangles: s.triangleCount, alignment: s.appliedAlignment, changes: scanChanges }
+    if (scanSent && scanSent.fileName === now.fileName && scanSent.triangles === now.triangles && scanSent.alignment === now.alignment && scanSent.changes === now.changes) {
       if (scanSending) await scanSending
       return 'same'
     }
