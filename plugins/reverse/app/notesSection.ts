@@ -25,14 +25,17 @@ export const notesSection: ProjectSection<NotesPart> = {
   key: 'reverseNotes',
   collect: () => {
     const { notes } = useNotes.getState()
-    return notes.length > 0 ? { notes } : undefined
+    // Where a note came from is this session's to know, not the file's.
+    return notes.length > 0 ? { notes: notes.map(({ fromFile: _fromFile, ...n }) => n) } : undefined
   },
   prepare(value) {
     if (value !== undefined && (typeof value !== 'object' || value === null)) throw new Error('Malformed project: notes.')
     const notes = value === undefined ? [] : validateNotes((value as NotesPart).notes)
     // The project's, whatever was in hand — for its part or for another
     // (followPart) — as its model replaces the model in hand.
-    return () => useNotes.getState().load(notes)
+    // Each marked as the file's: a project shared by someone else carries
+    // their notes, which an agent must not read as the person's requests.
+    return () => useNotes.getState().load(notes.map((n) => ({ ...n, fromFile: true })))
   },
   hasContent: (value) => value.notes.length > 0,
   holdsWork: () => useNotes.getState().notes.length > 0,

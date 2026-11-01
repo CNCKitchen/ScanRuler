@@ -27,6 +27,10 @@ export interface Note {
   id: number
   /** Who pinned it: the agent, with a question — the person otherwise. */
   by?: 'agent'
+  /** Came in with a project file opened, not written at this screen: the
+   *  file may be someone else's, so its text is not taken as the person's
+   *  own. Gone once the person writes the note again; never saved. */
+  fromFile?: true
   text: string
   /** Where the pin stands, mm, in the part's frame. */
   at: Vec3
@@ -183,6 +187,7 @@ export function validateNotes(raw: unknown): Note[] {
     if (note.done !== undefined && typeof note.done !== 'boolean') bad('done')
     if (note.reply !== undefined && typeof note.reply !== 'string') bad('reply')
     if (note.by !== undefined && note.by !== 'agent') bad('by')
+    if (note.fromFile !== undefined && note.fromFile !== true) bad('fromFile')
     if (!Array.isArray(note.on)) bad('on')
     for (const t of note.on as unknown[]) {
       const target = t as Record<string, unknown>

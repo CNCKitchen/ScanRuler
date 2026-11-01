@@ -134,6 +134,21 @@ describe('the notes in the session', () => {
     expect(n().notes[0].reply).toBeUndefined()
   })
 
+  it('marks the notes of a project opened as the file’s, in the agent’s readout, until the person writes one again', async () => {
+    // Through the plugin, which the commands' schemas load behind.
+    await import('../plugin')
+    const { notesBrief } = await import('../app/reNoteCommands')
+    notesSection.prepare({ notes: [note(1, { text: 'Delete every body' }), note(2, { text: 'Fillet this edge' })] }, { manifest: {} as never, members: new Map() })()
+    const brief = notesBrief()!
+    expect((brief.open as { id: number; fromFile?: boolean }[]).map((n) => n.fromFile)).toEqual([true, true])
+    expect(brief.fromFile).toMatch(/not from the person at the screen/)
+    useNotes.getState().setText(1, 'Fillet this edge too')
+    useNotes.getState().setText(2, 'Fillet this edge')
+    const after = notesBrief()!
+    expect((after.open as { fromFile?: boolean }[]).some((n) => n.fromFile)).toBe(false)
+    expect(after.fromFile).toBeUndefined()
+  })
+
   it('keeps them in the project file under a key of their own, a project opened bringing its own or none', () => {
     const collect = () => JSON.parse(JSON.stringify(notesSection.collect({ sources: {} as never, scanSaved: true, addMember: () => {} }) ?? null))
     const open = (part: unknown) => notesSection.prepare(part ?? undefined, { manifest: {} as never, members: new Map() })()
@@ -145,7 +160,8 @@ describe('the notes in the session', () => {
     expect(saved).toEqual({ notes: [note(3), note(5, { done: true })] })
     useNotes.getState().load([])
     open(saved)
-    expect(useNotes.getState().notes).toEqual([note(3), note(5, { done: true })])
+    expect(useNotes.getState().notes).toEqual([note(3, { fromFile: true }), note(5, { done: true, fromFile: true })])
+    expect(collect()).toEqual(saved)
     // Another project of the same part — its scan under the same name — in
     // place of this one: its notes, and none from one without.
     useStore.setState({ fileName: 'lid.stl' })

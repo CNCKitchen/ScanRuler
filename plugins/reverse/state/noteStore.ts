@@ -68,7 +68,15 @@ export const useNotes = create<NotesState>((set, get) => ({
     set((s) => ({ notes: [...s.notes, { id, by: 'agent', ...note }], nextId: id + 1 }))
     return id
   },
-  setText: (id, text) => set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+  // Written again at the screen, a note from a file is the person's own.
+  setText: (id, text) =>
+    set((s) => ({
+      notes: s.notes.map((n) => {
+        if (n.id !== id) return n
+        const { fromFile: _fromFile, ...rest } = n
+        return { ...rest, text }
+      }),
+    })),
   setReply: (id, reply) =>
     set((s) => ({
       notes: s.notes.map((n) => {
