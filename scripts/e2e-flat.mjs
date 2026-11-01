@@ -465,6 +465,8 @@ check(
   /^3 counted/.test(await page.$eval('[data-test=flat-count-status]', (el) => el.textContent)),
   'undo takes one back',
 )
+// The store's count updates before the scene-sync effect paints its pins.
+await page.waitForFunction(() => document.querySelectorAll('.pick-pin').length >= 3)
 check((await page.$$('.pick-pin')).length >= 3, 'the tally wears its numbers on the sheet')
 // Back on the sheet for a fourth; Enter then creates it, the way it does in
 // the 3D workspace.

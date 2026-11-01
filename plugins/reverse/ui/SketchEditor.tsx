@@ -12,6 +12,7 @@
 // here. Renders nothing without a sketch draft. The stage beside it is the
 // 2D sheet — see SketchViewer.
 
+import { ToolActions } from '../../../src/ui/ToolActions'
 import { useEffect, useRef, useState } from 'react'
 import { datumName } from '../core/datums'
 import { planeOffset, planeTakesOffset } from '../core/features'
@@ -900,7 +901,7 @@ export function SketchEditor({ chainsOf }: { chainsOf: () => SketchChains | null
         </div>
       )}
 
-      {finishKey('sketch-finish')}
+      <ToolActions>{finishKey('sketch-finish')}</ToolActions>
     </div>
   )
 }

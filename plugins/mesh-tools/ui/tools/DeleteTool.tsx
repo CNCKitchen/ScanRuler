@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Delete marked: the surface marked by hand taken off the scan.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useMark } from '../../../../src/state/markStore'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { MarkTools } from '../../../../src/ui/MarkTools'
@@ -56,7 +57,7 @@ export function DeleteTool({
             <button data-test="delete-keep" onClick={() => setConfirming(false)} title="Leave the scan as it is (Esc)">
               Keep it
             </button>
-            <button
+            <ToolActions><button
               className="primary"
               data-test="delete-marked-confirm"
               data-confirm={1}
@@ -65,11 +66,11 @@ export function DeleteTool({
               title="Take the marked surface off the scan (Enter)"
             >
               Delete
-            </button>
+            </button></ToolActions>
           </div>
         </div>
       ) : (
-        <button
+        <ToolActions><button
           className="primary block"
           data-test="delete-marked"
           disabled={!ready || busy || marked === 0}
@@ -83,7 +84,7 @@ export function DeleteTool({
           ) : (
             'Delete marked surface…'
           )}
-        </button>
+        </button></ToolActions>
       )}
       {ready && marked === 0 && !editing && <p className="hint">Pick Window, Brush or Lasso and mark what is to go.</p>}
     </div>

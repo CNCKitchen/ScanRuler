@@ -38,7 +38,7 @@ const CORE_TABS: { id: Workspace; icon: IconName; label: string; title: string }
 ]
 
 /** The app's tabs, then those of the plugins in use, in their order. */
-const workspaceTabs = () => [
+export const workspaceTabs = () => [
   ...CORE_TABS,
   ...plugins()
     .flatMap((p) => (p.workspace ? [p.workspace] : []))
@@ -254,8 +254,8 @@ export function TopBar({
         </div>
       )}
       <div className="grow" />
-      {workspace === 'elements' && <>
-        <button className="measure-search-key" data-test="measure-search" onClick={() => useShell.getState().setMeasurePanel('search')} title="Find a tool (⌘/Ctrl K)" aria-label="Find a tool">
+      {<>
+        <button className="measure-search-key" data-test="measure-search" onClick={() => useShell.getState().setSearchOpen(true)} title="Find a tool (⌘/Ctrl K)" aria-label="Find a tool">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/></svg><span>Find a tool</span><kbd>{typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K'}</kbd>
         </button>
         <details ref={fileMenu} className="measure-file-menu" onKeyDown={(e) => {
@@ -266,8 +266,8 @@ export function TopBar({
           <p className="file-save-status">{recovery.dirty ? 'Unsaved changes' : 'No unsaved changes'}<small>{recovery.status}</small></p>
           <button onClick={onNewProject} disabled={busy}>New project</button>
           <button onClick={() => openRef.current?.click()} disabled={busy}>Open project / scan</button>
-          <button onClick={() => useShell.getState().setMeasurePanel('export')} disabled={!fileName}>Export…</button>
-          <button onClick={() => useShell.getState().setMeasurePanel('search')}>Find a tool</button>
+          <button onClick={() => { if (workspace === 'elements') useShell.getState().setMeasurePanel('export'); else useShell.getState().setSearchOpen(true, 'export') }} disabled={!savable}>Export…</button>
+          <button onClick={() => useShell.getState().setSearchOpen(true)}>Find a tool</button>
         </div></details>
       </>}
       {/* While the agent connection is on, where it stands — and the way to

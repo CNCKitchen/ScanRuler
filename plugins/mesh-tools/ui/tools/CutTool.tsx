@@ -2,6 +2,7 @@
 // Cut: the scan cut by a plane, one side taken off and the cut capped flat
 // where the part was closed.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { isWorldAxis, SECTION_REF_KINDS, type SectionRef } from '../../../../src/core/section/frame'
 import { useStore } from '../../../../src/state/store'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -121,7 +122,7 @@ export function CutTool({ ready, busy, onCut }: { ready: boolean; busy: boolean;
         </InfoDot>
       </label>
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="cut-scan"
         data-confirm={1}
@@ -136,7 +137,7 @@ export function CutTool({ ready, busy, onCut }: { ready: boolean; busy: boolean;
         ) : (
           'Cut'
         )}
-      </button>
+      </button></ToolActions>
       {!plane && <p className="hint">Choose what to cut across.</p>}
       {plane && ready && <CutOutcomeLine outcome={m.cutPreview} cap={m.cutCap} />}
     </div>

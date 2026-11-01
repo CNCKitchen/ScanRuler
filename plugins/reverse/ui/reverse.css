@@ -6,7 +6,7 @@
 .picked .clearpicks {
   margin-left: 8px;
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 16px;
   vertical-align: baseline;
 }
@@ -193,7 +193,7 @@
 
 .rollbar button {
   padding: 1px 8px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -278,7 +278,7 @@
 
 .playstep {
   font-family: var(--cond);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -330,7 +330,7 @@
 .viewport-label.note-label.glyph {
   margin: -7px 0 0 6px;
   padding: 1px 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -403,7 +403,7 @@
 .relations .kv input[type='number'] {
   width: 78px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 4px;
 }
 
@@ -412,7 +412,7 @@
    click on the part. Small and round, so they read as offers, not fields. */
 .chip.nominal {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.4;
   padding: 1px 7px;
   border-radius: 10px;
@@ -440,7 +440,7 @@
   display: block;
   width: 100%;
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 6px;
   margin: 1px 0;
   border: 1px solid transparent;
@@ -470,7 +470,7 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 3px 1px 8px;
   border-radius: 10px;
   border: 1px dashed var(--line);
@@ -530,7 +530,7 @@
 }
 
 .chipinfo b {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   font-weight: 600;
   padding-bottom: 1px;
@@ -549,14 +549,14 @@
 
 .chipinfo-value {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: right;
   user-select: text;
 }
 
 .chipinfo-tip {
   padding-top: 3px;
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--faint);
 }
 
@@ -616,7 +616,7 @@
 }
 
 .modal.fitoptions > small {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.4;
 }
 
@@ -654,12 +654,12 @@
 }
 
 .parameters .sec-head .fold span {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--dim);
 }
 
 .parameters .sec-head > button:not(.fold) {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 7px;
 }
 
@@ -695,7 +695,7 @@
 
 .kv.parameter input.mono {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .kv.parameter input[data-test='parameter-name'] {
@@ -707,7 +707,7 @@
 }
 
 .kv.parameter select {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 2px;
 }
 
@@ -780,7 +780,7 @@
 
 .relations .kv .unitfield input[type='text'] {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 4px;
   padding-right: 26px;
 }
@@ -791,7 +791,7 @@
 
 .relations .kv .unitfield i {
   right: 5px;
-  font-size: 10px;
+  font-size: 12px;
   max-width: 50px;
 }
 
@@ -859,7 +859,7 @@
 .swatches button.auto {
   width: auto;
   padding: 0 6px;
-  font-size: 11px;
+  font-size: 12px;
   background: var(--well);
   color: var(--dim);
 }
@@ -930,7 +930,7 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 /* The picture several rows are dragged as: how many. */
@@ -972,7 +972,7 @@
 .kv.folderrow button.x.fold {
   width: 14px;
   padding: 0;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--dim);
 }
 
@@ -992,7 +992,7 @@
   padding: 5px 8px;
   border: 1px dashed var(--line-strong);
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--dim);
   text-align: center;
 }
@@ -1004,7 +1004,7 @@
   align-items: center;
   gap: 4px;
   font-family: var(--cond);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   line-height: 16px;
@@ -1050,7 +1050,7 @@
 }
 
 .chipbody-name small {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 400;
   color: var(--dim);
 }
@@ -1064,7 +1064,7 @@
 
 .chipbar .chipbody-keys button {
   padding: 1px 7px;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* A suppressed feature: left out of the build, kept in the list — greyed
@@ -1095,7 +1095,7 @@
 .re-menu-head {
   padding: 3px 12px 5px;
   font-family: var(--cond);
-  font-size: 10px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--dim);
@@ -1142,7 +1142,7 @@
   min-width: 0;
   padding: 5px 4px;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 /* A Move's distances and angles: each of x, y and z underlined in its
@@ -1190,7 +1190,7 @@
   border: 1.5px solid #1d2026;
   color: #1d2026;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
 }
@@ -1249,7 +1249,7 @@
 }
 
 .noterow small {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--dim);
 }
 
@@ -1289,7 +1289,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   min-width: 0;
 }
@@ -1324,7 +1324,7 @@
 
 .notecard-reply {
   margin: 0;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--accent-d);
 }
@@ -1346,7 +1346,7 @@
   border: 1px solid var(--line);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
   color: var(--ink);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.35;
   white-space: nowrap;
   overflow: hidden;
@@ -1379,7 +1379,7 @@
 /* A feature row whose number an agent had fitted to the scan: a quiet tag,
    the reading in its tooltip. */
 .kv b.fitted {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   padding: 0 4px;
   border-radius: 3px;

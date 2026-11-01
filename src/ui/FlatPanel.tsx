@@ -6,6 +6,10 @@
 // workspace is at home in the other. One group per concern, top to bottom in
 // the order the work happens.
 
+import { ToolActions } from './ToolActions'
+import { ToolPalette } from './ToolPalette'
+import { WorkspacePanels } from './WorkspacePanels'
+import { ProjectTree } from './MeasurePanels'
 import { useState } from 'react'
 import { toDpi } from '../core/flat/calibration'
 import { flatDefaultMethod } from '../core/flat/construct'
@@ -70,6 +74,7 @@ export function FlatPanel({
   const edgeSensitivity = useFlat((s) => s.edgeSensitivity)
   const showEdges = useFlat((s) => s.showEdges)
   const elements = useFlat((s) => s.elements)
+  const selection = useFlat(s => s.selectedElementIds)
   const draft = useFlat((s) => s.draft)
   const unit = useFlat((s) => (s.pxPerMm ? 'mm' : 'px')) // units-ok: the sheet's document unit, an id
   // A sheet in millimetres is read in the units shown.
@@ -144,7 +149,8 @@ export function FlatPanel({
   }
 
   return (
-    <aside className="panel">
+    <WorkspacePanels title="2D Measure" activeKey={hasSheet ? `${imageName ?? "section"}:${draft?.kind ?? ""}:${tool?.kind ?? ""}:${dimDraft ? "dimension" : ""}` : null} project={<>
+
       <div className="group">
         <div className="sec-head">
           {sections.length > 0 ? 'Source' : 'Image'}
@@ -202,6 +208,119 @@ export function FlatPanel({
         )}
       </div>
 
+      {elements.length + counts.length + notes.length > 0 && (
+        <div className="group">
+          <div className="g-label">
+            <span>Elements</span>
+            <ShowAllButton
+              anyVisible={
+                elements.some((e) => e.visible) ||
+                counts.some((c) => c.visible) ||
+                notes.some((n) => n.visible)
+              }
+              what="elements"
+              testId="flat-elements-show-all"
+              onSet={(v) => flat.getState().setAllElementsVisible(v)}
+            />
+            <b>{elements.length + counts.length + notes.length}</b>
+          </div>
+          <ProjectTree label="2D elements">{elements.map((el) => (
+            <ElementRow
+              key={el.id}
+              name={el.name}
+              color={el.color}
+              visible={el.visible}
+              reading={
+                el.fit ? (
+                  <b title={formatFlatDetail(el.fit, unit, len.units)}>
+                    {formatFlatPrimary(fitInFrame(el.fit, frame), unit, len.units)}
+                  </b>
+                ) : (
+                  <b className="warn" title={el.error ?? undefined}>
+                    ⚠
+                  </b>
+                )
+              }
+              selected={selection.includes(el.id) || selectedIds.has(el.id) || draft?.editId === el.id}
+              onSelect={(additive) => { if (!editorOpen) flat.getState().selectElement(el.id, additive) }}
+              onRename={(name) => flat.getState().renameElement(el.id, name)}
+              editorOpen={editorOpen}
+              onEdit={() => flat.getState().editElement(el.id)}
+              onToggleVisible={() => flat.getState().toggleElementVisible(el.id)}
+              onDelete={() => flat.getState().deleteElement(el.id)}
+            />
+          ))}
+          </ProjectTree>
+          {counts.map((c) => (
+            <ElementRow
+              key={`count-${c.id}`}
+              name={c.name}
+              color={c.color}
+              visible={c.visible}
+              reading={<b data-test={`flat-count-value-${c.id}`}>{c.picks.length}</b>}
+              selected={counting?.editId === c.id}
+              editorOpen={editorOpen}
+              onEdit={() => flat.getState().editCount(c.id)}
+              onToggleVisible={() => flat.getState().toggleCountVisible(c.id)}
+              onDelete={() => flat.getState().deleteCount(c.id)}
+            />
+          ))}
+          {notes.map((n) => (
+            <ElementRow
+              key={`note-${n.id}`}
+              name={n.text.trim() === '' ? 'Text' : n.text}
+              color="var(--dim)"
+              visible={n.visible}
+              reading={<span className="note-row-kind">text</span>}
+              selected={editingNoteId === n.id}
+              editorOpen={editorOpen && editingNoteId !== n.id}
+              onEdit={() => flat.getState().editNote(n.id)}
+              onToggleVisible={() => flat.getState().toggleNoteVisible(n.id)}
+              onDelete={() => flat.getState().deleteNote(n.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {hasSheet && (hasMeasurements || edgeStatus === 'ready') && (
+        <>
+          <div className="divider" />
+          <div className="toolrow">
+            <CopyButton label="Copy report" disabled={!hasMeasurements} onCopy={onCopy} />
+            <button data-test="flat-export-csv" disabled={!hasMeasurements} onClick={onExportCsv}>
+              Export CSV
+            </button>
+          </div>
+          <div className="toolrow">
+            <button
+              data-test="flat-export-svg"
+              disabled={!drawable}
+              onClick={onExportSvg}
+              title="Save the sheet as an SVG at true scale — the edges while they are shown and the visible elements, aligned and turned as shown — for a vector editor, a laser or a print at 1:1"
+            >
+              Export SVG
+            </button>
+            <button
+              data-test="flat-export-dxf"
+              disabled={!drawable}
+              onClick={onExportDxf}
+              title={`Save the sheet as a DXF for CAD — ${
+                inches ? 'inches' : 'millimetres'
+              } on a sheet with a scale, y up, the origin on the alignment; every fit as its own entity, the edges while they are shown as polylines thinned to a sketch's worth`}
+            >
+              Export DXF
+            </button>
+          </div>
+          <p className="hint">
+            The sheet as a drawing at true scale, aligned and turned as shown. SVG for a vector
+            editor or a print at 1:1; DXF for CAD, the origin on the alignment and the edges
+            thinned to a sketch's worth.
+          </p>
+        </>
+      )}
+
+
+    </>}>
       {imageName && !onSection && (
         <div className="group">
           <div className="sec-head">
@@ -293,7 +412,7 @@ export function FlatPanel({
                 kind="length"
                 onCommit={setTrueSize}
               />
-              <button
+              <ToolActions><button
                 className="primary block"
                 data-test="flat-cal-apply"
                 data-confirm={1}
@@ -301,7 +420,7 @@ export function FlatPanel({
                 onClick={apply}
               >
                 Apply calibration
-              </button>
+              </button></ToolActions>
               <div className="toolrow">
                 <button
                   data-test="flat-cal-undo"
@@ -310,9 +429,9 @@ export function FlatPanel({
                 >
                   Undo pick
                 </button>
-                <button data-test="flat-cal-cancel" onClick={() => flat.getState().cancelCalibration()}>
+                <ToolActions><button data-test="flat-cal-cancel" onClick={() => flat.getState().cancelCalibration()}>
                   Cancel
-                </button>
+                </button></ToolActions>
               </div>
             </>
           )}
@@ -437,7 +556,7 @@ export function FlatPanel({
               </p>
             </InfoDot>
           </div>
-          <div className="kindrow featurekeys">
+          <ToolPalette>
             {FLAT_KINDS.map((k) => (
               // The kind in hand is shown pressed, as the sketch's tools are,
               // and pressed again starts its box over; while an element is
@@ -478,7 +597,7 @@ export function FlatPanel({
               <Icon name="note" />
               <span>Text</span>
             </button>
-          </div>
+          </ToolPalette>
         </div>
       )}
 
@@ -517,13 +636,13 @@ export function FlatPanel({
             />
           </label>
           <p className="hint">Drag the label on the image to move it.</p>
-          <button
+          <ToolActions><button
             className="primary block"
             data-test="flat-note-done"
             onClick={() => flat.getState().finishNote()}
           >
             Done
-          </button>
+          </button></ToolActions>
           <div className="toolrow">
             <button data-test="flat-note-delete" onClick={() => flat.getState().deleteNote(editedNote.id)}>
               Delete
@@ -567,14 +686,14 @@ export function FlatPanel({
               </b>
             </div>
           </div>
-          <button
+          <ToolActions><button
             className="primary block"
             data-test="flat-count-finish"
             disabled={counting.picks.length === 0}
             onClick={() => flat.getState().finishCount()}
           >
             {editedCount ? 'Save changes' : 'Create count'}
-          </button>
+          </button></ToolActions>
           <div className="toolrow">
             <button
               data-test="flat-count-undo"
@@ -583,122 +702,14 @@ export function FlatPanel({
             >
               Undo point
             </button>
-            <button data-test="flat-count-cancel" onClick={() => flat.getState().cancelCount()}>
+            <ToolActions><button data-test="flat-count-cancel" onClick={() => flat.getState().cancelCount()}>
               Cancel
-            </button>
+            </button></ToolActions>
           </div>
-        </div>
-      )}
-
-      {elements.length + counts.length + notes.length > 0 && (
-        <div className="group">
-          <div className="g-label">
-            <span>Elements</span>
-            <ShowAllButton
-              anyVisible={
-                elements.some((e) => e.visible) ||
-                counts.some((c) => c.visible) ||
-                notes.some((n) => n.visible)
-              }
-              what="elements"
-              testId="flat-elements-show-all"
-              onSet={(v) => flat.getState().setAllElementsVisible(v)}
-            />
-            <b>{elements.length + counts.length + notes.length}</b>
-          </div>
-          {elements.map((el) => (
-            <ElementRow
-              key={el.id}
-              name={el.name}
-              color={el.color}
-              visible={el.visible}
-              reading={
-                el.fit ? (
-                  <b title={formatFlatDetail(el.fit, unit, len.units)}>
-                    {formatFlatPrimary(fitInFrame(el.fit, frame), unit, len.units)}
-                  </b>
-                ) : (
-                  <b className="warn" title={el.error ?? undefined}>
-                    ⚠
-                  </b>
-                )
-              }
-              selected={selectedIds.has(el.id) || draft?.editId === el.id}
-              editorOpen={editorOpen}
-              onEdit={() => flat.getState().editElement(el.id)}
-              onToggleVisible={() => flat.getState().toggleElementVisible(el.id)}
-              onDelete={() => flat.getState().deleteElement(el.id)}
-            />
-          ))}
-          {counts.map((c) => (
-            <ElementRow
-              key={`count-${c.id}`}
-              name={c.name}
-              color={c.color}
-              visible={c.visible}
-              reading={<b data-test={`flat-count-value-${c.id}`}>{c.picks.length}</b>}
-              selected={counting?.editId === c.id}
-              editorOpen={editorOpen}
-              onEdit={() => flat.getState().editCount(c.id)}
-              onToggleVisible={() => flat.getState().toggleCountVisible(c.id)}
-              onDelete={() => flat.getState().deleteCount(c.id)}
-            />
-          ))}
-          {notes.map((n) => (
-            <ElementRow
-              key={`note-${n.id}`}
-              name={n.text.trim() === '' ? 'Text' : n.text}
-              color="var(--dim)"
-              visible={n.visible}
-              reading={<span className="note-row-kind">text</span>}
-              selected={editingNoteId === n.id}
-              editorOpen={editorOpen && editingNoteId !== n.id}
-              onEdit={() => flat.getState().editNote(n.id)}
-              onToggleVisible={() => flat.getState().toggleNoteVisible(n.id)}
-              onDelete={() => flat.getState().deleteNote(n.id)}
-            />
-          ))}
         </div>
       )}
 
       {hasSheet && <FlatDimensionSection editorOpen={editorOpen} />}
-
-      {hasSheet && (hasMeasurements || edgeStatus === 'ready') && (
-        <>
-          <div className="divider" />
-          <div className="toolrow">
-            <CopyButton label="Copy report" disabled={!hasMeasurements} onCopy={onCopy} />
-            <button data-test="flat-export-csv" disabled={!hasMeasurements} onClick={onExportCsv}>
-              Export CSV
-            </button>
-          </div>
-          <div className="toolrow">
-            <button
-              data-test="flat-export-svg"
-              disabled={!drawable}
-              onClick={onExportSvg}
-              title="Save the sheet as an SVG at true scale — the edges while they are shown and the visible elements, aligned and turned as shown — for a vector editor, a laser or a print at 1:1"
-            >
-              Export SVG
-            </button>
-            <button
-              data-test="flat-export-dxf"
-              disabled={!drawable}
-              onClick={onExportDxf}
-              title={`Save the sheet as a DXF for CAD — ${
-                inches ? 'inches' : 'millimetres'
-              } on a sheet with a scale, y up, the origin on the alignment; every fit as its own entity, the edges while they are shown as polylines thinned to a sketch's worth`}
-            >
-              Export DXF
-            </button>
-          </div>
-          <p className="hint">
-            The sheet as a drawing at true scale, aligned and turned as shown. SVG for a vector
-            editor or a print at 1:1; DXF for CAD, the origin on the alignment and the edges
-            thinned to a sketch's worth.
-          </p>
-        </>
-      )}
 
       {hasSheet && (
         <div className="group">
@@ -910,6 +921,6 @@ export function FlatPanel({
           </label>
         </div>
       )}
-    </aside>
+    </WorkspacePanels>
   )
 }

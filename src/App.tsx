@@ -50,6 +50,7 @@ import type { GripSide, SceneManager, PickHit } from './viewer/SceneManager'
 import { isCoreSide } from './viewer/extendGrips'
 import { schemeById } from './viewer/navSchemes'
 import { useMeasureShell } from './ui/MeasurePanels'
+import { CommandSearch } from './ui/CommandSearch'
 import { sceneTheme } from './viewer/viewThemes'
 import { Viewer } from './ui/Viewer'
 import { Panel } from './ui/Panel'
@@ -1230,7 +1231,8 @@ export default function App() {
   const marking = useDeviation((s) => s.marking)
   const markGesture = useMark((s) => s.gesture)
   const workspace = useShell((s) => s.workspace)
-  useMeasureShell(workspace === 'elements')
+  useMeasureShell(true)
+  const searchOpen = useShell((s) => s.searchOpen)
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
   const bands = useDeviation((s) => s.bands)
@@ -1548,7 +1550,7 @@ export default function App() {
       .catch((e: unknown) => useStore.setState({ errorText: e instanceof Error ? e.message : String(e) }))
 
   return (
-    <div className={workspace === 'elements' ? 'app design-measure' : 'app'}>
+    <div className="app design-measure" data-workspace={workspace}>
       <TopBar
         recovery={recovery}
         onNewProject={() => void newProject()}
@@ -1558,6 +1560,7 @@ export default function App() {
         onOpenImage={openImage}
         savable={(fileName !== null && vertexCountLoaded) || flatImageName !== null || runtimes.some((r) => r.canSave)}
       />
+      {searchOpen && <CommandSearch />}
       <RecoveryBar recovery={recovery} />
       <ConnectorBar />
       <div className="mid">
@@ -1646,7 +1649,7 @@ export default function App() {
                 sceneRef.current = s
                 attachSurfaceScene(() => sceneRef.current)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
-                s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark, useShell.getState().workspace === 'elements'))
+                s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
               }}
               onPick={handlePick}
@@ -1804,7 +1807,7 @@ export default function App() {
               the stage and both go with it; the 2D sheet has no surface for
               the bar's switches to act on. */}
           <div className="stagecorner">
-            {!picking && <SupportCard compact={workspace === 'elements'} />}
+            {!picking && <SupportCard compact />}
             {!picking && !onFlat && <ViewBar partKeys={active?.partKeys} sideKeys={active?.viewKeys} scanKey={active?.scanKey} hideModelKeys={active?.hideModelKeys} viewDirection={() => sceneRef.current?.viewDirection() ?? [0, 0, -1]} stageCentre={() => sceneRef.current?.stageCentre() ?? [0, 0, 0]} />}
           </div>
           {/* With no card on the stage any more, the step that is still

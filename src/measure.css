@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-only */
-/* First review surface: the 3D Measure workspace. Tokens follow the supplied
-   new-design-system contract; other workspaces retain their layout for review. */
+/* Shared workspace shell. Tokens follow the supplied new-design-system
+   contract; every workspace supplies its own project and active-tool content. */
 :root[data-design='measure'] {
   --chassis: #f5f7fa; --panel: #fff; --well: #fff; --well-deep: #edf1f6;
   --line: #d4dce5; --line-strong: #a7b3c2; --ink: #182230; --dim: #526071;
@@ -12,11 +12,11 @@
   --r: 7px; --inset: none; color-scheme: light;
 }
 :root[data-design='measure'][data-theme='dark'] {
-  --chassis: #19212b; --panel: #27313e; --well: #202833; --well-deep: #303d4c;
-  --line: #526071; --line-strong: #8293a7; --ink: #f5f7fa; --dim: #c0cbd8;
+  --chassis: #0c1017; --panel: #121820; --well: #0d1219; --well-deep: #1a2430;
+  --line: #364454; --line-strong: #718399; --ink: #f5f7fa; --dim: #c0cbd8;
   --faint: #acb8c8; --accent: #8bb4ff; --accent-d: #b4ceff; --accent-soft: #283f62;
-  --green: #80d6aa; --red: #ffaaa5; --amber: #f5ca7d; --stage: #202833;
-  --strip: #19212b; --glass: 39,49,62; color-scheme: dark;
+  --green: #80d6aa; --red: #ffaaa5; --amber: #f5ca7d; --stage: #080c12;
+  --strip: #0c1017; --glass: 18,24,32; color-scheme: dark;
 }
 :root[data-design='measure'] body { font: 14px/1.45 var(--ui); }
 :root[data-design='measure'] :is(button,input,select,textarea,summary) { font-family: var(--ui); font-size: 14px; }
@@ -203,3 +203,41 @@
 @media (max-width: 767px) {
   .design-measure .dock-actions .toolrow button:first-child:not(:last-child) { min-height: 44px; }
 }
+
+/* Shared tools, dialogs and plugin controls use the same readable scale. */
+.design-measure .sourcerow { display: flex; flex-wrap: wrap; gap: 8px; }
+.design-measure .sourcerow button { flex: 1 1 100px; }
+.design-measure .dock-scroll .featurekeys { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.design-measure .dock-scroll :is(.group,.draftbox) { min-width: 0; }
+.design-measure .dock-scroll :is(input,select,textarea) { max-width: 100%; min-width: 0; }
+.design-measure .dock-scroll .toolrow { flex-wrap: wrap; }
+.design-measure .dock-scroll .kv { min-width: 0; }
+.design-measure .dock-scroll .kv .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.design-measure .dock-scroll .tailrow { margin-top: 16px; }
+.design-measure .dock-scroll .group:focus { outline: 2px solid var(--accent); }
+:root[data-design='measure'] :is(.modal,.settingsbox,.unitbox,.agent-warning) { background: var(--panel); color: var(--ink); border-color: var(--line); border-radius: 10px; }
+.command-search-dialog { width: min(640px, calc(100vw - 32px)); max-height: min(720px, calc(100dvh - 32px)); padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 18px 60px rgb(0 0 0 / 25%); }
+.command-search-dialog .dock-heading { padding: 0 0 12px; }
+.command-search-dialog .field { display: grid; }
+.command-search-dialog .search-results { overflow-y: auto; min-height: 0; }
+.command-search-dialog h2 { color: var(--ink); }
+@media (max-width: 479px) {
+  .design-measure .top .brandmark { display: none; }
+  .design-measure .top .projectname { width: 40px; min-width: 24px; }
+  .design-measure .top > .grow { display: none; }
+  .design-measure .measure-actions { scrollbar-width: thin; }
+  .design-measure .measure-actions button { flex-shrink: 0; }
+}
+
+.tool-palette .more-tools { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.tool-palette summary { cursor: pointer; padding: 8px; font-size: 14px; }
+.tool-palette .featurekeys button { min-width: 0; }
+
+.guide-open { width: 100%; margin-bottom: 16px; }
+.measurement-guide { padding: 12px; margin: 0 0 20px; border: 1px solid var(--accent); border-radius: 10px; background: var(--accent-soft); }
+.measurement-guide h3 { margin: 0 0 8px; font-size: 15px; }
+.measurement-guide p { font-size: 13px; line-height: 1.5; }
+.measurement-guide .guide-step { color: var(--dim); margin: 0 0 4px; font-size: 12px; }
+.measurement-guide .guide-tasks { display: grid; gap: 8px; }
+.measurement-guide button { white-space: normal; }
+.guide-target { outline: 2px solid var(--accent); outline-offset: 3px; }

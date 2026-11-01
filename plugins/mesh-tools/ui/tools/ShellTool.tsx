@@ -2,6 +2,7 @@
 // Shell: a closed part hollowed to a wall, or an open surface thickened to
 // one, on the side chosen.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -116,12 +117,12 @@ export function ShellTool({ ready, busy, onShell }: { ready: boolean; busy: bool
           <button data-test="shell-thicken-anyway" disabled={!ready || busy} onClick={() => onShell('thicken')} title="Thicken the surface as it is, a wall round every hole">
             Thicken as it is
           </button>
-          <button className="primary" data-test="shell-fill-first" data-confirm={1} disabled={busy} onClick={() => m.setTool('holes')} title="Go to Fill holes, to close the holes and hollow the part after">
+          <ToolActions><button className="primary" data-test="shell-fill-first" data-confirm={1} disabled={busy} onClick={() => m.setTool('holes')} title="Go to Fill holes, to close the holes and hollow the part after">
             Fill holes first
-          </button>
+          </button></ToolActions>
         </div>
       ) : (
-        <button
+        <ToolActions><button
           className="primary block"
           data-test="shell-run"
           data-confirm={1}
@@ -140,7 +141,7 @@ export function ShellTool({ ready, busy, onShell }: { ready: boolean; busy: bool
           ) : (
             'Shell'
           )}
-        </button>
+        </button></ToolActions>
       )}
     </div>
   )

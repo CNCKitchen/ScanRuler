@@ -2,6 +2,7 @@
 // Boolean: the scan joined with, cut by or intersected with the solids the
 // workspace has.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useSolids } from '../../../../src/app/solids'
 import { useStore } from '../../../../src/state/store'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -144,7 +145,7 @@ export function BooleanTool({ ready, busy, onBoolean }: { ready: boolean; busy: 
         </p>
       )}
 
-      <button className="primary block" data-test="boolean-run" data-confirm={1} disabled={!ready || busy || inHand === 0 || open} onClick={onBoolean}>
+      <ToolActions><button className="primary block" data-test="boolean-run" data-confirm={1} disabled={!ready || busy || inHand === 0 || open} onClick={onBoolean}>
         {editing ? (
           <>
             <span className="spinner" />
@@ -153,7 +154,7 @@ export function BooleanTool({ ready, busy, onBoolean }: { ready: boolean; busy: 
         ) : (
           'Perform operation'
         )}
-      </button>
+      </button></ToolActions>
     </div>
   )
 }

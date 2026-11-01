@@ -41,7 +41,7 @@ export function DockPanel({ side, title, open, onClose, children, hideActions = 
 
 /** Keyboard navigation changes focus; Enter/Space chooses the focused item.
  *  No second selection model lives here. */
-export function ProjectTree({ children }: { children: ReactNode }) {
+export function ProjectTree({ children, label = "Measured elements" }: { children: ReactNode; label?: string }) {
   const root = useRef<HTMLDivElement>(null)
   const active = useRef<HTMLElement | null>(null)
   const rove = (row: HTMLElement | null) => {
@@ -52,7 +52,7 @@ export function ProjectTree({ children }: { children: ReactNode }) {
   }
   useEffect(() => { rove(active.current) })
   const typed = useRef({ text: '', at: 0 })
-  return <div ref={root} onFocus={(e) => rove((e.target as HTMLElement).closest('[role=treeitem]'))} role="tree" aria-label="Measured elements" aria-multiselectable="true" className="measure-tree" onKeyDown={(e) => {
+  return <div ref={root} onFocus={(e) => rove((e.target as HTMLElement).closest('[role=treeitem]'))} role="tree" aria-label={label} aria-multiselectable="true" className="measure-tree" onKeyDown={(e) => {
     if ((e.target as HTMLElement).closest('input,button')) return
     const rows = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role=treeitem]'))
     const index = rows.indexOf(e.target as HTMLElement)
@@ -112,7 +112,7 @@ export function useMeasureShell(active: boolean) {
     if (!active) return
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && !document.querySelector('dialog:modal')) {
-        e.preventDefault(); e.stopImmediatePropagation(); useShell.getState().setMeasurePanel('search')
+        e.preventDefault(); e.stopImmediatePropagation(); useShell.getState().setSearchOpen(true)
       }
     }
     document.addEventListener('keydown', key, true)

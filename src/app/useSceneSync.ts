@@ -911,8 +911,8 @@ export function useSceneSync({
   const viewTheme = useStore((s) => s.viewTheme)
   const dark = usePrefs((s) => s.dark)
   useEffect(() => {
-    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark, elementsWorkspace))
-  }, [viewTheme, dark, elementsWorkspace])
+    sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
+  }, [viewTheme, dark])
 
   // How heavy the section cuts are drawn — the operator's, like the scheme.
   const sectionLines = usePrefs((s) => s.sectionLines)

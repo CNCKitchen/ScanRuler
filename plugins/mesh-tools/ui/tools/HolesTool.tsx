@@ -2,6 +2,7 @@
 // Fill holes: the gaps in the scan under a size closed, flat or following
 // the surface round them.
 
+import { ToolActions } from '../../../../src/ui/ToolActions'
 import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -116,7 +117,7 @@ export function HolesTool({ ready, busy, onFill }: { ready: boolean; busy: boole
         </>
       )}
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="fill-holes"
         data-confirm={1}
@@ -133,7 +134,7 @@ export function HolesTool({ ready, busy, onFill }: { ready: boolean; busy: boole
         ) : (
           'Fill'
         )}
-      </button>
+      </button></ToolActions>
     </div>
   )
 }

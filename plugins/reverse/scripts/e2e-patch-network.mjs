@@ -25,6 +25,7 @@
 // Prereqs: dev server running, Chrome.
 //   node plugins/reverse/scripts/e2e-patch-network.mjs
 // Env: APP_URL, CHROME, OUT_DIR, SCOOTER_SCAN.
+import { clickTool } from '../../../scripts/e2e-lib.mjs'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -56,7 +57,7 @@ const { re, clickAt, screen } = reverseHelpers(page)
 try {
   await loadScan(page, scanPath, { timeout: 300_000 })
   await openReverse(page)
-  await page.click('[data-test=feature-network]')
+  await clickTool(page, '[data-test=feature-network]')
   await page.waitForSelector('[data-test=network-editor]')
   await re(() => window.__re.scene().viewFrom('top'))
   await sleep(800)
@@ -69,7 +70,7 @@ try {
   await sleep(300)
   check(await re(() => window.__re.store.getState().featureDraft === null), 'another workspace closed the box')
   await page.click('[data-test=workspace-reverse]')
-  await page.click('[data-test=feature-network]')
+  await clickTool(page, '[data-test=feature-network]')
   await page.waitForSelector('[data-test=network-editor]')
   check(await re(() => window.__re.store.getState().featureDraft?.nodes.length === 0 && !window.__re.store.getState().featureDraft.placing), 'the box opened again empty')
   const state = () =>

@@ -97,8 +97,8 @@ export interface ViewTheme {
 
 /** Chassis grey behind the parts, one for each interface theme — matching
  *  `--stage` in the stylesheet, light and dark. */
-export const STAGE_LIGHT = 0xdedcd6
-export const STAGE_DARK = 0x2e3135
+export const STAGE_LIGHT = 0xe9edf2
+export const STAGE_DARK = 0x080c12
 const STAGE = STAGE_LIGHT
 
 export const VIEW_THEMES: readonly ViewTheme[] = [
@@ -193,9 +193,8 @@ export function themeById(id: string | null | undefined): ViewTheme {
  *  working marks that read over it. Everything a viewport is handed comes
  *  through here, so the stage behind every part — the split view's halves,
  *  the point picker, the 2D sheet — follows the chassis together. */
-export function sceneTheme(id: string | null | undefined, dark: boolean, measureDesign = false): ViewTheme {
+export function sceneTheme(id: string | null | undefined, dark: boolean): ViewTheme {
   const theme = themeById(id)
-  if (measureDesign) return { ...theme, stage: dark ? 0x202833 : 0xe9edf2, accents: dark ? theme.darkAccents ?? theme.accents : theme.accents }
   if (!dark) return theme
   return { ...theme, stage: STAGE_DARK, accents: theme.darkAccents ?? theme.accents }
 }

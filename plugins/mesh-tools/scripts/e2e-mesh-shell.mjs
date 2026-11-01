@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { clickTool } from '../../../scripts/e2e-lib.mjs'
 import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test for Shrink / expand and Shell: drives the real app in
 // headless Chrome on a generated scan — a closed noisy box standing on the XY
@@ -67,7 +68,7 @@ const markMiddle = async (half) => {
 }
 /** Whether the mesh is closed, as Fill holes says. */
 const closedNow = async () => {
-  await page.click('[data-test=mesh-tool-holes]')
+  await clickTool(page, '[data-test=mesh-tool-holes]')
   await page.waitForSelector('[data-test=holes-closed], [data-test=holes-rims]', { timeout: 60_000 })
   await sleep(300)
   return Boolean(await page.$('[data-test=holes-closed]'))
@@ -83,7 +84,7 @@ check(opened === fixture.triangles, `the scan opens with its ${fixture.triangles
 for (const id of ['offset', 'shell']) check(Boolean(await page.$(`[data-test=mesh-tool-${id}]`)), `the ${id} tool has a key`)
 
 // ---- Shrink the whole part: the surface 0.2 mm in, every triangle kept ------------
-await page.click('[data-test=mesh-tool-offset]')
+await clickTool(page, '[data-test=mesh-tool-offset]')
 await page.waitForSelector('[data-test=offset-tool]')
 await page.click('[data-test=offset-shrink]')
 await setField('[data-test=offset-distance]', 0.2)
@@ -130,7 +131,7 @@ await page.screenshot({ path: shotPath('mesh-shell-expanded.png') })
 check(await closedNow(), 'the part is still closed')
 
 // ---- Hollow: a sealed cavity, seen in the Cut tool's preview ------------------------
-await page.click('[data-test=mesh-tool-shell]')
+await clickTool(page, '[data-test=mesh-tool-shell]')
 await page.waitForSelector('[data-test=shell-closed]', { timeout: 60_000 })
 check(true, 'Shell sees the part is closed, and offers to hollow it')
 await setField('[data-test=shell-thickness]', 2)
@@ -148,7 +149,7 @@ const cavity = 25.6 * 25.6 * 15.6
 check(Math.abs(out / cavity - 1) < 0.03, `the cavity is the box 2 mm in all round (${out} of ${cavity.toFixed(0)} mm³)`)
 check((await copyCount()) > beforeHollow, 'the inner wall brings triangles of its own')
 check(await closedNow(), 'the hollow part is closed')
-await page.click('[data-test=mesh-tool-cut]')
+await clickTool(page, '[data-test=mesh-tool-cut]')
 await page.waitForSelector('[data-test=cut-closes]', { timeout: 60_000 })
 check(true, 'cut across the middle it closes flat — a ring round the cavity')
 await page.screenshot({ path: shotPath('mesh-shell-hollow-cut.png') })
@@ -156,7 +157,7 @@ await step('KeyZ', 'Undone')
 check((await copyCount()) === beforeHollow && (await edits()) === 2, 'a step back fills the part again')
 
 // ---- A small hole: Shell asks for it to be filled first ---------------------------------
-await page.click('[data-test=mesh-tool-delete]')
+await clickTool(page, '[data-test=mesh-tool-delete]')
 await page.waitForSelector('[data-test=delete-tool]')
 check((await markMiddle(10)) > 0, 'a small patch is marked to delete')
 await page.keyboard.press('Escape')
@@ -164,7 +165,7 @@ await page.click('[data-test=delete-marked]')
 await page.waitForSelector('[data-test=delete-confirm]')
 await page.click('[data-test=delete-marked-confirm]')
 await editsReach(3)
-await page.click('[data-test=mesh-tool-shell]')
+await clickTool(page, '[data-test=mesh-tool-shell]')
 await page.waitForSelector('[data-test=shell-holes]', { timeout: 60_000 })
 console.log('shell:', await text('[data-test=shell-holes]'))
 check(/closed but for 1 hole/.test(await text('[data-test=shell-holes]')), 'Shell says the part is closed but for a hole')
@@ -175,13 +176,13 @@ await page.waitForSelector('[data-test=holes-tool]')
 check(true, 'Fill holes first takes the tool there')
 
 // ---- Cut open and thickened into a solid --------------------------------------------------
-await page.click('[data-test=mesh-tool-cut]')
+await clickTool(page, '[data-test=mesh-tool-cut]')
 await page.waitForSelector('[data-test=cut-tool]')
 await page.click('[data-test=cut-cap]')
 await page.waitForSelector('[data-test=cut-scan]:not([disabled])')
 await page.click('[data-test=cut-scan]')
 await editsReach(4)
-await page.click('[data-test=mesh-tool-shell]')
+await clickTool(page, '[data-test=mesh-tool-shell]')
 await page.waitForSelector('[data-test=shell-open]', { timeout: 60_000 })
 console.log('shell:', await text('[data-test=shell-open]'))
 check(true, 'Shell sees an open surface, and offers to thicken it')

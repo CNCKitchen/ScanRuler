@@ -2,6 +2,7 @@
 // The left faceplate: everything the operator sets, and every number the tool
 // reports. Controls at the top, readouts below, in the order the work happens.
 
+import { MeasurementGuide } from './MeasurementGuide'
 import { useEffect } from 'react'
 import { useShell } from '../state/shellStore'
 import { DockPanel, ProjectTree, MeasureSearch, type MeasureAction } from './MeasurePanels'
@@ -203,6 +204,8 @@ export function Panel({
     { name: 'Export', keywords: 'STEP, mesh, point cloud, summary', run: () => setPanel('export'), reason: fileName ? undefined : 'Open a scan first' },
   ]
 
+  useEffect(() => { useShell.getState().setMeasureActions(actions) })
+
   return <>
     <div className="measure-actions" aria-label="Measurement tools">
       {activeTool && collapsed && <button className="primary" onClick={() => setCollapsed(false)}>Show {title.toLowerCase()}</button>}
@@ -217,6 +220,7 @@ export function Panel({
       <button data-test="measure-more" disabled={activeTool} title={activeTool ? 'Finish or cancel the current tool first' : 'All measurement tools'} aria-expanded={panel === 'create'} onClick={() => setPanel(panel === 'create' ? null : 'create')}>More</button>
     </div>
     <DockPanel side="project" title="Project" open={projectOpen} onClose={() => setProjectOpen(false)}>
+      <MeasurementGuide onStart={begin} />
       <div className="group">
         <div className="sec-head">
           Model

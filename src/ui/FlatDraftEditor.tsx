@@ -5,6 +5,7 @@
 // the pending fit, then create / save, undo, cancel. Renders nothing
 // without a draft.
 
+import { ToolActions } from './ToolActions'
 import { collectsEdgePoints, flatMethod, flatMethodsForKind, flatSlotLabel, flatSlotRole } from '../core/flat/construct'
 import { datumFrame, fitInFrame } from '../core/flat/datum'
 import { FLAT_KIND_LABELS, flatPicksNeeded } from '../core/flat/elements'
@@ -207,14 +208,14 @@ export function FlatDraftEditor() {
         )}
       </div>
 
-      <button
+      <ToolActions><button
         className="primary block"
         data-test="flat-create-element"
         disabled={!draft.fit}
         onClick={() => commitDraft()}
       >
         {edited ? 'Save changes' : `Create ${noun}`}
-      </button>
+      </button></ToolActions>
       <div className="toolrow">
         {method.mode !== 'construct' && (
           <button data-test="flat-draft-undo" disabled={picks === 0} onClick={undoDraftPick}>
@@ -231,9 +232,9 @@ export function FlatDraftEditor() {
             Free tangents
           </button>
         )}
-        <button data-test="flat-draft-cancel" onClick={cancelDraft}>
+        <ToolActions><button data-test="flat-draft-cancel" onClick={cancelDraft}>
           Cancel
-        </button>
+        </button></ToolActions>
       </div>
     </div>
   )

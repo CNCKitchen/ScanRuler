@@ -3,6 +3,7 @@
 // plane or a face, the taper, the direction and the body operation, with
 // the preview and the live map.
 
+import { ToolActions } from '../../../src/ui/ToolActions'
 import { useLength } from '../../../src/app/useUnits'
 import { Icon } from '../../../src/ui/icons'
 import { InfoDot } from '../../../src/ui/InfoDot'
@@ -247,13 +248,13 @@ export function ExtrudeEditor() {
       />
       <DirectionField direction={draft.direction} normal={draft.face ? draft.face.face.dir : (sketch?.frame.normal ?? null)} onChange={(direction) => set({ direction })} />
       <OpFields op={draft.op} canCut={targets.length > 0} testPrefix="extrude" onOp={(op) => re.getState().setExtrudeOp(op)} />
-      <button className="primary block" data-test="extrude-create" disabled={!ready} title="Enter or a middle click does the same" onClick={create}>
+      <ToolActions><button className="primary block" data-test="extrude-create" disabled={!ready} title="Enter or a middle click does the same" onClick={create}>
         {draft.featureId !== undefined ? 'Save changes' : 'Create extrude'}
-      </button>
+      </button></ToolActions>
       <div className="toolrow">
-        <button data-test="extrude-cancel" onClick={() => { re.getState().setHint(null); re.getState().cancelExtrude() }}>
+        <ToolActions><button data-test="extrude-cancel" onClick={() => { re.getState().setHint(null); re.getState().cancelExtrude() }}>
           Cancel
-        </button>
+        </button></ToolActions>
       </div>
     </div>
   )

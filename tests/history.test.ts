@@ -38,6 +38,30 @@ function flatPoint() {
 }
 
 describe('project history', () => {
+  it('2D selection stays out of history; rename and delete restore the selected geometry', async () => {
+    useShell.getState().setWorkspace('flat')
+    const id = flatPoint()
+    f().cancelDraft()
+    clearHistory()
+    f().stageClick([100, 200], { alt: false, unitsPerScreenPx: 1 }, null)
+    expect(f().selectedElementIds).toEqual([id])
+    expect(h().past).toHaveLength(0)
+    const name = f().elements[0].name
+    f().renameElement(id, '  Datum point  ')
+    expect(f().elements[0].name).toBe('Datum point')
+    f().renameElement(id, ' ')
+    expect(h().past).toHaveLength(1)
+    await undo()
+    expect(f().elements[0].name).toBe(name)
+    expect(f().selectedElementIds).toEqual([id])
+    await redo()
+    f().deleteElement(id)
+    expect(f().selectedElementIds).toEqual([])
+    await undo()
+    expect(f().selectedElementIds).toEqual([id])
+    expect(f().elements[0].name).toBe('Datum point')
+  })
+
   it('keeps selection out of history but restores selected deleted elements with undo', async () => {
     const first = plane(), second = plane()
     clearHistory()

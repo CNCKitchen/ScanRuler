@@ -10,6 +10,7 @@ import type { ElementKind } from '../core/types'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
+import { useShell } from '../state/shellStore'
 import { creaseSetting } from '../core/geometry/crease'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
@@ -97,7 +98,10 @@ export function useProject({
   })
 
   const saveProject = () => packProject().then((packed) => {
-    if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+    if ('bytes' in packed) {
+      saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+      useShell.getState().noteSaveDownload()
+    }
   })
 
   /** Open a project in place of the session — after asking, when there is

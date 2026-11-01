@@ -9,6 +9,7 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node plugins/mesh-tools/scripts/e2e-mesh-flip.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SHOT_DIR.
+import { clickTool } from '../../../scripts/e2e-lib.mjs'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { canvasRect, check, drag, finish, launchApp, loadScan, OUT_DIR, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
@@ -63,7 +64,7 @@ const ctrl = async (key) => {
 await loadScan(page, SCAN)
 await page.click('[data-test=workspace-mesh]')
 await page.waitForSelector('[data-test=mesh-tool-flip]')
-await page.click('[data-test=mesh-tool-flip]')
+await clickTool(page, '[data-test=mesh-tool-flip]')
 await page.waitForSelector('[data-test=flip-tool]')
 check(!(await page.$('[data-test=flip-backfaces-hint]')), 'Backfaces is on to start, so no hint asks for it')
 check(await page.$eval('[data-test=flip-marked]', (el) => el.disabled), 'Flip marked waits on a marking')

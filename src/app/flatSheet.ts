@@ -70,6 +70,7 @@ export interface SheetElement {
   color: string
   name: string
   value: string
+  width?: number
 }
 
 export interface SheetDraft {
@@ -193,7 +194,7 @@ export function sheetDatumPreview(
  *  `units` on a sheet in millimetres. An element open for editing is drawn
  *  by its draft instead. */
 export function sheetElements(
-  s: Pick<SheetSource, 'pxPerMm' | 'elements' | 'draft' | 'datum' | 'mirror'>,
+  s: Pick<SheetSource, 'pxPerMm' | 'elements' | 'draft' | 'datum' | 'mirror'> & { selectedElementIds?: number[] },
   units: DisplayUnits = 'mm',
 ): SheetElement[] {
   // units-ok: the sheet's document unit, an id formatFlatPrimary takes
@@ -203,7 +204,8 @@ export function sheetElements(
     .filter((e) => e.visible && e.fit && e.id !== s.draft?.editId)
     .map((e) => ({
       fit: e.fit!,
-      color: e.color,
+      color: s.selectedElementIds?.includes(e.id) ? '#246bfd' : e.color,
+      width: s.selectedElementIds?.includes(e.id) ? 3 : undefined,
       name: e.name,
       value: formatFlatPrimary(fitInFrame(e.fit!, frame), unit, units),
     }))

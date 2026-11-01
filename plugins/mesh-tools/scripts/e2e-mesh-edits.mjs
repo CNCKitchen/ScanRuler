@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { clickTool } from '../../../scripts/e2e-lib.mjs'
 import { dismissSupportCard } from '../../../scripts/e2e-lib.mjs'
 // End-to-end test for the Mesh Tools edits beyond Remove islands: drives the
 // real app in headless Chrome on a generated scan — a noisy box standing on
@@ -169,7 +170,7 @@ for (const id of ['reduce', 'islands', 'delete', 'cut', 'holes', 'smooth']) {
 
 // ---- Fill holes: the holes in the top are found and ringed; one is closed by
 // a click on its ring, the other with the button ---------------------------------
-await page.click('[data-test=mesh-tool-holes]')
+await clickTool(page, '[data-test=mesh-tool-holes]')
 await page.waitForSelector('[data-test=holes-count]', { timeout: 60_000 })
 console.log(`holes: ${await text('[data-test=holes-rims]')} · ${await text('[data-test=holes-count]')}`)
 check(count(await text('[data-test=holes-rims] b')) === 2, 'the scan has two open rims')
@@ -213,7 +214,7 @@ check(/Filled 1 hole under/.test(await text('[data-test=pending-edit]')), 'the f
 await page.screenshot({ path: shotPath('mesh-edits-filled.png') })
 
 // ---- Smooth: the scan's scatter taken out, within the limit -------------------
-await page.click('[data-test=mesh-tool-smooth]')
+await clickTool(page, '[data-test=mesh-tool-smooth]')
 await page.waitForSelector('[data-test=smooth-tool]')
 const limit = Number(await page.$eval('[data-test=smooth-limit]', (el) => el.value))
 check(limit > 0 && limit < 0.2, `a limit is suggested for the part (${limit} mm)`)
@@ -231,10 +232,10 @@ check(rms > 0.005, `and moves it by about the scatter it was given (RMS ${rms} m
 check((await copyCount()) === filled, 'and keeps every triangle')
 
 // ---- Cut: shown before it is made, then made ----------------------------------
-await page.click('[data-test=mesh-tool-reduce]')
+await clickTool(page, '[data-test=mesh-tool-reduce]')
 await sleep(400)
 const whole = await stage()
-await page.click('[data-test=mesh-tool-cut]')
+await clickTool(page, '[data-test=mesh-tool-cut]')
 await page.waitForSelector('[data-test=cut-tool]')
 await sleep(400)
 const middle = Number(await page.$eval('[data-test=cut-offset]', (el) => el.value))
@@ -273,13 +274,13 @@ check(/Cut at XY plane, Z 5 mm/.test(cutStatus), 'the status line says where it 
 check(/closed flat/.test(cutStatus), 'and that the part was closed flat')
 const cut = await copyCount()
 check(cut < filled, 'the cut takes triangles off')
-await page.click('[data-test=mesh-tool-holes]')
+await clickTool(page, '[data-test=mesh-tool-holes]')
 await page.waitForSelector('[data-test=holes-closed]', { timeout: 60_000 })
 check(true, 'the cut part is still closed')
 await page.screenshot({ path: shotPath('mesh-edits-cut.png') })
 
 // ---- Delete marked: a window over the part, asked, deleted --------------------
-await page.click('[data-test=mesh-tool-delete]')
+await clickTool(page, '[data-test=mesh-tool-delete]')
 await page.waitForSelector('[data-test=delete-tool]')
 check(await page.$eval('[data-test=delete-marked]', (el) => el.disabled), 'nothing to delete before anything is marked')
 await page.click('[data-test=mark-window]')
@@ -362,7 +363,7 @@ check((await copyCount()) === beforeDelete, 'the next puts the deleted surface b
 check((await edits()) === 4, 'and takes it off the list')
 await step('KeyZ', 'Undone')
 check((await copyCount()) === filled, 'the next puts back what the cut took off')
-await page.click('[data-test=mesh-tool-cut]')
+await clickTool(page, '[data-test=mesh-tool-cut]')
 await page.waitForSelector('[data-test=cut-offset]')
 check(Number(await page.$eval('[data-test=cut-offset]', (el) => el.value)) === 5, 'the offset typed for the cut is still set')
 await step('KeyZ', 'Undone')
@@ -373,7 +374,7 @@ await step('KeyZ', 'Undone')
 await step('KeyZ', 'Undone')
 check(!(await page.$('[data-test=edited-copy]')), 'and three more leave no copy')
 check((await scanCount()) === opened && (await inUse()) === 0, 'the scan as it was opened, with nothing in use')
-await page.click('[data-test=mesh-tool-holes]')
+await clickTool(page, '[data-test=mesh-tool-holes]')
 await page.waitForFunction(() => /^2$/.test(document.querySelector('[data-test=holes-count] b')?.textContent ?? ''), { timeout: 60_000 })
 check(true, 'both holes are open again')
 await step('KeyY', 'Redone')
@@ -383,7 +384,7 @@ check((await edits()) === 1, 'and lists it')
 // ---- the cut preview across a hole the plane runs into ---------------------------
 // A plane across X through the hole still open is bridged under it; across
 // the one filled, it closes as it is.
-await page.click('[data-test=mesh-tool-cut]')
+await clickTool(page, '[data-test=mesh-tool-cut]')
 await page.waitForSelector('[data-test=cut-ref]')
 await page.select('[data-test=cut-ref]', 'x')
 await sleep(300)
@@ -403,7 +404,7 @@ await across(at[0].includes('bridging') ? 7 : -7)
 await page.screenshot({ path: shotPath('mesh-edits-cut-bridged.png') })
 
 // ---- Smooth a marked region alone ------------------------------------------------
-await page.click('[data-test=mesh-tool-smooth]')
+await clickTool(page, '[data-test=mesh-tool-smooth]')
 await page.waitForSelector('[data-test=smooth-scope-marked]')
 await page.click('[data-test=smooth-scope-marked]')
 await page.waitForSelector('[data-test=mark-window]')
@@ -443,7 +444,7 @@ await page.click('[data-test=mark-window]')
 await sleep(300)
 check(count(await text('[data-test=mark-count]')) > 0, 'a new region can be marked')
 await page.keyboard.press('Escape')
-await page.click('[data-test=mesh-tool-delete]')
+await clickTool(page, '[data-test=mesh-tool-delete]')
 await page.waitForSelector('[data-test=delete-tool]')
 await sleep(300)
 check(count(await text('[data-test=mark-count]')) === 0, 'Delete marked starts with nothing marked')

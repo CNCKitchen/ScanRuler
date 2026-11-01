@@ -3,6 +3,7 @@
 // dimension is assembled or re-opened in, and the DRO rows the finished
 // dimensions are read from.
 
+import { ToolActions } from './ToolActions'
 import { useMemo } from 'react'
 import {
   FLAT_DIMENSION_TYPES,
@@ -157,6 +158,7 @@ export function FlatDimensionSection({
               </div>
             )}
 
+            <ToolActions>
             <button
               className="primary block"
               data-test="flat-add-dimension"
@@ -170,6 +172,7 @@ export function FlatDimensionSection({
                 Cancel
               </button>
             </div>
+            </ToolActions>
           </div>
         )
       )}

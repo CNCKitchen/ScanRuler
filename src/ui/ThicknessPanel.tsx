@@ -5,6 +5,8 @@
 // as it is turned. Laid out like the deviation panel next door, because it is
 // the same instrument pointed at a different question.
 
+import { ToolActions } from './ToolActions'
+import { WorkspacePanels } from './WorkspacePanels'
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
 import { useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
@@ -38,7 +40,8 @@ export function ThicknessPanel({
   const ready = Boolean(scanName)
 
   return (
-    <aside className="panel">
+    <WorkspacePanels title="Wall thickness" activeKey={scanName} project={<>
+
       <div className="group">
         <div className="sec-head">
           Model
@@ -62,6 +65,8 @@ export function ThicknessPanel({
         {!scanName && <p className="hint">Drop it anywhere in the window.</p>}
       </div>
 
+
+    </>}>
       <div className="group">
         <div className="sec-head">Measurement</div>
         <label className="field">
@@ -197,7 +202,7 @@ export function ThicknessPanel({
           />
         )}
 
-        <button
+        <ToolActions><button
           className={pulse ? 'primary block pulse' : 'primary block'}
           data-test="measure-thickness"
           data-confirm={t.status === 'ready' ? undefined : 1}
@@ -214,7 +219,7 @@ export function ThicknessPanel({
           ) : (
             'Measure wall thickness'
           )}
-        </button>
+        </button></ToolActions>
         <p className="hint">Everything above shapes the search, so changing it means measuring again.</p>
         {t.message && <p className="alarmtext">{t.message}</p>}
       </div>
@@ -304,6 +309,6 @@ export function ThicknessPanel({
           <CopyButton className="block" label="Copy report" onCopy={onCopy} />
         </>
       )}
-    </aside>
+    </WorkspacePanels>
   )
 }

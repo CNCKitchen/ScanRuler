@@ -133,9 +133,10 @@ export function useFlatSceneSync({
 
   // The readings on the pins follow the alignment, and its handedness
   // follows the mirror.
+  const selectedElementIds = useFlat(s => s.selectedElementIds)
   const draft = useFlat((s) => s.draft)
   const mirror = useFlat((s) => s.mirror)
-  useEffect(pushElements, [elements, draft, scale, datum, mirror, units])
+  useEffect(pushElements, [elements, selectedElementIds, draft, scale, datum, mirror, units])
 
   // The sheet aligned to the part, mirrored, or turned on the stage — the
   // camera moves, nothing is redrawn. The alignment's direction is read at

@@ -189,7 +189,8 @@ export function sheetToScreen(rect, w, h) {
 /** Click a selector, waiting for it to exist first. */
 export async function click(page, sel, { timeout = 10_000 } = {}) {
   await page.waitForSelector(sel, { timeout })
-  await page.click(sel)
+  if (/data-test=["']?(mesh-tool-|feature-|flat-fit-)/.test(sel)) await clickTool(page, sel)
+  else await page.click(sel)
 }
 
 /** A switch in the menu over a part's key on the view bar (ui/PartKey), by
@@ -498,4 +499,21 @@ export async function colouredFraction(page) {
     }
     return painted / total
   }, shot)
+}
+
+/** Follow the visible More-tools disclosure before clicking a catalog tool.
+ * Only navigation changes; the real button and original assertions remain. */
+export async function clickTool(page, selector) {
+  await page.waitForSelector(selector)
+  for (;;) {
+    const summary = await page.$eval(selector, (el) => {
+      let parent = el.parentElement, outer = null
+      while (parent) { if (parent.tagName === 'DETAILS' && !parent.open) outer = parent; parent = parent.parentElement }
+      return outer ? Array.from(document.querySelectorAll('details > summary')).indexOf(outer.querySelector(':scope > summary')) : -1
+    })
+    if (summary < 0) break
+    const controls = await page.$$('details > summary')
+    await controls[summary].click()
+  }
+  await page.click(selector)
 }
