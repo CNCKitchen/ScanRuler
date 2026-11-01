@@ -1678,7 +1678,9 @@ export function createMcpServer({
     // past it — then the whole goes to a file, and the answer keeps how
     // the batch ended. A call that may answer longer (a guide) lets the
     // batch it is in answer as long.
-    const cap = Math.max(...calls.map((c) => capOf(commandOf(String(c?.tool ?? '')))))
+    // Not Math.max(...): a batch read from a file may hold more calls than
+    // a spread can pass.
+    const cap = calls.reduce((most, c) => Math.max(most, capOf(commandOf(String(c?.tool ?? '')))), 0)
     return text(await fitted(answer, 'scanruler_batch', exact, ['failed', 'undone'], { cap }), exact)
   }
 
