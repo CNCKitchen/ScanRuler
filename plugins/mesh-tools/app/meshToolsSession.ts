@@ -41,7 +41,7 @@ import { reduceSettingsOf, useMeshTools, type ScanEdit } from '../state/meshStor
 import type { ImportQueue } from '../../../src/app/importQueue'
 import { runImport } from '../../../src/app/imports'
 import type { SourceFiles } from '../../../src/app/project'
-import { editedCopy, type EditedCopy } from '../state/editedCopy'
+import { editedCopy, editedCopyBytes, type EditedCopy } from '../state/editedCopy'
 import type { ScanSource } from '../../../src/app/scanSwap'
 import { onScan } from '../../../src/app/scanEvents'
 import { meanEdgeLength } from '../core/smooth'
@@ -797,7 +797,9 @@ export function createMeshToolsSession({
       // the copy from the other side of it in place — after the app has put
       // the scan from that side in place, which takes the copy away.
       registerHistory({
-        sections: [{ key: 'edited', compare: 'identity', capture: () => editedCopy.current ?? null, apply: () => {} }],
+        // Weighed, so the history keeps no more versions of a large copy
+        // than fit its byte budget.
+        sections: [{ key: 'edited', compare: 'identity', capture: () => editedCopy.current ?? null, apply: () => {}, bytes: (copy) => editedCopyBytes(copy as EditedCopy) }],
         beforeRestore: async (patch) => {
           if ('edited' in patch && (patch.edited ?? null) !== (editedCopy.current ?? null)) {
             await setEditedCopy((patch.edited as EditedCopy | null) ?? null)

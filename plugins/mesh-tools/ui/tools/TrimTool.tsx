@@ -2,6 +2,7 @@
 // Trim to scan: a solid trimmed where the scan breaks off, the piece kept
 // and handed on.
 
+import { useShallow } from 'zustand/react/shallow'
 import { useSolids } from '../../../../src/app/solids'
 import { useLength } from '../../../../src/app/useUnits'
 import { useMark } from '../../../../src/state/markStore'
@@ -30,7 +31,27 @@ export function TrimTool({
   onExport: (format: MeshFormat) => void
   onClear: () => void
 }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the cut preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      findTrimBreakAgain: s.findTrimBreakAgain,
+      setTrimDepth: s.setTrimDepth,
+      setTrimFlip: s.setTrimFlip,
+      setTrimOffset: s.setTrimOffset,
+      setTrimSolid: s.setTrimSolid,
+      trimBreak: s.trimBreak,
+      trimBreakError: s.trimBreakError,
+      trimDepth: s.trimDepth,
+      trimFlip: s.trimFlip,
+      trimMade: s.trimMade,
+      trimMessage: s.trimMessage,
+      trimOffset: s.trimOffset,
+      trimSolid: s.trimSolid,
+      trimStatus: s.trimStatus,
+      trimView: s.trimView,
+    })),
+  )
   const stale = useMeshTools(trimStale)
   const marked = useMark((s) => s.count)
   const bySource = useSolids((s) => s.bySource)

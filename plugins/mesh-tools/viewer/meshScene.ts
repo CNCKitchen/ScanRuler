@@ -344,9 +344,17 @@ export class MeshScene {
     const mating = (piece.material as THREE.MeshStandardMaterial[])[1]
     const geometry = piece.geometry as THREE.BufferGeometry
     if (paint) {
-      const rgb = new Uint8Array(this.pieceGap.length * 3)
-      paintField(this.pieceGap, paint.scale, paint.map, rgb)
-      geometry.setAttribute('color', new THREE.BufferAttribute(rgb, 3, true))
+      // One colour attribute for the piece's life, painted over in place:
+      // three frees an attribute's GPU buffer only for those the geometry
+      // still holds when it is disposed, so one replaced on every repaint
+      // would stay uploaded until the context goes.
+      let color = geometry.getAttribute('color') as THREE.BufferAttribute | undefined
+      if (!color) {
+        color = new THREE.BufferAttribute(new Uint8Array(this.pieceGap.length * 3), 3, true)
+        geometry.setAttribute('color', color)
+      }
+      paintField(this.pieceGap, paint.scale, paint.map, color.array as Uint8Array)
+      color.needsUpdate = true
       mating.vertexColors = true
       mating.color.setHex(0xffffff)
     } else {

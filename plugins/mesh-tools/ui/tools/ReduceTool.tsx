@@ -2,6 +2,7 @@
 // Reduce mesh: a light copy of the scan to model over in CAD, held within a
 // tolerance, its sharp edges kept.
 
+import { useShallow } from 'zustand/react/shallow'
 import { usePulse } from '../../../../src/app/useHints'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
@@ -22,7 +23,19 @@ export function ReduceTool({
   onReduce: () => void
   onExport: (format: MeshFormat) => void
 }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the cut preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      maxTriangles: s.maxTriangles,
+      message: s.message,
+      report: s.report,
+      setMaxTriangles: s.setMaxTriangles,
+      setTolerance: s.setTolerance,
+      status: s.status,
+      tolerance: s.tolerance,
+    })),
+  )
   const stale = useMeshTools(reductionStale)
   const pulse = usePulse('reduce-mesh')
   const r = m.report

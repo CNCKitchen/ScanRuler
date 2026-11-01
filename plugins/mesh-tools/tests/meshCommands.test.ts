@@ -251,6 +251,9 @@ describe('cleaning a scan up through the commands', () => {
     expect((await refused('mesh.delete_marked', { region: { box: { min: [50, 50, 50], max: [60, 60, 60] } } })).code).toBe('invalid_input')
     expect((await refused('mesh.delete_marked', { region: { box: { min: [0, 0, 0], max: [1, 1, 1] }, sphere: { center: [0, 0, 0], radius: 1 } } })).code).toBe('invalid_input')
     expect((await refused('mesh.delete_marked', { region: 'marked' })).code).toBe('unavailable')
+    // A vertex number past 32 bits is refused, not wrapped onto vertex 1.
+    expect((await refused('mesh.delete_marked', { region: { vertices: [2 ** 32 + 1] } })).code).toBe('invalid_input')
+    expect(undoLabels()).toEqual([])
     expect((await refused('mesh.mark', { region: { sphere: { center: [0, 0, 10], radius: 3 } } })).code).toBe('unavailable')
     expect((await refused('mesh.boolean', { op: 'subtract', solids: ['Peg'] })).code).toBe('not_found')
     expect((await refused('mesh.cut', { plane: 'Plane 9', offset: 0, keep: 'plus' })).code).toBe('not_found')
