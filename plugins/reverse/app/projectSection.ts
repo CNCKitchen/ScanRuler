@@ -209,6 +209,12 @@ function importedKeys(features: readonly Feature[]): string[] {
   return [...new Set(features.flatMap((f) => (f.kind === 'import' ? [f.file.key] : [])))]
 }
 
+/** The STEP member's bytes as last encoded, by their text. The snapshot that
+ *  tells a saved project from a changed one keys members by the identity of
+ *  their bytes, so the same texts must come back the same bytes, or the
+ *  project never reads as saved and every checkpoint writes them again. */
+let stepBytes: { json: string; bytes: Uint8Array } | null = null
+
 /** The workspace as the file is to hold it, or undefined with no feature —
  *  with `ctx`, the STEP files its Imports name put into the archive
  *  beside it. */
@@ -219,7 +225,11 @@ export function collectReversePart(ctx?: Pick<CollectContext, 'addMember'>): Rev
   const keys = importedKeys(all)
   const texts = Object.fromEntries(keys.flatMap((k) => (re.stepFiles[k] !== undefined ? [[k, re.stepFiles[k]]] : [])))
   const steps = ctx && Object.keys(texts).length > 0
-  if (steps) ctx.addMember(STEP_MEMBER, strToU8(JSON.stringify(texts)))
+  if (steps) {
+    const json = JSON.stringify(texts)
+    if (stepBytes?.json !== json) stepBytes = { json, bytes: strToU8(json) }
+    ctx.addMember(STEP_MEMBER, stepBytes.bytes)
+  }
   // A playback moves the bar for the camera: the file has it where it stood.
   const rolledTo = re.playback?.origin ?? re.features.length
   // The lasting set: bodies a failed build or a rollback lacks now too.
