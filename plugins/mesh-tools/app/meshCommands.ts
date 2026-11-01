@@ -131,7 +131,7 @@ const regionSchema = (what: string): JsonSchema =>
         {
           box: obj({ min: vec3('The low corner, mm.'), max: vec3('The high corner, mm.') }, ['min', 'max'], 'The vertices inside an axis-aligned box, its sides included.'),
           sphere: obj({ center: vec3('The centre, mm.'), radius: num('mm.', { exclusiveMinimum: 0 }) }, ['center', 'radius'], 'The vertices within a radius of a point.'),
-          vertices: arr(int(undefined, { minimum: 0 }), 'The vertices by number — the edited copy’s while there is one, else the scan’s.', { minItems: 1 }),
+          vertices: arr(int(undefined, { minimum: 0, maximum: 0xffffffff }), 'The vertices by number — the edited copy’s while there is one, else the scan’s.', { minItems: 1 }),
           facing: vec3('Of those, only the vertices whose normal points within angleDeg of this direction — [0, 0, 1] for the faces looking up. Narrows a box to one face of the part.'),
           angleDeg: num(`How far a normal may turn from facing and still face it, degrees — ${DEFAULT_FACING_DEG} to start.`, { exclusiveMinimum: 0, maximum: 180 }),
         },
@@ -153,6 +153,10 @@ async function regionVertices(region: RegionIn): Promise<Uint32Array> {
   }
   const shapes = (['box', 'sphere', 'vertices'] as const).filter((k) => region[k] !== undefined)
   if (shapes.length !== 1) invalid('Name the region one way: a box, a sphere or vertices — with facing and angleDeg to narrow it.')
+  // A number past 32 bits would wrap round to another vertex when made a
+  // Uint32Array, out of reach of the worker's own check that it is one.
+  const tooBig = region.vertices?.find((v) => !(v >= 0 && v <= 0xffffffff))
+  if (tooBig !== undefined) invalid(`The mesh has no vertex ${tooBig}.`)
   let found: { vertices: Uint32Array; vertexCount: number }
   try {
     found = await client().select({
