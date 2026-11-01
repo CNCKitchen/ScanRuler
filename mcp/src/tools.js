@@ -68,14 +68,20 @@ const inlineIn = {
  *  noise the agent pays for — 0.9483828176573491 in place of 0.948383. */
 const DIGITS = 6
 const STEP = 1e6
+/** The coarsest step a number is given to, however large: a coordinate
+ *  far from the origin, as a scanner's frame puts it, is fed back as a
+ *  point, and six digits of 12345.678 would move it by a fifth of a
+ *  millimetre. */
+const FINEST_KEPT = 1e4
 
 const tidy = (v) => {
-  const r = Number(v.toPrecision(DIGITS))
+  const r = Math.abs(v) >= 10 ** (DIGITS - 4) && Math.abs(v) < 9e9 ? Math.round(v * FINEST_KEPT) / FINEST_KEPT : Number(v.toPrecision(DIGITS))
   return Math.abs(r) < 9e9 ? Math.round(r * STEP) / STEP || 0 : r
 }
 
 /** An answer as the agent reads it: JSON, every number that is not whole
- *  kept to DIGITS significant digits and no finer than a millionth — 1e-17,
+ *  kept to DIGITS significant digits, or four decimals past a hundred,
+ *  and no finer than a millionth — 1e-17,
  *  a zero's rounding error, is 0. Whole numbers — ids, indices, counts —
  *  are as they were. An `exact` answer is one whose numbers are handed
  *  back as inputs — a plane's frame, say — and keeps every digit:
