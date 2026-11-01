@@ -1337,7 +1337,7 @@
 
 /* A note's text beside its pin in the viewport, right of the badge; the
    whole of it under the cursor, the start of it otherwise. */
-.note-label {
+.re-note-label {
   margin: -17px 0 0 34px;
   max-width: 220px;
   padding: 2px 7px;
@@ -1353,26 +1353,26 @@
   text-overflow: ellipsis;
 }
 
-.note-label:empty,
-.nolabels .note-label {
+.re-note-label:empty,
+.nolabels .re-note-label {
   display: none;
 }
 
-.note-label.lit {
+.re-note-label.lit {
   max-width: 300px;
   white-space: normal;
 }
 
-.note-label.agent {
+.re-note-label.agent {
   border-left: 3px solid #1877c0;
 }
 
-.note-label.done {
+.re-note-label.done {
   color: var(--dim);
   text-decoration: line-through;
 }
 
-.note-label.away {
+.re-note-label.away {
   opacity: 0.5;
 }
 
