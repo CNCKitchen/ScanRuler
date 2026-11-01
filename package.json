@@ -88,11 +88,14 @@
     "zustand": "^5.0.1"
   },
   "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "@resvg/resvg-js": "2.6.2",
     "@types/node": "^22.20.5",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "electron": "45.0.0",
     "esbuild": "0.28.2",
     "postject": "1.0.0-alpha.6",
     "puppeteer-core": "^25.6.0",
