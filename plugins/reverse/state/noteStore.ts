@@ -31,9 +31,11 @@ interface NotesState {
   /** The agent's question, pinned with its text — no box opened. Returns
    *  its id. */
   addAgentNote: (note: Omit<Note, 'id' | 'by'>) => number
+  /** The person's words for a note, which makes it theirs if it came with a
+   *  project file. */
   setText: (id: number, text: string) => void
-  /** The person's answer to the agent's question — an empty one takes it
-   *  back. */
+  /** The person's answer to the agent's question, theirs likewise — an empty
+   *  one takes it back. */
   setReply: (id: number, reply: string) => void
   /** Ticked off, or open again; the agent's answer with it, where given —
    *  an empty one takes the answer away. */
@@ -68,14 +70,25 @@ export const useNotes = create<NotesState>((set, get) => ({
     set((s) => ({ notes: [...s.notes, { id, by: 'agent', ...note }], nextId: id + 1 }))
     return id
   },
-  setText: (id, text) => set((s) => ({ notes: s.notes.map((n) => (n.id === id ? { ...n, text } : n)) })),
+  setText: (id, text) =>
+    set((s) => ({
+      notes: s.notes.map((n) => {
+        if (n.id !== id) return n
+        const { fromFile: _fromFile, ...rest } = n
+        void _fromFile
+        return { ...rest, text }
+      }),
+    })),
   setReply: (id, reply) =>
     set((s) => ({
       notes: s.notes.map((n) => {
         if (n.id !== id) return n
         const { reply: _reply, ...rest } = n
         void _reply
-        return reply.trim() ? { ...rest, reply: reply.trim() } : rest
+        if (!reply.trim()) return rest
+        const { fromFile: _fromFile, ...theirs } = rest
+        void _fromFile
+        return { ...theirs, reply: reply.trim() }
       }),
     })),
   setDone: (id, done, reply) =>

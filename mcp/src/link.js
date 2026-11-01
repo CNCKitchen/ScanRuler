@@ -39,6 +39,11 @@ export const CLOSE = { badToken: 4001, origin: 4003, taken: 4009, noHello: 4008 
 
 /** Scans run to hundreds of megabytes. */
 export const MAX_PAYLOAD = 1024 ** 3
+/** Before its hello is taken a connection is nobody in particular: what it
+ *  may send is a hello — the page's command list, a few hundred KB — and
+ *  only a few may be waiting to say it at once. */
+export const HELLO_PAYLOAD = 16 * 1024 ** 2
+const WAITING_MOST = 8
 const HEARTBEAT_MS = 15_000
 const HELLO_MS = 10_000
 
@@ -151,6 +156,8 @@ export class PageLink extends Asker {
     this.log = log
     /** The other copies relaying through this one. */
     this.peers = new Set()
+    /** Connections that have not said hello yet. */
+    this.waiting = new Set()
     this.wss = null
   }
 
@@ -158,13 +165,14 @@ export class PageLink extends Asker {
   attach(server) {
     this.wss = new WebSocketServer({
       server,
-      maxPayload: MAX_PAYLOAD,
+      // Raised to MAX_PAYLOAD for a connection once its hello is taken.
+      maxPayload: HELLO_PAYLOAD,
       verifyClient: ({ origin }, done) => {
-        if (originAllowed(origin, this.origins)) done(true)
-        else {
+        if (!originAllowed(origin, this.origins)) {
           this.log(`Refused a page from ${origin}: not an allowed origin (see --allow-origin).`)
           done(false, 403, 'Origin not allowed')
-        }
+        } else if (this.waiting.size >= WAITING_MOST) done(false, 503, 'Too many connections waiting')
+        else done(true)
       },
     })
     // ws hands the HTTP server's errors on to this one too — a port another
@@ -191,12 +199,19 @@ export class PageLink extends Asker {
     ws.on('pong', () => {
       ws.alive = true
     })
+    // A frame past the limit, or a broken one: ws closes the connection and
+    // says why here — unheard, Node would end the process over it.
+    ws.on('error', (e) => this.log(`A connection was closed: ${e.message}`))
     const timer = setTimeout(() => ws.close(CLOSE.noHello, 'No hello'), HELLO_MS)
+    this.waiting.add(ws)
     let accepted = false
     const read = decoder((message) => {
       if (!accepted) {
         clearTimeout(timer)
+        this.waiting.delete(ws)
         accepted = this.#hello(ws, message, origin)
+        // ws keeps the limit on its receiver only; the version is pinned.
+        if (accepted) ws._receiver._maxPayload = MAX_PAYLOAD
         return
       }
       if (this.peers.has(ws)) this.#relay(ws, message)
@@ -212,6 +227,7 @@ export class PageLink extends Asker {
     })
     ws.on('close', () => {
       clearTimeout(timer)
+      this.waiting.delete(ws)
       if (this.peers.delete(ws)) return
       if (this.socket !== ws) return
       this.socket = null

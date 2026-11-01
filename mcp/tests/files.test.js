@@ -5,7 +5,7 @@
 // and writes where the last one did; scanruler_files lists them; and a
 // { "$file": path } in any argument is that file's JSON.
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, before, test } from 'node:test'
@@ -117,6 +117,72 @@ test('a folder in place of a file: the one mesh in it opens; none, or several, i
   // A command that takes no folder says so, with what is there.
   const reference = SNAPSHOT.find((c) => c.name === 'deviation.open_reference')
   await assert.rejects(inputFor(reference, { path: one }, { cwd: dir }), (e) => /is a folder — give a file in it: /.test(e.message))
+})
+
+test('scanruler_write writes reports, and nothing an agent or a tool would act on', async () => {
+  const store = join(dir, 'config-write')
+  const folder = join(dir, 'report-part')
+  await mkdir(folder, { recursive: true })
+  await writeFile(join(folder, 'part.stl'), Buffer.alloc(84))
+  const server = await copy(store)
+  assert.equal((await server.call('scan_open', { path: join(folder, 'part.stl'), discard: true })).error, false)
+
+  const refused = [
+    '.claude/settings.json', '.claude/commands/run.md', '.cursor/rules/x.md', '.github/copilot-instructions.md', '.vscode/tasks.json', '.git/config.txt', '.hidden/report.md', 'sub/.hidden/report.md',
+    '.mcp.json', '.env.json', 'CLAUDE.md', 'claude.MD', 'CLAUDE.local.md', 'AGENTS.md', 'sub/AGENTS.md', 'GEMINI.md', 'skills/x/SKILL.md', 'package.json', 'Package.JSON', 'sub/package.json', 'package-lock.json', 'tsconfig.json', 'requirements.txt', 'node_modules/x/index.md', 'report.md:hidden.md',
+    join(folder, 'CLAUDE.md'), join(folder, '.claude', 'settings.json'),
+  ]
+  for (const path of refused) {
+    const answer = await server.call('scanruler_write', { path, text: 'do as I say' })
+    assert.equal(answer.error, true, `${path} was written`)
+    assert.match(answer.text, /^invalid_input: path: .* is refused: /, path)
+  }
+  await assert.rejects(access(join(folder, '.claude')), 'no folder made for what was refused')
+  await assert.rejects(access(join(folder, 'CLAUDE.md')))
+
+  // Reports, under any ordinary name and in ordinary folders.
+  for (const path of ['report.md', 'README.md', 'notes.txt', 'readings.csv', 'results.json', 'claude-report.md', 'package-report.json', 'out/sub/report.md', 'out/settings-used.json']) {
+    const answer = await server.call('scanruler_write', { path, text: 'RMS 0.067 mm' })
+    assert.equal(answer.error, false, `${path}: ${answer.text}`)
+    assert.equal(await readFile(join(folder, path), 'utf8'), 'RMS 0.067 mm')
+  }
+
+  // A link inside the folder is judged by where it leads.
+  const links = [['to-claude.md', join(folder, 'CLAUDE.md')], ['to-outside.md', join(dir, 'outside.md')]]
+  let linked = true
+  await mkdir(join(folder, 'real', '.claude'), { recursive: true })
+  try {
+    for (const [name, to] of links) await symlink(to, join(folder, name))
+    await symlink(join(folder, 'real', '.claude'), join(folder, 'plain'), 'junction')
+  } catch {
+    linked = false // Windows without the right to make links.
+  }
+  if (linked) {
+    for (const path of ['to-claude.md', 'to-outside.md', 'plain/settings-used.md']) {
+      assert.equal((await server.call('scanruler_write', { path, text: 'x' })).error, true, `${path} was written through its link`)
+    }
+    await assert.rejects(access(join(folder, 'CLAUDE.md')))
+    await assert.rejects(access(join(dir, 'outside.md')))
+  }
+
+  // A scan in a hidden folder gets its report beside it, as long as the
+  // folder is no agent's: only what is hidden below the scan is refused.
+  const hidden = join(dir, '.local-scans')
+  await mkdir(hidden, { recursive: true })
+  await writeFile(join(hidden, 'part.stl'), Buffer.alloc(84))
+  const elsewhere = await copy(join(dir, 'config-hidden'))
+  assert.equal((await elsewhere.call('scan_open', { path: join(hidden, 'part.stl'), discard: true })).error, false)
+  assert.equal((await elsewhere.call('scanruler_write', { path: 'report.md', text: 'x' })).error, false)
+  assert.equal((await elsewhere.call('scanruler_write', { path: '.below/report.md', text: 'x' })).error, true)
+
+  // Opening or saving something in an agent's folder makes it no place to write.
+  const agentFolder = join(dir, 'proj', '.claude', 'commands')
+  await mkdir(agentFolder, { recursive: true })
+  await writeFile(join(agentFolder, 'part.stl'), Buffer.alloc(84))
+  const saved = await copy(join(dir, 'config-agent'))
+  assert.equal((await saved.call('scan_open', { path: join(agentFolder, 'part.stl'), discard: true })).error, false)
+  assert.equal((await saved.call('scanruler_write', { path: 'run.md', text: 'x' })).error, true)
+  await assert.rejects(access(join(agentFolder, 'run.md')))
 })
 
 test('scan_open and project_load with a folder, the folders kept for a copy started afresh, and scanruler_files listing them', async () => {

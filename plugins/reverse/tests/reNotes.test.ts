@@ -10,7 +10,7 @@ import { rigidFromAxisAngle } from '../../../src/core/deviation/rigid'
 import { useStore } from '../../../src/state/store'
 import { followPart, notesSection } from '../app/notesSection'
 import type { KernelMesh } from '../core/kernelTypes'
-import { moveNote, nearestOnBodies, nearestOnMesh, placeOnFace, triangleNormal, validateNotes, type Note } from '../core/notes'
+import { moveNote, nearestOnBodies, nearestOnMesh, notesForFile, notesFromFile, placeOnFace, triangleNormal, validateNotes, type Note } from '../core/notes'
 import type { FaceFingerprint } from '../core/topo'
 import { useNotes } from '../state/noteStore'
 
@@ -84,6 +84,15 @@ describe('the geometry of a note', () => {
     expect(validateNotes([note(1, { by: 'agent' })])[0].by).toBe('agent')
     expect(() => validateNotes([{ ...note(1), by: 'person' }])).toThrow(/by/)
   })
+
+  it('marks every note a file brings, whatever the file says of it, and writes no mark back', () => {
+    const read = notesFromFile(validateNotes([note(1), note(2, { by: 'agent' }), { ...note(3), fromFile: false } as unknown as Note]))
+    expect(read.map((n) => n.fromFile)).toEqual([true, true, true])
+    expect(moveNote(read[0], rigidFromAxisAngle([0, 0, 1], 1)).fromFile).toBe(true)
+    const written = notesForFile(read)
+    expect(written.some((n) => 'fromFile' in n)).toBe(false)
+    expect(written.map((n) => n.id)).toEqual([1, 2, 3])
+  })
 })
 
 describe('the notes in the session', () => {
@@ -145,7 +154,7 @@ describe('the notes in the session', () => {
     expect(saved).toEqual({ notes: [note(3), note(5, { done: true })] })
     useNotes.getState().load([])
     open(saved)
-    expect(useNotes.getState().notes).toEqual([note(3), note(5, { done: true })])
+    expect(useNotes.getState().notes).toEqual([note(3, { fromFile: true }), note(5, { done: true, fromFile: true })])
     // Another project of the same part — its scan under the same name — in
     // place of this one: its notes, and none from one without.
     useStore.setState({ fileName: 'lid.stl' })

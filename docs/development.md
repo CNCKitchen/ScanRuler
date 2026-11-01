@@ -2,6 +2,7 @@
 
 ```bash
 npm install
+npm --prefix mcp ci # the agent server's dependencies: its tests and the agent browser checks
 npm run dev       # local dev server
 npm test          # unit tests + ballbar.stl and deviation acceptance tests
 npm run build     # type-check + production build to dist/

@@ -69,6 +69,7 @@ import { FlatPanel } from './ui/FlatPanel'
 import { FlatViewer } from './ui/FlatViewer'
 import type { FlatScene } from './viewer/FlatScene'
 import { MapLegend, type LegendStat } from './ui/MapLegend'
+import { fetchSampleScan } from './app/sampleScan'
 import { StartPane, type StartSlot } from './ui/StartPane'
 import { CompareView } from './ui/CompareView'
 import { formatSigned } from './ui/format'
@@ -1538,6 +1539,10 @@ export default function App() {
   // over the thing the user came to see, and whatever else the workspace still
   // needs has its own row in the panel to say so.
   const needsModels = !fileName
+  const openSample = () =>
+    fetchSampleScan()
+      .then(openFile)
+      .catch((e: unknown) => useStore.setState({ errorText: e instanceof Error ? e.message : String(e) }))
 
   return (
     <div className="app">
@@ -1780,6 +1785,7 @@ export default function App() {
                       : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
               }
               slots={startSlots}
+              onOpenSample={openSample}
             />
           )}
           {(onDeviation || onThickness || Boolean(active?.hoverReadout)) && !picking && <HoverReadout register={registerHover} />}

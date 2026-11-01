@@ -12,6 +12,7 @@ import { useFlat } from '../state/flatStore'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { Icon } from './icons'
+import { modLabel } from './platform'
 
 export function UndoRedo() {
   const history = useHistory()
@@ -31,10 +32,10 @@ export function UndoRedo() {
   const hint = blocked ? 'Finish the active operation or close its editor first' : null
   return <div className="undokeys" data-test="undo-keys">
     <button className="ghost" data-test="undo" aria-label="Undo" disabled={!canUndo}
-      title={hint ?? `Undo${local ? ` ${local.label}` : history.past.at(-1) ? `: ${history.past.at(-1)!.label}` : ''} — Ctrl+Z`}
+      title={hint ?? `Undo${local ? ` ${local.label}` : history.past.at(-1) ? `: ${history.past.at(-1)!.label}` : ''} — ${modLabel}+Z`}
       onClick={() => void undo()}><Icon name="undo" size={16} /></button>
     <button className="ghost" data-test="redo" aria-label="Redo" disabled={!canRedo}
-      title={hint ?? `Redo${local ? ` ${local.label}` : history.future.at(-1) ? `: ${history.future.at(-1)!.label}` : ''} — Ctrl+Y / Ctrl+Shift+Z`}
+      title={hint ?? `Redo${local ? ` ${local.label}` : history.future.at(-1) ? `: ${history.future.at(-1)!.label}` : ''} — ${modLabel}+Y / ${modLabel}+Shift+Z`}
       onClick={() => void redo()}><Icon name="redo" size={16} /></button>
   </div>
 }

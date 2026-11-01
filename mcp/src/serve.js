@@ -14,6 +14,7 @@ import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { extname, join, normalize, resolve, sep } from 'node:path'
+import { pipeline } from 'node:stream'
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -46,7 +47,16 @@ export const HELLO_PATH = '/scanruler-mcp'
  *  line saying what this is, otherwise. */
 export function httpServer({ serve, allowOrigin = () => false, version = '' }) {
   const root = serve ? resolve(serve) : null
-  return createServer(async (req, res) => {
+  // A request this cannot answer gets a 500, not an unhandled rejection —
+  // which would end the process, and the agent's tools with it.
+  return createServer((req, res) =>
+    answer(req, res).catch(() => {
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    }),
+  )
+
+  async function answer(req, res) {
     const origin = req.headers.origin
     if ((req.url ?? '').split('?')[0] === HELLO_PATH) {
       const cors = origin && allowOrigin(origin)
@@ -69,7 +79,14 @@ export function httpServer({ serve, allowOrigin = () => false, version = '' }) {
       res.end('scanruler-mcp: waiting for the ScanRuler page. Switch on "Local agent connection" in ScanRuler’s Settings.\n')
       return
     }
-    let file = fileFor(root, req.url ?? '/')
+    let file
+    try {
+      file = fileFor(root, req.url ?? '/')
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error
+      res.writeHead(400).end()
+      return
+    }
     if (!file) {
       res.writeHead(404).end()
       return
@@ -89,6 +106,7 @@ export function httpServer({ serve, allowOrigin = () => false, version = '' }) {
       'cache-control': 'no-cache',
     })
     if (req.method === 'HEAD') res.end()
-    else createReadStream(file).pipe(res)
-  })
+    // A file gone or unreadable after the stat ends the response, not the server.
+    else pipeline(createReadStream(file), res, () => {})
+  }
 }

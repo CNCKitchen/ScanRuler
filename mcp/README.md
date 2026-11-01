@@ -321,7 +321,9 @@ for it), `scanruler_wait` (until a tab is connected, or also idle),
 of `scan_nearest` or `element_fit` calls — each answer in its place, stopped
 at the first refused unless told to go on), `scanruler_write` (a text
 file — `.md`, `.txt`, `.csv` or `.json`, a report say — written in the folder
-the server last opened a scan or a project from, and nowhere else) and
+the server last opened a scan or a project from, and nowhere else: not into
+hidden folders, and not as a file agents and tools take instructions or
+settings from, such as `CLAUDE.md`, `AGENTS.md` or `package.json`) and
 `scanruler_files` (that folder's files — name, size, kind — newest first), `scanruler_read` (a text file there, or an answer too long to carry wherever it was written, in parts: `{ text, offset, nextOffset, size }`, in bytes).
 The folders are kept beside `tools.json` (`folders.json`), so a server
 started afresh still writes and lists there, and `scanruler_status` lists

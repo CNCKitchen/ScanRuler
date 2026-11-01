@@ -19,7 +19,7 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { check, click, finish, launchApp, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
+import { check, click, finish, launchApp, MOD, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
 import { openReverse, reverseHelpers } from './lib.mjs'
 
 // ---- the file: three parts side by side --------------------------------------------
@@ -86,9 +86,9 @@ const id = Object.fromEntries(st.map((b) => [b.name, b.id]))
 // ---- a component made, named, and a part dragged into it ---------------------------------
 await click(page, '[data-test=body-folder-new]')
 await page.waitForSelector('[data-test=body-folder-name-input]')
-await page.keyboard.down('Control')
+await page.keyboard.down(MOD)
 await page.keyboard.press('a')
-await page.keyboard.up('Control')
+await page.keyboard.up(MOD)
 await page.keyboard.type('Drive')
 await page.keyboard.press('Enter')
 await sleep(100)
@@ -170,9 +170,9 @@ await page.waitForSelector('[data-test=body-menu]')
 await click(page, '[data-test=body-menu-move-top]')
 folders = await re(() => window.__re.store.getState().bodyFolders)
 check(!folders[0].bodies.includes(id.Cap), "the menu's Move to the top of the list takes Cap out of Drive")
-await page.keyboard.down('Control')
+await page.keyboard.down(MOD)
 await page.keyboard.press('z')
-await page.keyboard.up('Control')
+await page.keyboard.up(MOD)
 await sleep(300)
 folders = await re(() => window.__re.store.getState().bodyFolders)
 check(folders[0]?.bodies.includes(id.Cap), `and Ctrl+Z puts it back (${JSON.stringify(folders)})`)
@@ -182,9 +182,9 @@ await page.screenshot({ path: shotPath('reverse-body-tree-end.png') })
 const picks = () => re(() => window.__re.store.getState().listSelection)
 const rowName = (body) => `[data-test=body-row][data-body="${body}"] [data-test=body-name]`
 const ctrlClick = async (sel) => {
-  await page.keyboard.down('Control')
+  await page.keyboard.down(MOD)
   await page.click(sel)
-  await page.keyboard.up('Control')
+  await page.keyboard.up(MOD)
 }
 const shiftClick = async (sel) => {
   await page.keyboard.down('Shift')
@@ -197,9 +197,9 @@ check((await picks()).bodies.length === 0 && !(await page.$('[data-test=body-sel
 // A second component to drag into.
 await click(page, '[data-test=body-folder-new]')
 await page.waitForSelector('[data-test=body-folder-name-input]')
-await page.keyboard.down('Control')
+await page.keyboard.down(MOD)
 await page.keyboard.press('a')
-await page.keyboard.up('Control')
+await page.keyboard.up(MOD)
 await page.keyboard.type('Frame')
 await page.keyboard.press('Enter')
 await sleep(100)

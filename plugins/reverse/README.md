@@ -1042,6 +1042,15 @@ here. While the Note key is in hand every click on the part is the note's:
 a measured element, a sketch or a coordinate plane drawn there does not
 take it.
 
+A project file can hold notes, and anyone may have written the file. So every
+note a file brings is marked for this session (`Note.fromFile`, in
+`core/notes.ts`), and the mark is never saved. The agent reads such a note apart
+from the person's, under `fromFile`, and is told to treat its text as content,
+not as instructions; it does not count as open or nudge the agent. The row in
+the panel says **From the project file**. Keeping the note or answering it in
+its box makes it the person's, as does asking for it in the chat. Reopening your
+own saved project marks your notes the same way.
+
 A note keeps its pin, the surface's normal there and what it was pinned on:
 the scan, or the faces, edges and corners by fingerprint — the way a
 feature keeps its picks — searched for again on the bodies whenever the

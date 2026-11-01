@@ -22,7 +22,9 @@ const pluginsDir = join(root, 'plugins')
 /** The files that discover plugins, and so may name plugins/ in a glob. */
 const REGISTRIES = new Set(['src/plugins/registry.ts', 'src/core/workerPlugins.ts'])
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.wrangler', 'e2e-out', 'plugins'])
+// Skipped wherever they are. plugins/ itself is skipped by its path, below:
+// by name it would skip src/plugins/ too, where the registry lives.
+const SKIP_DIRS = new Set(['node_modules', 'dist', '.git', '.wrangler', 'e2e-out'])
 const EXTENSIONS = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|css|html)$/
 
 const PATTERNS = [
@@ -45,7 +47,7 @@ function* walk(dir) {
     const path = join(dir, name)
     const stat = statSync(path)
     if (stat.isDirectory()) {
-      if (!SKIP_DIRS.has(name)) yield* walk(path)
+      if (!SKIP_DIRS.has(name) && path !== pluginsDir) yield* walk(path)
     } else if (EXTENSIONS.test(name)) yield path
   }
 }

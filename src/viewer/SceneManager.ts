@@ -17,6 +17,7 @@ import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
 import { ExtendGrips, isPluginSide, isSectionSide, type GripSide, type PluginGrip } from './extendGrips'
 import { liftPoint } from '../core/section/lift'
+import { modHeld } from '../ui/platform'
 import { LAYER_ORDER, type SceneLayer, type SceneLayerHost } from './sceneLayers'
 import {
   Overlays,
@@ -455,7 +456,7 @@ export class SceneManager {
       // what it took and ends there, rather than being dragged across the part
       // by a hand that has started navigating.
       onMultiTouch: () => this.marking.endGesture(),
-      onClick: (x, y, e) => this.handleClick(x, y, e?.ctrlKey ?? false),
+      onClick: (x, y, e) => this.handleClick(x, y, modHeld(e)),
       // The stroke and hover queues are what decide whether this frame has
       // anything new to show at all.
       onTick: () => {
