@@ -11,9 +11,9 @@ import { chmod, copyFile, cp, mkdir, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { build } from 'esbuild'
 import { inject } from 'postject'
 import { build as buildApp } from 'vite'
+import { bundleServer } from './lib/bundle-server'
 
 /** The sentinel Node looks for to know a blob is injected; fixed by Node (doc/api/single-executable-applications.md). */
 const SEA_FUSE = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2'
@@ -32,17 +32,7 @@ execFileSync(process.execPath, [join(root, 'scripts', 'build-engine.mjs'), '--st
 await buildApp({ root, logLevel: 'warn' })
 
 const script = join(work, 'server.cjs')
-await build({
-  entryPoints: [join(root, 'mcp', 'bin', 'standalone.js')],
-  bundle: true,
-  platform: 'node',
-  format: 'cjs',
-  target: 'node22',
-  outfile: script,
-  logLevel: 'warning',
-  define: { 'import.meta.url': '__executableUrl' },
-  banner: { js: "const __executableUrl = require('node:url').pathToFileURL(process.execPath).href;" },
-})
+await bundleServer({ entry: join(root, 'mcp', 'bin', 'standalone.js'), outfile: script })
 
 const config = join(work, 'sea-config.json')
 const blob = join(work, 'server.blob')
