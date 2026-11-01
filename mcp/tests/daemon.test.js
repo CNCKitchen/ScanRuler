@@ -61,10 +61,11 @@ test('start spawns a detached copy with --daemon, waits for its port, and does n
     return { unref() { answers = true } }
   }
   const probeImpl = async () => answers
-  const first = await start({ executable: '/bin/scanruler', args: ['--serve', '/app'], port: 7317, dir, spawnImpl, probeImpl, sleep: noSleep })
+  const first = await start({ executable: '/bin/scanruler', leading: ['server.cjs'], args: ['--serve', '/app'], env: { ELECTRON_RUN_AS_NODE: '1' }, port: 7317, dir, spawnImpl, probeImpl, sleep: noSleep })
   assert.equal(first.started, true)
   assert.equal(spawned.length, 1)
-  assert.deepEqual(spawned[0].argv, ['--daemon', '--port', '7317', '--serve', '/app'])
+  assert.deepEqual(spawned[0].argv, ['server.cjs', '--daemon', '--port', '7317', '--serve', '/app'])
+  assert.deepEqual(spawned[0].options.env, { ELECTRON_RUN_AS_NODE: '1' })
   assert.equal(spawned[0].options.detached, true)
   assert.equal(spawned[0].options.stdio, 'ignore')
   writeState({ pid: 5, port: 7317, version: '1' }, dir)

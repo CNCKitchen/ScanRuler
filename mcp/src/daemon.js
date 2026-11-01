@@ -70,7 +70,9 @@ export async function status({ port, dir = configDir(), probeImpl = probe } = {}
 /**
  * @typedef {Object} StartOptions
  * @property {string} executable The program to run: the bundled executable, or Electron to run as Node.
+ * @property {string[]} [leading] Arguments before `--daemon`: a script for a program that runs scripts.
  * @property {string[]} [args] Arguments after `--daemon --port <n>`.
+ * @property {NodeJS.ProcessEnv} [env] The environment of the detached process.
  * @property {number} port The port to hold.
  * @property {string} [dir] The config directory.
  * @property {typeof spawn} [spawnImpl] Starts the process; a test stands in for it.
@@ -78,13 +80,13 @@ export async function status({ port, dir = configDir(), probeImpl = probe } = {}
  * @property {(ms: number) => Promise<void>} [sleep] Pauses between looks; a test stands in for it.
  */
 /**
- * Starts the background server as a detached process that outlives the caller, unless one already answers, and resolves once it does. Rejects, saying which, when it does not within START_TIMEOUT_MS.
+ * Starts the background server as a detached process that outlives the caller, unless one already answers, and resolves once it does. `leading` arguments come before `--daemon` (a script for an executable that runs scripts, such as Electron running as Node with `env` carrying ELECTRON_RUN_AS_NODE). Rejects, saying which, when it does not within START_TIMEOUT_MS.
  * @param {StartOptions} options
  */
-export async function start({ executable, args = [], port, dir = configDir(), spawnImpl = spawn, probeImpl = probe, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export async function start({ executable, leading = [], args = [], env = process.env, port, dir = configDir(), spawnImpl = spawn, probeImpl = probe, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   const running = await status({ port, dir, probeImpl })
   if (running.running) return { started: false, ...running }
-  const child = spawnImpl(executable, ['--daemon', '--port', String(port), ...args], { detached: true, stdio: 'ignore', windowsHide: true })
+  const child = spawnImpl(executable, [...leading, '--daemon', '--port', String(port), ...args], { detached: true, stdio: 'ignore', windowsHide: true, env })
   child.unref()
   for (let waited = 0; waited < START_TIMEOUT_MS; waited += START_POLL_MS) {
     if (await probeImpl(port)) return { started: true, ...(await status({ port, dir, probeImpl })) }
