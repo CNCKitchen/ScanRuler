@@ -51,6 +51,10 @@ export interface HistorySection<T = unknown> {
    *  default; or by the captured value's identity, for a value that is
    *  replaced whole and never edited in place. */
   compare?: 'fields' | 'identity'
+  /** The memory a captured value holds, for a section whose values are big
+   *  buffers: the history is then bounded by HISTORY_BYTE_BUDGET as well as
+   *  by its count of steps. */
+  bytes?(value: T): number
 }
 
 /** A store's actions that are each one step of the history, labelled
@@ -114,6 +118,9 @@ interface Entry { before: HistoryPatch; after: HistoryPatch; label: string; work
 interface HistoryState { past: Entry[]; future: Entry[]; restoring: boolean; importing: boolean; revision: number }
 export const useHistory = create<HistoryState>(() => ({ past: [], future: [], restoring: false, importing: false, revision: 0 }))
 const LIMIT = 64
+/** The most the steps kept may hold of the values sections weigh (see
+ *  HistorySection.bytes): a few copies of a large mesh, not 64 of them. */
+export const HISTORY_BYTE_BUDGET = 1024 ** 3
 const actionLabels: Record<string, string> = {
   commitDraft: 'save element', commitDimension: 'save dimension', commitDim: 'save dimension',
   commitSection: 'save section', resolveAlign: 'best-fit alignment', addPickPoint: 'add alignment pair',
@@ -162,8 +169,30 @@ function record(before: HistorySnapshot, after: HistorySnapshot, label: string, 
     if (group && !state.future.length && last?.group === group && last.workspace === workspace) {
       return { past: [...state.past.slice(0, -1), { ...last, before: { ...previous, ...last.before }, after: { ...last.after, ...next } }], future: [] }
     }
-    return { past: [...state.past.slice(-(LIMIT - 1)), entry], future: [] }
+    return { past: withinBudget([...state.past.slice(-(LIMIT - 1)), entry]), future: [] }
   })
+}
+
+/** The newest of `past` whose weighed values stay within the byte budget —
+ *  each value counted once, as neighbouring steps share it by identity —
+ *  and always the newest step itself. */
+function withinBudget(past: Entry[]): Entry[] {
+  const weighed = participants.flatMap((p) => p.sections ?? []).filter((s) => s.bytes)
+  if (!weighed.length) return past
+  const seen = new Set<unknown>()
+  let total = 0
+  for (let i = past.length - 1; i >= 0; i--) {
+    for (const side of [past[i].before, past[i].after]) {
+      for (const s of weighed) {
+        const value = side[s.key]
+        if (value === undefined || value === null || seen.has(value)) continue
+        seen.add(value)
+        total += s.bytes!(value)
+      }
+    }
+    if (total > HISTORY_BYTE_BUDGET && i < past.length - 1) return past.slice(i + 1)
+  }
+  return past
 }
 
 /** Wrap a user command, including nested store actions, as a single step. */
