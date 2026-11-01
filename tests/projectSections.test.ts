@@ -37,6 +37,16 @@ describe('parts of a project no plugin here owns', () => {
     expect(back.members.map((m) => m.name)).toContain('future/widget.bin')
   })
 
+  it('never write over a file the session saves itself', () => {
+    // A project with no scan of its own can carry a file under the name the
+    // scan is saved as; once the user loads a scan, the scan must win.
+    const manifest = { ...saved({ future: { widgets: [] } }), scan: null }
+    keepUnownedParts(manifest, new Map([['scan.stl', new Uint8Array([6, 6, 6])]]))
+    const back = collectProject(sources(), null, 'test')
+    const scans = back.members.filter((m) => m.name === 'scan.stl')
+    expect(scans.map((m) => [...m.bytes])).toEqual([[1, 2, 3]])
+  })
+
   it('count as something to save, even with nothing else', () => {
     expect(projectHasContent(emptySources())).toBe(false)
     keepUnownedParts(saved({ future: { widgets: [] } }), new Map())

@@ -1167,3 +1167,27 @@ export const useFlat = create<FlatState>()((set, get) => ({
       return { profiles }
     }),
 }))
+
+/** Settles once the edge detection running from `from` is over: its edges
+ *  found or failed, or its image replaced, which leaves its answer to no one.
+ *  A detection can also never finish, so the wait is given up on, and the
+ *  store let go of, when `signal` aborts. */
+export function edgesSettled(from: Pick<FlatState, 'edgeVersion' | 'imageVersion'>, signal?: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason)
+    const done = () => {
+      stop()
+      signal?.removeEventListener('abort', abort)
+    }
+    const abort = () => {
+      done()
+      reject(signal!.reason)
+    }
+    const stop = useFlat.subscribe((s) => {
+      if (s.edgeVersion === from.edgeVersion && s.imageVersion === from.imageVersion) return
+      done()
+      resolve()
+    })
+    signal?.addEventListener('abort', abort)
+  })
+}

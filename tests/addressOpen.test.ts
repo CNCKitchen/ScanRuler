@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { describe, expect, it } from 'vitest'
-import { openFromAddress, workspaceFromAddress } from '../src/app/addressOpen'
+import { afterEach, describe, expect, it } from 'vitest'
+import { fetchAddressFile, openFromAddress, workspaceFromAddress } from '../src/app/addressOpen'
 
 const PAGE = 'https://scanruler.example/'
 const STORE = 'https://files.example/'
@@ -80,5 +80,38 @@ describe('workspaceFromAddress', () => {
     expect(workspaceFromAddress({ search: '?workspace=' })).toBeNull()
     expect(workspaceFromAddress({ search: '?workspace=deviation' })).toBe('deviation')
     expect(workspaceFromAddress({ search: '?open=https://h.example/a.stl&workspace=%20Thickness' })).toBe('thickness')
+  })
+})
+
+describe('fetchAddressFile', () => {
+  const realFetch = globalThis.fetch
+  afterEach(() => { globalThis.fetch = realFetch })
+  const target = { url: 'https://host.example/big.stl', name: 'big.stl' }
+
+  it('refuses a file the server says is too large, before reading it', async () => {
+    globalThis.fetch = async () => new Response(new Uint8Array(8), { headers: { 'content-length': '2000' } })
+    await expect(fetchAddressFile(target, 1000)).rejects.toThrow(/too large/)
+  })
+
+  it('stops reading a body that runs past the cap', async () => {
+    // A body with no length that keeps coming: the read stops at the cap
+    // rather than at the end, which an endless one never reaches.
+    let sent = 0
+    const long = new ReadableStream<Uint8Array>({
+      pull: (c) => {
+        sent += 100
+        c.enqueue(new Uint8Array(100))
+        if (sent >= 100_000) c.close()
+      },
+    })
+    globalThis.fetch = async () => new Response(long)
+    await expect(fetchAddressFile(target, 1000)).rejects.toThrow(/too large/)
+    expect(sent).toBeLessThan(5000)
+  })
+
+  it('reads a file within the cap', async () => {
+    globalThis.fetch = async () => new Response(new Uint8Array([1, 2, 3]))
+    const file = await fetchAddressFile(target, 1000)
+    expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([1, 2, 3])
   })
 })
