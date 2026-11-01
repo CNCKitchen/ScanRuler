@@ -1,0 +1,81 @@
+{
+  "name": "scanruler-desktop",
+  "version": "0.1.0",
+  "description": "ScanRuler desktop shell (Electron)",
+  "main": "main.js",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/smoke.mjs && node test/creality.mjs",
+    "dist": "electron-builder --win dir"
+  },
+  "build": {
+    "appId": "local.scanruler.desktop",
+    "productName": "ScanRuler",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "preload-main.cjs",
+      "settings.js",
+      "creality.js",
+      "i18n.js",
+      "i18n/*.json",
+      "hardware.html",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "scanruler-mcp.cmd", "to": "../scanruler-mcp.cmd" },
+      { "from": "agent-bridge.mjs", "to": "agent-bridge.mjs" },
+      {
+        "from": "../dist",
+        "to": "app-dist"
+      },
+      {
+        "from": "../mcp",
+        "to": "mcp",
+        "filter": [
+          "**/*",
+          "!tests/**"
+        ]
+      },
+      {
+        "from": "../mcp/node_modules",
+        "to": "mcp/node_modules"
+      }
+    ],
+    "win": {
+      "target": "dir"
+    },
+    "fileAssociations": [
+      {
+        "ext": "scanruler",
+        "name": "ScanRuler project"
+      },
+      {
+        "ext": "stl",
+        "name": "STL mesh"
+      },
+      {
+        "ext": "ply",
+        "name": "PLY mesh"
+      },
+      {
+        "ext": "obj",
+        "name": "OBJ mesh"
+      },
+      {
+        "ext": "3mf",
+        "name": "3MF mesh"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "puppeteer-core": "^25.16.0"
+  }
+}

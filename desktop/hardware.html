@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<meta charset="utf-8">
+<title>ScanRuler — Hardware</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 20px; background: #15171a; color: #e6e8eb }
+  h1 { font-size: 16px; margin: 0 0 12px }
+  table { border-collapse: collapse; width: 100% }
+  td { padding: 4px 8px; border-bottom: 1px solid #2b2f35; vertical-align: top }
+  td:first-child { color: #9aa3ad; width: 200px }
+  select, button { font: inherit; padding: 4px 8px }
+  .row { margin: 14px 0; display: flex; gap: 8px; align-items: center }
+  .warn { color: #e0b050 }
+</style>
+<h1>Hardware</h1>
+<table id="t"></table>
+<div class="row">
+  <label for="b">Graphics backend:</label>
+  <select id="b"></select>
+  <button id="r">Restart to apply</button>
+</div>
+<p class="warn" id="note"></p>
+<script>
+const $ = (id) => document.getElementById(id)
+const row = (k, v) => `<tr><td>${k}</td><td>${String(v).replace(/[<&]/g, (c) => ({ '<': '&lt;', '&': '&amp;' })[c])}</td></tr>`
+async function load() {
+  const i = await hw.info()
+  $('t').innerHTML = [
+    row('GPU', i.gpus.join(' | ') || '—'),
+    row('ANGLE backend chosen', i.backendLabel),
+    row('ANGLE backend running', i.angleActive || '—'),
+    row('WebGL2 / renderer', i.page.renderer || '—'),
+    row('WebGPU', i.page.webgpu),
+    row('CPU (threads)', `${i.cpu} — ${i.page.threads} logical threads`),
+    row('Cross-origin isolation (WASM threads)', i.page.isolated ? 'yes' : 'no'),
+    row('NPU / WebNN', i.page.webnn ? 'available' : 'unavailable'),
+    row('Electron / Chromium', i.versions),
+  ].join('')
+  $('b').innerHTML = Object.entries(i.backends).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')
+  $('b').value = i.backend
+  $('note').textContent = i.backend !== i.backendRunning ? 'Backend changed: restart to apply.' : ''
+}
+$('b').onchange = async () => { await hw.setBackend($('b').value); load() }
+$('r').onclick = () => hw.restart()
+load()
+</script>
