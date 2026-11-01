@@ -75,7 +75,7 @@ after(async () => {
 })
 
 /** A copy of the server on its own port, the fake page connected to it. */
-async function copy({ answerWithinMs = LIMIT_MS } = {}) {
+async function copy({ answerWithinMs = LIMIT_MS, answers = answer } = {}) {
   const link = new PageLink({ token: TOKEN })
   const http = httpServer({})
   link.attach(http)
@@ -84,7 +84,7 @@ async function copy({ answerWithinMs = LIMIT_MS } = {}) {
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0.0.0' })
   await Promise.all([server.connect(a), client.connect(b)])
-  const { page } = await fakePage(http.address().port, { token: TOKEN, commands: COMMANDS, answer })
+  const { page } = await fakePage(http.address().port, { token: TOKEN, commands: COMMANDS, answer: answers })
   let closed = false
   const close = async () => {
     if (closed) return
@@ -100,7 +100,7 @@ async function copy({ answerWithinMs = LIMIT_MS } = {}) {
     const text = r.content[0].text
     return { error: r.isError === true, text, json: r.isError ? null : JSON.parse(text), images: r.content.filter((c) => c.type === 'image') }
   }
-  return { client, call, page, close }
+  return { client, call, page, close, link }
 }
 
 /** scanruler_wait for a job, called again while it says running. */
@@ -295,4 +295,20 @@ test('an answer limit or a wait too long for a timer still waits, as does a wait
     assert.equal(waited.json.state, 'done', `timeoutSeconds ${timeoutSeconds}`)
   }
   await two.close()
+})
+
+test('a page that never answers: a read, a wait for idle and a wait for a job of another copy answer within the limit, and nothing is left waiting', async () => {
+  const one = await copy({ answerWithinMs: 300, answers: () => new Promise(() => {}) })
+  for (const [name, args] of [
+    ['session_state', {}],
+    ['scanruler_wait', { for: 'idle', timeoutSeconds: 1 }],
+    ['scanruler_wait', { for: 'job', job: 'j9-zzzz', timeoutSeconds: 1 }],
+  ]) {
+    const at = Date.now()
+    const r = await Promise.race([one.call(name, args), new Promise((resolve) => setTimeout(() => resolve('still waiting'), 2000))])
+    assert.notEqual(r, 'still waiting', `${name} ${JSON.stringify(args)}`)
+    assert.ok(Date.now() - at < 1000, `${name} answered after ${Date.now() - at} ms`)
+  }
+  assert.equal(one.link.pending.size, 0)
+  await one.close()
 })

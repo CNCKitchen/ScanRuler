@@ -151,10 +151,10 @@ export class SharedLink extends EventEmitter {
     return this.role === 'relay' ? (this.peer?.holderVersion ?? null) : undefined
   }
 
-  run(name, input, binaryKey, onProgress, job, deferred = false) {
+  run(name, input, binaryKey, onProgress, job, deferred = false, timeoutMs) {
     const link = this.current
     if (!link) return Promise.reject({ code: 'unavailable', message: 'No ScanRuler page is connected.' })
-    return link.run(name, input, binaryKey, onProgress, job, deferred)
+    return link.run(name, input, binaryKey, onProgress, job, deferred, timeoutMs)
   }
 
   waitForPage(timeoutMs) {
