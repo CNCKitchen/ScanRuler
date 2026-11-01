@@ -269,6 +269,9 @@ describe('the Mesh Tools settings', () => {
     expect(scanEditText({ kind: 'cut', plane: 'XY plane, Z 0.5 mm', removed: 10, capped: 1, open: 0 })).toBe(
       'Cut at XY plane, Z 0.5 mm, closed flat',
     )
+    // An offset String() writes in exponent form is named again whole.
+    expect(scanEditText({ kind: 'cut', plane: 'XY plane, Z 1e-7 mm', removed: 1, capped: 0, open: 0 }, 'in')).toBe('Cut at XY plane, Z 0 in')
+    expect(scanEditText({ kind: 'cut', plane: 'XY plane, Z 2.54e+1 mm', removed: 1, capped: 0, open: 0 }, 'in')).toBe('Cut at XY plane, Z 1 in')
     expect(scanEditText({ kind: 'fill', maxSize: 5, mode: 'curved', holes: 1, triangles: 40 })).toBe('Filled 1 hole under 5 mm')
     expect(scanEditFigure({ kind: 'fill', maxSize: 5, mode: 'flat', holes: 3, triangles: 40 })).toBe('+40 △')
     expect(scanEditText({ kind: 'smooth', size: 1, limit: 0.2, maxMove: 0.031 })).toBe('Smoothed bumps under 1 mm, within 0.2 mm')

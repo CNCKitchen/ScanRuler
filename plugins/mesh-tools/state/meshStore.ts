@@ -719,7 +719,9 @@ const count = (n: number) => n.toLocaleString('en-US')
  *  named again. */
 function cutPlaneText(plane: string, units: DisplayUnits): string {
   if (units === 'mm') return plane
-  return plane.replace(/(\d+(?:\.\d+)?) mm$/, (_, v: string) => typedLen(Number(v), units))
+  // String() writes a very small or very large offset in exponent form
+  // ("1e-7"), and the whole figure has to be read, not just its exponent.
+  return plane.replace(/(\d+(?:\.\d+)?(?:e[+-]?\d+)?) mm$/, (_, v: string) => typedLen(Number(v), units))
 }
 
 /** One line of the list of edits, as the panel shows it — its lengths in
