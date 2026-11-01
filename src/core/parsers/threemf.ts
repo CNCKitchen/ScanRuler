@@ -26,6 +26,7 @@
 
 import { unzipSync, strFromU8 } from 'fflate'
 import { checkTextSize } from './text'
+import { ZipTooLargeError, limitedFilter } from './zipLimit'
 import type { ParsedMesh } from '../types'
 import { baseName, sampleTexture, type ObjCompanions, type TextureImage } from './objTexture'
 
@@ -401,8 +402,9 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   onProgress?.('Reading 3MF…')
   let zipped: Record<string, Uint8Array>
   try {
-    zipped = unzipSync(new Uint8Array(buffer), { filter: (f) => /\.(model|rels|config)$/i.test(f.name) })
-  } catch {
+    zipped = unzipSync(new Uint8Array(buffer), { filter: limitedFilter((name) => /\.(model|rels|config)$/i.test(name)) })
+  } catch (error) {
+    if (error instanceof ZipTooLargeError) throw error
     throw new Error('This 3MF could not be unzipped — the file is damaged or not a 3MF.')
   }
   const files: Record<string, Uint8Array> = {}

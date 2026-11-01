@@ -10,6 +10,7 @@
 // them, and are read where the scan is prepared.
 
 import { unzipSync } from 'fflate'
+import { limitedFilter } from '../core/parsers/zipLimit'
 import { is3mfFile, isModelFile, isTextureFile } from '../core/formats'
 import type { ObjCompanions, TextureImage } from '../core/parsers/objTexture'
 
@@ -98,7 +99,7 @@ export async function scanCompanions(name: string, bytes: Uint8Array, extras: re
   if (!is3mfFile(name)) return readCompanions(extras)
   let packed: Record<string, Uint8Array>
   try {
-    packed = unzipSync(bytes, { filter: (f) => /\.(png|jpe?g)$/i.test(f.name) && !/^\/?metadata\//i.test(f.name) })
+    packed = unzipSync(bytes, { filter: limitedFilter((name) => /\.(png|jpe?g)$/i.test(name) && !/^\/?metadata\//i.test(name)) })
   } catch {
     return undefined // the worker says what is wrong with the file
   }
