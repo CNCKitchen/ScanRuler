@@ -17,6 +17,19 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 1500,
+    // The libraries change far less often than the app, so each gets a chunk
+    // of its own that a browser keeps cached across releases, and the app's
+    // own chunk is the only large one a new version makes it fetch again.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined
+          if (/node_modules[\\/](three|three-mesh-bvh)[\\/]/.test(id)) return 'three'
+          if (/node_modules[\\/](react|react-dom|scheduler|zustand)[\\/]/.test(id)) return 'react'
+          return undefined
+        },
+      },
+    },
   },
   // The workers are module workers already (`type: 'module'` everywhere they
   // are made), and a worker may load a large package with a dynamic import
