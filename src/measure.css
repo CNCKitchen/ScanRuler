@@ -119,7 +119,8 @@
 .design-measure .strip button { min-height: 24px; }
 .design-measure .stagecorner .supportcard { max-width: 260px; }
 .design-measure .hintchip { top: 76px; bottom: auto; border: 1px solid var(--line); border-radius: 7px; font: 12px/18px var(--ui); max-width: calc(100% - 24px); }
-.design-measure .startpane { max-width: 480px; padding: 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: none; }
+.design-measure .startpane { max-width: none; justify-content: safe center; overflow-y: auto; padding: 76px 24px 112px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: none; }
+.design-measure .startpane > * { flex-shrink: 0; }
 .design-measure .starthead b { font: 600 28px/36px var(--ui); text-transform: none; }
 .design-measure .starthead span { font: 14px/20px var(--ui); color: var(--dim); }
 .design-measure .starttile { border-radius: 7px; background: var(--chassis); }
@@ -156,7 +157,7 @@
   .measure-actions button svg { display: none; }
   .design-measure .strip > div:not(.msg), .design-measure .strip a, .design-measure .stripimprint { display: none; }
   .design-measure .strip .msg { font-size: 12px; padding: 0 8px; }
-  .design-measure .startpane { width: calc(100% - 24px); padding: 16px; max-height: calc(100% - 88px); overflow-y: auto; }
+  .design-measure .startpane { padding: 68px 16px 112px; scroll-padding-block: 68px 112px; max-height: calc(100% - 88px); overflow-y: auto; }
   .design-measure .starthead b { font-size: 20px; line-height: 28px; }
   .design-measure .stagecorner { max-width: calc(100% - 16px); }
   .design-measure .hintchip { top: 68px; }
