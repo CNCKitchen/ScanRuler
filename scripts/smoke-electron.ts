@@ -12,11 +12,10 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { START_TIMEOUT_MS, status, stop } from '../mcp/src/daemon.js'
 import { SMOKE_TIMEOUT_MS } from '../electron/shell'
+import { thisTarget } from './lib/target'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const platform = process.platform
-if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32') throw new Error(`there is no desktop app for ${platform}`)
-const target = `${platform}-${process.arch}`
+const { platform, name: target } = thisTarget()
 const appDir = join(root, 'dist-electron', target, `ScanRuler-${target}`)
 const executables = { darwin: join('ScanRuler.app', 'Contents', 'MacOS', 'ScanRuler'), win32: 'ScanRuler.exe', linux: 'ScanRuler' }
 const exe = join(appDir, executables[platform])

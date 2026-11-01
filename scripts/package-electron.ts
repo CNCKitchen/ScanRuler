@@ -12,6 +12,8 @@ import { Resvg } from '@resvg/resvg-js'
 import { build } from 'esbuild'
 import { build as buildApp } from 'vite'
 import { bundleServer } from './lib/bundle-server'
+import { packageField } from './lib/package'
+import { thisTarget } from './lib/target'
 
 /** The app's name: its bundle (ScanRuler.app), its executable and its window. */
 const APP_NAME = 'ScanRuler'
@@ -26,30 +28,13 @@ const TRAY_SOURCE_PX = 64
 const ICON_POINTS = [16, 32, 128, 256, 512]
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-/** The platforms and architectures Electron publishes builds for, narrowed from Node's wider types. */
-function platformOf(platform: NodeJS.Platform): 'darwin' | 'linux' | 'win32' {
-  if (platform === 'darwin' || platform === 'linux' || platform === 'win32') return platform
-  throw new Error(`there is no desktop app for ${platform}`)
-}
-function archOf(arch: NodeJS.Architecture): 'x64' | 'arm64' {
-  if (arch === 'x64' || arch === 'arm64') return arch
-  throw new Error(`there is no desktop app for ${arch}`)
-}
-const platform = platformOf(process.platform)
-const arch = archOf(process.arch)
-const target = `${platform}-${arch}`
+const { platform, arch, name: target } = thisTarget()
 const outDir = join(root, 'dist-electron', target)
 const stage = join(outDir, 'stage')
 const resources = join(outDir, 'resources')
 const markSvg = await readFile(join(root, 'public', 'scanruler-mark.svg'))
-/** The `version` of a package.json, which a build cannot go on without. */
-async function versionOf(file: string): Promise<string> {
-  const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
-  if (typeof parsed === 'object' && parsed !== null && 'version' in parsed && typeof parsed.version === 'string') return parsed.version
-  throw new Error(`${file} has no version`)
-}
-const version = await versionOf(join(root, 'package.json'))
-const electronVersion = await versionOf(join(root, 'node_modules', 'electron', 'package.json'))
+const version = await packageField(join(root, 'package.json'), 'version')
+const electronVersion = await packageField(join(root, 'node_modules', 'electron', 'package.json'), 'version')
 
 const render = (width: number): Buffer => new Resvg(markSvg, { fitTo: { mode: 'width', value: width } }).render().asPng()
 
