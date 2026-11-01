@@ -7,7 +7,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
-    "test": "node test/smoke.mjs && node test/creality.mjs",
+    "test": "node test/dicts.mjs && node test/smoke.mjs && node test/creality.mjs",
     "dist": "electron-builder --win dir"
   },
   "build": {

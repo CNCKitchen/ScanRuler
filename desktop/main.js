@@ -8,14 +8,8 @@ import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { cpus } from 'node:os'
 import { BACKENDS, gpuSwitches, loadSettings, saveSettings } from './settings.js'
-import { LANGUAGES, injectScript, loadDict } from './i18n.js'
+import { LANGUAGES, hwOf, injectScript, loadDict, menuOf } from './i18n.js'
 import { meshOfProject, watchMeshes } from './creality.js'
-
-// Native menu text; the page's own text goes through i18n.js.
-const MENU = {
-  'pt-BR': { file: 'Arquivo', open: 'Abrir scan…', quit: 'Sair', view: 'Exibir', help: 'Ajuda', hardware: 'Hardware…', language: 'Idioma', watch: 'Observar pasta do Creality Scan…', unwatch: 'Parar de observar o Creality Scan', fresh: 'Novo Mesh.ply do projeto', openIt: 'Abrir no ScanRuler', ignore: 'Ignorar' },
-  en: { file: 'File', open: 'Open scan…', quit: 'Quit', view: 'View', help: 'Help', hardware: 'Hardware…', language: 'Language', watch: 'Watch Creality Scan folder…', unwatch: 'Stop watching Creality Scan', fresh: 'New Mesh.ply from project', openIt: 'Open in ScanRuler', ignore: 'Ignore' },
-}
 
 const here = dirname(fileURLToPath(import.meta.url))
 const DEFAULT_PORT = 7317
@@ -84,7 +78,7 @@ function watchCreality(dir) {
         if (asking) return
         asking = true
         try {
-          const m = MENU[settings.language]
+          const m = menuOf(settings.language)
           const r = await dialog.showMessageBox(main ?? undefined, { type: 'question', message: `${m.fresh} “${project}”`, detail: path, buttons: [m.openIt, m.ignore], defaultId: 0, cancelId: 1 })
           if (r.response === 0) await openFile(path)
         } catch (e) {
@@ -134,7 +128,7 @@ async function startServer() {
   link.start()
   if ((await Promise.race([role, new Promise((r) => setTimeout(() => r('timeout'), 4000))])) !== 'holder') {
     throw new Error(
-      `A porta ${port} já está em uso por outro scanruler-mcp ou programa. Feche-o ou defina SCANRULER_MCP_PORT.`,
+      `Port ${port} is held by another scanruler-mcp or program. Close it, or set SCANRULER_MCP_PORT.`,
     )
   }
   pairingUrl = `http://127.0.0.1:${port}/#agent=${port}:${token}`
@@ -170,7 +164,7 @@ function setLanguage(language) {
 }
 
 function buildMenu() {
-  const m = MENU[settings.language]
+  const m = menuOf(settings.language)
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
@@ -213,9 +207,11 @@ function createWindow() {
     width: 1500,
     height: 950,
     backgroundColor: '#15171a',
-    title: 'ScanRuler',
+    // The 3D API in use is always in sight; Help → Hardware has the detail.
+    title: `ScanRuler — ${BACKENDS[backendRunning].name}`,
     webPreferences: { preload: join(here, 'preload-main.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false },
   })
+  main.on('page-title-updated', (e) => e.preventDefault())
   main.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   main.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith('http://127.0.0.1:')) e.preventDefault()
@@ -237,15 +233,16 @@ function createWindow() {
 async function pageProbe() {
   if (!main) return {}
   return main.webContents.executeJavaScript(`(async () => {
-    const out = { threads: navigator.hardwareConcurrency, isolated: crossOriginIsolated, webnn: !!navigator.ml, webgpu: 'indisponível' }
+    // webgpu / renderer: a description, true for present without one, false for absent.
+    const out = { threads: navigator.hardwareConcurrency, isolated: crossOriginIsolated, webnn: !!navigator.ml, webgpu: false, renderer: false }
     try {
       const a = navigator.gpu && (await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }))
-      if (a) { const i = a.info ?? {}; out.webgpu = [i.vendor, i.architecture, i.description].filter(Boolean).join(' ') || 'disponível' }
+      if (a) { const i = a.info ?? {}; out.webgpu = [i.vendor, i.architecture, i.description].filter(Boolean).join(' ') || true }
     } catch {}
     try {
       const gl = new OffscreenCanvas(1, 1).getContext('webgl2')
       const x = gl && gl.getExtension('WEBGL_debug_renderer_info')
-      out.renderer = gl ? (x ? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : 'WebGL2') : 'sem WebGL2'
+      out.renderer = gl ? (x ? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : true) : false
     } catch {}
     return out
   })()`)
@@ -255,7 +252,7 @@ function showHardware() {
   const w = new BrowserWindow({
     width: 760,
     height: 520,
-    title: 'ScanRuler — Hardware',
+    title: `ScanRuler — ${hwOf(settings.language).title}`,
     parent: main ?? undefined,
     webPreferences: { preload: join(here, 'preload.cjs'), contextIsolation: true, sandbox: true },
   })
@@ -268,6 +265,7 @@ ipcMain.handle('project:open', (e, path) => {
   openFile(path).catch((err) => dialog.showErrorBox('ScanRuler', String(err.message ?? err)))
 })
 ipcMain.handle('hw:info', async () => {
+  const hw = hwOf(settings.language)
   const gpu = await app.getGPUInfo('complete').catch(() => ({}))
   const gpus = (gpu.gpuDevice ?? []).map((d) => `${d.deviceString ?? '?'} (vendor 0x${(d.vendorId ?? 0).toString(16)})`)
   angleActive = gpu.auxAttributes?.glImplementationParts ?? gpu.auxAttributes?.glRenderer ?? angleActive
@@ -275,8 +273,8 @@ ipcMain.handle('hw:info', async () => {
     gpus,
     backend: settings.backend,
     backendRunning,
-    backendLabel: BACKENDS[backendRunning].label,
-    backends: Object.fromEntries(Object.entries(BACKENDS).map(([k, v]) => [k, v.label])),
+    backends: Object.fromEntries(Object.entries(BACKENDS).map(([k, v]) => [k, `${v.name} (${hw[v.tag]})`])),
+    strings: hw,
     angleActive,
     cpu: cpus()[0]?.model.trim() ?? '?',
     page: await pageProbe(),
@@ -320,6 +318,7 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => app.quit())
 app.on('before-quit', () => {
   link?.close()
+  http?.close()
   try {
     unlinkSync(agentFile())
   } catch {}

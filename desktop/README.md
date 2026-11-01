@@ -10,7 +10,7 @@ cd desktop
 npm install
 npm start        # runs the app from the checkout
 npm run dist     # packages release/win-unpacked/ScanRuler.exe
-npm test         # smoke (isolation, threads, WebGL2, WebGPU) and the Creality watcher
+npm test         # dictionaries, smoke (isolation, threads, WebGL2, WebGPU), Creality watcher
 node test/i18n.mjs       # the page stays translated as React redraws
 node test/e2e-agent.mjs  # an MCP client reaches the page through the relay
 ```
@@ -22,12 +22,15 @@ Windows x64 only for now (`electron-builder --win dir`).
 - **Graphics backend**: Help → Hardware picks the backend ANGLE translates WebGL
   to — DirectX 11 (default), DirectX 12, Vulkan or OpenGL — and shows the GPU,
   WebGPU, thread count, cross-origin isolation and WebNN. A change applies on
-  restart.
+  restart; the window title names the API in use.
 - **Language**: the ScanRuler page is translated at run time, node by node, from
   `i18n/<lang>.json`, and kept translated as React redraws; the source of the
-  app is not touched. Today: `pt-BR`. The first language follows the OS; the
-  Language menu changes it. Text drawn on canvas and numbers built at run time
-  are not covered.
+  app is not touched. Shipped: Deutsch, Español, Français, Italiano, 日本語,
+  Português (Brasil), 简体中文. The first language follows the OS; the Language
+  menu changes it; the shell's own menu and Hardware panel follow. To add one,
+  copy `i18n/_english-keys.json` to `i18n/<lang>.json` as `{key: translation}`
+  with `_name`, `_menu` and `_hw` as in the others — `node test/dicts.mjs`
+  checks it. Text drawn on canvas and numbers built at run time are not covered.
 - **Creality Scan projects**: `project.obp` opens from the menu, the command
   line, drag and drop or the file picker, resolving to the project's
   `result/Mesh.ply` (or the newest session's `Fused.ply`). File → Watch Creality
