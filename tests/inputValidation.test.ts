@@ -54,6 +54,34 @@ describe('project input validation', () => {
     manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'intersection', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
     expect(() => validateManifest(manifest)).not.toThrow()
   })
+  it.each([
+    ['thickness', 'coneRays', 1e9],
+    ['thickness', 'coneRays', -1],
+    ['thickness', 'coneRays', 2.5],
+    ['thickness', 'method', 'bogus'],
+    ['thickness', 'maxThickness', -5],
+    ['deviation', 'range', 0],
+    ['deviation', 'tolerance', -1],
+    ['deviation', 'bands', 1e9],
+    ['deviation', 'bands', 'x'],
+    ['deviation', 'targetSide', 7],
+    ['flat', 'edgeSensitivity', -3],
+    ['flat', 'turns', 2.5],
+    ['flat', 'datum', 'x'],
+    ['deviation', 'pairs', [1]],
+    ['thickness', 'normalDeviationDeg', 'x'],
+  ])('rejects %s.%s = %j', (part, key, value) => {
+    const manifest = project()
+    manifest[part][key] = value
+    expect(() => validateManifest(manifest)).toThrow('Malformed project')
+  })
+  it('accepts the settings in their ranges', () => {
+    const manifest = project()
+    Object.assign(manifest.thickness, { coneRays: 12, method: 'sphere', bands: 8, normalDeviationDeg: 30 })
+    Object.assign(manifest.deviation, { bands: null, targetSide: -1, pairs: [{ scan: [0, 0, 0], nominal: [1, 2, 3] }] })
+    Object.assign(manifest.flat, { turns: 3, datum: null })
+    expect(() => validateManifest(manifest)).not.toThrow()
+  })
   it.each([0, -1, 1.5])('rejects unsupported schema %s', (version) => {
     expect(() => validateManifest({ ...project(), schemaVersion: version })).toThrow('schema version')
   })
