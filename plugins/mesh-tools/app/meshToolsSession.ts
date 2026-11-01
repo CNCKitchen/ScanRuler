@@ -267,7 +267,7 @@ export function createMeshToolsSession({
         const alignment = s.appliedAlignment
         if (alignment) rigidApplyToPoints(rigidInvert(alignment), result.positions)
         const name = s.fileName ?? 'scan'
-        const source: ScanSource = {
+        const source: EditedCopy['source'] = {
           name: `${name.replace(/\.[^.]+$/, '')}.ply`,
           bytes: buildBinaryPly(result.positions, result.indices, `${name}, edited in ScanRuler`),
           // units-ok: the file's own unit, an id — the copy is written in mm.
@@ -304,7 +304,9 @@ export function createMeshToolsSession({
     try {
       await runImport(imports, 'Taking the edited mesh into use…', async () => {
         await historyAsync('Mesh Tools: use the edited mesh for analysis', async () => {
-          await swapScan(copy.source, useStore.getState().appliedAlignment)
+          // The session keeps a scan as a file: the edited bytes become one.
+          const { name, bytes, units } = copy.source
+          await swapScan({ name, file: new Blob([bytes as BlobPart]), units }, useStore.getState().appliedAlignment)
           remapScan(copy.map)
           useMeshTools.getState().takePending()
           await remeasureScan(true)

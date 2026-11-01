@@ -78,8 +78,11 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager 
   const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
   const buffer = await file.arrayBuffer()
   const extras = await companionBytes(companionsOf(file))
-  const source = { name: file.name, bytes: new Uint8Array(buffer.slice(0)), units, ...(extras.length > 0 ? { companions: extras } : {}) }
-  const { id, mesh } = await client.prepareScan(file.name, buffer, crease, transform, units, await scanCompanions(file.name, source.bytes, extras))
+  // The file itself is kept, not a copy of what was read from it: the buffer
+  // goes to the worker, and the bytes are read again when next needed.
+  const source = { name: file.name, file, units, ...(extras.length > 0 ? { companions: extras } : {}) }
+  const companions = await scanCompanions(file.name, new Uint8Array(buffer), extras)
+  const { id, mesh } = await client.prepareScan(file.name, buffer, crease, transform, units, companions)
   try {
     const view = scene ? scene.prepareMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null) : NO_VIEW
     return { id, mesh, source, view }
@@ -93,7 +96,7 @@ export async function prepareNominal(client: MeshWorkerClient, scene: SceneManag
   if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, 3MF or STEP.')
   const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
   const buffer = await file.arrayBuffer()
-  const source = { name: file.name, bytes: new Uint8Array(buffer.slice(0)), units }
+  const source = { name: file.name, file, units }
   const { id, mesh } = await client.prepareNominal(file.name, buffer, units)
   try {
     const view = scene ? scene.prepareNominal(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots) : NO_VIEW

@@ -43,11 +43,13 @@ import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
  *  opened in, so the applied alignment goes on it the same way — see
  *  core/mesh/plyWriter. */
 export interface SourceFiles {
-  /** `units` is what the bytes' coordinates are in — the mesh was read in
-   *  millimetres from them, and is read the same way again from a project or
-   *  after a worker restart. Absent means millimetres. */
-  scan: { name: string; bytes: Uint8Array; units?: MeshUnits; companions?: ScanCompanion[] } | null
-  reference: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
+  /** `file` is the file as it was opened — kept, not copied, and read again
+   *  only when its bytes are needed (see core/sourceFile). `units` is what
+   *  its coordinates are in — the mesh was read in millimetres from them,
+   *  and is read the same way again from a project or after a worker
+   *  restart. Absent means millimetres. */
+  scan: { name: string; file: Blob; units?: MeshUnits; companions?: ScanCompanion[] } | null
+  reference: { name: string; file: Blob; units?: MeshUnits } | null
   image: { name: string; bytes: Uint8Array } | null
 }
 
@@ -206,7 +208,7 @@ function coreProject(
   let scan: ScanPart | null = null
   if (sources.scan && s.fileName) {
     const member = `${SCAN_STEM}.${extensionOf(sources.scan.name)}`
-    members.push({ name: member, bytes: sources.scan.bytes })
+    members.push({ name: member, bytes: sources.scan.file })
     // What came with it, each under a member of its own and the name it came
     // under — the name is how the OBJ and its library find it again.
     const companions = (sources.scan.companions ?? []).map((c, i) => {
@@ -242,7 +244,7 @@ function coreProject(
   let reference: DeviationPart['reference'] = null
   if (sources.reference && dev.nominalName) {
     const member = `${REFERENCE_STEM}.${extensionOf(sources.reference.name)}`
-    members.push({ name: member, bytes: sources.reference.bytes })
+    members.push({ name: member, bytes: sources.reference.file })
     reference = {
       fileName: dev.nominalName,
       member,
