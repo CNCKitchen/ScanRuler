@@ -55,3 +55,13 @@ jobs:
             fi
             gh release create "$tag" --verify-tag --title "ScanRuler ${tag#v}" --notes-file "$RUNNER_TEMP/notes.md"
           done
+
+  # The agent server for every platform, attached to the release made above: for the pushed tag, or the one named when run by hand. A run by hand with no tag releases catch-up tags without bundles.
+  bundle:
+    needs: release
+    if: ${{ github.repository == 'CNCKitchen/scanruler' && (github.event_name == 'push' || inputs.tag != '') }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/agent-bundle.yml
+    with:
+      tag: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
