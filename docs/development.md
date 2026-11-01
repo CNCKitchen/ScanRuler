@@ -159,6 +159,14 @@ of `CHANGELOG.md` (`.github/workflows/release.yml`;
 `node scripts/release-notes.mjs 0.3.0` prints them). Run that workflow by hand
 to release a tag again or catch up on tags that have no release.
 
+## Agent bundles
+
+`npm run bundle:agent` bundles the agent server (`mcp/`) with ScanRuler running headless in it, for the platform it runs on, into `dist-agent/<platform>-<arch>/`: a Node single executable (`scanruler-agent`) and an `engine/` folder holding the standalone engine and the CAD kernel's WebAssembly, which the executable finds beside itself. The runtime inside the executable is the Node that runs the script, so each platform is bundled on its own runner. `npm run build:engine -- --standalone` builds just the engine, with every package inlined.
+
+`npm run smoke:agent` starts the bundled executable the way an agent does, over stdio, and has it add a parameter and read it back. CI runs both on every pull request, on Linux, macOS and Windows runners, x64 and arm64 (`.github/workflows/agent-bundle.yml`, called by `ci.yml`), so a platform that cannot be bundled fails before a release. The release workflow calls the same workflow with the tag, which attaches one archive per platform to the tag's release.
+
+The macOS executables are signed ad hoc, which Apple silicon requires of any binary, but they are not notarised: a copy downloaded in a browser needs its quarantine attribute cleared once (`xattr -d com.apple.quarantine scanruler-agent`). The Windows executables are unsigned. The server in the executable never updates itself from npm; a newer release is a newer download.
+
 ## Deploying to Cloudflare
 
 The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no
