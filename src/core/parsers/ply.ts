@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // PLY in all three encodings — ASCII, and binary of either byte order — read
-// for vertex positions and face lists alone; colours, normals and the other
-// properties a scanner writes are stepped over. One header comment is
+// for vertex positions, per-vertex colours and face lists; normals and the
+// other properties a scanner writes are stepped over. One header comment is
 // honoured besides: a file that says its winding is settled
 // (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
 
@@ -38,6 +38,61 @@ const TYPE_SIZE: Record<string, number> = {
  * inside-out to the guess although it is not.
  */
 export const PLY_KEEP_WINDING = 'ScanRuler: keep winding'
+
+function checkType(type: string | undefined): void {
+  if (type === undefined || !Object.hasOwn(TYPE_SIZE, type)) throw new Error(`Unsupported PLY type "${type}".`)
+}
+
+/** Where an element's colour properties sit, under the names scanners and
+ *  MeshLab write them; null when any of the three is missing. */
+function colorProps(el: PlyElement): [number, number, number] | null {
+  const find = (names: string[]) => el.props.findIndex((p) => !p.list && names.includes(p.name))
+  const r = find(['red', 'r', 'diffuse_red'])
+  const g = find(['green', 'g', 'diffuse_green'])
+  const b = find(['blue', 'b', 'diffuse_blue'])
+  return r < 0 || g < 0 || b < 0 ? null : [r, g, b]
+}
+
+/** A colour channel as a byte: floats run 0…1, integer types 0…255. */
+function channel(v: number, type: string): number {
+  const byte = type.startsWith('float') || type === 'double' ? v * 255 : v
+  return Math.max(0, Math.min(255, Math.round(byte)))
+}
+
+/** Puts the colours on the mesh when they say something: as for 3MF, a
+ *  single colour on every vertex is an exporter's default, not the part's. */
+function withColors(mesh: ParsedMesh, colors: Uint8Array | null): ParsedMesh {
+  if (!colors) return mesh
+  for (let i = 3; i < colors.length; i++) {
+    if (colors[i] !== colors[i % 3]) {
+      mesh.colors = colors
+      break
+    }
+  }
+  return mesh
+}
+
+/** The fewest bytes one item of the element can take: its fixed properties
+ *  and the count of each list, with every list empty. */
+function minStride(el: PlyElement): number {
+  let stride = 0
+  for (const p of el.props) stride += TYPE_SIZE[p.list ? p.countType! : p.type]
+  return stride
+}
+
+/** Refuses an element the rest of the file cannot hold. Checked before the
+ *  element is read, so a header count no file backs up allocates nothing,
+ *  and an element with no properties cannot loop on without reading. */
+function checkRoom(el: PlyElement, perItem: number, left: number): void {
+  if (el.count > 0 && perItem === 0) throw new Error(`PLY element "${el.name}" has a count but no properties.`)
+  if (el.count * perItem > left) throw new Error(`PLY element "${el.name}" counts more items than the file holds.`)
+}
+
+/** A list length; a negative one would step the reading backwards. */
+function listLength(n: number): number {
+  if (!Number.isSafeInteger(n) || n < 0) throw new Error(`Invalid PLY list length ${n}.`)
+  return n
+}
 
 function readScalar(dv: DataView, off: number, type: string, little: boolean): number {
   switch (type) {
@@ -76,13 +131,26 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     else if (parts[0] === 'comment') {
       if (parts.slice(1).join(' ') === PLY_KEEP_WINDING) keepWinding = true
     } else if (parts[0] === 'element') {
-      elements.push({ name: parts[1], count: parseInt(parts[2], 10), props: [] })
+      // The counts drive every loop and allocation below, so a sign, a
+      // fraction or a number past safe integers is refused here.
+      const count = Number(parts[2])
+      if (!/^\d+$/.test(parts[2] ?? '') || !Number.isSafeInteger(count)) {
+        throw new Error(`PLY element "${parts[1]}" has an invalid count "${parts[2]}".`)
+      }
+      elements.push({ name: parts[1], count, props: [] })
     } else if (parts[0] === 'property') {
       const el = elements[elements.length - 1]
       if (!el) continue
+      // Every type is checked against the table here: an unknown one would
+      // give NaN strides and offsets, which DataView reads as offset 0, so
+      // the file would turn into garbage geometry rather than an error.
       if (parts[1] === 'list') {
+        checkType(parts[2])
+        checkType(parts[3])
+        if (/^(float|double)/.test(parts[2])) throw new Error(`PLY list count type "${parts[2]}" is not an integer type.`)
         el.props.push({ name: parts[4], type: 'list', list: true, countType: parts[2], itemType: parts[3] })
       } else {
+        checkType(parts[1])
         el.props.push({ name: parts[2], type: parts[1], list: false })
       }
     }
@@ -124,9 +192,11 @@ function parseBinaryBody(
   const dv = new DataView(buffer)
   let off = bodyStart
   let positions: Float32Array | null = null
+  let colors: Uint8Array | null = null
   let indices = new Uint32Array(0)
 
   for (const el of elements) {
+    checkRoom(el, minStride(el), buffer.byteLength - off)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
@@ -134,6 +204,8 @@ function parseBinaryBody(
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
       const hasList = el.props.some((p) => p.list)
       positions = new Float32Array(el.count * 3)
+      const rgb = colorProps(el)
+      if (rgb) colors = new Uint8Array(el.count * 3)
       if (!hasList) {
         // Fixed stride fast path.
         let stride = 0
@@ -147,6 +219,12 @@ function parseBinaryBody(
           positions[i * 3] = readScalar(dv, base + offsets[xi], el.props[xi].type, little)
           positions[i * 3 + 1] = readScalar(dv, base + offsets[yi], el.props[yi].type, little)
           positions[i * 3 + 2] = readScalar(dv, base + offsets[zi], el.props[zi].type, little)
+          if (rgb) {
+            for (let c = 0; c < 3; c++) {
+              const type = el.props[rgb[c]].type
+              colors![i * 3 + c] = channel(readScalar(dv, base + offsets[rgb[c]], type, little), type)
+            }
+          }
           if (onProgress && (i & 0xfffff) === 0 && i > 0) {
             onProgress(`Reading PLY vertices… ${Math.round((i / el.count) * 100)}%`)
           }
@@ -157,13 +235,14 @@ function parseBinaryBody(
           for (let p = 0; p < el.props.length; p++) {
             const prop = el.props[p]
             if (prop.list) {
-              const n = readScalar(dv, off, prop.countType!, little)
+              const n = listLength(readScalar(dv, off, prop.countType!, little))
               off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             } else {
               const v = readScalar(dv, off, prop.type, little)
               if (p === xi) positions[i * 3] = v
               else if (p === yi) positions[i * 3 + 1] = v
               else if (p === zi) positions[i * 3 + 2] = v
+              else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
               off += TYPE_SIZE[prop.type]
             }
           }
@@ -179,7 +258,7 @@ function parseBinaryBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = readScalar(dv, off, prop.countType!, little)
+            const n = listLength(readScalar(dv, off, prop.countType!, little))
             off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
               if (n >= 3) triTotal += n - 2
@@ -189,13 +268,14 @@ function parseBinaryBody(
           }
         }
       }
+      if (off > buffer.byteLength) throw new Error('PLY face lists run past the end of the file.')
       indices = new Uint32Array(triTotal * 3)
       off = faceStart
       let w = 0
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = readScalar(dv, off, prop.countType!, little)
+            const n = listLength(readScalar(dv, off, prop.countType!, little))
             off += TYPE_SIZE[prop.countType!]
             const itemSize = TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
@@ -231,7 +311,7 @@ function parseBinaryBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return { kind: 'indexed', positions, indices }
+  return withColors({ kind: 'indexed', positions, indices }, colors)
 }
 
 function parseAsciiBody(
@@ -243,30 +323,48 @@ function parseAsciiBody(
   onProgress?.('Reading PLY…')
   // A word at a time, as a large file is too long to hold as text.
   const words = new Words(bytes.subarray(bodyStart), (done) => onProgress?.(`Reading PLY… ${Math.round(done * 100)}%`))
-  const next = () => words.next() as string
+  // A word and the space after it take two bytes at least, so the body
+  // holds no more words than this — what the header counts are checked
+  // against before anything is allocated for them.
+  const wordsAtMost = Math.ceil((bytes.length - bodyStart) / 2)
+  let read = 0
+  let reading = ''
+  const next = () => {
+    const word = words.next()
+    if (word === undefined) throw new Error(`PLY element "${reading}" runs past the end of the file.`)
+    read++
+    return word
+  }
   const skip = (n: number) => {
-    for (let k = 0; k < n; k++) words.next()
+    for (let k = 0; k < n; k++) next()
   }
   let positions: Float32Array | null = null
+  let colors: Uint8Array | null = null
   const indices = gatherIndices()
 
   for (const el of elements) {
+    reading = el.name
+    // In text every property takes at least one word.
+    checkRoom(el, el.props.length, wordsAtMost - read)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
       const zi = el.props.findIndex((p) => p.name === 'z')
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
       positions = new Float32Array(el.count * 3)
+      const rgb = colorProps(el)
+      if (rgb) colors = new Uint8Array(el.count * 3)
       for (let i = 0; i < el.count; i++) {
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
           if (prop.list) {
-            skip(parseInt(next(), 10))
+            skip(listLength(parseInt(next(), 10)))
           } else {
             const v = parseFloat(next())
             if (p === xi) positions[i * 3] = v
             else if (p === yi) positions[i * 3 + 1] = v
             else if (p === zi) positions[i * 3 + 2] = v
+            else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
           }
         }
       }
@@ -274,7 +372,7 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = parseInt(next(), 10)
+            const n = listLength(parseInt(next(), 10))
             if ((prop.name === 'vertex_indices' || prop.name === 'vertex_index') && n >= 2) {
               const first = parseInt(next(), 10)
               let last = parseInt(next(), 10)
@@ -287,7 +385,7 @@ function parseAsciiBody(
               skip(n)
             }
           } else {
-            words.next()
+            next()
           }
         }
       }
@@ -295,9 +393,9 @@ function parseAsciiBody(
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            skip(parseInt(next(), 10))
+            skip(listLength(parseInt(next(), 10)))
           } else {
-            words.next()
+            next()
           }
         }
       }
@@ -305,5 +403,5 @@ function parseAsciiBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
-  return { kind: 'indexed', positions, indices: indices.take() }
+  return withColors({ kind: 'indexed', positions, indices: indices.take() }, colors)
 }

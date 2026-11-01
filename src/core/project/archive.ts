@@ -56,14 +56,19 @@ export function unpackProject(bytes: Uint8Array, limits = PROJECT_LIMITS): Unpac
   try {
     let total = 0
     const names = new Set<string>()
-    files = unzipSync(bytes, { filter: ({ name, originalSize }) => {
+    files = unzipSync(bytes, { filter: ({ name, size, originalSize, compression }) => {
       if (names.has(name) || name.includes('/') || name.includes('\\') || name === '__proto__') {
         throw new ArchiveLimitError('Malformed project: duplicate or invalid archive member.')
       }
+      // Only stored and deflated members are written; and a stored member
+      // yields its compressed bytes whatever size it declares, so the larger
+      // of the two sizes is what counts against the limits.
+      if (compression !== 0 && compression !== 8) throw new ArchiveLimitError('Malformed project: unsupported archive compression.')
+      const expanded = Math.max(size, originalSize)
       names.add(name)
-      total += originalSize
+      total += expanded
       if (names.size > limits.members || total > limits.totalBytes ||
-          (name === MANIFEST_NAME && originalSize > limits.manifestBytes)) {
+          (name === MANIFEST_NAME && expanded > limits.manifestBytes)) {
         throw new ArchiveLimitError('The project exceeds the supported archive size limits.')
       }
       return true
@@ -71,6 +76,12 @@ export function unpackProject(bytes: Uint8Array, limits = PROJECT_LIMITS): Unpac
   } catch (error) {
     if (error instanceof ArchiveLimitError) throw error
     throw new Error('Not a ScanRuler project file.')
+  }
+  // The declared sizes are the archive's word only; what came out is checked too.
+  let unpacked = 0
+  for (const data of Object.values(files)) unpacked += data.byteLength
+  if (unpacked > limits.totalBytes || (files[MANIFEST_NAME]?.byteLength ?? 0) > limits.manifestBytes) {
+    throw new Error('The project exceeds the supported archive size limits.')
   }
   const raw = files[MANIFEST_NAME]
   if (!raw) throw new Error('Not a ScanRuler project file.')

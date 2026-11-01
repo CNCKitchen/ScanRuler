@@ -16,7 +16,8 @@ export class EdgeClient {
 
   /** Detect edges on a grayscale image. The buffer is transferred — hand in a
    *  copy if the caller still needs it. Resolves null when a newer request
-   *  has superseded this one (or the worker failed). */
+   *  has superseded this one, whether it succeeded or failed; only the
+   *  latest request's failure rejects, as that is the one on screen. */
   detect(
     gray: Uint8Array,
     width: number,
@@ -27,10 +28,18 @@ export class EdgeClient {
     this.latest = requestId
     const msg: EdgeWorkerRequest = { requestId, gray, width, height, options }
     if (this.rpc.dead) this.rpc.restart()
-    return this.rpc.request<EdgeWorkerResponse>(msg, [gray.buffer]).then((answer) => {
-      if (requestId !== this.latest || answer.type === 'error') return null
-      return { points: answer.points, offsets: answer.offsets }
-    })
+    // WorkerRpc rejects an error answer rather than resolving it, so a
+    // superseded request's failure is caught here, not tested for above.
+    return this.rpc.request<EdgeWorkerResponse>(msg, [gray.buffer]).then(
+      (answer) => {
+        if (requestId !== this.latest || answer.type === 'error') return null
+        return { points: answer.points, offsets: answer.offsets }
+      },
+      (error: unknown) => {
+        if (requestId === this.latest) throw error
+        return null
+      },
+    )
   }
 
   dispose(): void { this.rpc.dispose() }

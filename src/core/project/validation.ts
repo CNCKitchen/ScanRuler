@@ -37,6 +37,25 @@ export function entries(value: unknown, path: string, visit?: (entry: RecordValu
     visit?.(entry)
   }
 }
+/** A number in [lo, hi]; an integer as well when `integer` says so. */
+function inRange(value: unknown, lo: number, hi: number, path: string, integer = false): void {
+  if (typeof value !== 'number' || !(value >= lo && value <= hi) || (integer && !Number.isInteger(value))) invalid(path)
+}
+function positive(value: RecordValue, names: string, path: string): void {
+  for (const name of names.split(' ')) if (!((value[name] as number) > 0)) invalid(`${path}.${name}`)
+}
+function oneOf(value: unknown, allowed: readonly unknown[], path: string): void {
+  if (!allowed.includes(value)) invalid(path)
+}
+/** Stepped colours, or null for a smooth scale. */
+function bands(value: unknown, path: string): void {
+  if (value !== null) inRange(value, 2, MAX_BANDS, path, true)
+}
+/** The bounds settings are held to when a project is read. Past what the
+ *  panels and agent commands set, they still stop a crafted file from
+ *  starting a measurement with a billion rays or a scale of zero width. */
+const MAX_CONE_RAYS = 256
+const MAX_BANDS = 256
 function file(value: unknown, path: string): void {
   if (value === null) return
   const entry = object(value, path)
@@ -145,7 +164,14 @@ export function validateProjectParts(raw: unknown): void {
   if (!['reference', 'element'].includes(d.source as string) || !['all', 'marked'].includes(d.targetScope as string)) invalid('deviation source or scope')
   if (d.mapFacingDeg !== undefined && d.mapFacingDeg !== null && typeof d.mapFacingDeg !== 'number') invalid('deviation.mapFacingDeg')
   file(d.reference, 'deviation.reference')
-  array(d.pairs, 'deviation.pairs')
+  positive(d, 'range maxDistance tolerance', 'deviation')
+  bands(d.bands, 'deviation.bands')
+  oneOf(d.targetSide, [1, -1], 'deviation.targetSide')
+  for (const pair of array(d.pairs, 'deviation.pairs')) {
+    const p = object(pair, 'deviation.pairs')
+    vector(p.scan, 3, 'deviation.pairs.scan')
+    vector(p.nominal, 3, 'deviation.pairs.nominal')
+  }
   entries(d.probes, 'deviation.probes')
   if (d.scope !== null) indices(d.scope, 'deviation.scope')
   for (const key of ['align', 'globalAlign']) if (d[key] !== null) rigid(object(d[key], `deviation.${key}`).transform, `deviation.${key}.transform`)
@@ -153,11 +179,22 @@ export function validateProjectParts(raw: unknown): void {
   fields(t, 'maxThickness coneRays coneAngleDeg low high limit nextProbeId', 'number', 'thickness')
   fields(t, 'measured maxThicknessAuto scaleAuto showHistogram', 'boolean', 'thickness')
   fields(t, 'method', 'string', 'thickness')
+  // A thickness map marked measured is measured again as the project opens,
+  // with these settings, so they are held to what the measurement can run.
+  oneOf(t.method, ['ray', 'sphere'], 'thickness.method')
+  inRange(t.coneRays, 0, MAX_CONE_RAYS, 'thickness.coneRays', true)
+  positive(t, 'maxThickness', 'thickness')
+  inRange(t.coneAngleDeg, 0, 90, 'thickness.coneAngleDeg')
+  if (t.normalDeviationDeg !== null) inRange(t.normalDeviationDeg, 0, 180, 'thickness.normalDeviationDeg')
+  bands(t.bands, 'thickness.bands')
   entries(t.probes, 'thickness.probes')
   const f = object(m.flat, 'flat')
   file(f.image, 'flat.image')
   sheet(f, 'flat')
   fields(f, 'edgeSensitivity', 'number', 'flat')
+  inRange(f.edgeSensitivity, 0, 1, 'flat.edgeSensitivity')
+  if (f.turns !== undefined) inRange(f.turns, -1e6, 1e6, 'flat.turns', true)
+  if (f.datum !== undefined && f.datum !== null) object(f.datum, 'flat.datum')
   fields(f, 'splitAxes showEdges snapToEdge showGrid', 'boolean', 'flat')
   if (f.sheets !== undefined) for (const [key, value] of Object.entries(object(f.sheets, 'flat.sheets'))) sheet(value, `flat.sheets.${key}`)
 
