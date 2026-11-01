@@ -95,6 +95,16 @@ function mapBytes(map: Int32Array): Uint8Array {
   return bytes
 }
 
+/** The vertex count a copy's PLY header states, or -1 for a header that
+ *  does not state one. The copy is always the binary PLY buildBinaryPly
+ *  writes, so its header is short ASCII at the very start. */
+function plyVertexCount(bytes: Uint8Array): number {
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, 4096))
+  const end = head.indexOf('end_header')
+  const m = /^element vertex (\d+)$/m.exec(end < 0 ? '' : head.slice(0, end))
+  return m ? Number(m[1]) : -1
+}
+
 const BOOLEAN_OPS: readonly string[] = ['subtract', 'add', 'intersect']
 const SIDES: readonly string[] = ['in', 'out', 'both']
 
@@ -307,6 +317,15 @@ export const meshSection: ProjectSection<MeshPart> = {
     for (const member of part.copy ? [part.copy.member, part.copy.mapMember] : []) {
       if (!members.has(member)) throw new Error(`Project is missing ${member}.`)
     }
+    // The map is checked here, while the session being replaced is still
+    // whole, as far as it can be without the scan it belongs to: whole
+    // int32s, each a vertex number or -1 for one an edit took.
+    const map = part.copy && members.get(part.copy.mapMember)
+    if (map) {
+      if (map.byteLength % 4 !== 0) throw new Error('Malformed project: mesh.copy.')
+      const numbers = new Int32Array(map.slice().buffer)
+      for (let i = 0; i < numbers.length; i++) if (numbers[i] < -1) throw new Error('Malformed project: mesh.copy.')
+    }
     const state = meshPartState(part)
     return () => useMeshTools.setState(state)
   },
@@ -318,8 +337,16 @@ export const meshSection: ProjectSection<MeshPart> = {
     const bytes = members.get(copy.member)
     const map = members.get(copy.mapMember)
     if (!bytes || !map) throw new Error(`Project is missing ${bytes ? copy.mapMember : copy.member}.`)
+    // Only now is the scan in place to size the map against, and the copy's
+    // header to bound its numbers: one past the copy's vertices would carry
+    // a selection onto vertices the copy does not have.
     const numbers = new Int32Array(map.slice().buffer)
-    if (map.byteLength % 4 !== 0 || numbers.length !== useStore.getState().vertexCount) {
+    const copyVertices = plyVertexCount(bytes)
+    let fits = numbers.length === useStore.getState().vertexCount && copyVertices >= 0
+    for (let i = 0; fits && i < numbers.length; i++) if (numbers[i] >= copyVertices) fits = false
+    if (!fits) {
+      // The edits listed as waiting on the copy went with it.
+      useMeshTools.setState({ pending: [] })
       throw new Error('Malformed project: mesh.copy.')
     }
     await meshToolsSession()?.setEditedCopy({ source: { name: readAs(manifest.scan.fileName, copy.member), bytes }, map: numbers })
