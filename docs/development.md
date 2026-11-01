@@ -165,6 +165,8 @@ to release a tag again or catch up on tags that have no release.
 
 `npm run smoke:agent` starts the bundled executable the way an agent does, over stdio, and has it add a parameter and read it back. CI runs both on every pull request, on Linux, macOS and Windows runners, x64 and arm64 (`.github/workflows/agent-bundle.yml`, called by `ci.yml`), so a platform that cannot be bundled fails before a release. The release workflow calls the same workflow with the tag, which attaches one archive per platform to the tag's release.
 
+The bundle also carries the built app (`app/`), and the executable's `start`, `open`, `status` and `stop` commands run a detached background server that serves it and relays to the tab (`mcp/src/daemon.js`, described in `mcp/README.md`); `npm run smoke:agent` exercises that lifecycle too, in a config directory and on a port of its own.
+
 The macOS executables are signed ad hoc, which Apple silicon requires of any binary, but they are not notarised: a copy downloaded in a browser needs its quarantine attribute cleared once (`xattr -d com.apple.quarantine scanruler-agent`). The Windows executables are unsigned. The server in the executable never updates itself from npm; a newer release is a newer download.
 
 ## Deploying to Cloudflare
