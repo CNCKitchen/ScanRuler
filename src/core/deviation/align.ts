@@ -11,7 +11,7 @@
 import { symmetricEigen3 } from '../fit/linalg'
 import type { Vec3 } from '../types'
 import { absoluteOrientation } from './absoluteOrientation'
-import { icpSteps, sampleScan, type ScanSamples } from './icp'
+import { icpSteps, sampleScan, type IcpPool, type ScanSamples } from './icp'
 import { preAlignCandidates, principalFrame } from './prealign'
 import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
 import { runSteps, type Steps } from './steps'
@@ -66,6 +66,8 @@ export interface AlignOptions {
   /** Points used for the final fit. */
   fineSamples?: number
   onProgress?: (text: string) => void
+  /** Helper workers for the closest-point passes of the automatic fit. */
+  pool?: IcpPool
   /** Called with poses along the way, so the view can show the part settling
    *  onto the reference instead of a spinner. The shortlist attempts and the
    *  final refinement report; the first screening pass does not, because
@@ -95,6 +97,7 @@ function* fine(
   const r = yield* icpSteps(surface, samples, start, {
     maxIterations: FINE_ITERATIONS,
     rejectMedianFactor: 3,
+    pool: options.pool,
     // Only once the pose is roughly right is it safe to insist that matched
     // surfaces face the same way; from a wild start it would starve the fit.
     minNormalDot: 0.3,
@@ -170,6 +173,7 @@ export function* autoAlignSteps(
         maxIterations: SCREEN_ITERATIONS,
         rejectMedianFactor: 2.5,
         minNormalDot: 0,
+        pool: options.pool,
       }),
     )
   }
@@ -184,6 +188,7 @@ export function* autoAlignSteps(
         maxIterations: COARSE_ITERATIONS,
         rejectMedianFactor: 2.5,
         minNormalDot: 0,
+        pool: options.pool,
         // Streamed as well: these are the attempts that take the time, and
         // watching a candidate swing in and settle is what tells the user the
         // tool is working rather than stuck.

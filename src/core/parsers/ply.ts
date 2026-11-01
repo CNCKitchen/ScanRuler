@@ -97,11 +97,38 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
 
   const little = format === 'binary_little_endian'
   if (format !== 'ascii' && !little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
+  checkCounts(elements, format === 'ascii', bytes.length - bodyStart)
   const mesh = format === 'ascii'
     ? parseAsciiBody(bytes, bodyStart, elements, onProgress)
     : parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
   if (keepWinding) mesh.keepWinding = true
   return mesh
+}
+
+/**
+ * The header's counts are the file's word, and arrays are sized from them: a
+ * 200-byte file saying `element vertex 900000000` would ask for gigabytes
+ * before a byte of the body is read. An element takes at least one token per
+ * property in ASCII, and in binary at least its fixed fields plus one count
+ * per list, so a count the rest of the file cannot hold is refused.
+ */
+function checkCounts(elements: PlyElement[], ascii: boolean, remaining: number): void {
+  for (const el of elements) {
+    if (!Number.isSafeInteger(el.count) || el.count < 0) throw new Error(`PLY element "${el.name}" has an invalid count.`)
+    let least = 0
+    for (const p of el.props) {
+      const size = ascii ? 1 : TYPE_SIZE[p.list ? p.countType! : p.type]
+      if (size === undefined) throw new Error(`Unsupported PLY type "${p.list ? p.countType : p.type}".`)
+      if (p.list && !ascii && TYPE_SIZE[p.itemType!] === undefined) throw new Error(`Unsupported PLY type "${p.itemType}".`)
+      least += size
+    }
+    if (el.count * least > remaining) throw new Error(`PLY element "${el.name}" claims ${el.count} entries, more than the file holds.`)
+  }
+}
+
+/** A list of `n` items of `size` bytes at `off` has to fit in the file. */
+function checkList(n: number, size: number, off: number, total: number): void {
+  if (!(n >= 0) || off + n * size > total) throw new Error('A PLY list is longer than the file.')
 }
 
 function indexOfAscii(bytes: Uint8Array, needle: string, limit: number): number {
@@ -158,6 +185,7 @@ function parseBinaryBody(
             const prop = el.props[p]
             if (prop.list) {
               const n = readScalar(dv, off, prop.countType!, little)
+              checkList(n, TYPE_SIZE[prop.itemType!], off + TYPE_SIZE[prop.countType!], buffer.byteLength)
               off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             } else {
               const v = readScalar(dv, off, prop.type, little)
@@ -180,6 +208,7 @@ function parseBinaryBody(
         for (const prop of el.props) {
           if (prop.list) {
             const n = readScalar(dv, off, prop.countType!, little)
+            checkList(n, TYPE_SIZE[prop.itemType!], off + TYPE_SIZE[prop.countType!], buffer.byteLength)
             off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
               if (n >= 3) triTotal += n - 2
@@ -244,8 +273,14 @@ function parseAsciiBody(
   // A word at a time, as a large file is too long to hold as text.
   const words = new Words(bytes.subarray(bodyStart), (done) => onProgress?.(`Reading PLY… ${Math.round(done * 100)}%`))
   const next = () => words.next() as string
+  // A list count the rest of the file cannot hold is a lie, not a long wait.
+  const listWord = () => {
+    const w = words.next()
+    if (w === undefined) throw new Error('A PLY list is longer than the file.')
+    return w
+  }
   const skip = (n: number) => {
-    for (let k = 0; k < n; k++) words.next()
+    for (let k = 0; k < n; k++) listWord()
   }
   let positions: Float32Array | null = null
   const indices = gatherIndices()
@@ -277,9 +312,9 @@ function parseAsciiBody(
             const n = parseInt(next(), 10)
             if ((prop.name === 'vertex_indices' || prop.name === 'vertex_index') && n >= 2) {
               const first = parseInt(next(), 10)
-              let last = parseInt(next(), 10)
+              let last = parseInt(listWord(), 10)
               for (let k = 2; k < n; k++) {
-                const corner = parseInt(next(), 10)
+                const corner = parseInt(listWord(), 10)
                 indices.push3(first, last, corner)
                 last = corner
               }
