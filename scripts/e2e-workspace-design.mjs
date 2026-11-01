@@ -16,6 +16,7 @@ try{
  await click('[data-test=open-measure-sample]');await page.waitForFunction(()=>/3,072 triangles/.test(document.querySelector('.file-info')?.textContent??''))
  check((await guide()).includes('Step 2 of 7'),'guide detects imported scan and asks for a scale check')
  await click('[data-test=guide-scale-checked]');await click('[data-test=guide-task-0]')
+ await page.screenshot({path:join(out,'guided-fitting.png')})
  for(const y of [.42,.17]){
   await click('[data-test=guide-start-fit]');const r=await canvasRect(page);await page.mouse.click(r.x+r.w*.5,r.y+r.h*y)
   await page.waitForFunction(()=>document.querySelector('[data-test=create-element]')?.disabled===false)
