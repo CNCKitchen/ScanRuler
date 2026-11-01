@@ -34,7 +34,8 @@
     "available": "disponible",
     "unavailable": "indisponible",
     "default": "par défaut",
-    "experimental": "expérimental"
+    "experimental": "expérimental",
+    "webgpuWhy": "Sous Windows, Chromium n’offre WebGPU qu’avec le backend DirectX 11 ; ScanRuler ne l’utilise pas."
   },
   "CNC Kitchen · 3D scan analysis ·": "CNC Kitchen · analyse de scans 3D ·",
   "3D Measure": "Mesure 3D",

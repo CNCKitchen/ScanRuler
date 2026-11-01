@@ -34,7 +34,8 @@
     "available": "可用",
     "unavailable": "不可用",
     "default": "默认",
-    "experimental": "实验性"
+    "experimental": "实验性",
+    "webgpuWhy": "Windows 上的 Chromium 仅在 DirectX 11 后端提供 WebGPU；ScanRuler 不使用它。"
   },
   "CNC Kitchen · 3D scan analysis ·": "CNC Kitchen · 3D 扫描分析 ·",
   "3D Measure": "3D 测量",

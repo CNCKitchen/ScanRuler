@@ -22,7 +22,10 @@ Windows x64 only for now. Packaged with `@electron/packager`, not electron-build
 - **Graphics backend**: Help → Hardware picks the backend ANGLE translates WebGL
   to — DirectX 11 (default), DirectX 12, Vulkan or OpenGL — and shows the GPU,
   WebGPU, thread count, cross-origin isolation and WebNN. A change applies on
-  restart; the window title names the API in use.
+  restart; the window title names the API in use. WebGPU shows as available only
+  on DirectX 11: Chromium on Windows hands out no WebGPU adapter under the
+  Vulkan or OpenGL ANGLE backends (verified on Chromium 156, every
+  `--use-webgpu-adapter` value) — ScanRuler draws with WebGL2 and does not use it.
 - **Language**: the ScanRuler page is translated at run time, node by node, from
   `i18n/<lang>.json`, and kept translated as React redraws; the source of the
   app is not touched. Shipped: Deutsch, Español, Français, Italiano, 日本語,

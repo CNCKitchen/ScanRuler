@@ -34,7 +34,8 @@
     "available": "利用可能",
     "unavailable": "利用不可",
     "default": "既定",
-    "experimental": "試験的"
+    "experimental": "試験的",
+    "webgpuWhy": "Windows の Chromium は DirectX 11 バックエンドでのみ WebGPU を提供します。ScanRuler は使用しません。"
   },
   "CNC Kitchen · 3D scan analysis ·": "CNC Kitchen · 3D スキャン解析 ·",
   "3D Measure": "3D 測定",

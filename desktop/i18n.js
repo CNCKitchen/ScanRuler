@@ -11,7 +11,7 @@ const here = dirname(fileURLToPath(import.meta.url))
 
 // The shell's own text, in English; a dictionary's "_menu" and "_hw" override it.
 const MENU = { file: 'File', open: 'Open scan…', quit: 'Quit', view: 'View', help: 'Help', hardware: 'Hardware…', language: 'Language', watch: 'Watch Creality Scan folder…', unwatch: 'Stop watching Creality Scan', fresh: 'New Mesh.ply from project', openIt: 'Open in ScanRuler', ignore: 'Ignore' }
-const HW = { title: 'Hardware', gpu: 'GPU', backendChosen: 'ANGLE backend chosen', backendRunning: 'ANGLE backend running', renderer: 'WebGL2 / renderer', webgpu: 'WebGPU', cpu: 'CPU (threads)', threads: 'logical threads', isolation: 'Cross-origin isolation (WASM threads)', npu: 'NPU / WebNN', versions: 'Electron / Chromium', backend: 'Graphics backend:', restart: 'Restart to apply', changed: 'Backend changed: restart to apply.', yes: 'yes', no: 'no', available: 'available', unavailable: 'unavailable', default: 'default', experimental: 'experimental' }
+const HW = { title: 'Hardware', gpu: 'GPU', backendChosen: 'ANGLE backend chosen', backendRunning: 'ANGLE backend running', renderer: 'WebGL2 / renderer', webgpu: 'WebGPU', cpu: 'CPU (threads)', threads: 'logical threads', isolation: 'Cross-origin isolation (WASM threads)', npu: 'NPU / WebNN', versions: 'Electron / Chromium', backend: 'Graphics backend:', restart: 'Restart to apply', changed: 'Backend changed: restart to apply.', yes: 'yes', no: 'no', available: 'available', unavailable: 'unavailable', webgpuWhy: 'Chromium on Windows offers WebGPU only on the DirectX 11 backend; ScanRuler does not use it.', default: 'default', experimental: 'experimental' }
 
 const files = new Map() // lang -> parsed i18n/<lang>.json
 const read = (lang) => {
