@@ -11,6 +11,7 @@
 
 import { unzipSync } from 'fflate'
 import { is3mfFile, isModelFile, isTextureFile } from '../core/formats'
+import { assertImageDecodable } from '../core/flat/image'
 import type { ObjCompanions, TextureImage } from '../core/parsers/objTexture'
 
 /** What came with a model file, by the file. */
@@ -113,6 +114,7 @@ export async function scanCompanions(name: string, bytes: Uint8Array, extras: re
 async function decodeImage(name: string, bytes: Uint8Array): Promise<TextureImage> {
   // Colours as the file has them: no colour management, and no
   // premultiplying, which would darken whatever the alpha channel holds.
+  assertImageDecodable(name, bytes)
   const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { colorSpaceConversion: 'none', premultiplyAlpha: 'none' })
   try {
     const { width, height } = bitmap

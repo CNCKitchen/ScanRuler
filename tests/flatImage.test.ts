@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { imagePixelsPerMm } from '../src/core/flat/image'
+import { assertImageDecodable, imagePixelsPerMm } from '../src/core/flat/image'
 
 // Containers built by hand, chunk by chunk — the parser reads metadata only,
 // so no pixel data (or valid CRC) is needed.
@@ -86,5 +86,19 @@ describe('anything else', () => {
   it('is not an image with a resolution', () => {
     expect(imagePixelsPerMm(new Uint8Array([0, 1, 2, 3]))).toBeNull()
     expect(imagePixelsPerMm(new Uint8Array(0))).toBeNull()
+  })
+})
+
+describe('assertImageDecodable', () => {
+  it('refuses an image whose header declares too many pixels to decode', () => {
+    // A few dozen bytes can declare 30000 x 30000: 3.6 GB once decoded.
+    const huge = png([chunk('IHDR', [...u32(30000), ...u32(30000), 8, 6, 0, 0, 0])])
+    expect(() => assertImageDecodable('texture.png', huge)).toThrow(/too large/)
+    const sof = [0xff, 0xc0, ...u16(17), 8, ...u16(30000), ...u16(30000), 3, 1, 0x11, 0, 2, 0x11, 1, 3, 0x11, 1]
+    expect(() => assertImageDecodable('photo.jpg', new Uint8Array([0xff, 0xd8, ...sof]))).toThrow(/too large/)
+  })
+
+  it('lets an image of ordinary size through', () => {
+    expect(() => assertImageDecodable('texture.png', png([IHDR]))).not.toThrow()
   })
 })

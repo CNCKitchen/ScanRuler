@@ -11,7 +11,7 @@ import type { CreaseSetting } from '../core/geometry/crease'
 import type { Rigid } from '../core/deviation/rigid'
 import type { SceneManager } from '../viewer/SceneManager'
 import { grayscaleOf } from '../core/flat/edgeClient'
-import { imagePixelsPerMm } from '../core/flat/image'
+import { assertImageDecodable, imagePixelsPerMm } from '../core/flat/image'
 import { is3mfFile, isModelFile, isReferenceFile, isTextureFile } from '../core/formats'
 import type { MeshUnits } from '../core/meshUnits'
 import { useStore } from '../state/store'
@@ -106,6 +106,7 @@ export async function prepareNominal(client: MeshWorkerClient, scene: SceneManag
 
 export async function prepareImage(file: File): Promise<PreparedImage> {
   const bytes = new Uint8Array(await file.arrayBuffer())
+  assertImageDecodable(file.name, bytes)
   const meta = imagePixelsPerMm(bytes)
   const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
   try {
