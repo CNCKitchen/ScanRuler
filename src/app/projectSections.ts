@@ -75,6 +75,8 @@ const sections: ProjectSection[] = []
 
 /** Own a part of the project file — see ProjectSection. */
 export function registerProjectSection<J>(section: ProjectSection<J>): () => void {
+  // A key the app writes itself would be overwritten, or overwrite it.
+  if (CORE_KEYS.has(section.key)) throw new Error(`The project key "${section.key}" is the app's own.`)
   if (sections.some((s) => s.key === section.key)) throw new Error(`Two project sections share the key "${section.key}".`)
   sections.push(section as ProjectSection)
   return () => {

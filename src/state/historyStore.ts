@@ -150,7 +150,7 @@ export function clearHistory(): void {
 const sameValue = (a: unknown, b: unknown) => a === b ||
   (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => value === b[index]))
 const same = (a: object, b: object) => Object.keys(a).every((k) => sameValue((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]))
-function record(before: HistorySnapshot, after: HistorySnapshot, label: string, workspace: Workspace, generation: number) {
+function record(before: HistorySnapshot, after: HistorySnapshot, label: string, workspace: Workspace, generation: number, stepGroup = group) {
   if (generation !== epoch) return // A source replacement starts another document.
   const keys = Object.keys(before).filter((key) =>
     comparedByIdentity(key) ? before[key] !== after[key] : !same(before[key] as object, after[key] as object))
@@ -158,8 +158,8 @@ function record(before: HistorySnapshot, after: HistorySnapshot, label: string, 
   const previous = pick(before, keys), next = pick(after, keys)
   useHistory.setState((state) => {
     const last = state.past.at(-1)
-    const entry = { before: previous, after: next, label, workspace, group }
-    if (group && !state.future.length && last?.group === group && last.workspace === workspace) {
+    const entry = { before: previous, after: next, label, workspace, group: stepGroup }
+    if (stepGroup && !state.future.length && last?.group === stepGroup && last.workspace === workspace) {
       return { past: [...state.past.slice(0, -1), { ...last, before: { ...previous, ...last.before }, after: { ...last.after, ...next } }], future: [] }
     }
     return { past: [...state.past.slice(-(LIMIT - 1)), entry], future: [] }
@@ -181,7 +181,9 @@ export async function historyAsync(label: string, job: () => Promise<void>): Pro
   const before = captureHistory(), workspace = useShell.getState().workspace, generation = epoch
   paused++
   try { await job() }
-  finally { paused--; record(before, captureHistory(), label, workspace, generation) }
+  // An async step is a command of its own: it never joins the edit group a
+  // focused field or a held pointer happens to have open while it runs.
+  finally { paused--; record(before, captureHistory(), label, workspace, generation, 0) }
 }
 
 /** A dimension box with something in it — a slot filled, or an edit. The
@@ -238,7 +240,18 @@ async function travel(redo: boolean): Promise<void> {
   try {
     await hooks.runRestore(async () => {
       await hooks.beforeRestore(patch)
-      for (const p of participants) await p.beforeRestore?.(patch)
+      const done: HistoryParticipant[] = []
+      try {
+        for (const p of participants) { await p.beforeRestore?.(patch); done.push(p) }
+      } catch (error) {
+        // The app's part has already swapped the scan or moved it: a
+        // participant that fails puts it back, and those before it, so the
+        // scan stays on the same side of the step as the stores.
+        const back = pick(previous, Object.keys(patch))
+        await hooks.beforeRestore(back)
+        for (const p of done) await p.beforeRestore?.(back)
+        throw error
+      }
       apply(patch)
       useShell.getState().setWorkspace(entry.workspace)
       useHistory.setState((s) => redo
@@ -265,6 +278,13 @@ let wrapActions: ((a: HistoryActions) => () => void) | null = null
 /** Take part in the history — see HistoryParticipant. The returned function
  *  ends it. */
 export function registerHistory(participant: HistoryParticipant): () => void {
+  // A section shares the snapshot with the app's parts and every other
+  // participant's: a key taken twice would silently overwrite one of them.
+  const taken = new Set([...Object.keys(captureCore()), ...participants.flatMap((p) => (p.sections ?? []).map((s) => s.key))])
+  for (const s of participant.sections ?? []) {
+    if (taken.has(s.key)) throw new Error(`Two history sections share the key "${s.key}".`)
+    taken.add(s.key)
+  }
   participants.push(participant)
   const unwrap = wrapActions ? (participant.actions ?? []).map((a) => wrapActions!(a)) : []
   return () => {

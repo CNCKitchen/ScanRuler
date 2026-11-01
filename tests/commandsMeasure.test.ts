@@ -618,4 +618,16 @@ describe('session, report, files and history', () => {
     expect(useStore.getState().busy).toBe(false)
     expect((await refused('element.fit', { kind: 'plane', at: { vertex: 0 } })).code).toBe('no_scan')
   })
+
+  it('session.reset says so when starting over fails', async () => {
+    await openBox()
+    const client = headless.session.clientRef.current!
+    const commitImport = client.commitImport
+    client.commitImport = async () => { throw new Error('worker gone') }
+    try {
+      const error = await refused('session.reset', { discard: true })
+      expect(error.code).toBe('failed')
+      expect(error.message).toMatch(/worker gone/)
+    } finally { client.commitImport = commitImport }
+  })
 })

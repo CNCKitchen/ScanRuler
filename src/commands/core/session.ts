@@ -13,7 +13,7 @@ import { RECENT_KEPT, RECENT_RESULT_CHARS, recentOutcomes } from '../registry'
 import { enumOf, int, obj, str } from '../schema'
 import { internalWorkspace, publicWorkspace, sessionAfterStep, sessionState, workspaceNames } from '../state'
 import { CommandError, type Command } from '../types'
-import { discardSchema, requireDiscardable, waitFor } from './common'
+import { discardSchema, lastError, requireDiscardable, waitFor } from './common'
 
 const state: Command = {
   name: 'state',
@@ -44,6 +44,9 @@ const reset: Command<{ discard?: boolean }> = {
       flat?.closeImage()
       useStore.getState().setProjectName(null)
     })
+    // runImport reports a failure on screen rather than throwing it; the
+    // agent must hear of it too, not read a session it thinks is empty.
+    if (useStore.getState().errorText) throw new CommandError('failed', lastError('The session could not be started over.'))
     return await sessionState()
   },
 }
