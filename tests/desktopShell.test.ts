@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The desktop shell's behaviour (electron/shell.ts) against a fake Electron: one instance, the tray's two entries, a window that survives being closed, navigation kept on the app, and the smoke run's exit codes.
+// The desktop shell's behaviour (electron/shell.ts) against a fake Electron: one instance, the tray's entries, a window that survives being closed, navigation kept on the app, and the smoke run's exit codes.
 
 import { EventEmitter } from 'node:events'
 import { describe, expect, it } from 'vitest'
 import {
   guardNavigation,
+  QUIT_AND_STOP_LABEL,
   runShell,
   TITLE,
   TRAY_ICON_PX,
@@ -97,7 +98,7 @@ function fakeElectron(options: { lock?: boolean; title?: string; loadFails?: boo
   return { electron, log, emit: (event: AppEvent) => events.emit(event) }
 }
 
-const deps = (extra: Partial<ShellDeps> = {}): ShellDeps => ({ server: () => Promise.resolve({ url: URL_PAIRED, origin: ORIGIN }), trayIcon: '/res/tray.png', smoke: false, ...extra })
+const deps = (extra: Partial<ShellDeps> = {}): ShellDeps => ({ server: () => Promise.resolve({ url: URL_PAIRED, origin: ORIGIN }), stopServer: () => Promise.resolve(true), trayIcon: '/res/tray.png', smoke: false, ...extra })
 
 describe('the desktop shell', () => {
   it('quits a second instance at once and builds nothing', async () => {
@@ -109,7 +110,7 @@ describe('the desktop shell', () => {
     expect(log.trayImages).toHaveLength(0)
   })
 
-  it('opens one window on the paired app and a tray with Open and Quit', async () => {
+  it('opens one window on the paired app and a tray with Open, Quit and Quit and stop', async () => {
     const { electron, log } = fakeElectron()
     runShell(electron, deps())
     await settle()
@@ -119,7 +120,7 @@ describe('the desktop shell', () => {
     expect(log.trayImages).toHaveLength(1)
     expect(log.trayTips).toEqual([TITLE])
     expect(log.images).toEqual([{ path: '/res/tray.png', size: { height: TRAY_ICON_PX } }])
-    expect(log.menus[0]?.map((entry) => entry.label)).toEqual(['Open', 'Quit'])
+    expect(log.menus[0]?.map((entry) => entry.label)).toEqual(['Open', 'Quit', QUIT_AND_STOP_LABEL])
   })
 
   it('stays when the last window closes; Quit quits; Open and a second launch reuse the window', async () => {
@@ -146,6 +147,27 @@ describe('the desktop shell', () => {
     expect(log.windows).toHaveLength(2)
     quit.click()
     expect(log.quits).toBe(1)
+  })
+
+  it('stops the background server before quitting on Quit and stop, and stays up with the error when it will not stop', async () => {
+    const stopped = fakeElectron()
+    let stops = 0
+    runShell(stopped.electron, deps({ stopServer: () => { stops++; return Promise.resolve(true) } }))
+    await settle()
+    const stopEntry = stopped.log.menus[0]?.find((entry) => entry.label === QUIT_AND_STOP_LABEL)
+    if (stopEntry === undefined) throw new Error('the tray menu has no stop entry')
+    stopEntry.click()
+    expect(stopped.log.quits).toBe(0)
+    await settle()
+    expect(stops).toBe(1)
+    expect(stopped.log.quits).toBe(1)
+    const stuck = fakeElectron()
+    runShell(stuck.electron, deps({ stopServer: () => Promise.reject(new Error('still answering')) }))
+    await settle()
+    stuck.log.menus[0]?.find((entry) => entry.label === QUIT_AND_STOP_LABEL)?.click()
+    await settle()
+    expect(stuck.log.quits).toBe(0)
+    expect(stuck.log.errors).toEqual([[TITLE, 'still answering']])
   })
 
   it('keeps navigation on the app: another origin and window.open go to the browser, other schemes are dropped', () => {

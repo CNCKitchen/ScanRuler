@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The desktop shell's behaviour, with Electron's API handed in so it runs in a test: one instance per user, a tray with Open and Quit, one window on the app served by the background server, and closing the window leaves everything running (only the tray's Quit ends the shell, and the background server outlives even that).
+// The desktop shell's behaviour, with Electron's API handed in so it runs in a test: one instance per user, a tray with Open, Quit and Quit and stop the background server, one window on the app served by the background server, and closing the window leaves everything running (only the tray's Quit entries end the shell, and the background server outlives a plain Quit so the agents relaying through it keep working).
 
 /** The window's name, and the tray's. */
 export const TITLE = 'ScanRuler'
+
+/** The tray entry that ends the background server as well as the shell, which a plain Quit leaves running. */
+export const QUIT_AND_STOP_LABEL = 'Quit and stop background server'
 
 /** The tray icon's height in pixels: the macOS menu bar's icon height in points, which also sits within Ubuntu's panel. */
 export const TRAY_ICON_PX = 16
@@ -73,9 +76,10 @@ export interface ShellElectron<Image, Menu> {
   showError(heading: string, text: string): void
 }
 
-/** What the shell is given: how to reach the background server, the tray icon's path, and whether this is a smoke run. `server` resolves the address of the app (already paired) and its origin. */
+/** What the shell is given: how to reach the background server and how to end it, the tray icon's path, and whether this is a smoke run. `server` resolves the address of the app (already paired) and its origin; `stopServer` resolves once the server no longer holds its port and rejects when it still does. */
 export interface ShellDeps {
   readonly server: () => Promise<{ readonly url: string; readonly origin: string }>
+  readonly stopServer: () => Promise<unknown>
   readonly trayIcon: string
   readonly smoke: boolean
 }
@@ -155,6 +159,16 @@ export function runShell<Image, Menu>(electron: ShellElectron<Image, Menu>, deps
       electron.Menu.buildFromTemplate([
         { label: 'Open', click: reopen },
         { label: 'Quit', click: () => { app.quit() } },
+        {
+          label: QUIT_AND_STOP_LABEL,
+          click: () => {
+            // The shell stays up when the server will not stop, so the error is shown against a tray that still works.
+            deps.stopServer().then(
+              () => { app.quit() },
+              (error: unknown) => { electron.showError(TITLE, message(error)) },
+            )
+          },
+        },
       ]),
     )
     return tray

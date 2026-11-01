@@ -2,7 +2,7 @@
 // The desktop app's main process (bundled by scripts/package-electron.ts): wires Electron's real API into the shell, with the background server attached to or started detached from the resources shipped beside the app.
 import { app, BrowserWindow, dialog, Menu, nativeImage, shell, Tray } from 'electron'
 import { join } from 'node:path'
-import { DEFAULT_PORT, pairingLink, start } from '../mcp/src/daemon.js'
+import { DEFAULT_PORT, pairingLink, start, stop } from '../mcp/src/daemon.js'
 import { runShell, type AppEvent, type ShellElectron, type ShellWindow } from './shell'
 
 const resources = process.resourcesPath
@@ -59,4 +59,4 @@ const electron: ShellElectron<Electron.NativeImage, Electron.Menu> = {
   showError: (heading, text) => { dialog.showErrorBox(heading, text) },
 }
 
-runShell(electron, { server, trayIcon: join(resources, 'tray.png'), smoke: process.argv.includes('--smoke') })
+runShell(electron, { server, stopServer: () => stop(), trayIcon: join(resources, 'tray.png'), smoke: process.argv.includes('--smoke') })
