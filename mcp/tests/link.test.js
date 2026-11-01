@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { get } from 'node:http'
-import { CLOSE, originAllowed, PageLink } from '../src/link.js'
+import WebSocket from 'ws'
+import { CLOSE, HELLO_PAYLOAD, originAllowed, PageLink } from '../src/link.js'
 import { PeerLink } from '../src/relay.js'
 import { HELLO_PATH, httpServer } from '../src/serve.js'
 import { fakePage } from './fakePage.js'
@@ -143,6 +144,34 @@ test('another copy with the token is let in beside the page and relays through i
   await closed
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(link.peers.size, 0)
+})
+
+test('before its hello a connection may send only so much; once taken in, a scan', async () => {
+  const open = () =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/`, { maxPayload: 0 })
+      ws.once('open', () => resolve(ws))
+      ws.once('error', reject)
+    })
+  const closed = (ws) => new Promise((resolve) => ws.once('close', (code) => resolve(code)))
+  const big = new Uint8Array(HELLO_PAYLOAD + 1)
+
+  // Nobody yet: turned away before it is held in memory.
+  const stranger = await open()
+  const strangerClosed = closed(stranger)
+  stranger.send(big)
+  assert.equal(await strangerClosed, 1009)
+
+  // Another copy with the token, taken in: a message that large is heard.
+  const peer = await open()
+  const reply = new Promise((resolve) => peer.on('message', (data) => {
+    const message = JSON.parse(data.toString())
+    if (message.id === 7) resolve(message)
+  }))
+  peer.send(JSON.stringify({ peer: { token: TOKEN } }))
+  peer.send(JSON.stringify({ id: 7, method: 'nothing', pad: 'x'.repeat(HELLO_PAYLOAD + 1) }))
+  assert.match((await reply).error.message, /No such request/)
+  peer.close()
 })
 
 test('waiting for a page ends when one connects, or when the time is up', async () => {
