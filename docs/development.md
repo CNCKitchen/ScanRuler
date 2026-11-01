@@ -169,6 +169,12 @@ The bundle also carries the built app (`app/`), and the executable's `start`, `o
 
 The macOS executables are signed ad hoc, which Apple silicon requires of any binary, but they are not notarised: a copy downloaded in a browser needs its quarantine attribute cleared once (`xattr -d com.apple.quarantine scanruler-agent`). The Windows executables are unsigned. The server in the executable never updates itself from npm; a newer release is a newer download.
 
+## Desktop app
+
+`npm run package:electron` packages the desktop app for the platform it runs on into `dist-electron/<platform>-<arch>/ScanRuler-<platform>-<arch>/`: Electron running the shell in `electron/`, with the built app, the agent server and the tray's icon in its resources. The shell is a tray app: one instance per user, a tray icon with Open and Quit, closing the window leaves it running, and only Quit ends it. The app is served by the background server (`mcp/src/daemon.js`), which the shell attaches to or starts detached, running the bundled server through Electron as Node, so the server and the agents relaying through it outlive both the window and the shell. The shell's behaviour is in `electron/shell.ts` with Electron's API handed in, tested with vitest in `tests/desktopShell.test.ts`.
+
+`npm run smoke:electron` runs the packaged app with `--smoke`, in a config directory, a user-data directory and on a port of its own: it must start the server, load the app into a hidden window, find the page titled ScanRuler, make its tray and exit 0, after which the server must still be running, serve the app and stop on request. It opens a window, so run it where a display is available; CI runs it on every platform, under `xvfb-run` on Linux, with the bundles above (`.github/workflows/bundle.yml`). The macOS app is signed ad hoc and not notarised (`xattr -d com.apple.quarantine ScanRuler.app` once after a download); the Windows app is unsigned. Electron ships Chromium's FFmpeg as a separate LGPL library, which CONTRIBUTING.md records.
+
 ## Deploying to Cloudflare
 
 The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no
