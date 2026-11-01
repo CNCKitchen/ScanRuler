@@ -7,6 +7,13 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **A shared workspace layout and guided measurement**. All workspaces use the
+  same header, workspace rail, resizable panels and persistent tool actions,
+  with sheets on narrow screens and light/dark themes. Tool search, keyboard
+  tree selection and a seven-step guide make the existing measurement workflow
+  easier to find and follow. A generated block supports measurement practice;
+  the bundled sample scan remains available.
+
 - **Keep keyboard focus in dialogs** (2026-11-01). Settings, units, agent
   consent, support and imprint windows keep Tab inside and restore focus on
   close. Escape closes the top window without changing background editors.
