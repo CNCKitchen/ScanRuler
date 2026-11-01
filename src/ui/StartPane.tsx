@@ -11,6 +11,7 @@
 import { useRef, useState } from 'react'
 import { SCAN_ACCEPT } from '../core/formats'
 import { usePulse } from '../app/useHints'
+import { SAMPLE_DETAIL } from '../app/sampleScan'
 import { bundleFiles, droppedFiles } from '../app/scanFiles'
 import { HiddenFileInput } from './ModelSlot'
 
@@ -82,6 +83,7 @@ export function StartPane({
   blurb,
   slots,
   skip,
+  onOpenSample,
 }: {
   title: string
   blurb: string
@@ -89,12 +91,15 @@ export function StartPane({
   /** A way past the door for a workspace that can work with no model at
    *  all, from a blank stage. */
   skip?: { label: string; title: string; onClick: () => void }
+  /** For someone with no scan to hand: the one that ships with the build. */
+  onOpenSample?: () => Promise<void>
 }) {
   // A workspace that wants two models can have the second one dropped first —
   // a STEP file can only ever be the reference — so the prompt says what is
   // still outstanding rather than repeating the blurb at someone who has
   // already started.
   const started = slots.some((s) => s.name)
+  const [fetching, setFetching] = useState(false)
 
   return (
     <div className="startpane" data-test="start-pane">
@@ -110,6 +115,22 @@ export function StartPane({
       <div className="startfoot">
         Drag &amp; drop works anywhere in the window — the first empty slot takes it.
       </div>
+      {onOpenSample && (
+        <div className="startsample">
+          <button
+            data-test="start-sample"
+            title={SAMPLE_DETAIL}
+            disabled={fetching}
+            onClick={() => {
+              setFetching(true)
+              void onOpenSample().finally(() => setFetching(false))
+            }}
+          >
+            {fetching ? 'Opening…' : 'Open a sample scan'}
+          </button>
+          <small>No scan to hand? {SAMPLE_DETAIL}.</small>
+        </div>
+      )}
       {skip && (
         <div className="startskip">
           <button className="ghost" data-test="start-skip" title={skip.title} onClick={skip.onClick}>

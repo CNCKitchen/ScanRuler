@@ -25,6 +25,7 @@
 // 3MF model holds.
 
 import { unzipSync, strFromU8 } from 'fflate'
+import { checkTextSize } from './text'
 import type { ParsedMesh } from '../types'
 import { baseName, sampleTexture, type ObjCompanions, type TextureImage } from './objTexture'
 
@@ -387,6 +388,15 @@ const NOT_THE_PART = new Set(['support', 'solidsupport', 'other'])
 /** Deeper than this, components are taken to name each other in a ring. */
 const MAX_DEPTH = 32
 
+/** How much the build may put in place. An object used twice as a component
+ *  of one used twice, and so on down, is placed 2^depth times: thirty levels
+ *  of a few bytes each would make a billion copies. Far past any real part. */
+const MAX_PLACED = { objects: 1_000_000, vertices: 30_000_000 }
+
+/** A model is XML whatever the zip makes of it: past the size text can be held
+ *  at, about 7.5 million triangles at the 71 bytes a triangle ScanRuler writes. */
+const THREEMF_INSTEAD = 'Export it as binary STL or binary PLY, which have no such limit.'
+
 export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => void, companions?: ObjCompanions): ParsedMesh {
   onProgress?.('Reading 3MF…')
   let zipped: Record<string, Uint8Array>
@@ -400,6 +410,7 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
 
   const rootPath = rootModelPath(files)
   const models = new Map<string, ModelFile>()
+  checkTextSize(files[rootPath].byteLength, 'This 3MF', THREEMF_INSTEAD)
   const root = readModel(strFromU8(files[rootPath]), 1)
   models.set(rootPath, root)
   const modelAt = (path: string | undefined): ModelFile => {
@@ -409,6 +420,7 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     if (!m) {
       const bytes = files[key]
       if (!bytes) throw new Error(`This 3MF names ${path}, which it does not hold.`)
+      checkTextSize(bytes.byteLength, 'This 3MF', THREEMF_INSTEAD)
       m = readModel(strFromU8(bytes), root.scale)
       models.set(key, m)
     }
@@ -437,8 +449,10 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   }
   const rgbOut = new Uint8Array(3)
 
+  let placed = 0
   const place = (model: ModelFile, id: string, transform: Matrix, depth: number) => {
     if (depth > MAX_DEPTH) throw new Error('This 3MF\'s components name each other in a ring.')
+    if (++placed > MAX_PLACED.objects) throw new Error('This 3MF places more objects than ScanRuler can open.')
     const object = model.objects.get(id)
     if (!object) throw new Error(`This 3MF names object ${id}, which it does not hold.`)
     if (NOT_THE_PART.has(object.type) || slicer.objects.has(id)) return
@@ -446,6 +460,7 @@ export function parse3MF(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     for (const c of object.components) place(c.path ? modelAt(c.path) : model, c.objectid, compose(c.transform, transform), depth + 1)
     const mesh = object.mesh
     if (!mesh) return
+    if (positions.length / 3 + mesh.vertices.length / 3 > MAX_PLACED.vertices) throw new Error('This 3MF places more geometry than ScanRuler can open.')
     const m = transform
     const s = model.scale
     const base = positions.length / 3

@@ -48,6 +48,7 @@ import type { Vec3 } from '../../../src/core/types'
 import { SECTION_LINE_DEFAULT } from '../../../src/viewer/lineWidths'
 import { LineWidthRegistry } from '../../../src/viewer/lineWidthRegistry'
 import { pinLabel } from '../../../src/viewer/pinLabel'
+import { modHeld } from '../../../src/ui/platform'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
 import type { SceneLayer, SceneLayerHost } from '../../../src/viewer/sceneLayers'
 import { type NetworkReport, PATCH_GRID } from '../core/networkBody'
@@ -1061,7 +1062,7 @@ export class NetworkLayer {
           const outline = joined(q.sides)
           const seed = seedInside(this.paths, outline)
           this.edit((x) => this.waitFor(outline, x, addPatch(x, q.corners, { closed: true, seed, vias: q.vias })))
-        } else if (!moved) this.click(ev.clientX, ev.clientY, ev.ctrlKey)
+        } else if (!moved) this.click(ev.clientX, ev.clientY, modHeld(ev))
         this.drawPreview(null)
         this.host.invalidate()
         return
@@ -1078,7 +1079,7 @@ export class NetworkLayer {
       }
       // The press was taken, so the viewport makes no click of it: one that
       // never moved is a click on what it pressed — a corner there.
-      else this.click(ev.clientX, ev.clientY, ev.ctrlKey)
+      else this.click(ev.clientX, ev.clientY, modHeld(ev))
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)

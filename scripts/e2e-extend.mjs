@@ -46,6 +46,8 @@ writeFileSync(
 )
 
 const { browser, page, consoleErrors } = await launchApp()
+// The reload below is asked whether the work on the stage may go.
+page.on('dialog', (dialog) => dialog.accept())
 await loadScan(page, STL)
 const rect = await canvasRect(page)
 

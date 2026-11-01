@@ -225,14 +225,26 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     queued.push(msg)
     return
   }
-  handle(msg)
+  answer(msg)
 }
 
 /** Whatever came in while the fit had the floor, now that it does not. Requests
  *  are taken one at a time, and a fit or a held request among them takes the
  *  floor again — the rest keep waiting, in the order they arrived. */
 function drainQueue(): void {
-  while (queued.length > 0 && !alignRun && !holding) handle(queued.shift()!)
+  while (queued.length > 0 && !alignRun && !holding) answer(queued.shift()!)
+}
+
+/** A request handled, and one that throws answered with its error. Drained
+ *  from the queue, a throw would otherwise land in a promise's callback —
+ *  no error the page hears of — and leave this request and every one queued
+ *  behind it waiting forever. */
+function answer(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
+  try {
+    handle(msg)
+  } catch (e) {
+    post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+  }
 }
 
 /** The scan prepared for closest-point queries — the same structure a

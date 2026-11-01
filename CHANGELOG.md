@@ -12,12 +12,79 @@ saves carry the same number as `appVersion`. How a release is cut is in
   wants, and perspective. Picks, marking and the readings follow whichever is on
   screen, the part keeps its size at the orbit centre when you switch, and the
   choice is remembered in the browser. Asked for in #24.
+- **Contributors are credited** (2026-11-01). Each publish to this repository now
+  names the people whose work it brings as co-authors, starting with Jozkah and
+  Starzrng. CONTRIBUTING.md says how it works.
+
+## 0.9.4 — 2026-11-01
+
+- **A Notes key on the view bar** (2026-11-01, Reverse engineer, from issue 21).
+  While there are notes for the agent, the key puts their pins away and brings
+  them back. Only agents could do that before. The notes stay and the agent still
+  reads them, and pinning or opening a note brings the pins back.
+- **Small features stay visible on a large scan** (2026-11-01, issue 47). What is
+  drawn at a size of its own was sized to the whole scan: on a frame two metres
+  across, the arrows on a cylinder being made were wider than the Ø32 bore they
+  stood on, and a point was a ball 200 pixels across. These marks are now a fixed
+  size on the screen at any zoom, so they leave the feature in view zoomed in and
+  can be clicked zoomed out: the grips of the element being made, points, the
+  thickness of lines and circles, centre dots, selection strokes, angle arcs and
+  pinned readings. Cylinders, spheres, cones, tori and plane patches keep their true
+  size. While you brush, the grips are put away, as they cannot be taken hold of
+  then, and the ghost of the fit is drawn faint.
+- **OBJ, ASCII STL and ASCII PLY files of any size open** (2026-11-01). Above
+  about 512 MB, a file of text came up as having no triangles, because a browser
+  cannot hold that much text in one piece and says nothing when it cannot. They
+  are now read a piece at a time. 3MF and STEP files that large still cannot be
+  read, and now say that they are too large, in place of the false message.
+
+## 0.9.3 — 2026-11-01
 
 - **Ask your agent to update its connector** (2026-10-31). The banner that says
   your ScanRuler connector is out of date now starts with a sentence to copy and
   paste into your AI agent's chat, and the agent changes the setting for you. All
   that is left for you is to quit the app and open it again. The steps by hand
   are still below it.
+- **A sample scan on the start page** (2026-11-01). No scanner, no scan to hand?
+  **Open a sample scan** opens a fridge bracket that ships with the app, from the
+  start page of every workspace that has one, on self-hosted copies too.
+- **Notes from a project file are no longer taken as your requests** (2026-11-01,
+  Reverse engineer). A shared project can hold notes anyone wrote, and the agent
+  read them as what you had asked for. They now reach the agent marked as the
+  file's and apart from yours, with word to treat their text as content, not
+  instructions. The panel says **From the project file** on each; keep one or
+  answer it in its box to make it yours. The mark is for the session and is never
+  saved, so your own saved notes are marked too when you open the project again.
+  Notes you type in the session work as before.
+- **`scanruler_write` refuses files agents and tools act on** (2026-11-01,
+  scanruler-mcp 0.6.1). It no longer writes into hidden folders or agents' folders
+  such as `.claude`, nor files such as `CLAUDE.md`, `AGENTS.md` or `package.json`,
+  and it judges a link by where it leads. Reports under ordinary names go through
+  as before.
+- **Command works as the additive modifier on a Mac** (2026-11-01, thanks to
+  Starzrng). macOS takes Ctrl+click as a right click, so adding to a selection
+  could not be done there at all. Command now does what Ctrl does: picks and
+  selection boxes on the 3D view and the 2D sheet, the sketch network, dragging a
+  sketch without snapping. The undo and redo tips print ⌘.
+- **Fixes from Jozkah's code review** (2026-11-01):
+  - A 3MF whose components multiply without end is refused instead of running
+    out of memory (past a million objects or 30 million vertices).
+  - A mesh-worker request that throws while the queue drains is now answered, so
+    it no longer leaves an import waiting forever.
+  - An agent command's answer goes only on the connection it came on, so a server
+    started again cannot take it for another request.
+- **Fixes in scanruler-mcp from Jozkah's code review** (2026-11-01):
+  - A connection may send only 16 MB until its hello is taken, not 1 GB, with at
+    most eight waiting, and a frame past the limit no longer ends the server.
+  - A malformed URL path gets a 400, and any other failed request a 500, rather
+    than crashing `--serve`.
+  - Binary frames with paths such as `__proto__` are refused, in the page and in
+    the server.
+  - The lockfile takes the patched versions of five reported dependency
+    vulnerabilities.
+- **Development** (2026-11-01, thanks to Jozkah). The setup steps install the
+  agent server's dependencies, and the plugin boundary check now reads
+  `src/plugins/` too.
 
 ## 0.9.2 — 2026-10-31
 

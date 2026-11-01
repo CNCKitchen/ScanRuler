@@ -4,8 +4,8 @@
 // tool a left-drag over the bare sheet draws a box instead of panning —
 // dragged rightward a solid window that takes the pieces wholly inside it,
 // dragged leftward a dashed crossing box that takes what it touches, lit
-// while it is dragged; Shift adds to the selection; a click on the bare
-// sheet still clears it; a press on a piece still drags the piece; the
+// while it is dragged; Shift adds to the selection, and so does Command,
+// which also starts a drag on a piece; a click on the bare sheet still clears it; a press on a piece still drags the piece; the
 // right button still pans; and a drawing tool in hand leaves the left-drag
 // a pan.
 //
@@ -61,17 +61,17 @@ const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
 
 /** Press at one sheet point, move to another in steps, and let go —
  *  `before` runs with the button still down, at the far end. */
-async function drag(from, to, { button = 'left', shift = false, before } = {}) {
+async function drag(from, to, { button = 'left', shift = false, key = shift ? 'Shift' : null, before } = {}) {
   const [x0, y0] = await toClient(from)
   const [x1, y1] = await toClient(to)
-  if (shift) await page.keyboard.down('Shift')
+  if (key) await page.keyboard.down(key)
   await page.mouse.move(x0, y0)
   await page.mouse.down({ button })
   for (let i = 1; i <= 8; i++) await page.mouse.move(x0 + ((x1 - x0) * i) / 8, y0 + ((y1 - y0) * i) / 8)
   await sleep(120)
   if (before) await before()
   await page.mouse.up({ button })
-  if (shift) await page.keyboard.up('Shift')
+  if (key) await page.keyboard.up(key)
   await sleep(250)
 }
 
@@ -113,6 +113,23 @@ check(same(await selection(), [ids.bottom, ids.right, ids.lone].sort((a, b) => a
 await drag([5, 0], [55, 30], { shift: true })
 check(same(await selection(), [...ids.square, ids.lone].sort((a, b) => a - b)), 'a window with Shift held adds the rectangle to the selection')
 check(same(await centre(), startCentre), 'the Shift+drag did not pan the sheet')
+
+// ---- Command, as a Mac presses it ----------------------------------------------------------
+await drag([70, 10], [45, 0])
+await drag([5, 0], [55, 30], { key: 'Meta' })
+check(same(await selection(), [...ids.square, ids.lone].sort((a, b) => a - b)), 'a window with Command held adds the rectangle to the selection')
+check(same(await centre(), startCentre), 'the Command+drag did not pan the sheet')
+{
+  const before = await re((id) => window.__re.store.getState().sketchDraft.sketch.entities.find((e) => e.id === id).a[1], ids.lone)
+  await drag([70, 5], [70, 2], { key: 'Meta' })
+  const after = await re((id) => window.__re.store.getState().sketchDraft.sketch.entities.find((e) => e.id === id).a[1], ids.lone)
+  check(after < before - 1, `a press on a piece with Command held starts its drag (${before} to ${after})`)
+  check(same(await centre(), startCentre), 'and does not pan the sheet')
+  await page.keyboard.down('Control')
+  await page.keyboard.press('z')
+  await page.keyboard.up('Control')
+  await sleep(250)
+}
 
 // ---- a click on the bare sheet clears ------------------------------------------------------
 {

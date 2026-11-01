@@ -5,6 +5,7 @@
 
 import { fileNameSchema, invalid } from '../../../src/commands/core/common'
 import { anyObject, arr, bool, bytes, enumOf, int, type JsonSchema, num, obj, oneOf, str, validate } from '../../../src/commands/schema'
+import { decodeWhole } from '../../../src/core/parsers/text'
 import { type Command, CommandError } from '../../../src/plugins/api'
 import { bodyMaker, dependentsOf, type Feature, movedList, type SketchFeature } from '../core/features'
 import { evaluateFor } from '../core/expression'
@@ -1151,7 +1152,7 @@ export const importStep: Command<{ bytes: Uint8Array; name: string; detail?: Det
   input: obj({ bytes: bytes('The STEP file’s contents.'), name: fileNameSchema('"motor.step"'), detail: detailIn }, ['bytes', 'name']),
   label: ({ name }) => `import ${name}`,
   run: async ({ bytes: data, name, detail = 'brief' }) => {
-    const text = new TextDecoder().decode(data)
+    const text = decodeWhole(data, name, 'Export the part with less in it.')
     if (!/^\s*ISO-10303-21\s*;/.test(text.slice(0, 256))) invalid(`${name} is not a STEP file — it does not begin as one (ISO-10303-21).`)
     const before = bodyRows(reverseSession())
     const id = await change(() => {

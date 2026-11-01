@@ -15,7 +15,7 @@
 // Env: CHROME (chrome.exe path), APP_URL, SHOT_DIR.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { canvasRect, check, colouredFraction, drag, fieldSetter, finish, launchApp, loadScan, OUT_DIR, setViewTheme, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
+import { canvasRect, check, colouredFraction, drag, fieldSetter, finish, launchApp, loadScan, MOD, OUT_DIR, setViewTheme, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
 import { noisyBoxScan } from '../../../scripts/e2e-fixtures.mjs'
 
 // ---- the scan: a box 30 × 30 × 20 on the XY plane, noisy, with two 3 mm
@@ -139,9 +139,9 @@ const orangeBlobs = async () => {
 // other than the last one's.
 const step = async (key, word) => {
   const before = await page.$eval('.strip .msg', (el) => el.textContent).catch(() => '')
-  await page.keyboard.down('Control')
+  await page.keyboard.down(MOD)
   await page.keyboard.press(key)
-  await page.keyboard.up('Control')
+  await page.keyboard.up(MOD)
   await page.waitForFunction(
     (w, b) => {
       const now = document.querySelector('.strip .msg')?.textContent ?? ''

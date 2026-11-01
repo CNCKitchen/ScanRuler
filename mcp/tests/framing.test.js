@@ -39,3 +39,16 @@ test('the decoder refuses frames out of order', () => {
   assert.throws(() => decoder(() => {})('[1,2]') ?? null, /JSON object/)
   assert.throws(() => encode({ input: {} }, 'input.bytes'), /No bytes at input\.bytes/)
 })
+
+test('the decoder refuses binary paths that can change object prototypes', () => {
+  const feed = decoder(() => {})
+  assert.throws(
+    () => feed(JSON.stringify({ binary: '__proto__.polluted' })),
+    /unsafe binary path/i,
+  )
+  assert.throws(
+    () => feed(JSON.stringify({ binary: 'constructor.prototype.polluted' })),
+    /unsafe binary path/i,
+  )
+  assert.equal(Object.prototype.polluted, undefined)
+})

@@ -21,6 +21,7 @@
 // same scan again leaves the notes where they are. Two projects of the part,
 // one saved with the notes and one without: each opened brings its own. A
 // click on a pin's badge opens its note; Escape puts the Note key down; the
+// view bar's Notes key puts the pins away and a note opened brings them back; the
 // connection switched off in Settings takes the list and the pins away.
 //
 // Prereqs: dev server running (npm run dev), Chrome, and the server's
@@ -344,6 +345,30 @@ try {
   await sleep(500)
   const after2 = await notes()
   check(reopened.json?.scan?.triangles === 1728 && after2.length === placed.length, `the same scan opened again keeps the notes: ${after2.length} of ${placed.length}`)
+
+  // ---- the view bar's Notes key ---------------------------------------------------------
+  const labelsShown = () => re(() => [...document.querySelectorAll('[data-test=note-label]')].filter((e) => e.style.display !== 'none').length)
+  const pinCount = await labelsShown()
+  check(pinCount > 0 && Boolean(await page.$('[data-test=toggle-notes]')), `the view bar has a Notes key, with ${pinCount} pins on the part`)
+  await page.click('[data-test=toggle-notes]')
+  await sleep(300)
+  check((await labelsShown()) === 0, 'the key puts the pins away')
+  check((await notes()).length === after2.length, 'and the notes stay')
+  await page.screenshot({ path: shotPath('notes-3-pins-away.png') })
+  check((await ok('reverse_note_list', { all: true })).json?.notes?.length === after2.length, 'and the agent still reads them')
+  await ok('view_render', { show: { notes: true }, width: 320 })
+  await sleep(300)
+  check((await labelsShown()) === 0, 'a picture that shows them puts them back as the person left them')
+  await page.click('[data-test=toggle-notes]')
+  await sleep(300)
+  check((await labelsShown()) === pinCount, 'the key brings them back')
+  await page.click('[data-test=toggle-notes]')
+  await sleep(200)
+  await page.click('[data-test=note-open]')
+  await sleep(300)
+  check((await labelsShown()) === pinCount, 'and so does opening a note')
+  await page.keyboard.press('Escape')
+  await sleep(200)
 
   // ---- two projects of the part --------------------------------------------------------
   // Saved under the scan's name, each in a folder of its own.

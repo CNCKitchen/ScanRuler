@@ -7,6 +7,7 @@
 import { autoTessellation, estimateStepSize, importStep, type ImportDiagnostics } from 'meshstep'
 import { meshGaps, type MeshGap } from '../geometry/openEdges'
 import type { ParsedMesh } from '../types'
+import { decodeWhole } from './text'
 
 /** How the reference was converted, for the caller to report. */
 export interface StepInfo {
@@ -61,7 +62,7 @@ function decode(buffer: ArrayBuffer): string {
   // STEP part 21 is 7-bit ASCII with \X2\ escapes for anything else, but
   // exporters do write UTF-8 straight into product names; decoding as UTF-8
   // reads both, and never fails on the bytes that matter (the geometry).
-  return new TextDecoder('utf-8').decode(buffer)
+  return decodeWhole(buffer, 'This STEP file', 'Export the part with less in it, or as binary STL or binary PLY.')
 }
 
 /** What went wrong with a face, in words, by the warning's code. */
