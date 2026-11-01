@@ -8,7 +8,7 @@ const out=OUT_DIR
 mkdirSync(out,{recursive:true})
 const browser=await puppeteer.launch({executablePath:CHROME,headless:true})
 try {
- for (const [name,width,height] of [['desktop',1440,900],['phone',390,844]]) {
+ for (const [name,width,height] of [['desktop',1440,900],['phone',390,844],['small-phone',320,568],['short-window',720,450]]) {
   const context=await browser.createBrowserContext(),page=await context.newPage(),errors=[]
   page.on('pageerror',e=>errors.push(e.message))
   await page.setViewport({width,height})

@@ -241,3 +241,9 @@
 .measurement-guide .guide-tasks { display: grid; gap: 8px; }
 .measurement-guide button { white-space: normal; }
 .guide-target { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Empty-state content and the wrapped view controls need separate rows.
+   Padding alone cannot keep a scrolled import/sample button from being covered. */
+.design-measure .stage:has(> .startpane) { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.design-measure .stage > .startpane { position: relative; inset: auto; grid-area: 1 / 1; min-height: 0; max-height: none; padding-bottom: 24px; scroll-padding-bottom: 24px; }
+.design-measure .stage:has(> .startpane) > .stagecorner { position: relative; inset: auto; grid-area: 2 / 1; margin: 12px; }
