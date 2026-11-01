@@ -53,6 +53,15 @@ const FIELD_GAP_PX = 6
  *  length and its rings' radius, in pixels. */
 const SECTION_ARROW_PX = 36
 const SECTION_RING_PX = 90
+/** The arrow on an end of a cylinder being made, its length and its width at
+ *  the base, and the thickness of the bar on an edge of a plane, in pixels. Sized
+ *  on the part, a grip on a bore in a large scan was wider than the bore; held on
+ *  the screen it covers none of it zoomed in and can be taken hold of zoomed out. */
+const END_ARROW_PX = 28
+const EDGE_BAR_PX = 6
+/** An edge's bar is never shorter than this on the screen, or it could not be
+ *  taken hold of on a small patch seen from far off. */
+const EDGE_BAR_MIN_PX = 24
 
 const ELEMENT_SIDES: readonly string[] = [...CYLINDER_SIDES, ...PLANE_SIDES]
 
@@ -87,6 +96,8 @@ interface ExtendGrip {
   /** Held on the screen: its length or radius, and how far an arrow stands
    *  off `position`, in pixels — the mesh scaled again as the view zooms. */
   screen: { size: number; standoff: number } | null
+  /** A bar along an edge, its length the edge's own and its thickness in pixels. */
+  bar?: { span: number }
 }
 
 /** Everything the grips are allowed to touch outside themselves. */
@@ -336,6 +347,15 @@ export class ExtendGrips {
    * the field off its arrow's tip as the view turns. Called every frame;
    * a no-op on the frames the view has not moved.
    */
+  /** Put the grips away while the brush has both plain drags: they could not be
+   *  taken hold of, and nothing should stand in the way of what is being brushed.
+   *  Called every frame. */
+  putAwayWhile(marking: boolean): void {
+    if (this.handleGroup.visible !== marking) return
+    this.handleGroup.visible = !marking
+    this.ctx.invalidate()
+  }
+
   followView(): void {
     const pixel = this.ctx.worldPerPixel()
     const zoomed = pixel !== this.pixel
@@ -346,7 +366,7 @@ export class ExtendGrips {
     if (zoomed) {
       let held = false
       for (const h of this.handles) {
-        if (!h.screen) continue
+        if (!h.screen && !h.bar) continue
         this.fitToScreen(h)
         held = true
       }
@@ -359,6 +379,11 @@ export class ExtendGrips {
    *  ring about its middle, an arrow's base still its standoff off its
    *  point. */
   private fitToScreen(h: ExtendGrip): void {
+    if (h.bar) {
+      const thick = Math.max(EDGE_BAR_PX * this.pixel, 1e-5)
+      h.mesh.scale.set(Math.max(h.bar.span, EDGE_BAR_MIN_PX * this.pixel), thick, thick)
+      return
+    }
     if (!h.screen) return
     const size = Math.max(h.screen.size * this.pixel, 1e-5)
     h.mesh.scale.setScalar(size)
@@ -410,24 +435,15 @@ export class ExtendGrips {
     if (!fit) return
 
     // Drawn on top of everything, so a grip on the far side of the element is
-    // still grabbable. The floor keeps a grip on a tiny feature from vanishing
-    // on a large part.
-    const size = Math.max(this.ctx.modelRadius() * 0.03, 1e-5)
-
+    // still grabbable.
     if (fit.kind === 'cylinder') {
       const axis = new THREE.Vector3(...fit.axis).normalize()
       const length = Math.max(fit.length, 1e-5)
       const centre = new THREE.Vector3(...fit.center)
-      // An arrow off each end, sized to the tube it belongs to rather than to
-      // the part: on a bore in a large casting a grip scaled to the whole scan
-      // would be bigger than the hole, and on a long shaft it would be a speck.
-      const arrow = Math.max(
-        Math.min(Math.max(fit.radius, 1e-5) * 0.8, length * 0.3),
-        this.ctx.modelRadius() * 0.02,
-      )
       const half = length / 2
-      this.addGrip('start', centre.clone().addScaledVector(axis, -half), axis.clone().negate(), arrow)
-      this.addGrip('end', centre.clone().addScaledVector(axis, half), axis.clone(), arrow)
+      const screen = { size: END_ARROW_PX, standoff: 0 }
+      this.addGrip('start', centre.clone().addScaledVector(axis, -half), axis.clone().negate(), END_ARROW_PX, { screen })
+      this.addGrip('end', centre.clone().addScaledVector(axis, half), axis.clone(), END_ARROW_PX, { screen })
       return
     }
 
@@ -439,14 +455,12 @@ export class ExtendGrips {
       const centre = new THREE.Vector3(...fit.center)
       // A bar lying along each edge: the grip is the edge, which is the thing
       // being dragged. Half the edge long, so all four stay clear of the
-      // corners even on a patch that is much longer than it is wide, and never
-      // thicker than a fair share of the patch it belongs to.
+      // corners even on a patch that is much longer than it is wide.
       const bar = (along: THREE.Vector3, span: number) => ({ along, span })
-      const thick = Math.max(Math.min(size, Math.min(eu, ev) * 0.6), this.ctx.modelRadius() * 0.008)
-      this.addGrip('uMin', centre.clone().addScaledVector(u, -eu), u.clone().negate(), thick, { edge: bar(v, ev) })
-      this.addGrip('uMax', centre.clone().addScaledVector(u, eu), u.clone(), thick, { edge: bar(v, ev) })
-      this.addGrip('vMin', centre.clone().addScaledVector(v, -ev), v.clone().negate(), thick, { edge: bar(u, eu) })
-      this.addGrip('vMax', centre.clone().addScaledVector(v, ev), v.clone(), thick, { edge: bar(u, eu) })
+      this.addGrip('uMin', centre.clone().addScaledVector(u, -eu), u.clone().negate(), EDGE_BAR_PX, { edge: bar(v, ev) })
+      this.addGrip('uMax', centre.clone().addScaledVector(u, eu), u.clone(), EDGE_BAR_PX, { edge: bar(v, ev) })
+      this.addGrip('vMin', centre.clone().addScaledVector(v, -ev), v.clone().negate(), EDGE_BAR_PX, { edge: bar(u, eu) })
+      this.addGrip('vMax', centre.clone().addScaledVector(v, ev), v.clone(), EDGE_BAR_PX, { edge: bar(u, eu) })
     }
   }
 
@@ -488,7 +502,6 @@ export class ExtendGrips {
       mesh.quaternion.setFromRotationMatrix(
         new THREE.Matrix4().makeBasis(edge.along, dir, edge.along.clone().cross(dir).normalize()),
       )
-      mesh.scale.set(Math.max(edge.span, size), size * 0.42, size * 0.42)
       mesh.position.copy(position)
     } else {
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir)
@@ -499,7 +512,7 @@ export class ExtendGrips {
     mesh.renderOrder = 6
     mesh.userData.extendSide = side
     this.handleGroup.add(mesh)
-    const grip: ExtendGrip = { side, position: position.clone(), dir: dir.clone(), mesh, material, ring: false, color, screen: edge ? null : screen }
+    const grip: ExtendGrip = { side, position: position.clone(), dir: dir.clone(), mesh, material, ring: false, color, screen: edge ? null : screen, bar: edge ? { span: edge.span } : undefined }
     this.fitToScreen(grip)
     this.handles.push(grip)
     this.handleMeshes.push(mesh)

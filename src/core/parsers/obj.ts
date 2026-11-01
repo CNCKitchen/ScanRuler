@@ -5,16 +5,16 @@
 // libraries that give each vertex its colour (see objTexture). The file's
 // normals and groups are passed over — normals are worked out afresh from
 // the mesh — and a file with no faces is refused, as point clouds are not
-// supported.
+// supported. Read a line at a time, as a large one is too long to hold as text.
 
 import type { ParsedMesh } from '../types'
 import { bakeObjTexture, mtllibNames, type ObjCompanions } from './objTexture'
+import { eachLine, gatherFloats, gatherIndices } from './textChunks'
 
 export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => void, companions?: ObjCompanions): ParsedMesh {
   onProgress?.('Reading OBJ…')
-  const text = new TextDecoder().decode(buffer)
-  const coords: number[] = []
-  const indices: number[] = []
+  const coords = gatherFloats()
+  const indices = gatherIndices()
   const uvs: number[] = []
   // Per vertex, the texture coordinate and material of its first textured
   // corner; filled in as faces name them, so sized when the reading is done.
@@ -25,25 +25,27 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   const libraries: string[] = []
   let material = -1
 
-  const lines = text.split('\n')
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li].split('#', 1)[0].trim()
-    if (line.length < 3) continue
+  const readLine = (raw: string, li: number) => {
+    const hash = raw.indexOf('#')
+    const line = (hash < 0 ? raw : raw.slice(0, hash)).trim()
+    if (line.length < 3) return
     const c0 = line.charCodeAt(0)
     const c1 = line.charCodeAt(1)
     const sep = c1 === 32 /* space */ || c1 === 9 /* tab */
     if (c0 === 118 /* v */ && sep) {
-      const parts = line.trim().split(/\s+/)
-      const xyz = parts.slice(1, 4).map(Number)
-      if (xyz.length !== 3 || !xyz.every(Number.isFinite)) throw new Error(`Invalid OBJ vertex on line ${li + 1}.`)
-      coords.push(...xyz)
+      const parts = line.split(/\s+/)
+      const x = Number(parts[1])
+      const y = Number(parts[2])
+      const z = Number(parts[3])
+      if (parts.length < 4 || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) throw new Error(`Invalid OBJ vertex on line ${li + 1}.`)
+      coords.push3(x, y, z)
     } else if (c0 === 118 /* v */ && c1 === 116 /* t */ && (line.charCodeAt(2) === 32 || line.charCodeAt(2) === 9)) {
       const parts = line.split(/\s+/)
       const u = Number(parts[1])
       const v = parts.length > 2 ? Number(parts[2]) : 0
       uvs.push(Number.isFinite(u) ? u : 0, Number.isFinite(v) ? v : 0)
     } else if (c0 === 102 /* f */ && sep) {
-      const parts = line.trim().split(/\s+/)
+      const parts = line.split(/\s+/)
       const vcount = coords.length / 3
       const tcount = uvs.length / 2
       const face: number[] = []
@@ -68,7 +70,7 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
         }
       }
       for (let k = 2; k < face.length; k++) {
-        indices.push(face[0], face[k - 1], face[k])
+        indices.push3(face[0], face[k - 1], face[k])
       }
     } else if (line.startsWith('usemtl')) {
       const name = line.slice(6).trim()
@@ -82,17 +84,15 @@ export function parseOBJ(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     } else if (line.startsWith('mtllib')) {
       libraries.push(...mtllibNames(line.slice(6)))
     }
-    if (onProgress && (li & 0xfffff) === 0 && li > 0) {
-      onProgress(`Reading OBJ… ${Math.round((li / lines.length) * 100)}%`)
-    }
   }
+  eachLine(new Uint8Array(buffer), readLine, (done) => onProgress?.(`Reading OBJ… ${Math.round(done * 100)}%`))
 
   if (coords.length === 0) throw new Error('OBJ file has no vertices.')
   if (indices.length === 0) throw new Error('This OBJ contains no faces — point clouds are not supported yet.')
-  const mesh: ParsedMesh = { kind: 'indexed', positions: Float32Array.from(coords), indices: Uint32Array.from(indices) }
+  const n = coords.length / 3
+  const mesh: ParsedMesh = { kind: 'indexed', positions: coords.take(), indices: indices.take() }
 
   if (uvs.length > 0) {
-    const n = coords.length / 3
     const uvOf = new Int32Array(n).fill(-1)
     const materialOf = new Int32Array(n).fill(-1)
     for (let v = 0; v < n; v++) {

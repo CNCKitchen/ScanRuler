@@ -464,11 +464,14 @@ export class SceneManager {
         // Grips held at a size on the screen are scaled to the zoom ahead
         // of the hover pass, which has to find them where they are drawn.
         this.grips.followView()
+        this.grips.putAwayWhile(this.marking.gestureArmed())
+        this.overlays.setPreviewBrushing(this.marking.gestureArmed())
         this.updateHover()
         // Anything held at a fixed size on screen — the picked-point markers —
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
+        this.sections.setPixelScale(this.viewport.worldPerPixel())
         // Pins on the far side of the part go away as it turns, if asked to;
         // a no-op unless the view moved.
         this.overlays.updateProbeOcclusion()
