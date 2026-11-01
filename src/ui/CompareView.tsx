@@ -46,6 +46,7 @@ export function CompareView({
       sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
     )
     compare.setNavScheme(schemeById(useStore.getState().navScheme))
+    compare.setProjection(useStore.getState().projection)
     // Read from the store rather than from the prop, so a half opened with the
     // switch already on is tinted on its first frame instead of on the next
     // change of it.
@@ -66,6 +67,11 @@ export function CompareView({
   useEffect(() => {
     compareRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
+
+  const projection = useStore((s) => s.projection)
+  useEffect(() => {
+    compareRef.current?.setProjection(projection)
+  }, [projection])
 
   const dark = usePrefs((s) => s.dark)
   useEffect(() => {

@@ -96,8 +96,9 @@ describe('the surface in front', () => {
 })
 
 /** A window dragged over a part seen straight down its Z axis: one world unit
- *  is one pixel, and the container's corner is at (10, 20) on the page. */
-function windowRig(geometry: THREE.BufferGeometry, through = false, clip: THREE.Plane[] | null = null) {
+ *  is one pixel at z 0, and the container's corner is at (10, 20) on the page.
+ *  In perspective the camera stands back far enough for z 0 to span the same. */
+function windowRig(geometry: THREE.BufferGeometry, through = false, clip: THREE.Plane[] | null = null, perspective = false) {
   const listeners: Record<string, (e: PointerEvent) => void> = {}
   const element = () => ({ setAttribute: vi.fn(), append: vi.fn(), remove: vi.fn(), style: { display: '', setProperty: vi.fn() } })
   vi.stubGlobal('document', {
@@ -107,8 +108,8 @@ function windowRig(geometry: THREE.BufferGeometry, through = false, clip: THREE.
     },
     removeEventListener: vi.fn(),
   })
-  const camera = new THREE.OrthographicCamera(-50, 50, 50, -50, 1, 1000)
-  camera.position.set(0, 0, 500)
+  const camera = perspective ? new THREE.PerspectiveCamera(30, 1, 1, 1000) : new THREE.OrthographicCamera(-50, 50, 50, -50, 1, 1000)
+  camera.position.set(0, 0, perspective ? 50 / Math.tan(THREE.MathUtils.degToRad(15)) : 500)
   camera.lookAt(0, 0, 0)
   camera.updateMatrixWorld()
   const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
@@ -122,7 +123,8 @@ function windowRig(geometry: THREE.BufferGeometry, through = false, clip: THREE.
       clientHeight: 100,
       getBoundingClientRect: () => ({ left: 10, top: 20 }),
     },
-    camera,
+    camera: () => camera,
+    worldPerPixel: () => 1,
     partGroup: new THREE.Group(),
     raycaster: { intersectObject: () => [] },
     regions: {
@@ -194,6 +196,20 @@ describe('a window over surface that hides other surface', () => {
       const x = pos.getX(v), y = pos.getY(v)
       // Behind the front plate, the back plate's vertices are hidden: only
       // the ones on or outside its edge belong to a triangle that shows.
+      const shows = v >= backVertices || Math.max(Math.abs(x), Math.abs(y)) >= 20
+      expect(marked.has(v), `vertex ${v} at ${x}, ${y}`).toBe(shows)
+    }
+  })
+
+  it('marks the plate in front and the part of the one behind that shows, in perspective', () => {
+    // Nearer the camera, the front plate covers a little more of the back one
+    // on the screen than in parallel; still not the back plate's triangles
+    // that reach out past it.
+    const { geometry, backVertices } = stacked()
+    const marked = windowRig(geometry, false, null, true)
+    const pos = geometry.getAttribute('position')
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v), y = pos.getY(v)
       const shows = v >= backVertices || Math.max(Math.abs(x), Math.abs(y)) >= 20
       expect(marked.has(v), `vertex ${v} at ${x}, ${y}`).toBe(shows)
     }

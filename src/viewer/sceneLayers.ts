@@ -36,7 +36,8 @@ export interface SceneLayerHost {
   readonly canvas: HTMLCanvasElement
   /** The viewport's element, for anything laid over the canvas. */
   readonly container: HTMLElement
-  camera(): THREE.OrthographicCamera
+  /** The camera the view is drawn through: parallel, or in perspective. */
+  camera(): THREE.Camera
   /** Aim the raycaster through a client point. */
   setPickRay(clientX: number, clientY: number): void
   /** A frame is wanted. */

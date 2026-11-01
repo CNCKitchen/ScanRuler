@@ -5,6 +5,15 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Perspective view** (2026-11-08). A button beside **Fit to view** switches the
+  3D view between parallel (orthographic), still the default and what measuring
+  wants, and perspective. Picks, marking and the readings follow whichever is
+  on screen (the window and lasso take only the surface in front in either),
+  the part keeps its size at the orbit centre when you switch, and the choice
+  is remembered in the browser. Asked for in #24.
+
 ## 0.9.8 — 2026-11-08
 
 - **No spike in Fusion from a plane a hair off a cone's apex** (2026-11-08,

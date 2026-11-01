@@ -12,7 +12,7 @@
 import * as THREE from 'three'
 import { CameraLink, type LinkedView } from './cameraLink'
 import type { ControlScheme } from './navSchemes'
-import { OrthoViewport } from './orthoViewport'
+import { OrthoViewport, type Projection } from './orthoViewport'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
 import { backfaceUniforms, spliceBackfaceTint } from './backfaceTint'
 import { CAP_SLOT, closedPartOf, cutColor, SliceCap } from './sliceCap'
@@ -157,6 +157,12 @@ export class CompareScene {
    *  tool, and doubly so for two halves side by side. */
   setNavScheme(scheme: ControlScheme): void {
     this.viewport.setNavScheme(scheme)
+  }
+
+  /** Drawn the way the main view is, in parallel or in perspective: the
+   *  two halves are held in one pose and must read as one view. */
+  setProjection(projection: Projection): void {
+    this.viewport.setProjection(projection)
   }
 
   /** And the same colour scheme, for the same reason: two halves of one view

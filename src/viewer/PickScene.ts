@@ -135,7 +135,8 @@ export class PickScene {
   ): void {
     this.marking = new SurfaceMarking({
       container,
-      camera: this.viewport.camera,
+      camera: () => this.viewport.view,
+      worldPerPixel: () => this.viewport.worldPerPixel(),
       partGroup: this.partGroup,
       raycaster: this.viewport.raycaster,
       regions: channel.regions,
