@@ -346,13 +346,19 @@ export function useSceneSync({
         muted: !showElements && e.id !== targetId,
       }))
     // Distances draw as a line between their two anchor points, angles as an
-    // arc at their hinge.
-    const rows = evaluateDimensions(
-      dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
-      dimensionRefsOf(elements, sections),
-      surfaceSource,
-      units,
-    ).filter((r) => !r.value.invalid)
+    // arc at their hinge. They are the measure workspace's alone — a distance
+    // between two elements has nothing to say about a map, and its leader
+    // lines would cross the reading — so nowhere else are they worked out:
+    // everything below that reads a dimension (the panels, the agent's
+    // commands) evaluates its own.
+    const rows = elementsWorkspace
+      ? evaluateDimensions(
+          dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
+          dimensionRefsOf(elements, sections),
+          surfaceSource,
+          units,
+        ).filter((r) => !r.value.invalid)
+      : []
     const verdictOf = (r: EvaluatedDimension) => ({
       notes: pinNotes(r),
       over: r.verdict ? !r.verdict.pass : false,
@@ -390,15 +396,18 @@ export function useSceneSync({
         },
       ]
     })
-    // Dimensions are the measure workspace's alone: a distance between two
-    // elements has nothing to say about a map, and its leader lines would cross
-    // the reading.
-    sceneRef.current?.updateOverlays(
+    // Overlays that would be drawn exactly as they stand are not drawn again —
+    // most of what sets this effect off, a tab or the map's switch, leaves the
+    // elements as they were — and one that does come back to the stage finds
+    // its materials kept, since `existing` says which elements still exist
+    // though none of them is drawn.
+    const drew = sceneRef.current?.updateOverlays(
       items,
-      elementsWorkspace ? pairs : [],
-      elementsWorkspace ? angles : [],
-      elementsWorkspace ? tags : [],
+      pairs,
+      angles,
+      tags,
       (showElements || items.length > 0) && !elementsKeyHides,
+      new Set(elements.map((e) => e.id)),
     )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
@@ -416,7 +425,7 @@ export function useSceneSync({
       ).map((e) => e.id),
     )
     // Overlays were rebuilt, so the selection glow has to be re-applied.
-    sceneRef.current?.setHighlightedElements(highlightIds)
+    if (drew) sceneRef.current?.setHighlightedElements(highlightIds)
     // Runs on the listed dependencies only, not on everything it reads.
   }, [
     elements,

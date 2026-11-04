@@ -22,3 +22,17 @@ export function clipTree(root: THREE.Object3D, planes: THREE.Plane[] | null, vis
   }
   for (const child of root.children) clipTree(child, planes, visit)
 }
+
+/** A material kept across rebuilds, taken back into the scene as it was first
+ *  made: unclipped. The section view dresses only what is in the scene when it
+ *  is looked at, and one closed while a material was put away leaves it
+ *  holding a plane that no longer cuts. A rebuild that finds the view open
+ *  dresses it again before the frame, and the material keeps the programs it
+ *  has already compiled for either state. */
+export function unclip<T extends THREE.Material>(material: T): T {
+  if (material.clippingPlanes !== null) {
+    material.clippingPlanes = null
+    material.needsUpdate = true
+  }
+  return material
+}

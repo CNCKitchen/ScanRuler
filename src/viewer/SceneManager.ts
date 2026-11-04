@@ -2410,14 +2410,17 @@ export class SceneManager {
     if (had !== has) this.viewport.nav.setPaintMode(has)
   }
 
+  /** The measured elements and their dimensions, drawn or put away; whether
+   *  that drew anything — see Overlays.updateOverlays. */
   updateOverlays(
     elements: OverlayElement[],
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     tags: OverlayTag[],
     visible: boolean,
-  ): void {
-    this.overlays.updateOverlays(elements, pairs, angles, tags, visible)
+    existing?: ReadonlySet<number>,
+  ): boolean {
+    return this.overlays.updateOverlays(elements, pairs, angles, tags, visible, existing)
   }
 
   setPaused(paused: boolean): void {

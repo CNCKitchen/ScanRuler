@@ -20,7 +20,11 @@ const KINDS: VolumeKind[] = ['excess', 'missing', 'unsure']
 export class VolumeLayer {
   readonly group = new THREE.Group()
   private shells: { kind: VolumeKind; shell: VolumeShell; colors: THREE.BufferAttribute }[] = []
-  private materials: THREE.Material[] = []
+  /** The two materials every measurement is drawn with, kept for the layer's
+   *  life: a measurement replaced would otherwise let them go and, with them,
+   *  the shader programs they hold, to be compiled again for the next. */
+  private front: THREE.MeshStandardMaterial | null = null
+  private through: THREE.MeshBasicMaterial | null = null
   private geometries: THREE.BufferGeometry[] = []
   private hovered: number | null = null
 
@@ -33,9 +37,8 @@ export class VolumeLayer {
   set(volume: VolumeDeviation | null): void {
     this.clear()
     if (!volume?.meshes) return
-    const front = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1 })
-    const through = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthTest: false, depthWrite: false })
-    this.materials = [front, through]
+    const front = (this.front ??= new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1 }))
+    const through = (this.through ??= new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthTest: false, depthWrite: false }))
     for (const kind of KINDS) {
       const shell = volume.meshes[kind]
       if (shell.indices.length === 0) continue
@@ -88,9 +91,7 @@ export class VolumeLayer {
   private clear(): void {
     this.group.clear()
     for (const g of this.geometries) g.dispose()
-    for (const m of this.materials) m.dispose()
     this.geometries = []
-    this.materials = []
     this.shells = []
     this.hovered = null
     this.group.visible = false
@@ -98,5 +99,8 @@ export class VolumeLayer {
 
   dispose(): void {
     this.clear()
+    this.front?.dispose()
+    this.through?.dispose()
+    this.front = this.through = null
   }
 }
