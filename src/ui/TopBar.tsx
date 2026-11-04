@@ -101,9 +101,12 @@ function ProjectName() {
 const FOLDS = 5
 
 /** What the fold depends on, read without asking the page for a layout: the
- *  words, how many things hold them, and the class that sets the bar's mode. */
+ *  words, how many things hold them, the class that sets the bar's mode, and
+ *  which tab is open, since from the fourth fold on only that tab shows its
+ *  word, so the row's width follows the tab with no change of text. */
 function signature(el: HTMLElement) {
-  return el.textContent + '|' + el.childElementCount + '|' + el.className
+  const open = el.querySelector('.modeswitch .on')?.getAttribute('data-test')
+  return el.textContent + '|' + el.childElementCount + '|' + el.className + '|' + open
 }
 
 /** Folds the bar just as far as its row needs, and marks the ends with keys
