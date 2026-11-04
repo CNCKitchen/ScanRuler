@@ -103,10 +103,13 @@ const FOLDS = 5
 /** What the fold depends on, read without asking the page for a layout: the
  *  words, how many things hold them, the class that sets the bar's mode, and
  *  which tab is open, since from the fourth fold on only that tab shows its
- *  word, so the row's width follows the tab with no change of text. */
+ *  word, so the row's width follows the tab with no change of text. The
+ *  project's name sits in an input, whose words are not the bar's text: its
+ *  size, which follows the name, stands in for them. */
 function signature(el: HTMLElement) {
   const open = el.querySelector('.modeswitch .on')?.getAttribute('data-test')
-  return el.textContent + '|' + el.childElementCount + '|' + el.className + '|' + open
+  const name = el.querySelector<HTMLInputElement>('.projectname')?.size
+  return el.textContent + '|' + el.childElementCount + '|' + el.className + '|' + open + '|' + name
 }
 
 /** Folds the bar just as far as its row needs, and marks the ends with keys
