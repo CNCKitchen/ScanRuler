@@ -15,6 +15,7 @@ import { applyFinish, setSurfaceColor, type ViewTheme } from '../../../src/viewe
 import { patchWireframe, setSurfaceOpacity } from '../../../src/viewer/surfaceModes'
 import { CAP_SLOT, CapSet, cutColor, type CapPart } from '../../../src/viewer/sliceCap'
 import { clipTree } from '../../../src/viewer/clipTree'
+import { refitAfterRigid } from '../../../src/viewer/bvh'
 import { paintField, type Colormap, type FieldScale } from '../../../src/core/field/colormap'
 
 /** The islands a removal would take: a warning orange, unlit, so it stands
@@ -176,10 +177,7 @@ export class MeshScene {
           const at = geometry.getAttribute('position') as THREE.BufferAttribute
           rigidApplyToPoints(m, at.array as Float32Array)
           at.needsUpdate = true
-          geometry.computeBoundingBox()
-          geometry.computeBoundingSphere()
-          geometry.disposeBoundsTree?.()
-          geometry.computeBoundsTree()
+          refitAfterRigid(geometry)
         }
         const solids = new Set(this.booleanSolids.flatMap((d) => [d.fill.geometry, d.edges.geometry]))
         for (const geometry of [...this.islandGeometries(), ...solids]) {
