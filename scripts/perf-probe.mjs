@@ -420,7 +420,7 @@ try {
       steady: later.length ? { link: Math.max(...later.map((s) => s.link)), upload: Math.max(...later.map((s) => s.upload)), ctx: Math.max(...later.map((s) => s.ctx)) } : null,
       hot: prof?.hot ?? [],
       watch: prof?.watch ?? [],
-      scripts: (prof ?? first).scripts,
+      scripts: (prof ?? first ?? samples[0]).scripts,
     }
     // ---- budgets ----
     const b = row.budget ?? {}
@@ -583,7 +583,8 @@ try {
     // e2e-out/perf-baseline-v2.txt (and the spec's v2 table) — `bare` from its production section,
     // `rich` from its dev rich section — for the rows the fix plan's tasks target. A budget set this
     // way is breached by the baseline itself: it is the target, and on this shared machine an
-    // advisory one (compare BASE and HEAD in one sitting). The GL budgets are the hard gate.
+    // advisory one (compare BASE and HEAD in one sitting), though under PERF_ASSERT=1 its
+    // breach still sets exit 1 like any other. The GL budgets are the hard gate.
     tabRow('Tab → Surface Deviation (scan only)', 'workspace-deviation', { budget: { inpMs: { bare: 50, rich: 123 } } }),
     tabRow('Tab → Wall Thickness', 'workspace-thickness', { budget: { inpMs: { bare: 50, rich: 106 } } }),
     tabRow('Tab → 2D Measure', 'workspace-flat', {
