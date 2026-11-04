@@ -121,6 +121,157 @@ describe('field maps', () => {
   })
 })
 
+describe('asking for the map already on the surface', () => {
+  it('writes and uploads nothing the second time', () => {
+    const { rc, colors } = setup()
+    const field = new Uint8Array(N * 3).fill(77)
+    expect(rc.setFieldColors(field)).toBe(true)
+    const before = colors.slice()
+    expect(rc.setFieldColors(field)).toBe(false)
+    expect(colors).toEqual(before)
+    expect(rc.fieldState).toBe('painted')
+  })
+
+  it('lays on a different map, and the first one again after it', () => {
+    const { rc, colors } = setup()
+    const a = new Uint8Array(N * 3).fill(77)
+    const b = new Uint8Array(N * 3).fill(55)
+    rc.setFieldColors(a)
+    expect(rc.setFieldColors(b)).toBe(true)
+    expect(colorAt(colors, 0)).toEqual([55, 55, 55])
+    expect(rc.setFieldColors(a)).toBe(true)
+    expect(colorAt(colors, 0)).toEqual([77, 77, 77])
+  })
+
+  it('is told when the same array has been painted afresh', () => {
+    const { rc, colors } = setup()
+    const field = new Uint8Array(N * 3).fill(77)
+    rc.setFieldColors(field)
+    field.fill(33)
+    expect(rc.setFieldColors(field)).toBe(false)
+    expect(colorAt(colors, 0)).toEqual([77, 77, 77])
+    expect(rc.setFieldColors(field, true)).toBe(true)
+    expect(colorAt(colors, 0)).toEqual([33, 33, 33])
+    // And it is the map in hand again afterwards.
+    expect(rc.setFieldColors(field)).toBe(false)
+  })
+
+  it('does it again after a region is hidden, shown, added or taken away', () => {
+    const { rc } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1))
+    const field = new Uint8Array(N * 3).fill(77)
+    rc.setFieldColors(field)
+    expect(rc.setHiddenRegions([1])).toBe(false)
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(rc.setFieldColors(field)).toBe(false)
+    rc.setHiddenRegions([])
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(rc.setFieldColors(field)).toBe(false)
+    rc.applyRegion(2, GREEN, Uint32Array.of(3))
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(rc.setFieldColors(field)).toBe(false)
+    rc.clearElement(2)
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(rc.setFieldColors(field)).toBe(false)
+    rc.clearAllRegions()
+    expect(rc.setFieldColors(field)).toBe(true)
+  })
+
+  it('does it again after a sparse map is laid or lifted', () => {
+    const { rc } = setup()
+    const field = new Uint8Array(N * 3).fill(77)
+    rc.setFieldColors(field)
+    rc.setSparseField(Uint32Array.of(2), Uint8Array.of(1, 2, 3))
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(rc.setFieldColors(field)).toBe(false)
+    rc.setSparseField(null, null)
+    expect(rc.setFieldColors(field)).toBe(true)
+  })
+
+  it('does it again after the preview region moves or the bare colour changes', () => {
+    const { rc } = setup()
+    rc.setFieldColors(null)
+    expect(rc.setFieldColors(null)).toBe(false)
+    rc.setPreviewRegion(Uint32Array.of(1), BLUE)
+    expect(rc.setFieldColors(null)).toBe(true)
+    expect(rc.setFieldColors(null)).toBe(false)
+    rc.setBaseColor([1, 2, 3])
+    expect(rc.setFieldColors(null)).toBe(true)
+  })
+
+  it('hands the surface back to the elements once, however often it is asked', () => {
+    const { rc, colors } = setup()
+    rc.applyRegion(1, RED, Uint32Array.of(1))
+    rc.setFieldColors(new Uint8Array(N * 3).fill(77))
+    expect(rc.setFieldColors(null)).toBe(true)
+    expect(colorAt(colors, 1)).toEqual(RED)
+    expect(rc.setFieldColors(null)).toBe(false)
+    expect(colorAt(colors, 1)).toEqual(RED)
+    expect(colorAt(colors, 0)).toEqual(BASE)
+  })
+
+  it('holds a map of the wrong layout to the same bargain', () => {
+    const { rc, colors } = setup()
+    const odd = new Uint8Array((N + 3) * 3).fill(55)
+    expect(rc.setFieldColors(odd)).toBe(true)
+    expect(rc.fieldState).toBe('unfit')
+    expect(rc.setFieldColors(odd)).toBe(false)
+    expect(colorAt(colors, 0)).toEqual(BASE)
+  })
+
+  it('starts over with a new scan', () => {
+    const { rc } = setup()
+    const field = new Uint8Array(N * 3).fill(77)
+    rc.setFieldColors(field)
+    const colors = new Uint8Array(N * 3)
+    rc.attach(colors, new Uint8Array(N), new Uint8Array(N))
+    expect(rc.setFieldColors(field)).toBe(true)
+    expect(colorAt(colors, 0)).toEqual([77, 77, 77])
+  })
+
+  it('goes with the state when compositors trade', () => {
+    const scan = setup()
+    const field = new Uint8Array(N * 3).fill(77)
+    scan.rc.setFieldColors(field)
+    const copy = new RegionColors(BASE)
+    copy.attach(new Uint8Array(4 * 3), new Uint8Array(4), new Uint8Array(4))
+    scan.rc.exchange(copy)
+    expect(scan.rc.setFieldColors(field)).toBe(true)
+    scan.rc.exchange(copy)
+    expect(scan.rc.setFieldColors(field)).toBe(false)
+  })
+
+  it('leaves the colours and tints as a forced repaint does, over a run of changes', () => {
+    const asked = setup()
+    const forced = setup()
+    let current: Uint8Array | null = null
+    const field = new Uint8Array(N * 3)
+    for (let i = 0; i < field.length; i++) field[i] = (i * 37) & 255
+    const steps: Array<(c: RegionColors) => void> = [
+      (c) => c.applyRegion(1, RED, Uint32Array.of(1, 2)),
+      (c) => c.setHiddenRegions([1]),
+      (c) => c.setSparseField(Uint32Array.of(4), Uint8Array.of(9, 9, 9)),
+      (c) => c.applyRegion(2, GREEN, Uint32Array.of(5)),
+      (c) => c.setHiddenRegions([]),
+      (c) => c.setSparseField(null, null),
+      (c) => c.clearElement(1),
+      (c) => c.clearAllRegions(),
+    ]
+    // The map comes and goes between the changes, as a tab or the map key
+    // would have it, and is asked for after each — as the paint effect does.
+    for (const [i, step] of steps.entries()) {
+      current = i % 3 === 2 ? null : field
+      step(asked.rc)
+      step(forced.rc)
+      asked.rc.setFieldColors(current)
+      asked.rc.setFieldColors(current)
+      forced.rc.setFieldColors(current, true)
+      expect(asked.colors).toEqual(forced.colors)
+      expect(asked.tint).toEqual(forced.tint)
+    }
+  })
+})
+
 describe('a field map on a scan with shading copies', () => {
   it('is a reading per vertex of the scan, the copies past them left to the scene', () => {
     // Eight vertices of the scan and three copies split off at sharp edges.

@@ -2770,9 +2770,11 @@ export class SceneManager {
   }
 
   /** Paint the scan from a measured map — deviation, wall thickness — or pass
-   *  null to hand the surface back to the element colours. */
-  setFieldColors(colors: Uint8Array | null): void {
-    const painted = this.regions.setFieldColors(colors)
+   *  null to hand the surface back to the element colours. The map already on
+   *  the surface is not laid on or uploaded again; `repainted` says that the
+   *  array was painted afresh since it was last handed over. */
+  setFieldColors(colors: Uint8Array | null, repainted = false): void {
+    const painted = this.regions.setFieldColors(colors, repainted)
     this.invalidate()
     if (!painted) return
     this.surfaceRepainted()

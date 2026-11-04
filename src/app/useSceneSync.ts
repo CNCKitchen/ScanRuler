@@ -44,7 +44,7 @@ import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
-import { colormapById, paintField, type FieldScale } from '../core/field/colormap'
+import { colormapById, paintField, paintKey, type FieldScale } from '../core/field/colormap'
 import { fieldHistogram } from '../core/field/stats'
 import { deviationScale, deviationStats } from '../core/deviation/deviation'
 import {
@@ -753,6 +753,16 @@ export function useSceneSync({
   }, [volumeHover, volume])
   const pluginRef = useRef(plugin)
   pluginRef.current = plugin
+  /** A plugin's `fieldVersion` is anything that changes when its map does —
+   *  a string, the reading itself — so it is counted here into the number
+   *  the paint key wants. A plugin that gives none can never be told to be
+   *  unchanged, and is painted every time. */
+  const pluginSerial = useRef<{ last: unknown; n: number }>({ last: undefined, n: 0 })
+  /** The key each colour buffer was last painted under, so a repaint of what
+   *  is already in it — a tab taken, the map put away and back — is skipped.
+   *  Keyed by the buffer: a new scan, or a map re-measured, brings a new one,
+   *  and the old key goes with the old buffer. */
+  const painted = useRef(new WeakMap<Uint8Array, string>())
   /** Whichever map this workspace is showing: its values, and the scale they
    *  are read through. The maps differ only in that scale and in the figures
    *  that go under it — the two deviation maps not even in that, since a
@@ -762,7 +772,7 @@ export function useSceneSync({
     if (workspace === 'deviation' && source === 'reference' && mapOn === 'reference') {
       const values = referenceMap.current?.values
       if (!values) return null
-      return { values, rgb: referenceRgb, scale: referenceScale(range, maxDistance, bands), onReference: true }
+      return { values, rgb: referenceRgb, scale: referenceScale(range, maxDistance, bands), version: referenceVersion, onReference: true }
     }
     if (workspace === 'deviation') {
       const values = source === 'element' ? elementField.current : deviation.current
@@ -771,12 +781,21 @@ export function useSceneSync({
         values,
         rgb: source === 'element' ? elementRgb : deviationRgb,
         scale: deviationScale(range, maxDistance, bands),
+        version: source === 'element' ? elementVersion : mapVersion,
       }
     }
     if (workspace === 'thickness' && thickness.current) {
-      return { values: thickness.current, rgb: thicknessRgb, scale: thickScale }
+      return { values: thickness.current, rgb: thicknessRgb, scale: thickScale, version: thickVersion }
     }
-    return pluginRef.current?.field ?? null
+    const field = pluginRef.current?.field
+    if (!field) return null
+    const serial = pluginSerial.current
+    const version = pluginRef.current?.fieldVersion
+    if (version === undefined || version !== serial.last) {
+      serial.last = version
+      serial.n++
+    }
+    return { ...field, version: serial.n }
   }
   // The colour plot can be switched off to look at the bare scan surface — its
   // shape, its holes, the marks a finish leaves — with the map still measured
@@ -798,17 +817,26 @@ export function useSceneSync({
       return
     }
 
-    const { values, rgb: rgbRef, scale } = showing
+    const { values, rgb: rgbRef, scale, version } = showing
     let rgb = rgbRef.current
     if (!rgb || rgb.length !== values.length * 3) {
       rgb = new Uint8Array(values.length * 3)
       rgbRef.current = rgb
     }
-    paintField(values, scale, colormapById(colormap), rgb)
+    // Nothing a paint reads has changed since this buffer was last painted
+    // (a tab taken, the map put away and back): its colours stand, and the
+    // scene is told so it does not lay them on or upload them again.
+    const map = colormapById(colormap)
+    const key = paintKey(version, scale, map.id)
+    const repainted = painted.current.get(rgb) !== key
+    if (repainted) {
+      paintField(values, scale, map, rgb)
+      painted.current.set(rgb, key)
+    }
     if ('onReference' in showing) {
       scene.setFieldColors(null)
       scene.setReferenceMapColors(rgb)
-    } else scene.setFieldColors(rgb)
+    } else scene.setFieldColors(rgb, repainted)
   }, [
     workspace,
     source,
