@@ -77,8 +77,10 @@ export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
  * loaded does not search it on the main thread. A triangle is read off its
  * first corner, through the index as it stands now: a bounds tree built
  * over the geometry reorders its triangles and never its vertices. False,
- * and nothing kept, when the flags cannot be this geometry's: a part
- * replaced while they were on their way has another count of vertices.
+ * and nothing kept, when the count of flags is not this geometry's count
+ * of vertices. That alone does not prove the flags are this geometry's —
+ * a replacement can have as many — so the caller also checks that the
+ * part and its index are the ones the flags were asked for.
  */
 export function primeClosedPart(geometry: THREE.BufferGeometry, vertices: Uint8Array): boolean {
   const index = geometry.getIndex()
