@@ -18,6 +18,45 @@ when relevant. Correction actions have their own **i** explanations.
 into two loops so **Fill holes** can close the enclosed opening. This local tool
 is included in this development build, not added to the hosted scanruler.com app.
 
+#### Illustrated example: bridging a curved scan
+
+These user-provided development screenshots show a real curved scan, not the
+flat synthetic test fixture. They illustrate preparation and preview stages;
+they are not proof of a completed or validated repair. Historical screenshots
+may differ from the current panel layout.
+
+**1. Clean up the edges.** If unwanted ragged or malformed edge geometry
+interferes with the intended attachment, select only that unwanted material.
+In this example, **orange marks geometry selected for removal, not a bridge**.
+Inspect the deletion preview and complete both confirmations before proceeding.
+Preserve genuine part features; cleanup is not a requirement to flatten or
+straighten every scanned edge.
+
+![Unwanted ragged edge geometry selected in orange beside the curved scan.](images/bridge-edge-cleanup.png)
+
+**2. Position the guides and preview the bridge.** Here points **1-3** lie on
+the first side and **4-6** on the other; **3 and 4** are the inner guides beside
+the opening. The **teal ribbon is the proposed bridge**, following the surrounding
+profile rather than filling the whole opening. Inspect both attachments and
+the bow before applying it.
+
+![Six numbered surface guides with a bowed teal bridge preview across a real scan opening.](images/bridge-curved-preview.png)
+
+**3. Check the bridge from the side.** This is a low, nearly edge-on view along
+the scan: the numbered row runs left to right, with points **1-3 on the left**
+and **4-6 on the right**. The narrow teal strip between the inner guides is
+the preview; the larger dark-blue regions are the surrounding scan. This
+angle complements the clearer crossing view above when inspecting the profile.
+If the preview passes validation and both attachments look right, choose
+**Apply bridge**. Applying remains explicit and undoable; it is not shown here.
+
+![Low side view along the scan, with six numbered guides and a narrow teal bridge preview between them.](images/bridge-profile-preview.png)
+
+The three screenshots are supplied by Myuavbug66 for these instructions and
+distributed under this repository's AGPL-3.0-only license.
+
+#### Picking, preview and Apply
+
 1. Open a copy of the saved project in the local build and choose **Mesh Tools >
    Bridge gap**.
 2. Choose **First side points** and **Other side points** independently:
