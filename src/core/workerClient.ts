@@ -487,17 +487,19 @@ export class MeshWorkerClient {
     return res.result
   }
 
-  /** Which of the scan's or the reference's triangles lie in closed shells,
-   *  found in the worker — see viewer/sliceCap primeClosedPart. An answer
-   *  that lands after another scan or reference was put in place is about
-   *  the one before, and is turned away rather than handed on. */
-  async closedShells(which: 'scan' | 'nominal'): Promise<{ closed: Uint8Array; count: number }> {
+  /** Which of the scan's or the reference's vertices lie in closed shells —
+   *  1 for each, over the render layout last loaded (its vertices, then its
+   *  shading copies) — found in the worker; see viewer/sliceCap
+   *  primeClosedPart. An answer that lands after another scan or reference
+   *  was put in place is about the one before, and is turned away rather
+   *  than handed on. */
+  async closedShells(which: 'scan' | 'nominal'): Promise<Uint8Array> {
     const version = () => (which === 'scan' ? this.scanVersion : this.nominalVersion)
     const asked = version()
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'closed-shells-ok' }>>({ type: 'closed-shells', requestId, which })
     if (version() !== asked) throw new Error(`The ${which === 'scan' ? 'scan' : 'reference'} was replaced before its closed shells came back.`)
-    return { closed: res.closed, count: res.count }
+    return res.closed
   }
 
   /** The box around the scan as it now stands, mm. */

@@ -199,12 +199,14 @@ export type WorkerRequest =
    *  the side it stood on, a zero point. See core/autoAlign. Nothing moves:
    *  the answer is a proposal for the alignment editor. */
   | { type: 'auto-align'; requestId: number }
-  /** Which of the scan's or the reference's triangles lie in closed shells
-   *  — see geometry/closedShells — found here, off the main thread, for the
-   *  section view's caps (viewer/sliceCap primeClosedPart). The worker's
-   *  copy is welded and the render thread's split for shading, but the
-   *  triangles are the same ones in the same order, and a closed shell is
-   *  closed in either. */
+  /** Which of the scan's or the reference's vertices lie in closed shells
+   *  — see geometry/closedShells closedVertices — found here, off the main
+   *  thread, for the section view's caps (viewer/sliceCap primeClosedPart).
+   *  Answered a vertex at a time, over the render thread's layout of the
+   *  part — its vertices, then the copies its sharp edges were split into —
+   *  and not a triangle at a time: the render thread's bounds tree puts its
+   *  triangles in an order of its own, and so does the reference's here,
+   *  but neither moves a vertex. */
   | { type: 'closed-shells'; requestId: number; which: 'scan' | 'nominal' }
   /** A request for a plugin's part of the worker — see workerPluginApi.ts.
    *  `op` names the plugin's operation, `payload` is its own. */
@@ -330,8 +332,8 @@ export type WorkerResponse =
   | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number } }
   /** The rim's loop in order, null past the last rim. */
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }
-  /** 1 for each triangle of a closed shell, and how many there are. */
-  | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array; count: number }
+  /** 1 for each render vertex of a closed shell. */
+  | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

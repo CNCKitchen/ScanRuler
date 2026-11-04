@@ -42,7 +42,7 @@ import { planeRegionReport, segmentPlanes } from './fit/segment'
 import { meanCurvature } from './geometry/curvature'
 import { scanSpot } from './geometry/nearest'
 import { boundsOf } from './geometry/bounds'
-import { closedShells } from './geometry/closedShells'
+import { closedVertices } from './geometry/closedShells'
 import { gatherVertices, queryVertices } from './geometry/query'
 import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
@@ -89,6 +89,11 @@ function scanLoops(g: MeshGraph): RimLoop[] {
   }
   return loops
 }
+/** The copies the render thread's layout of each model last posted was
+ *  split into for shading (see geometry/crease.ts) — the scan's by its
+ *  graph, the reference's by its surface — what lays a vertex-by-vertex
+ *  answer over that layout (see 'closed-shells'). */
+const renderCopies = new WeakMap<object, Uint32Array>()
 const stagedScans = new Map<number, MeshGraph>()
 const stagedNominals = new Map<number, NominalSurface>()
 
@@ -112,6 +117,8 @@ function postScan(
 ): void {
   if (crease.mode !== 'off') progress('Finding sharp edges…')
   const { positions, indices, normals, wireSlots: slots, copyOf, crease: report } = scanRender(g, crease)
+  // Kept: the posted one goes over with the rest.
+  renderCopies.set(g, copyOf.slice())
   // The file's own colours are the render thread's alone: nothing measured
   // here reads them, and a worker restart reads the geometry back without.
   const colors = file?.colors && file.colors.length === g.vertexCount * 3 ? file.colors : undefined
@@ -404,6 +411,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const indices = split ? split.indices : g.indices.slice()
       const normals = split ? split.normals : g.normals.slice()
       const slots = split ? split.wireSlots : slotsOwn
+      renderCopies.set(candidate, split ? split.copyOf : new Uint32Array(0))
       post(
         {
           type: 'nominal-loaded',
@@ -547,16 +555,22 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   }
 
   if (msg.type === 'closed-shells') {
-    // On the welded copy held here: the render thread's is split for
-    // shading, but its triangles are these, in this order, and its corners
-    // are copies of these bit for bit — which is what closedShells welds on.
-    const mesh = msg.which === 'scan' ? (graph ? { positions: graph.positions, indices: graph.indices } : null) : nominal ? { positions: nominal.positions, indices: nominal.index } : null
+    // On the welded copy held here, laid over the render thread's split
+    // copy by the copies it was split into: the same vertices, then copies
+    // of some of them bit for bit — the same shells. A vertex at a time, as
+    // nothing here or there keeps the triangles in one order: a bounds tree
+    // (the reference's, a thickness ray's, the render thread's) reorders an
+    // index in place, and never a vertex.
+    const mesh =
+      msg.which === 'scan'
+        ? graph && { held: graph, positions: graph.positions, indices: graph.indices }
+        : nominal && { held: nominal, positions: nominal.positions, indices: nominal.index }
     if (!mesh) {
       post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
       return
     }
-    const { closed, count } = closedShells(mesh.positions, mesh.indices)
-    post({ type: 'closed-shells-ok', requestId: msg.requestId, closed, count }, [closed.buffer])
+    const closed = closedVertices(mesh.positions, mesh.indices, renderCopies.get(mesh.held) ?? [])
+    post({ type: 'closed-shells-ok', requestId: msg.requestId, closed }, [closed.buffer])
     return
   }
 

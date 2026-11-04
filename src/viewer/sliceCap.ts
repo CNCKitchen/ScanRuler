@@ -73,19 +73,28 @@ export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
 
 /**
  * Keep closed shells found elsewhere as this geometry's — the mesh worker's,
- * found on its own welded copy of the same triangles in the same order (a
- * split for shading only repeats corners, bit for bit) — so the first cut
- * of a part loaded does not search it on the main thread. False, and
- * nothing kept, when the answer cannot be about these triangles: a part
- * replaced while it was on its way has another count of them.
+ * a flag for each vertex (see closedVertices) — so the first cut of a part
+ * loaded does not search it on the main thread. A triangle is read off its
+ * first corner, through the index as it stands now: a bounds tree built
+ * over the geometry reorders its triangles and never its vertices. False,
+ * and nothing kept, when the flags cannot be this geometry's: a part
+ * replaced while they were on their way has another count of vertices.
  */
-export function primeClosedPart(geometry: THREE.BufferGeometry, shells: ClosedShells): boolean {
+export function primeClosedPart(geometry: THREE.BufferGeometry, vertices: Uint8Array): boolean {
   const index = geometry.getIndex()
   const position = geometry.getAttribute('position')
-  const total = Math.floor((index ? index.count : position.count) / 3)
-  if (shells.closed.length !== total) return false
+  if (vertices.length !== position.count) return false
   const key = index ?? position
-  if (!closedCache.has(key)) closedCache.set(key, partOf(shells, index))
+  if (closedCache.has(key)) return true
+  const total = Math.floor((index ? index.count : position.count) / 3)
+  const closed = new Uint8Array(total)
+  let count = 0
+  for (let t = 0; t < total; t++) {
+    if (vertices[index ? index.getX(3 * t) : 3 * t] !== 1) continue
+    closed[t] = 1
+    count++
+  }
+  closedCache.set(key, partOf({ closed, count }, index))
   return true
 }
 

@@ -4,7 +4,9 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
-import { closedShells, type ClosedShells } from '../src/core/geometry/closedShells'
+import { computeBoundsTree } from 'three-mesh-bvh'
+import { NominalSurface } from '../src/core/deviation/surface'
+import { closedShells, closedVertices } from '../src/core/geometry/closedShells'
 import { scanRender, splitCreases } from '../src/core/geometry/crease'
 import { wireSlots } from '../src/core/geometry/wireSlots'
 import { closedPartOf, primeClosedPart } from '../src/viewer/sliceCap'
@@ -92,71 +94,109 @@ describe('closedShells', () => {
 
 /** The meshes above, each as it reaches the worker. */
 const fixtures = (): [string, { positions: number[]; indices: number[] }][] => {
-  const holed = cube([5, 0, 0])
-  holed.indices.splice(0, 6)
+  const holed = (at: [number, number, number]) => {
+    const c = cube(at)
+    c.indices.splice(0, 6)
+    return c
+  }
   const fin = cube()
   fin.positions.push(0.5, 1, 2)
   fin.indices.push(6, 7, 8)
+  // Closed and open cubes taken in turn but laid out in another order, so
+  // a bounds tree over them puts the triangles in an order of its own and
+  // a mask in the order they came in reads the wrong cubes.
+  const mixed = [5, 2, 7, 0, 3, 6, 1, 4].map((slot, i) => (i % 2 ? holed : cube)([5 * slot, 3 * (slot % 3), 2 * (i % 3)])).reduce(join)
   return [
     ['a closed cube', cube()],
-    ['a cube with a hole', holed],
-    ['a closed cube beside an open one', join(cube(), holed)],
+    ['a cube with a hole', holed([5, 0, 0])],
+    ['a closed cube beside an open one', join(cube(), holed([5, 0, 0]))],
     ['a cube with a fin', fin],
+    ['closed and open cubes taken in turn', mixed],
   ]
 }
 
 /** A geometry laid out as the viewport lays out a part: the render arrays
- *  the worker posts, indexed. */
-function geometryOf(positions: Float32Array, indices: Uint32Array): THREE.BufferGeometry {
+ *  the worker posts, indexed — and, with `tree`, a bounds tree built over
+ *  it as the viewport builds one before the part is shown, which puts the
+ *  index in an order of its own. */
+function geometryOf(positions: Float32Array, indices: Uint32Array, tree = false): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry()
   g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   g.setIndex(new THREE.BufferAttribute(indices, 1))
+  if (tree) computeBoundsTree.call(g)
   return g
 }
 
-const plain = (s: ClosedShells) => ({ closed: [...s.closed], count: s.count })
+const welded = (mesh: { positions: number[]; indices: number[] }) =>
+  buildMeshGraph({ kind: 'indexed', positions: new Float32Array(mesh.positions), indices: new Uint32Array(mesh.indices) })
+
+/** Prime a geometry built on `positions`/`indices` as the viewport builds
+ *  it with the worker's `flags`, and hold what it keeps against what the
+ *  viewport would have found on its own on the same arrays. */
+function expectPrimedAsFound(positions: Float32Array, indices: Uint32Array, flags: Uint8Array): void {
+  const primed = geometryOf(positions, indices, true)
+  expect(primeClosedPart(primed, flags)).toBe(true)
+  const found = closedPartOf(geometryOf(positions.slice(), (primed.getIndex()!.array as Uint32Array).slice()))
+  const kept = closedPartOf(primed)
+  expect([...kept.closed]).toEqual([...found.closed])
+  expect(kept.count).toBe(found.count)
+  expect(kept.total).toBe(found.total)
+  expect(kept.index ? [...kept.index] : null).toEqual(found.index ? [...found.index] : null)
+}
 
 describe('closed shells from the worker', () => {
   // The worker finds them on its own welded copy — the scan's graph, the
-  // reference's surface — while the viewport's copy of the same triangles
-  // is split at the sharp edges for shading. The answer has to be the one
-  // the viewport would have found on its own, triangle for triangle.
+  // reference's surface, whose triangles a bounds tree has reordered —
+  // while the viewport's copy is split at the sharp edges for shading and
+  // reordered by a bounds tree of its own. A vertex at a time, the answer
+  // has to come out as the one the viewport would have found, triangle for
+  // triangle.
   for (const [name, mesh] of fixtures()) {
-    it(`agrees with the viewport's own on ${name}`, () => {
-      const graph = buildMeshGraph({ kind: 'indexed', positions: new Float32Array(mesh.positions), indices: new Uint32Array(mesh.indices) })
-      const worker = closedShells(graph.positions, graph.indices)
-      // The scan, split as the setting says, every way it can be.
+    it(`primes the scan as the viewport would find it on ${name}`, () => {
+      const graph = welded(mesh)
       for (const mode of ['on', 'off', 'auto'] as const) {
         const render = scanRender(graph, { mode, angleDeg: 30 })
-        expect(plain(worker), mode).toEqual(plain(closedShells(render.positions, render.indices)))
+        // The worker's index put in another order, as a thickness ray's
+        // tree puts it.
+        const reordered = graph.indices.slice()
+        for (let t = 0, n = reordered.length / 3; t < n / 2; t++) {
+          for (let c = 0; c < 3; c++) {
+            const a = 3 * t + c
+            const b = 3 * (n - 1 - t) + c
+            ;[reordered[a], reordered[b]] = [reordered[b], reordered[a]]
+          }
+        }
+        expectPrimedAsFound(render.positions, render.indices, closedVertices(graph.positions, reordered, render.copyOf))
       }
-      // The reference, always split.
-      const slots = wireSlots(graph.adjOffsets, graph.adjList, graph.vertexCount)
-      const split = splitCreases(graph.positions, graph.indices, slots)
-      if (split) expect(plain(worker)).toEqual(plain(closedShells(split.positions, split.indices)))
     })
 
-    it(`primes the viewport's cache with what it would have found on ${name}`, () => {
-      const graph = buildMeshGraph({ kind: 'indexed', positions: new Float32Array(mesh.positions), indices: new Uint32Array(mesh.indices) })
-      const render = scanRender(graph, { mode: 'on', angleDeg: 30 })
-      const primed = geometryOf(render.positions, render.indices)
-      expect(primeClosedPart(primed, closedShells(graph.positions, graph.indices))).toBe(true)
-      const found = closedPartOf(geometryOf(render.positions.slice(), render.indices.slice()))
-      const kept = closedPartOf(primed)
-      expect([...kept.closed]).toEqual([...found.closed])
-      expect(kept.count).toBe(found.count)
-      expect(kept.total).toBe(found.total)
-      expect(kept.index ? [...kept.index] : null).toEqual(found.index ? [...found.index] : null)
+    it(`primes the reference as the viewport would find it on ${name}`, () => {
+      const graph = welded(mesh)
+      // As the worker loads a reference: its surface first, its picture
+      // split from the welded arrays after.
+      const surface = new NominalSurface(graph.positions, graph.indices)
+      const split = splitCreases(graph.positions, graph.indices, wireSlots(graph.adjOffsets, graph.adjList, graph.vertexCount))
+      const positions = split ? split.positions : graph.positions.slice()
+      const indices = split ? split.indices : graph.indices.slice()
+      expectPrimedAsFound(positions, indices, closedVertices(surface.positions, surface.index, split ? split.copyOf : []))
     })
   }
 
-  it('turns away an answer about other triangles', () => {
+  it("turns away flags that are not this geometry's", () => {
     const m = cube()
     const g = geometryOf(new Float32Array(m.positions), new Uint32Array(m.indices))
-    // One triangle short: a reply about some other mesh.
-    const other = run({ positions: m.positions, indices: m.indices.slice(3) })
-    expect(primeClosedPart(g, other)).toBe(false)
+    // A vertex short: an answer about some other mesh.
+    expect(primeClosedPart(g, new Uint8Array(7).fill(1))).toBe(false)
     // Found on the geometry itself instead.
     expect(closedPartOf(g).count).toBe(12)
+  })
+
+  it('reads a vertex at a time as closedShells reads a triangle at a time', () => {
+    for (const [, mesh] of fixtures()) {
+      const p = new Float32Array(mesh.positions)
+      const i = new Uint32Array(mesh.indices)
+      const flags = closedVertices(p, i)
+      expect([...closedShells(p, i).closed]).toEqual(Array.from({ length: i.length / 3 }, (_, t) => flags[i[3 * t]]))
+    }
   })
 })

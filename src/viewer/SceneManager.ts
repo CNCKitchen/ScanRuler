@@ -65,7 +65,6 @@ import {
 import { principalAxis } from './scanLayout'
 import { patchScanShader } from './scanShader'
 import { CAP_SLOT, closedPartOf, cutColor, primeClosedPart, SliceCap, type ClosedPart } from './sliceCap'
-import type { ClosedShells } from '../core/geometry/closedShells'
 import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
@@ -371,7 +370,7 @@ export class SceneManager {
   /** Where the closed shells of a part loaded are found off the main thread
    *  — the mesh worker, wired by the app — for the section view's caps (see
    *  sliceCap primeClosedPart). Without it, a cut finds them itself. */
-  closedShellsFrom: ((which: 'scan' | 'nominal') => Promise<ClosedShells>) | null = null
+  closedShellsFrom: ((which: 'scan' | 'nominal') => Promise<Uint8Array>) | null = null
   /** Elements lit because something being built refers to them, and
    *  elements lit because a picker's option is hovered — two reasons, one
    *  look; the overlays hear the union. */
@@ -1741,13 +1740,17 @@ export class SceneManager {
       if (!this.viewport.navigating()) {
         jobs ??= this.warmJobs()
         if (jobs.length === 0) return
-        do this.warmOne(jobs.shift()!)
-        while (jobs.length > 0 && deadline !== null && deadline.timeRemaining() > WARM_SLACK_MS)
-        // The pixel drawn into is the canvas's, whose other pixels are not
-        // kept from the last frame once it was shown: the whole frame is
-        // drawn again before this task ends, so none of that is ever seen.
-        this.viewport.invalidate()
-        this.viewport.pump()
+        try {
+          do this.warmOne(jobs.shift()!)
+          while (jobs.length > 0 && deadline !== null && deadline.timeRemaining() > WARM_SLACK_MS)
+        } finally {
+          // The pixel drawn into is the canvas's, whose other pixels are not
+          // kept from the last frame once it was shown: the whole frame is
+          // drawn again before this task ends, so none of that is ever seen
+          // — a job that threw after the pixel was cleared included.
+          this.viewport.invalidate()
+          this.viewport.pump()
+        }
         if (jobs.length === 0) return
       }
       this.warmCancel = inIdle(step)
@@ -1763,7 +1766,12 @@ export class SceneManager {
   }
 
   /** What there is to warm on the stage as it now stands, the section
-   *  view's first, less one already warm from the same material. */
+   *  view's first, less one already warm from the same material. A job
+   *  compiles one program at most, so that one idle turn costs one: a
+   *  see-through surface drawn both sides is drawn by three.js in two
+   *  passes — the back faces, then the front, a program each — and a
+   *  material made one-sided with a pass's side is given that pass's
+   *  program; a cap is three meshes, warmed one by one. */
   private warmJobs(): WarmJob[] {
     const jobs: WarmJob[] = []
     const scan = this.mesh
@@ -1773,54 +1781,66 @@ export class SceneManager {
       if (!mesh) return
       const live = mesh.material as THREE.MeshStandardMaterial
       const geometry = mesh.geometry as THREE.BufferGeometry
-      jobs.push({
-        key: `${name}:${cut ? 'cut' : 'whole'}:${seeThrough ? 'see-through' : 'solid'}`,
-        from: live,
-        make: (scene) => {
-          const m = live.clone()
-          // The amendments, by reference: a copy does not carry them, and
-          // the program is known by their text.
-          m.onBeforeCompile = live.onBeforeCompile
-          m.customProgramCacheKey = live.customProgramCacheKey
-          setSurfaceOpacity(m, seeThrough ? SEE_THROUGH_OPACITY : 1)
-          m.clippingPlanes = cut ? this.clipList : null
-          scene.add(new THREE.Mesh(warmGeometry(geometry), m))
-          return m
-        },
-      })
+      const sides = seeThrough && live.side === THREE.DoubleSide ? [THREE.BackSide, THREE.FrontSide] : [live.side]
+      for (const side of sides) {
+        jobs.push({
+          key: `${name}:${cut ? 'cut' : 'whole'}:${seeThrough ? 'see-through' : 'solid'}:${side}`,
+          from: live,
+          make: (scene) => {
+            const m = live.clone()
+            // The amendments, by reference: a copy does not carry them, and
+            // the program is known by their text.
+            m.onBeforeCompile = live.onBeforeCompile
+            m.customProgramCacheKey = live.customProgramCacheKey
+            setSurfaceOpacity(m, seeThrough ? SEE_THROUGH_OPACITY : 1)
+            m.clippingPlanes = cut ? this.clipList : null
+            m.side = side
+            scene.add(new THREE.Mesh(warmGeometry(geometry), m))
+            return m
+          },
+        })
+      }
     }
     part('scan', scan, true, false)
     if (scan || nominal) {
       // The section view's cap, as updateCaps makes it: flat, in a cut
-      // colour, its counting passes cut by the plane.
+      // colour, its counting passes cut by the plane — the passes up and
+      // down and the sheet, one at a time, the others put out of the way.
       const source = (scan ?? nominal)!.geometry as THREE.BufferGeometry
-      jobs.push({
-        key: 'cap',
-        from: 'cap',
-        make: (scene) => {
-          const target = new THREE.Mesh(warmGeometry(source), new THREE.MeshBasicMaterial({ visible: false }))
-          const cap = new SliceCap(target, this.clipList, this.capGeometry, { slot: CAP_SLOT.scan, color: cutColor(CAP_SLOT.scan), flat: true, theme: this.theme })
-          scene.add(target)
-          return {
-            dispose: () => {
-              cap.dispose()
-              ;(target.material as THREE.Material).dispose()
-            },
-          }
-        },
-      })
+      for (const pass of [0, 1, 2]) {
+        jobs.push({
+          key: `cap:${pass}`,
+          from: 'cap',
+          make: (scene) => {
+            const target = new THREE.Mesh(warmGeometry(source), new THREE.MeshBasicMaterial({ visible: false }))
+            const cap = new SliceCap(target, this.clipList, this.capGeometry, { slot: CAP_SLOT.scan, color: cutColor(CAP_SLOT.scan), flat: true, theme: this.theme })
+            target.children.forEach((mesh, i) => {
+              mesh.visible = i === pass
+            })
+            scene.add(target)
+            return {
+              dispose: () => {
+                cap.dispose()
+                ;(target.material as THREE.Material).dispose()
+              },
+            }
+          },
+        })
+      }
       // The plane's gizmo, as ExtendGrips draws its grips: unlit and
-      // see-through, and the arrow both sides — which three.js draws in two
-      // passes, a program each; a ring is the front pass's.
-      jobs.push({
-        key: 'grips',
-        from: 'grips',
-        make: (scene) => {
-          const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
-          scene.add(new THREE.Mesh(warmGeometry(this.capGeometry), m))
-          return m
-        },
-      })
+      // see-through, the arrow both sides — two passes, as above — and a
+      // ring the front pass's.
+      for (const side of [THREE.FrontSide, THREE.BackSide]) {
+        jobs.push({
+          key: `grips:${side}`,
+          from: 'grips',
+          make: (scene) => {
+            const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side })
+            scene.add(new THREE.Mesh(warmGeometry(this.capGeometry), m))
+            return m
+          },
+        })
+      }
     }
     part('reference', nominal, false, false)
     if (nominal) {
@@ -1850,64 +1870,73 @@ export class SceneManager {
   }
 
   /** Draw one job's throwaway scene into a pixel, keep its material, and
-   *  let go of the rest. */
+   *  let go of the rest — all of it, the material too, if the job throws. */
   private warmOne(job: WarmJob): void {
     const renderer = this.viewport.renderer
     const scene = new THREE.Scene()
     const lights: THREE.Light[] = []
-    this.scene.traverseVisible((o) => {
-      if (!(o as THREE.Light).isLight) return
-      const light = (o as THREE.Light).clone(false)
-      lights.push(light)
-      scene.add(light)
-    })
-    scene.environment = this.scene.environment
-    scene.fog = this.scene.fog
-    const keep = job.make(scene)
-    // The triangles have no size: kept from the frustum test, which would
-    // otherwise be all that decides whether they are drawn.
-    scene.traverse((o) => {
-      o.frustumCulled = false
-    })
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
-    camera.position.set(0, 0, 5)
-    const viewport = renderer.getViewport(new THREE.Vector4())
-    const scissor = renderer.getScissor(new THREE.Vector4())
-    const scissorTest = renderer.getScissorTest()
-    renderer.setScissorTest(true)
-    renderer.setScissor(0, 0, 1, 1)
-    renderer.setViewport(0, 0, 1, 1)
+    let keep: { dispose(): void } | null = null
+    let kept = false
     try {
-      renderer.render(scene, camera)
+      this.scene.traverseVisible((o) => {
+        if (!(o as THREE.Light).isLight) return
+        const light = (o as THREE.Light).clone(false)
+        lights.push(light)
+        scene.add(light)
+      })
+      scene.environment = this.scene.environment
+      scene.fog = this.scene.fog
+      keep = job.make(scene)
+      // The triangles have no size: kept from the frustum test, which would
+      // otherwise be all that decides whether they are drawn.
+      scene.traverse((o) => {
+        o.frustumCulled = false
+      })
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+      camera.position.set(0, 0, 5)
+      const viewport = renderer.getViewport(new THREE.Vector4())
+      const scissor = renderer.getScissor(new THREE.Vector4())
+      const scissorTest = renderer.getScissorTest()
+      renderer.setScissorTest(true)
+      renderer.setScissor(0, 0, 1, 1)
+      renderer.setViewport(0, 0, 1, 1)
+      try {
+        renderer.render(scene, camera)
+      } finally {
+        renderer.setViewport(viewport)
+        renderer.setScissor(scissor)
+        renderer.setScissorTest(scissorTest)
+      }
+      // The program stays referenced throughout: the new keeper holds it
+      // before the old one lets go.
+      const held = this.warmKeepers.get(job.key)
+      this.warmKeepers.set(job.key, { from: job.from, keep })
+      kept = true
+      held?.keep.dispose()
     } finally {
-      renderer.setViewport(viewport)
-      renderer.setScissor(scissor)
-      renderer.setScissorTest(scissorTest)
+      // The geometries are this job's own but for the cap's sheet, which is
+      // the stage's.
+      scene.traverse((o) => {
+        const geometry = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined
+        if (geometry && geometry !== this.capGeometry) geometry.dispose()
+      })
+      for (const light of lights) light.dispose()
+      if (!kept) keep?.dispose()
     }
-    // The geometries are this job's own but for the cap's sheet, which is
-    // the stage's.
-    scene.traverse((o) => {
-      const geometry = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined
-      if (geometry && geometry !== this.capGeometry) geometry.dispose()
-    })
-    for (const light of lights) light.dispose()
-    // The program stays referenced throughout: the new keeper holds it
-    // before the old one lets go.
-    const held = this.warmKeepers.get(job.key)
-    this.warmKeepers.set(job.key, { from: job.from, keep })
-    held?.keep.dispose()
   }
 
   /** Have the closed shells of a part just put in place found off the main
    *  thread (see closedShellsFrom), for its first cut to find ready. An
    *  answer is kept only for the geometry it was asked about, still the
-   *  part's; one that comes back for a part since replaced is dropped, and
-   *  that part's cut finds its own. */
+   *  part's and laid out as it was: one that comes back for a part since
+   *  replaced, or split again for shading, is dropped, and that part's cut
+   *  finds its own. */
   private primeClosedShells(which: 'scan' | 'nominal', geometry: THREE.BufferGeometry): void {
+    const index = geometry.getIndex()
     this.closedShellsFrom?.(which).then(
-      (shells) => {
+      (vertices) => {
         const mesh = which === 'scan' ? this.mesh : this.nominalMesh
-        if (mesh?.geometry === geometry) primeClosedPart(geometry, shells)
+        if (mesh?.geometry === geometry && geometry.getIndex() === index) primeClosedPart(geometry, vertices)
       },
       // Not found off the thread: found on it, if a cut comes to need them.
       () => {},
