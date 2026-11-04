@@ -1267,6 +1267,7 @@ function Workbench() {
 
   useSceneSync({
     sceneRef,
+    clientRef,
     deviation,
     deviationRgb,
     referenceMap: maps.referenceMap,

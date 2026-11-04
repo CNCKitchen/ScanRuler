@@ -30,6 +30,7 @@ import {
 } from './deviation/align'
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
+import { deflectionVectors } from './deviation/deflection'
 import { rigidApplyToPoints, rigidInvert, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap } from './deviation/onReference'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
@@ -571,6 +572,26 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     const closed = closedVertices(mesh.positions, mesh.indices, renderCopies.get(mesh.held) ?? [])
     post({ type: 'closed-shells-ok', requestId: msg.requestId, closed }, [closed.buffer])
+    return
+  }
+
+  if (msg.type === 'deflection') {
+    // Smoothed over the scan's vertices as held here: the render thread's
+    // own, bit for bit — the first `vertexCount` of what it was posted,
+    // moved since by the same transforms — so the motion is the one it
+    // would have worked out itself, without the pass over the whole scan
+    // landing on the thread that answers the user.
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const vectors = deflectionVectors(msg.values, msg.directions, {
+      limit: msg.limit,
+      maxDistance: msg.maxDistance,
+      positions: msg.positions ?? graph.positions,
+      smoothing: msg.smoothing,
+    })
+    post({ type: 'deflection-ok', requestId: msg.requestId, vectors }, [vectors.buffer])
     return
   }
 

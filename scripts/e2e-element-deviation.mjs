@@ -221,7 +221,10 @@ console.log(`animation: the underside moves ${lowest} mm (range ±${range})`)
 check(lowest !== null && lowest < 0 && lowest >= -range - 1e-6, 'the element map plays as motion, as far as the colour range')
 await click(page, '[data-test=animate-deformation]')
 await sleep(500)
-check((await deflection()) === null, 'and stopping it takes the motion off the scan')
+// The buffer the motion was laid in stays on the scan for the next play while
+// the workspace is up — stopping uploads nothing — so what shows the motion is
+// off the scan is the picture.
+check((await deflection()) !== null, 'and stopping it keeps the motion\'s buffer for the next play')
 check((await pixelDiff(page, await frame(), atRest)) < 0.01, 'and puts the part back as measured')
 
 await click(page, '[data-test=toggle-facing]')

@@ -102,6 +102,16 @@ export interface RestoreChannel {
   call(plugin: string, op: string, payload: unknown): Promise<unknown>
 }
 
+/** An answer about the scan's vertices as they were when it was asked for,
+ *  that came back after they moved or were replaced — see deflection. Not a
+ *  failure: whoever asked asks again about the scan in hand, and drops it. */
+export class StaleScan extends Error {
+  constructor() {
+    super('The scan moved or was replaced before its answer came back.')
+    this.name = 'StaleScan'
+  }
+}
+
 /** A message that expects an answer — everything but the abort signal, which
  *  carries no id and is never replied to on its own. */
 type Request = Exclude<WorkerRequest, { type: 'align-abort' }>
@@ -129,6 +139,15 @@ export class MeshWorkerClient {
   /** Async callers must not apply a result to a different imported session. */
   scanVersion = 0
   nominalVersion = 0
+  /** Moves on whenever the worker's scan vertices do — another scan put in
+   *  place, a datum baked in — at the moment it is asked for, so an answer
+   *  about them asked before can be told from one asked after. */
+  private scanToken = 0
+  /** Whether the worker's scan vertices are the render thread's bit for bit:
+   *  they are while the render arrays in use came from the worker and both
+   *  have been moved by the same transforms since. A restart reads the scan
+   *  back in under its whole alignment at once, which rounds differently. */
+  private renderParity = true
   onProgress: ((text: string, fraction?: number) => void) | null = null
   /** Poses from part-way through an alignment. Not a request result — they
    *  arrive while the request is still open, so they must not settle it. */
@@ -151,6 +170,7 @@ export class MeshWorkerClient {
       this.rpc.restart()
       const state = this.restoreState?.()
       if (state?.scan) {
+        this.renderParity = false
         const { name, bytes, crease, transform, units } = state.scan
         const buffer = bytes.slice().buffer
         await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
@@ -204,6 +224,11 @@ export class MeshWorkerClient {
   }
 
   async commitImport(slots: { scan?: number | null; nominal?: number | null }): Promise<void> {
+    if (slots.scan !== undefined) {
+      // The render thread lays out the arrays this scan was posted with.
+      this.scanToken++
+      this.renderParity = true
+    }
     await this.request({ type: 'commit-import', requestId: this.nextId++, ...slots })
     if (slots.scan !== undefined) this.scanVersion++
     if (slots.nominal !== undefined) this.nominalVersion++
@@ -403,6 +428,7 @@ export class MeshWorkerClient {
 
   /** Bake a datum alignment into the worker's copy of the scan. */
   async transform(transform: Rigid): Promise<void> {
+    this.scanToken++
     const requestId = this.nextId++
     await this.request({ type: 'transform', requestId, transform })
   }
@@ -500,6 +526,32 @@ export class MeshWorkerClient {
     const res = await this.request<Extract<WorkerResponse, { type: 'closed-shells-ok' }>>({ type: 'closed-shells', requestId, which })
     if (version() !== asked) throw new Error(`The ${which === 'scan' ? 'scan' : 'reference'} was replaced before its closed shells came back.`)
     return res.closed
+  }
+
+  /** How far each scan vertex moves to play a map as motion — see
+   *  deviation/deflection.ts deflectionVectors — worked out in the worker,
+   *  over its own copy of the scan's vertices. Where that copy may not be
+   *  the viewport's bit for bit (see renderParity), `positions` is asked
+   *  for and a copy of it goes with the request instead. The map is copied,
+   *  not transferred: the caller keeps showing it. An answer about vertices
+   *  since moved or replaced rejects with StaleScan. */
+  async deflection(
+    values: Float32Array,
+    directions: Int8Array,
+    opts: { limit: number; maxDistance: number; smoothing: number },
+    positions?: () => Float32Array | null,
+  ): Promise<Float32Array> {
+    // A restart this request would wait on reads the scan back in first.
+    await this.ready()
+    const asked = this.scanToken
+    const own = this.renderParity ? null : (positions?.()?.slice() ?? null)
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'deflection-ok' }>>(
+      { type: 'deflection', requestId, values, directions, ...opts, ...(own ? { positions: own } : {}) },
+      own ? [own.buffer] : [],
+    )
+    if (this.scanToken !== asked) throw new StaleScan()
+    return res.vectors
   }
 
   /** The box around the scan as it now stands, mm. */

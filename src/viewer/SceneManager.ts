@@ -451,6 +451,9 @@ export class SceneManager {
   /** When the loop began, in performance.now() time. */
   private deflectStart = 0
   private uDeflect: DeflectionUniform = { value: 0 }
+  /** Whether the offsets' buffer stays on the scan at rest — see
+   *  setDeflectionHeld. */
+  private deflectHeld = false
   /** See-through surfaces, so what is inside the part — the reference, the
    *  fitted elements, the pinned readings — shows: the scan's and the
    *  reference's, each from its own key. Held here as well as on the
@@ -1173,7 +1176,10 @@ export class SceneManager {
     )
     this.regions.rebind(colors, paint, tint, this.scanVertices)
     // The offsets are the scan's own, laid out again over the new copies.
-    this.layOutDeflection()
+    // A buffer kept at rest is the old layout's, and the geometry was just
+    // disposed: it goes, and the next play lays a new one.
+    if (this.deflection?.geometry === geometry) this.layOutDeflection()
+    else geometry.deleteAttribute('deflect')
     geometry.computeBoundsTree()
     // A cap over the closed shells alone is cut from the old triangles.
     this.applySlice()
@@ -3013,8 +3019,10 @@ export class SceneManager {
     const geometry = this.mesh.geometry as THREE.BufferGeometry
     this.marking.meshDisposed()
     // Keyed by vertex number, like the colouring: whoever moves this scan
-    // lays them on again.
+    // lays them on again, over its own count of vertices — the buffer kept
+    // between plays goes too.
     this.dropDeflection()
+    this.releaseDeflect(geometry)
     for (const layer of this.layers) layer.scanReplaced?.()
     geometry.disposeBoundsTree?.()
     geometry.dispose()
@@ -3149,20 +3157,37 @@ export class SceneManager {
     attr.needsUpdate = true
   }
 
-  /** Back at rest, with the offsets taken off the geometry they were laid on. */
+  /** Back at rest. While held (see setDeflectionHeld) the offsets' buffer
+   *  stays on the geometry, drawn with nothing added: letting it go means
+   *  disposing the geometry and sending the whole scan to the GPU again, and
+   *  while the map is up the loop is stopped and started again often. Not
+   *  held, it is taken off the geometry it was laid on. */
   private dropDeflection(): void {
     const d = this.deflection
     this.deflection = null
     this.uDeflect.value = 0
     if (this.mesh) this.mesh.frustumCulled = true
-    if (d) this.releaseDeflect(d.geometry)
+    if (d && !this.deflectHeld) this.releaseDeflect(d.geometry)
+  }
+
+  /** Keep the offsets' buffer on the scan between plays — while the
+   *  deviation workspace is on screen — or stop keeping it. Let go, it is
+   *  released at once from the scan and from an edited copy waiting beside
+   *  it, whichever it was laid on, but for a loop still playing, which lets
+   *  its own go when it stops. */
+  setDeflectionHeld(held: boolean): void {
+    this.deflectHeld = held
+    if (held) return
+    for (const geometry of [this.mesh?.geometry, this.other?.geometry]) {
+      if (geometry && geometry !== this.deflection?.geometry) this.releaseDeflect(geometry as THREE.BufferGeometry)
+    }
   }
 
   /** Take the offsets' attribute off a geometry, GPU buffer and all. three.js
    *  lets an attribute's buffer go only when its geometry is disposed, so it
    *  is: the rest of the scan is uploaded again on the next frame it is
    *  drawn — once, the price of not keeping a buffer the size of the
-   *  positions for a loop nobody is playing. */
+   *  positions once the map is put away. */
   private releaseDeflect(geometry: THREE.BufferGeometry): void {
     if (!geometry.getAttribute('deflect')) return
     geometry.dispose()

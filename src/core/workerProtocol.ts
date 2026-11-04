@@ -208,6 +208,23 @@ export type WorkerRequest =
    *  triangles in an order of its own, and so does the reference's here,
    *  but neither moves a vertex. */
   | { type: 'closed-shells'; requestId: number; which: 'scan' | 'nominal' }
+  /** A map played as motion: how far each scan vertex moves — see
+   *  deviation/deflection.ts deflectionVectors — smoothed over the scan's
+   *  vertices as held here, which are the render thread's own bit for bit
+   *  (loaded from here, moved by the same datum transforms in the same
+   *  order). `positions` is sent only where that may not hold — a worker
+   *  restarted and the scan read back in under its alignment in one step —
+   *  and is the render thread's copy, smoothed over instead. */
+  | {
+      type: 'deflection'
+      requestId: number
+      values: Float32Array
+      directions: Int8Array
+      limit: number
+      maxDistance: number
+      smoothing: number
+      positions?: Float32Array
+    }
   /** A request for a plugin's part of the worker — see workerPluginApi.ts.
    *  `op` names the plugin's operation, `payload` is its own. */
   | { type: 'plugin'; requestId: number; plugin: string; op: string; payload: unknown }
@@ -334,6 +351,8 @@ export type WorkerResponse =
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }
   /** 1 for each render vertex of a closed shell. */
   | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array }
+  /** Three floats per scan vertex, the offset to draw it moved by. */
+  | { type: 'deflection-ok'; requestId: number; vectors: Float32Array }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

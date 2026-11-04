@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
-import type { ReferenceDeviationResult } from '../core/workerClient'
+import { StaleScan, type MeshWorkerClient, type ReferenceDeviationResult } from '../core/workerClient'
 import { referenceScale } from '../core/deviation/onReference'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { isExtendable } from '../core/elements/extend'
@@ -63,6 +63,7 @@ const DEFLECTION_SETTLE_MS = 150
 
 export function useSceneSync({
   sceneRef,
+  clientRef,
   deviation,
   deviationRgb,
   referenceMap,
@@ -77,6 +78,9 @@ export function useSceneSync({
   cancelDraft,
 }: {
   sceneRef: RefObject<SceneManager | null>
+  /** The mesh worker, where the deformation animation's motion is worked
+   *  out. */
+  clientRef: RefObject<MeshWorkerClient | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
   /** The map the other way round, on the reference cut finer, and its
@@ -1053,25 +1057,46 @@ export function useSceneSync({
     // over the space around each point — a pass over the whole scan, a moment
     // on a large one. So it is put off until whatever moved has come to rest:
     // a range dragged along its slider is one new motion, not one per step,
-    // and the loop plays the last one meanwhile.
+    // and the loop plays the last one meanwhile. And it is worked out in the
+    // mesh worker, over its own copy of the scan's vertices, so the pass
+    // never holds up the next tap.
+    let cancelled = false
     const timer = setTimeout(() => {
-      // The scale first, so a loop that is starting starts from the scan as
-      // it is on screen rather than wherever the old scale put it.
       const dev = useDeviation.getState()
       if (dev.animScaleAuto) dev.suggestAnimScale(suggestDeflectionScale(range, 2 * modelSize))
-      scene.setDeflectionScale(useDeviation.getState().animScale)
-      scene.setDeflection(
-        deflectionVectors(showing.values, directions, {
-          limit: range,
-          maxDistance,
-          positions: scene.scanPositions(),
-          smoothing: DEFLECTION_SMOOTHING * 2 * modelSize,
-        }),
-      )
+      const opts = { limit: range, maxDistance, smoothing: DEFLECTION_SMOOTHING * 2 * modelSize }
+      const play = (vectors: Float32Array) => {
+        if (cancelled) return
+        // The scale first, so a loop that is starting starts from the scan as
+        // it is on screen rather than wherever the old scale put it.
+        scene.setDeflectionScale(useDeviation.getState().animScale)
+        scene.setDeflection(vectors)
+      }
+      // Without the worker, or with a worker that could not answer, the
+      // motion is worked out here as it always could be.
+      const here = () => play(deflectionVectors(showing.values, directions, { ...opts, positions: scene.scanPositions() }))
+      const client = clientRef.current
+      if (!client) return here()
+      client.deflection(showing.values, directions, opts, () => scene.scanPositions()).then(play, (e) => {
+        // About a scan since moved or replaced: whatever moved it runs this
+        // again for the scan in hand.
+        if (e instanceof StaleScan || cancelled) return
+        here()
+      })
     }, DEFLECTION_SETTLE_MS)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
     // Runs on the listed dependencies only, not on everything it reads.
   }, [playing, source, mapVersion, elementVersion, range, maxDistance, modelSize])
+  // The motion's buffer stays on the scan between plays while the deviation
+  // workspace is up — stopping and starting the loop then costs no upload of
+  // the whole scan — and goes when it is left.
+  const deviationWorkspace = workspace === 'deviation'
+  useEffect(() => {
+    sceneRef.current?.setDeflectionHeld(deviationWorkspace)
+  }, [deviationWorkspace])
   useEffect(() => {
     sceneRef.current?.setDeflectionScale(animScale)
   }, [animScale])
