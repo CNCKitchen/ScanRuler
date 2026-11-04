@@ -146,13 +146,24 @@ export function useFlatSceneSync({
   const turns = useFlat((s) => s.turns)
   useEffect(() => scene()?.setTurns(turns), [turns])
 
+  /** Lay the subject and every layer on a viewport afresh, as when it mounts. */
+  const resync = (view: FlatScene) => {
+    sceneRef.current = view
+    pushAll()
+  }
+
   return {
     /** The viewport has mounted — take it and lay the sheet out on it — or
-     *  unmounted with its workspace (null). */
+     *  unmounted (null): with the app, or never before then, as it is kept
+     *  once its workspace has been opened. */
     onReady: (view: FlatScene | null) => {
-      sceneRef.current = view
-      if (view) pushAll()
+      if (view) resync(view)
+      else sceneRef.current = null
     },
+    /** The kept viewport is shown again: the sheet is framed afresh, as a
+     *  mounted one was, and every layer is laid on it once more in case a
+     *  push landed while it was out of the layout. */
+    resync,
     /** The cursor over the sheet — the alignment tool's live grid preview. */
     onHover: (cursor: Vec2 | null) => {
       const grid = sheetDatumPreview(useFlat.getState(), cursor)

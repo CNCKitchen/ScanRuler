@@ -202,7 +202,7 @@ check((await capShare()) > 0.02, `the closed scan is filled where it is cut (${(
 await page.screenshot({ path: shotPath('section-view-deviation.png') })
 
 await page.click('[data-test=toggle-split]')
-await page.waitForSelector('[data-test=compare-half]')
+await page.waitForSelector('[data-test=compare-half]:not([hidden])')
 await sleep(900)
 const right = await warmIn('.compareview')
 await page.screenshot({ path: shotPath('section-view-split.png') })

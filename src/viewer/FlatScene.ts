@@ -1885,6 +1885,14 @@ export class FlatScene {
     this.viewport.invalidate()
   }
 
+  /** Held back while the sheet is not on screen: no frame is drawn and no
+   *  layout is read. What the stores pushed in the meantime is on the sheet
+   *  already and is drawn on the first frame after it comes back. */
+  setPaused(paused: boolean): void {
+    this.viewport.paused = paused
+    if (!paused) this.viewport.resize()
+  }
+
   dispose(): void {
     this.container.removeEventListener('pointermove', this.hoverMove)
     this.container.style.cursor = ''

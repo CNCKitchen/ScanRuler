@@ -649,8 +649,9 @@ try {
   ])
   await ensureProbes()
   await run([
-    // Plan task 6: the split view's second viewport is kept after its first open.
-    { label: 'Deviation: split on', sel: '[data-test=toggle-split]', settle: 3000, budget: { contexts: 0, steady: true, inpMs: { bare: 73, rich: 190 } } },
+    // Plan task 6: the split view's second viewport is kept after its first open, so no later tap
+    // makes a context, links a program or uploads the reference again.
+    { label: 'Deviation: split on', sel: '[data-test=toggle-split]', settle: 3000, budget: { links: 0, uploadMB: 0, contexts: 0, steady: true, inpMs: { bare: 73, rich: 190 } } },
     { label: 'Deviation: split off', sel: '[data-test=toggle-split]', settle: 2000 },
   ])
   await shot('06-split')

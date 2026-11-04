@@ -161,13 +161,17 @@ export class OrthoViewport {
    *  re-framing a new model just writes to it. */
   readonly clipSphere = { center: new THREE.Vector3(), radius: 1 }
   /** Skips rendering entirely while the viewport is hidden (behind the
-   *  split-screen picker); everything loaded stays loaded. */
+   *  split-screen picker, or kept alive behind `hidden` after its split or 2D
+   *  view was closed); everything loaded stays loaded. A paused tick reads no
+   *  layout and draws nothing. */
   paused = false
   /** Half-extents of the model on the screen plane at the framing camera
    *  orientation; the frustum is rebuilt from these on every resize so the
    *  user's zoom survives. */
   private fitExtent = { halfW: 1, halfH: 1 }
   private resizeObserver: ResizeObserver
+  /** Whether the container has ever had a size — see resize. */
+  private sized = false
   private rafId = 0
   private pointerDown: { x: number; y: number } | null = null
   /** Fingers down on the canvas, and whether this touch has been more than one
@@ -809,8 +813,15 @@ export class OrthoViewport {
   }
 
   resize(): void {
-    const w = this.container.clientWidth || 1
-    const h = this.container.clientHeight || 1
+    const cw = this.container.clientWidth
+    const ch = this.container.clientHeight
+    // A viewport kept alive behind `hidden` reports 0 × 0, and resizing to that
+    // would reallocate both buffers for a size nobody sees; it keeps the last
+    // one, and the real size arrives with the first resize after it is shown.
+    if (cw === 0 && ch === 0 && this.sized) return
+    if (cw > 0 && ch > 0) this.sized = true
+    const w = cw || 1
+    const h = ch || 1
     this.renderer.setSize(w, h)
     this.labelRenderer.setSize(w, h)
     this.applyFrustum()
@@ -826,6 +837,11 @@ export class OrthoViewport {
     this.nav.dispose()
     this.controls.dispose()
     this.renderer.dispose()
+    // Dropping the renderer leaves its context to the garbage collector, and
+    // the browser counts it against its cap on live contexts until then. The
+    // split and 2D viewports now live as long as their geometry does, so one
+    // replaced under a long session must give its context back at once.
+    this.renderer.forceContextLoss()
     // Only what this viewport put there. Emptying the container instead would
     // also take out whatever React had rendered into it — the fit-to-view
     // button — and React, having not been told, would never put it back. Which
