@@ -33,6 +33,7 @@ import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
+import { refitAfterRigid } from './bvh'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotate, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { deflectionFactor, deflectionStartPhase } from '../core/deviation/deflection'
@@ -2301,7 +2302,8 @@ export class SceneManager {
   /** Bake a datum alignment into the scan's vertices. Vertex order is
    *  untouched, so painted regions, element ownership and the deviation field
    *  all stay valid; only the coordinates (and the BVH built over them)
-   *  change. Heavy — the BVH is rebuilt synchronously. */
+   *  change. The BVH is refitted, not rebuilt: the triangles are the same, so
+   *  only the boxes round them move. */
   applyTransform(m: Rigid): void {
     if (!this.mesh) return
     const geometry = this.mesh.geometry as THREE.BufferGeometry
@@ -2311,10 +2313,8 @@ export class SceneManager {
     rigidRotateVectors(m, normals.array as Float32Array)
     positions.needsUpdate = true
     normals.needsUpdate = true
-    geometry.computeBoundingBox()
-    geometry.computeBoundingSphere()
-    geometry.disposeBoundsTree?.()
-    geometry.computeBoundsTree()
+    // Also renews the bounding box and sphere.
+    refitAfterRigid(geometry)
     // The edited copy — or the scan, while the copy is shown — is in the same
     // frame, and moves with it.
     if (this.other) {
@@ -2323,10 +2323,7 @@ export class SceneManager {
       rigidRotateVectors(m, g.getAttribute('normal').array as Float32Array)
       g.getAttribute('position').needsUpdate = true
       g.getAttribute('normal').needsUpdate = true
-      g.computeBoundingBox()
-      g.computeBoundingSphere()
-      g.disposeBoundsTree?.()
-      g.computeBoundsTree()
+      refitAfterRigid(g)
       this.other.axis = rotatedDirection(m, this.other.axis)
     }
     // So does whatever the layers keep in the scan's frame.
