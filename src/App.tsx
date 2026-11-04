@@ -92,8 +92,7 @@ import { rigidToColumnMajor } from './core/deviation/rigid'
 import { exportElementsStep, exportScanMesh, exportScanPointCloud, runExport, saveBuilt, textBytes, type BuiltFile } from './app/exports'
 import type { MeshFormat } from './core/exportMesh'
 import { PICK_MARK_TOOL_STATUS } from './app/deviationWorkspace'
-import { useElementField } from './app/useElementField'
-import { useSceneSync } from './app/useSceneSync'
+import { SceneSync } from './app/SceneSync'
 import { createSession, type AppSession } from './app/session'
 import { installCommandHost, type FlatHost, type FlatSheetView, type ProjectHost } from './commands/host'
 import { commandRunning } from './commands/activity'
@@ -624,9 +623,7 @@ function Workbench() {
   } = session.deviation
 
   // ---- Deviation from a fitted element -------------------------------------
-
-  useElementField({ sceneRef, clientRef, elementField, elementRgb, elementScope, fieldDirections })
-
+  // The map against an element follows its target in SceneSync, below.
 
   /** Switch the element map between measuring the whole scan and measuring a
    *  hand-marked region of it. Choosing the marked scope opens the marking
@@ -1221,8 +1218,9 @@ function Workbench() {
     // Runs on the listed dependencies only, not on everything it reads.
   }, [draftOpen, windowKey])
 
-  // Everything the scene is told after a render lives in useSceneSync; the
-  // subscriptions here are the ones the JSX below still reads itself.
+  // Everything the scene is told after a render lives in useSceneSync, called
+  // from SceneSync so its subscriptions wake that and not this; the ones here
+  // are the ones the JSX below still reads itself.
   const elements = useStore((s) => s.elements)
   const storeSections = useStore((s) => s.sections)
   const draft = useStore((s) => s.draft)
@@ -1264,23 +1262,6 @@ function Workbench() {
   const picking = useDeviation((s) => s.picking)
   const split = useDeviation((s) => s.split)
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
-
-  useSceneSync({
-    sceneRef,
-    clientRef,
-    deviation,
-    deviationRgb,
-    referenceMap: maps.referenceMap,
-    referenceRgb: maps.referenceRgb,
-    elementField,
-    elementRgb,
-    fieldDirections,
-    thickness,
-    thicknessRgb,
-    thickScale,
-    plugin: active,
-    cancelDraft: handleCancelDraft,
-  })
 
   // Error toasts clear themselves.
   const errorText = useStore((s) => s.errorText)
@@ -1685,6 +1666,24 @@ function Workbench() {
               onWorldPlanePick={handleWorldPlanePick}
               onPaintChange={handlePaintChange}
               onExtendDrag={handleExtendDrag}
+            />
+            {/* After the viewport, so the scene exists when its effects first run. */}
+            <SceneSync
+              sceneRef={sceneRef}
+              clientRef={clientRef}
+              deviation={deviation}
+              deviationRgb={deviationRgb}
+              referenceMap={maps.referenceMap}
+              referenceRgb={maps.referenceRgb}
+              elementField={elementField}
+              elementRgb={elementRgb}
+              elementScope={elementScope}
+              fieldDirections={fieldDirections}
+              thickness={thickness}
+              thicknessRgb={thicknessRgb}
+              thickScale={thickScale}
+              plugin={active}
+              cancelDraft={handleCancelDraft}
             />
             {!splitOpen && pluginSplit}
             {splitOpen && (
