@@ -1073,16 +1073,41 @@ export function useSceneSync({
         scene.setDeflection(vectors)
       }
       // Without the worker, or with a worker that could not answer, the
-      // motion is worked out here as it always could be.
-      const here = () => play(deflectionVectors(showing.values, directions, { ...opts, positions: scene.scanPositions() }))
+      // motion is worked out here as it always could be. A map that cannot
+      // be played leaves the scan at rest rather than an error unhandled.
+      const here = () => {
+        try {
+          play(deflectionVectors(showing.values, directions, { ...opts, positions: scene.scanPositions() }))
+        } catch (e) {
+          console.warn('The deformation animation could not be worked out.', e)
+        }
+      }
       const client = clientRef.current
       if (!client) return here()
-      client.deflection(showing.values, directions, opts, () => scene.scanPositions()).then(play, (e) => {
-        // About a scan since moved or replaced: whatever moved it runs this
-        // again for the scan in hand.
-        if (e instanceof StaleScan || cancelled) return
-        here()
-      })
+      const ask = (retry: boolean) => {
+        const version = client.scanVersion
+        client.deflection(showing.values, directions, opts, () => scene.scanPositions()).then(
+          // A retry's answer is played only for the scan it was asked
+          // about: one put in its place since leaves the map to whoever
+          // measures it again.
+          (vectors) => {
+            if (!retry || client.scanVersion === version) play(vectors)
+          },
+          (e) => {
+            if (cancelled) return
+            // About a scan moved or replaced while it was worked out. What
+            // moved it does not always run this again — a datum baked in
+            // with the map left as it is, a replacement that failed — so it
+            // is asked once more, of the scan as it is now.
+            if (e instanceof StaleScan) {
+              if (!retry) ask(true)
+              return
+            }
+            here()
+          },
+        )
+      }
+      ask(false)
     }, DEFLECTION_SETTLE_MS)
     return () => {
       cancelled = true

@@ -224,13 +224,15 @@ export class MeshWorkerClient {
   }
 
   async commitImport(slots: { scan?: number | null; nominal?: number | null }): Promise<void> {
+    // Before the commit is sent, so an answer asked ahead of it is told from
+    // one asked behind it.
+    if (slots.scan !== undefined) this.scanToken++
+    await this.request({ type: 'commit-import', requestId: this.nextId++, ...slots })
     if (slots.scan !== undefined) {
-      // The render thread lays out the arrays this scan was posted with.
-      this.scanToken++
+      this.scanVersion++
+      // In place: the render thread lays out the arrays it was posted with.
       this.renderParity = true
     }
-    await this.request({ type: 'commit-import', requestId: this.nextId++, ...slots })
-    if (slots.scan !== undefined) this.scanVersion++
     if (slots.nominal !== undefined) this.nominalVersion++
   }
 

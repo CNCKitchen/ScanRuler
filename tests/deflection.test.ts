@@ -25,6 +25,7 @@ import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { MeshWorkerClient, StaleScan } from '../src/core/workerClient'
 import { boxMesh, cylinderMesh } from './helpers'
 import { fixture } from './fixtures'
+import { buildBinaryStl } from '../src/core/exportStl'
 
 /** Reading times direction, decoded the way the shader decodes it. */
 function offsetOf(values: Float32Array, directions: Int8Array, v: number): Vec3 {
@@ -290,19 +291,6 @@ describe('the loop', () => {
   })
 })
 
-/** A soup of triangles as a binary STL, the way a scan reaches the worker. */
-function stl(soup: Float32Array): ArrayBuffer {
-  const triangles = soup.length / 9
-  const buffer = new ArrayBuffer(84 + triangles * 50)
-  const view = new DataView(buffer)
-  view.setUint32(80, triangles, true)
-  for (let t = 0; t < triangles; t++) {
-    const at = 84 + t * 50 + 12
-    for (let k = 0; k < 9; k++) view.setFloat32(at + k * 4, soup[t * 9 + k], true)
-  }
-  return buffer
-}
-
 /** The bits of a float array, for comparing two of them exactly — a
  *  negative zero and all. */
 const bits = (a: Float32Array) => new Uint32Array(a.buffer, a.byteOffset, a.length)
@@ -326,7 +314,8 @@ const ballbar = fixture('ballbar.stl')
 /** The scans the motion is checked on: a noisy cylinder whose rims split
  *  for shading, and the ball bar where it is on hand. */
 const scans: [string, () => ArrayBuffer][] = [
-  ['a noisy cylinder, its rims split', () => stl(cylinderMesh(10, 30, 48, 12, 0.02).positions)],
+  // A soup of triangles as a binary STL, the way a scan reaches the worker.
+  ['a noisy cylinder, its rims split', () => buildBinaryStl(cylinderMesh(10, 30, 48, 12, 0.02).positions, null, null, '')],
 ]
 if (ballbar.exists) {
   scans.push(['the ball bar', () => {
@@ -461,5 +450,15 @@ describe('the motion asked of the worker', () => {
     expect(sent[0].positions).toBeUndefined()
     expect([...(sent[1].positions as Float32Array)]).toEqual([1, 2, 3])
     expect(sent[1].positions).not.toBe(render)
+    // A scan put in place is laid out from the worker's own arrays again —
+    // once the commit has landed.
+    const committed = client.commitImport({ scan: 7 })
+    await settle()
+    await committed
+    const c = client.deflection(values, directions, options, () => render)
+    await settle()
+    await c
+    expect(sent.at(-1)!.type).toBe('deflection')
+    expect(sent.at(-1)!.positions).toBeUndefined()
   })
 })

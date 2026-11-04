@@ -333,8 +333,13 @@ await page.screenshot({ path: shotPath('element-deviation-back.png') })
 // Extending it in the other workspace must grow the measured region, and
 // deleting it must take the map with it rather than leaving a scale over
 // nothing.
+// The motion's buffer, kept on the scan while the deviation workspace is up,
+// goes with it.
+const keptInDeviation = (await deflection()) !== null
 await click(page, '[data-test=workspace-elements]')
 await page.waitForSelector('[data-test=fit-plane]')
+await sleep(200)
+check(keptInDeviation && (await deflection()) === null, 'leaving the workspace releases the motion\'s buffer')
 const measuredBefore = 190
 await click(page, '[data-test=element-row] [data-test=edit-element]')
 await page.waitForSelector('[data-test=extend-uMin]')
