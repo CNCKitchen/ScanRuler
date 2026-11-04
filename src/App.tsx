@@ -1524,7 +1524,11 @@ export default function App() {
   // reference the session made from the old scan goes with it (scanImport), which
   // lets the half go the same way.
   const [splitSeen, setSplitSeen] = useState<BufferGeometry | null>(null)
-  if (splitOpen && splitSeen !== nominalGeometry) setSplitSeen(nominalGeometry)
+  // A reference let go while the split is closed is dropped from here as well,
+  // not held until the split is next opened: its arrays are tens of MB.
+  if (splitSeen !== nominalGeometry && (splitOpen || splitSeen !== null)) {
+    setSplitSeen(splitOpen ? nominalGeometry : null)
+  }
   const splitKept = nominalGeometry !== null && splitSeen === nominalGeometry && sceneRef.current !== null
   // Stable, so the readout's subscription is not torn down every render.
   const registerHover = useRef((fn: ((r: HoverReading | null) => void) | null) => {

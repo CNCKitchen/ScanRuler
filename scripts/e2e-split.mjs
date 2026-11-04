@@ -177,6 +177,8 @@ check(
 // the reference is the part you meant before spending an alignment on it.
 await page.click('[data-test=toggle-split]')
 await page.waitForSelector('[data-test=compare-half]:not([hidden])')
+// The half is kept when the split view closes, so a later opening is this same canvas.
+await page.$eval('.compareview canvas', (el) => el.setAttribute('data-kept-marker', '1'))
 await sleep(800)
 const unfitted = await bothHalves('before the fit')
 check(
@@ -260,6 +262,10 @@ check(figuresAgain === figures, 'and brings the scale back reading exactly what 
 await page.click('[data-test=toggle-split]')
 await page.waitForSelector('[data-test=compare-half]:not([hidden])')
 await sleep(900)
+check(
+  Boolean(await page.$('[data-test=compare-half]:not([hidden]) .compareview canvas[data-kept-marker="1"]')),
+  'the split canvas is the same element after a close and reopen',
+)
 const canvases = await page.$$eval('.viewslot canvas', (els) => els.filter((e) => e.getClientRects().length > 0).length)
 console.log('viewports in the slot:', canvases)
 if (canvases !== 2) fail(`expected two viewports side by side, got ${canvases}`)
