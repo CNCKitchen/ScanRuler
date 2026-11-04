@@ -76,7 +76,7 @@ import { CompareView } from './ui/CompareView'
 import { formatSigned } from './ui/format'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
-import { MARK_COLOR, useDeviation } from './state/deviationStore'
+import { MARK_COLOR, mapHeld, useDeviation } from './state/deviationStore'
 import { usePrefs } from './state/prefsStore'
 import { boundLength, useLength } from './app/useUnits'
 import { lengthInputText, unitWord, type DisplayUnits } from './core/units'
@@ -625,7 +625,7 @@ function Workbench() {
 
   // ---- Deviation from a fitted element -------------------------------------
 
-  useElementField({ sceneRef, elementField, elementRgb, elementScope, fieldDirections })
+  useElementField({ sceneRef, clientRef, elementField, elementRgb, elementScope, fieldDirections })
 
 
   /** Switch the element map between measuring the whole scan and measuring a
@@ -1444,9 +1444,7 @@ function Workbench() {
   const targetId = useDeviation((s) => s.targetId)
   // Whichever map this workspace is reading — the legend, the hover readout and
   // the pins all follow the source rather than whichever was measured last.
-  const mapReady = useDeviation((s) =>
-    s.source === 'element' ? s.elementStatus === 'ready' : s.mapStatus === 'ready',
-  )
+  const mapReady = useDeviation(mapHeld)
   const showHistogram = useDeviation((s) => s.showHistogram)
   const stats = useDeviation((s) => s.stats)
   const histogram = useDeviation((s) => s.histogram)

@@ -18,7 +18,7 @@ import { elementRefSchema, measuredElement, requireScan, type ElementRef } from 
 import { arr, bool, bytes, enumOf, int, num, obj, oneOf, vec3, type JsonSchema } from '../schema'
 import { describeDeviation } from '../state'
 import { CommandError, type Command } from '../types'
-import { fileNameSchema, fileOf, lastError, showWorkspace, waitFor } from './common'
+import { fileNameSchema, fileOf, lastError, nextFrame, showWorkspace, waitFor } from './common'
 import { unitsSchema } from './scan'
 import { round3 } from '../../core/round'
 import { deviationFileBytes, isMeasured, type DeviationFormat } from '../../core/deviation/exportDeviation'
@@ -146,7 +146,7 @@ const setTarget: Command<{ element: ElementRef | null; side?: 'outward' | 'inwar
   label: () => 'measure against element',
   run: async ({ element, side, facingDeg }) => {
     requireScan()
-    requireScene('A map against an element')
+    const scene = requireScene('A map against an element')
     showWorkspace('deviation')
     const { session } = commandHost()
     if (element === null) {
@@ -161,7 +161,9 @@ const setTarget: Command<{ element: ElementRef | null; side?: 'outward' | 'inwar
     const want = side === undefined ? undefined : side === 'outward' ? 1 : -1
     if (want !== undefined && useDeviation.getState().targetSide !== want) useDeviation.getState().flipTargetSide()
     if (facingDeg !== undefined) useDeviation.getState().setTargetFacing(facingDeg)
-    // The map follows the choice on its own (useElementField).
+    // The map follows the choice on its own (useElementField), once the stores' change has reached it: a
+    // frame first, so a map measured before is not taken for the one asked for.
+    await nextFrame(scene)
     await waitFor(() => useDeviation.getState().elementStatus === 'ready', 'the map against the element', 30_000)
     return { deviation: describeDeviation() }
   },

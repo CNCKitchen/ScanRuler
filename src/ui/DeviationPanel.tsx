@@ -10,7 +10,7 @@ import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
 import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
-import { useDeviation, type DeviationSource } from '../state/deviationStore'
+import { mapHeld, useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
 import { targetFitOf } from '../app/useElementField'
@@ -150,6 +150,7 @@ export function DeviationPanel({
       showHistogram: s.showHistogram,
       showScan: s.showScan,
       source: s.source,
+      stats: s.stats,
       targetFacingDeg: s.targetFacingDeg,
       targetId: s.targetId,
       targetSide: s.targetSide,
@@ -168,7 +169,7 @@ export function DeviationPanel({
   // Whichever map this panel is reading. The two are held side by side, so the
   // scale, the figures and the pins below follow the source rather than
   // whichever was measured last.
-  const hasMap = onElement ? d.elementStatus === 'ready' : d.mapStatus === 'ready'
+  const hasMap = mapHeld(d)
   const target = targetFitOf(elements, d.targetId)
 
   // A fit that lands far from the surface, or that had a near-tie for the best

@@ -31,6 +31,7 @@ import {
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { deflectionVectors } from './deviation/deflection'
+import { computeElementDeviation } from './deviation/elementField'
 import { rigidApplyToPoints, rigidInvert, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap } from './deviation/onReference'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
@@ -592,6 +593,39 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       smoothing: msg.smoothing,
     })
     post({ type: 'deflection-ok', requestId: msg.requestId, vectors }, [vectors.buffer])
+    return
+  }
+
+  if (msg.type === 'element-deviation') {
+    // Over the scan's vertices as held here, which are the render thread's
+    // own bit for bit (see `deflection`), and the normals it sent, which are
+    // not the ones held here — so that the map is the one it would have
+    // measured itself, without the pass over the whole scan landing on the
+    // thread that answers the user.
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const positions = msg.positions ?? graph.positions
+    if (msg.normals.length !== positions.length) {
+      post({ type: 'error', requestId: msg.requestId, message: 'The normals sent are not the scan’s.' })
+      return
+    }
+    try {
+      const directions = new Int8Array(positions.length)
+      const values = computeElementDeviation(msg.target, positions, msg.normals, {
+        side: msg.side,
+        maxNormalDeviation: msg.maxNormalDeviation,
+        subset: msg.subset,
+        directions,
+      })
+      post(
+        { type: 'element-deviation-ok', requestId: msg.requestId, values, directions, suggestedRange: suggestRange(values, msg.maxDistance) },
+        [values.buffer, directions.buffer],
+      )
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 

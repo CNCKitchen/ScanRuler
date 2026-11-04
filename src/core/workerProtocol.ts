@@ -9,6 +9,7 @@
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { VolumeDeviation } from './deviation/volume'
+import type { ElementTarget, MaterialSide } from './deviation/elementField'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, TextureNote, Vec3 } from './types'
@@ -225,6 +226,27 @@ export type WorkerRequest =
       smoothing: number
       positions?: Float32Array
     }
+  /** The map against a fitted element — see deviation/elementField.ts
+   *  computeElementDeviation — measured here, off the main thread, over the
+   *  scan's vertices as held here: the render thread's own bit for bit, as
+   *  for `deflection`. `normals` are the render thread's and always sent:
+   *  its sharp edges were split for shading and the ones held here are the
+   *  average of the faces that meet, so a facing limit read off them would
+   *  be a different map. `positions` is sent only where the vertices may
+   *  not match, as for `deflection`. `subset` is the hand-marked region the
+   *  map is restricted to, when it is; `maxDistance` is the search distance
+   *  the suggested colour scale is read within. */
+  | {
+      type: 'element-deviation'
+      requestId: number
+      target: ElementTarget
+      side: MaterialSide
+      maxNormalDeviation: number | null
+      subset: Uint32Array | null
+      maxDistance: number
+      normals: Float32Array
+      positions?: Float32Array
+    }
   /** A request for a plugin's part of the worker — see workerPluginApi.ts.
    *  `op` names the plugin's operation, `payload` is its own. */
   | { type: 'plugin'; requestId: number; plugin: string; op: string; payload: unknown }
@@ -353,6 +375,9 @@ export type WorkerResponse =
   | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array }
   /** Three floats per scan vertex, the offset to draw it moved by. */
   | { type: 'deflection-ok'; requestId: number; vectors: Float32Array }
+  /** The map against an element, the direction each reading was taken
+   *  along, and the colour scale the tool would choose for it, in mm. */
+  | { type: 'element-deviation-ok'; requestId: number; values: Float32Array; directions: Int8Array; suggestedRange: number }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }

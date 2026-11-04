@@ -39,7 +39,7 @@ import { pinValue } from '../viewer/pinLabel'
 import { fmtLen, unitWord } from '../core/units'
 import { useUnits } from './useUnits'
 import { providersFor } from '../ui/RefSelect'
-import { MARK_COLOR, useDeviation } from '../state/deviationStore'
+import { MARK_COLOR, mapHeld, useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
@@ -1025,9 +1025,7 @@ export function useSceneSync({
   }, [picking])
 
   // Hover testing only earns its frame when there is a map to read.
-  const hasDeviationMap = useDeviation((s) =>
-    s.source === 'element' ? s.elementStatus === 'ready' : s.mapStatus === 'ready',
-  )
+  const hasDeviationMap = useDeviation(mapHeld)
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
   const hasMap =
     (workspace === 'deviation' && hasDeviationMap) ||

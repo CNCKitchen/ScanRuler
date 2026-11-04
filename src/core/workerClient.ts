@@ -16,6 +16,7 @@ import type { AutoAlignResult } from './autoAlign'
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { VolumeDeviation } from './deviation/volume'
+import type { ElementTarget, MaterialSide } from './deviation/elementField'
 import { mmPerUnit, type MeshUnits } from './meshUnits'
 import type { StepInfo } from './parsers/step'
 import type { SectionFrame } from './section/frame'
@@ -554,6 +555,37 @@ export class MeshWorkerClient {
     )
     if (this.scanToken !== asked) throw new StaleScan()
     return res.vectors
+  }
+
+  /** The map against a fitted element — see deviation/elementField.ts
+   *  computeElementDeviation — measured in the worker, over its own copy of
+   *  the scan's vertices. `render` is asked for the viewport's own arrays:
+   *  its normals always go with the request (a copy — the worker's are not
+   *  the ones its sharp edges were split for), and its positions only where
+   *  the worker's may not match them (see renderParity). The marked region
+   *  is copied too: the brush goes on writing into it. An answer about
+   *  vertices since moved or replaced rejects with StaleScan. */
+  async elementDeviation(
+    target: ElementTarget,
+    opts: { side: MaterialSide; maxNormalDeviation: number | null; subset: Uint32Array | null; maxDistance: number },
+    render: () => { positions: Float32Array; normals: Float32Array } | null,
+  ): Promise<{ values: Float32Array; directions: Int8Array; suggestedRange: number }> {
+    // A restart this request would wait on reads the scan back in first.
+    await this.ready()
+    const asked = this.scanToken
+    const arrays = render()
+    if (!arrays) throw new Error('There is no scan to measure.')
+    const normals = arrays.normals.slice()
+    const positions = this.renderParity ? null : arrays.positions.slice()
+    const subset = opts.subset ? opts.subset.slice() : null
+    const transfer = [normals.buffer, ...(positions ? [positions.buffer] : []), ...(subset ? [subset.buffer] : [])] as ArrayBuffer[]
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'element-deviation-ok' }>>(
+      { type: 'element-deviation', requestId, target, ...opts, subset, normals, ...(positions ? { positions } : {}) },
+      transfer,
+    )
+    if (this.scanToken !== asked) throw new StaleScan()
+    return { values: res.values, directions: res.directions, suggestedRange: res.suggestedRange }
   }
 
   /** The box around the scan as it now stands, mm. */
