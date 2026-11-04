@@ -169,7 +169,8 @@ interface OverlayInput {
  *  of them — say the same. The overlay input is built afresh on every
  *  update, so what matters is what it says and not which object says it. A
  *  difference this cannot see (a NaN, a key held as undefined) reads as a
- *  change, which only costs a rebuild. */
+ *  change, which only costs a rebuild. Plain data only: a Map, a Set or a
+ *  Date has no keys to read and would always pass for the same. */
 function sameData(a: unknown, b: unknown): boolean {
   if (a === b) return true
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
