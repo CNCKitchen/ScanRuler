@@ -9,6 +9,7 @@ import { registerProjectSection } from '../../src/app/projectSections'
 import { meshSection } from './app/projectSection'
 import { MESH_SETTINGS, useMeshTools } from './state/meshStore'
 import { useMark } from '../../src/state/markStore'
+import { useDeleteSelection } from './state/deleteStore'
 import { useMeshPlugin } from './app/useMeshPlugin'
 import { MeshNotices } from './ui/MeshNotices'
 import { meshBusy, meshCommands } from './app/meshCommands'
@@ -38,6 +39,16 @@ const plugin: ScanRulerPlugin = {
   keyboard: {
     keydown(e, { confirmButton }) {
       const m = useMeshTools.getState()
+      const deletion = useDeleteSelection.getState()
+      if (m.tool === 'delete' && deletion.stage !== 0) {
+        if (e.key === 'Escape') deletion.setStage(0)
+        else if (e.key === 'Enter' && !e.repeat && !m.editing) confirmButton()?.click()
+        return true
+      }
+      if (m.tool === 'delete' && deletion.mode === 'visible' && e.key === 'Escape' && deletion.gesture !== null) {
+        deletion.setGesture(null)
+        return true
+      }
       // Remove islands and Delete marked ask before they delete: Enter says
       // yes, Escape no.
       if (m.confirming) {

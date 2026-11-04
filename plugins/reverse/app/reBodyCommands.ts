@@ -931,7 +931,7 @@ function repairFor(f: Finding, faces: readonly { index: number; kind: string; ma
   }
 }
 
-export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
+export const step: Command<{ bodies?: Ref[]; verify?: boolean; includeSheets?: boolean }> = {
   name: 'step',
   title: 'Export the bodies as STEP',
   description:
@@ -939,31 +939,28 @@ export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
   input: obj({
     bodies: arr(bodyRef, 'The bodies; the visible ones by default.', { minItems: 1 }),
     verify: bool('Read the file back and check it against the bodies (off by default).'),
+    includeSheets: bool('Include open fitted surfaces and cutting sheets (off by default). Name only the intended bodies, or hide helper sheets first. Does not close or thicken them.'),
   }),
   readOnly: true,
   long: true,
   returnsFile: true,
   timeoutMs: 600_000,
-  run: async ({ bodies, verify = false }) => {
+  run: async ({ bodies, verify = false, includeSheets = false }) => {
     const s = await ready()
-    const picked = bodies ? bodies.map(bodyNamed) : re().bodies.filter((b) => b.visible)
-    if (picked.length === 0) throw new CommandError('invalid_state', 'There is no visible body to export — build one first.')
-    const { name, text, check, mended } = await s.stepFile(picked.map((b) => b.id), verify).catch((e) => {
+    const networks = new Set(allFeatures().filter((f) => f.kind === 'network').map((f) => f.id))
+    const picked = (bodies ? bodies.map(bodyNamed) : re().bodies.filter((b) => b.visible)).filter((b) => includeSheets || !b.surface || networks.has(bodyMaker(b.id)))
+    if (picked.length === 0) throw new CommandError('invalid_state', 'There is no exportable body — build a solid or network skin, or set includeSheets: true to export open sheets.')
+    const { name, text, check, mended } = await s.stepFile(picked.map((b) => b.id), verify, includeSheets).catch((e) => {
       throw new CommandError('failed', `STEP export failed: ${errorMessage(e)}`)
     })
-    // The check's bodies are the solids among those picked, in order, and a
-    // Patch network's sheet — a skin of the part, which the file holds as
-    // any other sheet it leaves out; each odd edge's faces by index on its
-    // body, with their makers.
+    // Keep face makers in the same order as the bodies actually exported.
     const features = check ? allFeatures() : []
-    const networks = new Set(allFeatures().filter((f) => f.kind === 'network').map((f) => f.id))
-    const solids = picked.filter((b) => !b.surface || networks.has(bodyMaker(b.id)))
-    const namers = solids.map((b) => faceNamer(s.topologies.get(b.id), features))
+    const namers = picked.map((b) => faceNamer(s.topologies.get(b.id), features))
     const problems = check ? check.problems.map((line) => check.bodies.reduce((l, body, i) => (l.startsWith(body.name ?? `Part ${i + 1}`) ? (problemsNamed([l], body, namers[i])[0] ?? l) : l), line)) : []
     return {
       file: { name, mimeType: 'model/step', bytes: new TextEncoder().encode(text) },
       bodies: picked.map((b) => ({ id: b.id, name: b.name })),
-      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as STEP solids, each under its name.${mended ? ` Mended: ${mended.map(mendWords).join(' ')}` : ''}${check ? (check.ok ? ' Read back and checked: it holds.' : ` Read back: ${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}.`) : ''}`,
+      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as STEP ${picked.some((b) => b.surface) ? 'solids or open sheets' : 'solids'}, each under its name.${mended ? ` Mended: ${mended.map(mendWords).join(' ')}` : ''}${check ? (check.ok ? ' Read back and checked: it holds.' : ` Read back: ${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}.`) : ''}`,
       ...(mended ? { mended: mended.map(mendOut) } : {}),
       ...(planOpenSaid() ? { plan: planOpenSaid() } : {}),
       ...(check

@@ -12,6 +12,7 @@ import type { LoadedScan, MeshWorkerClient } from '../../../src/core/workerClien
 import { MESH_TOOLS, type MeshRegion, type MeshToolsOps, type ScanEditRequest, type TrimBody } from './protocol'
 import type { ReduceSettings } from './reduce'
 import type { TrimSettings } from './trimToScan'
+import type { BridgeSettings } from './bridge'
 
 class MeshToolsClient {
   /** Bumped whenever the edited copy is put in place or taken away. A copy
@@ -57,6 +58,19 @@ class MeshToolsClient {
    *  the part with, and leave open. Nothing changes. */
   cutPreview(origin: Vec3, normal: Vec3) {
     return this.call('cut-preview', { origin, normal })
+  }
+
+  bridgePreview(settings: BridgeSettings) {
+    return this.call('bridge-preview', { settings })
+  }
+  bridgeCheck(settings: BridgeSettings) {
+    return this.call('bridge-check', { settings })
+  }
+  reduceBridgeBend(settings: BridgeSettings) {
+    return this.call('bridge-reduce-bend', { settings })
+  }
+  adjustBridgePoints(settings: Omit<BridgeSettings, 'bend'>) {
+    return this.call('bridge-adjust-points', { settings })
   }
 
   /** How far it is from closed — open edges, and edges more than two

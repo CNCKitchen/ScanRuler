@@ -11,6 +11,7 @@ import type { Vec3 } from '../../../src/core/types'
 import { reductionStale, scanEditFigure, scanEditText, trimStale, useMeshTools, type ScanEdit } from '../state/meshStore'
 import type { TrimReport } from '../core/trimToScan'
 import { booleanSolids } from './booleanSolids'
+import { useDeleteSelection } from '../state/deleteStore'
 
 type MeshState = ReturnType<typeof useMeshTools.getState>
 
@@ -112,10 +113,12 @@ export function partsOut() {
 /** The workspace's part of the session's readout. */
 export function describeMesh() {
   const m = useMeshTools.getState()
+  const deletion = useDeleteSelection.getState()
   return {
     tool: m.tool,
     working: useStore.getState().fileName ? (m.copyTriangles !== null ? 'edited copy' : 'scan') : null,
     editing: m.editing,
+    deletion: { mode: deletion.mode, triangles: deletion.mode === 'visible' ? deletion.count : null, confirmation: deletion.stage },
     ...partsOut(),
     settings: settingsOut(m),
     ...(m.message ? { reduceMessage: m.message } : {}),

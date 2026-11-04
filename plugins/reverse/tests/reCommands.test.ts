@@ -590,6 +590,23 @@ describe('a body by the name of the feature that made it', () => {
 })
 
 describe('bodies named and coloured', () => {
+  it('exports an explicitly opted-in open sheet through the worker and verifies it as a sheet', async () => {
+    await run('reverse.feature.add', { feature: { kind: 'sketch', name: 'Open profile', plane: { kind: 'world', axis: 'z' }, sketch: { entities: [{ id: 1, kind: 'line', a: [10, 20], b: [30, 20] }] } } })
+    await run('reverse.feature.add', { feature: { kind: 'sheet', name: 'Open skin', sketchId: 'Open profile', from: -5, to: 5 } })
+    expect((await refused('reverse.export.step')).message).toMatch(/includeSheets/)
+    const result = await run<{
+      file: { bytes: Uint8Array }
+      bodies: { id: number }[]
+      status: string
+      verify: { ok: boolean; parts: number; problems: string[]; bodies: { sheet: boolean; closed: boolean; faces: number[] }[] }
+    }>('reverse.export.step', { bodies: ['Open skin'], includeSheets: true, verify: true })
+    expect(result.bodies).toEqual([expect.objectContaining({ id: 2 })])
+    expect(result.status).toContain('open sheets')
+    expect(result.verify).toMatchObject({ ok: true, parts: 1, problems: [], bodies: [{ sheet: true, closed: false, faces: [1, 1] }] })
+    expect(new TextDecoder().decode(result.file.bytes)).toContain('ISO-10303-21;')
+    expect((await refused('reverse.export.step', { includeSheets: false })).message).toMatch(/includeSheets/)
+  })
+
   it('names and colours a body, carries both into the STEP file and the project, and undoes them', async () => {
     await run('reverse.feature.add', { feature: { kind: 'sketch', name: 'Board', plane: { kind: 'world', axis: 'z' }, sketch: { shapes: [{ kind: 'rectangle', center: [0, 0], size: [20, 10] }] } } })
     await run('reverse.feature.add', { feature: { kind: 'extrude', sketchId: 'Board', extent: { kind: 'distance', from: 0, to: 1.6 }, op: 'new' } })

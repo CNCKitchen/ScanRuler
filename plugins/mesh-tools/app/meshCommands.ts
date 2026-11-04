@@ -27,8 +27,10 @@ import { cutPlaneOf } from '../core/cutPlane'
 import { summarizeCopyDeviation } from '../core/edit'
 import type { BooleanOp } from '../core/boolean'
 import type { FillMode } from '../core/fillHoles'
+import type { BridgeSettings } from '../core/bridge'
 import type { ThickenSide } from '../core/offset'
 import { DEFAULT_FACING_DEG } from '../core/select'
+import { useDeleteSelection } from '../state/deleteStore'
 import {
   DELETE_MARK_COLOR,
   FLIP_MARK_COLOR,
@@ -365,6 +367,7 @@ const mark: Command<{ region: RegionIn; for?: keyof typeof MARK_COLORS }> = {
     const scene = requireScene('Marking the part')
     const vertices = await regionVertices(region)
     const use = tool ?? 'delete'
+    if (use === 'delete') useDeleteSelection.getState().setMode('through')
     // Smooth and Shrink / expand work on a marking only while set to: set
     // here as a way of looking, not as a step of the history.
     if (use === 'smooth') useMeshTools.setState({ smoothScope: 'marked' })
@@ -401,11 +404,16 @@ const deleteMarked: Command<{ region: RegionIn }> = {
   name: 'delete_marked',
   title: 'Delete surface',
   description:
-    'Delete the surface a region holds — what is not the part: the clamp that held it, the fixture it sat in, a patch of the table. A triangle goes when all three of its corners are in the region; the hole it leaves stays open (mesh.fill_holes closes it). To take off everything past a plane, mesh.cut is the better tool. Edits the copy. One undo step. Returns the edit and the mesh after it.',
+    'Delete the surface a region holds — what is not the part: the clamp that held it, the fixture it sat in, a patch of the table. A triangle goes when all three corners are in the region; the hole stays open (mesh.fill_holes closes it). region: "marked" uses legacy vertex marking only; the visible triangle selection requires the two on-screen confirmations instead. To take off everything past a plane, use mesh.cut. Edits the copy. One undo step. Returns the edit and the mesh after it.',
   input: obj({ region: regionSchema('The surface to delete.') }, ['region']),
   history: false,
   run: async ({ region }) => {
     requireScan()
+    const deletion = useDeleteSelection.getState()
+    if (region === 'marked' && deletion.mode === 'visible' && deletion.selection !== null) {
+      requireScene('A region marked on the part')
+      throw new CommandError('invalid_state', 'The visible triangle selection is preview-only. Use the two on-screen deletion confirmations; a vertex-based command cannot substitute for that selection.')
+    }
     const vertices = await regionVertices(region)
     return editAnswer(
       await step('delete surface', 'Deleting the surface', async () => {
@@ -482,6 +490,33 @@ const fillHoles: Command<{ size?: number; patch?: FillMode; at?: Vec3 }> = {
         return session().fillScanHoles(at, { inStep: true })
       }, true),
     ),
+}
+
+const bridge: Command<BridgeSettings & { preview?: boolean }> = {
+  name: 'bridge',
+  title: 'Bridge an open gap',
+  description:
+    'Create a narrow stitched ribbon across a gap in one open mesh rim, leaving two boundary loops for Fill holes. Pick 4–10 measured surface points, at least two per side, ordered toward the first rim then away from the opposite rim. firstSideCount splits the samples (default 3 for existing six-point calls). The inner points snap to the rim within twice width; two samples give a straight local slope, more fit a quadratic slope. Rejects overlapping attachments, folds and intersections. Original vertices stay fixed. preview true only checks the bridge and returns its report; otherwise edits the copy as one undo step. Coordinates and width are mm. This is inferred geometry, not measured data.',
+  input: obj({
+    points: arr(vec3('A surface sample in scan coordinates, mm.'), 'Ordered surface samples, at least two per side, at most ten total.', { minItems: 4, maxItems: 10 }),
+    firstSideCount: int('Number of samples on the first side; default 3. The remaining samples belong to the other side.', { minimum: 2, maximum: 8 }),
+    bend: num('Sampled bow retained, from zero (straight centreline) to one (default, full bow).', { minimum: 0, maximum: 1 }),
+    width: sizeIn('Approximate bridge width along the attachment rims, mm.'),
+    preview: bool('Only check the proposed bridge; leave the mesh unchanged.'),
+  }, ['points', 'width']),
+  history: false,
+  run: async ({ points, width, firstSideCount, bend, preview }) => {
+    requireScan()
+    if (preview) {
+      try {
+        const result = await client().bridgePreview({ points, width, firstSideCount, bend })
+        return { preview: true, report: result.report }
+      } catch (e) {
+        throw new CommandError('failed', errorMessage(e))
+      }
+    }
+    return editAnswer(await step('bridge a gap', 'The bridge', () => session().bridgeScan({ points, width, firstSideCount, bend }, { inStep: true }), true))
+  },
 }
 
 const smooth: Command<{ size?: number; limit?: number; keepEdges?: boolean; region?: RegionIn }> = {
@@ -764,6 +799,7 @@ export const meshCommands = [
   flipNormals,
   cut,
   fillHoles,
+  bridge,
   smooth,
   offset,
   boolean,
@@ -783,4 +819,3 @@ export function meshBusy(): string | null {
   if (s.trimStatus === 'running') return 'a body is being trimmed to the scan'
   return null
 }
-

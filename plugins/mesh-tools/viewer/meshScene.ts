@@ -16,6 +16,9 @@ import { patchWireframe, setSurfaceOpacity } from '../../../src/viewer/surfaceMo
 import { CAP_SLOT, CapSet, cutColor, type CapPart } from '../../../src/viewer/sliceCap'
 import { clipTree } from '../../../src/viewer/clipTree'
 import { paintField, type Colormap, type FieldScale } from '../../../src/core/field/colormap'
+import type { Vec3 } from '../../../src/core/types'
+import type { BridgeStrokeSample } from '../core/bridgeStroke'
+import type { BridgeGuidance } from '../core/bridge'
 
 /** The islands a removal would take: a warning orange, unlit, so it stands
  *  off the scan's grey under every scheme. */
@@ -75,6 +78,19 @@ export class MeshScene {
   /** The cap a cut would close the part with, and the stretches of it that
    *  would stay open — see setCutCap. */
   private cutCap: THREE.Group | null = null
+  private bridge: THREE.Group | null = null
+  private bridgePoints: Vec3[] = []
+  private bridgeLabels = new Map<number, THREE.CanvasTexture>()
+  private bridgeDragCleanup: (() => void) | null = null
+  onBridgeDrag: {
+    start(): boolean
+    move(index: number, point: Vec3): void
+    end(): void
+  } | null = null
+  onBridgeDraw: {
+    start(): boolean
+    end(samples: BridgeStrokeSample[] | null): void
+  } | null = null
   /** The solids Boolean can make one with the mesh, those in hand and the
    *  one under the cursor — see setBooleanSolids. */
   private booleanSolids: DrawnSolid[] = []
@@ -106,6 +122,7 @@ export class MeshScene {
   private layer(): SceneLayer {
     return {
       order: 10,
+      pointerDown: (e) => this.onBridgeDraw ? this.startBridgeDraw(e) : this.startBridgeDrag(e),
       click: (x, y) => {
         const hole = this.holeAt(x, y)
         if (hole !== null) {
@@ -122,6 +139,17 @@ export class MeshScene {
       // hole alone — and a solid Boolean is offered, a click taking it. A
       // body only shown, from the parts list, is not there to be taken.
       hover: (at) => {
+        if (this.onBridgeDraw) {
+          this.host.claimDrag(at !== null || this.bridgeDragCleanup !== null)
+          this.host.setCursor(at ? 'crosshair' : '')
+          return at !== null
+        }
+        if (this.onBridgeDrag && this.bridgePoints.length) {
+          const hit = at ? this.bridgePointAt(at.x, at.y) : null
+          this.host.claimDrag(hit !== null || this.bridgeDragCleanup !== null)
+          this.host.setCursor(this.bridgeDragCleanup ? 'grabbing' : hit !== null ? 'grab' : '')
+          return hit !== null
+        }
         if (this.holeCentres) {
           const hole = at ? this.holeAt(at.x, at.y) : null
           if (hole !== this.hoveredHole) {
@@ -165,7 +193,17 @@ export class MeshScene {
         this.sectionPlanes = section ? planes : null
         this.dressSection()
       },
-      tick: () => this.dressSection(),
+      tick: (_width, height) => {
+        this.dressSection()
+        const camera = this.host.camera()
+        const size = 24 * (camera.top - camera.bottom) / (camera.zoom * height)
+        for (const child of this.bridge?.children ?? []) {
+          if (child instanceof THREE.Sprite) {
+            const factor = child.name.startsWith('Bridge warning') || child.name.startsWith('Bridge moved') ? 1.5 : child.name.startsWith('Bridge rim target') ? 0.4 : 1
+            child.scale.set(size * factor, size * factor, 1)
+          }
+        }
+      },
       // The reduced mesh was made in the scan's frame and stays in it: it
       // moves with the scan, and the deviation measured between them is a
       // distance no rigid move changes. So do the islands marked on it.
@@ -193,25 +231,31 @@ export class MeshScene {
       // A reduction belongs to the scan it was made from, and so do the
       // islands, the rims and the cut marked on it, and a piece cut to it.
       scanReplaced: () => {
+        this.cancelBridgeDrag()
         this.disposeReduced()
         this.disposePiece()
         this.disposeIslands()
         this.disposeHoles()
         this.disposeCutCap()
+        this.setBridgePreview([], null)
         this.disposeBooleanSolids()
       },
       // An orbit pivots on the reduced mesh while it stands in for the scan,
       // and on the piece while it is shown.
       navTargets: () => [this.reducedMesh, this.piece].filter((m): m is THREE.Mesh => m?.visible === true),
       dispose: () => {
+        this.cancelBridgeDrag()
         this.disposeReduced()
         this.disposePiece()
         this.disposeIslands()
         this.disposeHoles()
         this.disposeCutCap()
+        this.setBridgePreview([], null)
         this.disposeBooleanSolids()
         this.caps.dispose()
         this.islandRing?.dispose()
+        for (const texture of this.bridgeLabels.values()) texture.dispose()
+        this.bridgeLabels.clear()
       },
     }
   }
@@ -744,6 +788,212 @@ export class MeshScene {
       this.host.setCursor('')
     }
     this.host.invalidate()
+  }
+
+  setBridgePreview(points: Vec3[], triangles: Float32Array | null, guidance: BridgeGuidance | null = null, moved: number[] = []): void {
+    this.bridgePoints = points
+    if (this.bridge) {
+      this.bridge.traverse((child) => {
+        if (child instanceof THREE.Mesh || child instanceof THREE.Points || child instanceof THREE.Line || child instanceof THREE.Sprite) {
+          if (!(child instanceof THREE.Sprite)) child.geometry.dispose()
+          ;(child.material as THREE.Material).dispose()
+        }
+      })
+      this.host.partGroup.remove(this.bridge)
+      this.bridge = null
+    }
+    if (points.length || triangles) {
+      const group = new THREE.Group()
+      points.forEach((point, index) => {
+        let map = this.bridgeLabels.get(index)
+        if (!map) {
+          const canvas = document.createElement('canvas')
+          canvas.width = canvas.height = 64
+          const ctx = canvas.getContext('2d')
+          if (!ctx) throw new Error('Cannot draw numbered bridge points: a canvas context is unavailable.')
+          ctx.fillStyle = '#ff5a1f'
+          ctx.beginPath()
+          ctx.arc(32, 32, 29, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 3
+          ctx.stroke()
+          ctx.fillStyle = '#111111'
+          ctx.font = 'bold 36px sans-serif'
+          ctx.textAlign = 'center'
+          ctx.textBaseline = 'middle'
+          ctx.fillText(String(index + 1), 32, 34)
+          map = new THREE.CanvasTexture(canvas)
+          this.bridgeLabels.set(index, map)
+        }
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({ map, depthTest: false, depthWrite: false }))
+        label.position.set(...point)
+        label.renderOrder = 8
+        label.name = `Bridge point ${index + 1}`
+        group.add(label)
+        if (guidance?.points.includes(index) || moved.includes(index)) {
+          const invalid = guidance?.points.includes(index)
+          const warning = label.clone()
+          warning.material = label.material.clone()
+          warning.material.map = this.islandRingTexture()
+          warning.material.color.setHex(invalid ? 0xffdd00 : 0x30e46c)
+          warning.name = `Bridge ${invalid ? 'warning' : 'moved'} point ${index + 1}`
+          warning.scale.setScalar(1.5)
+          group.add(warning)
+          label.renderOrder = 10
+          warning.renderOrder = 9
+        }
+      })
+      for (const target of guidance?.targets ?? []) {
+        const from = new THREE.Vector3(...points[target.index])
+        const to = new THREE.Vector3(...target.point)
+        const length = from.distanceTo(to)
+        if (length < 1e-8) continue
+        const arrow = new THREE.ArrowHelper(to.clone().sub(from).normalize(), from, length, 0xffdd00, Math.min(length / 4, this.host.modelRadius() / 50))
+        arrow.name = `Bridge guidance arrow ${target.index + 1}`
+        arrow.traverse((object) => {
+          if (object instanceof THREE.Line || object instanceof THREE.Mesh) {
+            object.geometry = object.geometry.clone()
+            const material = object.material as THREE.Material
+            material.depthTest = false
+            material.depthWrite = false
+            object.renderOrder = 9
+          }
+        })
+        group.add(arrow)
+        const diamond = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0xffdd00, depthTest: false, depthWrite: false }))
+        diamond.material.rotation = Math.PI / 4
+        diamond.position.copy(to)
+        diamond.name = `Bridge rim target ${target.index + 1}`
+        diamond.renderOrder = 9
+        group.add(diamond)
+      }
+      if (triangles) {
+        const geometry = new THREE.BufferGeometry()
+        geometry.setAttribute('position', new THREE.BufferAttribute(triangles, 3))
+        geometry.computeVertexNormals()
+        group.add(new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color: 0x12a594, side: THREE.DoubleSide, transparent: true, opacity: 0.7, depthWrite: false })))
+      }
+      this.bridge = group
+      this.host.partGroup.add(group)
+    }
+    this.host.invalidate()
+    this.host.requestHover()
+  }
+
+  private bridgePointAt(x: number, y: number): number | null {
+    if (!this.onBridgeDrag) return null
+    const rect = this.host.canvas.getBoundingClientRect()
+    this.host.partGroup.updateMatrixWorld(true)
+    let best: number | null = null, distance = 16
+    this.bridgePoints.forEach((point, index) => {
+      const p = new THREE.Vector3(...point).applyMatrix4(this.host.partGroup.matrixWorld).project(this.host.camera())
+      if (p.z < -1 || p.z > 1) return
+      const d = Math.hypot(rect.left + (p.x + 1) * rect.width / 2 - x, rect.top + (1 - p.y) * rect.height / 2 - y)
+      if (d < distance) { best = index; distance = d }
+    })
+    return best
+  }
+
+  cancelBridgeDrag(): void {
+    this.bridgeDragCleanup?.()
+    this.host.claimDrag(false)
+    this.host.setCursor('')
+  }
+
+  private startBridgeDrag(e: PointerEvent): boolean {
+    if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || this.bridgeDragCleanup) return false
+    const index = this.bridgePointAt(e.clientX, e.clientY)
+    const handlers = this.onBridgeDrag
+    if (index === null || !handlers || !handlers.start()) return false
+    const original: Vec3 = [...this.bridgePoints[index]]
+    this.host.claimDrag(true)
+    this.host.setCursor('grabbing')
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return
+      const hit = this.host.pickScan(ev.clientX, ev.clientY)
+      if (hit) handlers.move(index, hit.point)
+    }
+    this.captureBridgePointer(e, move, (cancelled) => {
+      if (cancelled) handlers.move(index, original)
+      handlers.end()
+    })
+    return true
+  }
+
+  private startBridgeDraw(e: PointerEvent): boolean {
+    if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || this.bridgeDragCleanup) return false
+    const handlers = this.onBridgeDraw
+    if (!handlers || !handlers.start()) return false
+    this.host.claimDrag(true)
+    const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    overlay.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:1000'
+    const line = document.createElementNS(overlay.namespaceURI, 'polyline')
+    line.setAttribute('fill', 'none')
+    line.setAttribute('stroke', '#ff5a1f')
+    line.setAttribute('stroke-width', '3')
+    overlay.appendChild(line)
+    this.host.container.appendChild(overlay)
+    const samples: BridgeStrokeSample[] = [{ distance: 0, point: this.host.pickScan(e.clientX, e.clientY)?.point ?? null }]
+    let last = { x: e.clientX, y: e.clientY }, distance = 0
+    const path = [`${last.x},${last.y}`]
+    const move = (ev: PointerEvent) => {
+      const length = Math.hypot(ev.clientX - last.x, ev.clientY - last.y)
+      if (!length || samples.length >= 4096) return
+      const steps = Math.ceil(length / 2)
+      for (let i = 1; i <= steps && samples.length < 4096; i++) {
+        const x = last.x + (ev.clientX - last.x) * i / steps
+        const y = last.y + (ev.clientY - last.y) * i / steps
+        const rect = this.host.canvas.getBoundingClientRect()
+        const inside = x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+        samples.push({ distance: distance + length * i / steps, point: inside ? this.host.pickScan(x, y)?.point ?? null : null })
+      }
+      distance += length
+      last = { x: ev.clientX, y: ev.clientY }
+      path.push(`${last.x},${last.y}`)
+      line.setAttribute('points', path.join(' '))
+    }
+    this.captureBridgePointer(e, move, (cancelled) => handlers.end(cancelled ? null : samples), () => overlay.remove())
+    return true
+  }
+
+  private captureBridgePointer(e: PointerEvent, onMove: (ev: PointerEvent) => void, onEnd: (cancelled: boolean) => void, cleanup?: () => void): void {
+    const canvas = this.host.canvas
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId === e.pointerId) onMove(ev)
+    }
+    const finish = (cancelled: boolean) => {
+      this.cancelBridgeDrag()
+      onEnd(cancelled)
+      this.host.requestHover()
+    }
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return
+      move(ev)
+      finish(false)
+    }
+    const cancel = (ev: PointerEvent) => {
+      if (ev.pointerId === e.pointerId) finish(true)
+    }
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopImmediatePropagation(); finish(true) }
+    }
+    this.bridgeDragCleanup = () => {
+      this.bridgeDragCleanup = null
+      cleanup?.()
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('keydown', key, true)
+      canvas.removeEventListener('lostpointercapture', cancel)
+      if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', key, true)
+    canvas.addEventListener('lostpointercapture', cancel)
+    canvas.setPointerCapture(e.pointerId)
   }
 
   private disposeCutCap(): void {

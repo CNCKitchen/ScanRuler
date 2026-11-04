@@ -26,6 +26,9 @@ import { exportTrimmedMesh } from './exportTrimmed'
 import { exportEditedMesh } from './exportEdited'
 import { useMeshWorkspace } from './useMeshWorkspace'
 import { createMeshToolsSession, installMeshToolsSession } from './meshToolsSession'
+import { useBridgeTool } from './useBridgeTool'
+import { useDeleteTool } from './useDeleteTool'
+import { useDeleteSelection } from '../state/deleteStore'
 
 const MESH_VIEWS: { id: MeshView; icon: IconName; label: string; title: string }[] = [
   {
@@ -90,7 +93,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => tools.watch(), [tools])
   const { reduceField, reduceRgb, copyField, copyRgb } = tools
   const {
-    runReduce, removeIslands, deleteMarked, flipScan, cutScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
+    runReduce, removeIslands, flipScan, cutScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
     adoptEditedCopy, discardEditedCopy,
   } = useMeshWorkspace(tools)
   // The units on screen: the maps' figures and the status lines of the
@@ -98,8 +101,18 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   const len = useLength()
   const units = len.units
   const signed = (v: number) => formatSigned(v, units)
+  const bridge = useBridgeTool(tools, sceneRef, units)
+  const deletion = useDeleteTool(tools, sceneRef)
+  const deleteMode = useDeleteSelection((s) => s.mode)
+  const deleteStage = useDeleteSelection((s) => s.stage)
 
   const onMesh = useShell((s) => s.workspace === 'mesh')
+  const onMeasure = useShell((s) => s.workspace === 'elements')
+  const scanBusy = useStore((s) => s.busy)
+  const editing = useMeshTools((s) => s.editing)
+  const measureEdited = async () => {
+    if (await adoptEditedCopy()) useShell.getState().setWorkspace('elements')
+  }
   const fileName = useStore((s) => s.fileName)
   const report = useMeshTools((s) => s.report)
   const tool = useMeshTools((s) => s.tool)
@@ -197,7 +210,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   return {
     readingAt,
     // The maps are read by hovering; they have no pins to set.
-    pick: () => {},
+    pick: bridge.pick,
     hoverReadout: reduceMapShown || copyMapShown,
     hideScan: showReduced || (listing && !scanListed),
     // The view bar's Scan key: with no tool in hand, the same switch as the
@@ -228,7 +241,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
                   : session === 'flip'
                     ? FLIP_MARK_COLOR
                     : DELETE_MARK_COLOR,
-          gestures: !(session === 'trim' && onPiece),
+          gestures: !(session === 'trim' && onPiece) && !(session === 'delete' && (deleteMode === 'visible' || deleteStage !== 0)),
         }
       : null,
     // Read as the paint runs: the maps land in the refs before the store says
@@ -249,13 +262,19 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
       blurb:
         'Load a scan and clean it up — clear the stray islands, delete what is not the part, turn it the right way out, cut off the base it stood on, fill its holes, smooth out the scatter, expand or shrink it, hollow it — and reduce it to a light mesh to model over in CAD, held within a tolerance you set, measured against the scan to prove it, and exported where you aligned it. STL, PLY, OBJ or 3MF, in millimetres — everything stays in this browser.',
     },
+    notice: onMeasure && hasCopy ? <div className="mesh-analysis-notice" data-test="edited-analysis-notice" role="status">
+      <span>Measuring the original scan. Applied repairs are still in the edited copy.</span>
+      <button data-test="measure-edited-notice" disabled={scanBusy || editing} onClick={() => void measureEdited()}>Measure edited mesh</button>
+      <span>Refits existing elements and remeasures results. Ctrl+Z reverses this action.</span>
+    </div> : null,
     panel: (
       <MeshPanel
+        bridge={bridge}
+        deletion={deletion}
         onOpenScan={(f) => void host.openScan(f)}
         onReduce={() => void runReduce(units)}
         onExport={(format) => exportReducedMesh(sceneRef, format, units)}
         onRemoveIslands={() => void removeIslands({ units })}
-        onDeleteMarked={() => void deleteMarked(undefined, { units })}
         onFlip={(scope) => void flipScan(scope === 'marked' ? 'marked' : null, { units })}
         onClearMarking={() => {
           sceneRef.current?.clearPaint()
@@ -272,6 +291,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
         onExportTrimmed={(format) => exportTrimmedMesh(sceneRef, format, units)}
         onExportEdited={exportEditedMesh}
         onUseEdited={() => void adoptEditedCopy()}
+        onMeasureEdited={() => void measureEdited()}
         onDiscardEdited={() => void discardEditedCopy()}
       />
     ),

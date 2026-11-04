@@ -46,7 +46,7 @@ export type ReWorkerRequest =
    *  and topology, for editing that feature on the body it was made on. */
   | { type: 'stage'; requestId: number; stepId: number; bodyId: number }
   /** One STEP file of the given bodies from the last build. */
-  | { type: 'export-step'; requestId: number; bodyIds: number[]; labels?: StepLabel[]; verify?: boolean }
+  | { type: 'export-step'; requestId: number; bodyIds: number[]; labels?: StepLabel[]; verify?: boolean; includeSheets?: boolean }
   | { type: 'section-cut'; requestId: number; bodyIds: number[]; origin: Vec3; normal: Vec3; deflection: number }
   | { type: 'clearance'; requestId: number; a: number; b: number }
   /** Where the given bodies of the last build run into each other — see
@@ -393,8 +393,8 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
         return answer({ type: 'section-cut-ok', requestId: msg.requestId, bodies }, bodies.flatMap((x) => x.polylines.map((p) => p.buffer)))
       }
       // A file mended has been checked: that check stands.
-      const { text, mended, check } = b.exportStepMended(msg.bodyIds, msg.labels)
-      return answer({ type: 'step-ok', requestId: msg.requestId, text, ...(msg.verify ? { check: check ?? b.verifyStep(msg.bodyIds, text) } : {}), ...(mended.length > 0 ? { mended } : {}) })
+      const { text, mended, check } = b.exportStepMended(msg.bodyIds, msg.labels, msg.includeSheets)
+      return answer({ type: 'step-ok', requestId: msg.requestId, text, ...(msg.verify ? { check: check ?? b.verifyStep(msg.bodyIds, text, msg.includeSheets) } : {}), ...(mended.length > 0 ? { mended } : {}) })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       if ((isTrap(e) || kernel?.trapped != null) && msg.type !== 'init') {

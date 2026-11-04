@@ -649,13 +649,13 @@ export function createReverseSession({
   /** The STEP file the panel's Export STEP writes of the given bodies —
    *  each a part under its name, in its colour — named after the scan the
    *  part was reversed from, or as the model it is. */
-  const stepFile = async (bodyIds: number[], verify = false): Promise<{ name: string; text: string; check?: StepCheck; mended?: StepMend[] }> => {
+  const stepFile = async (bodyIds: number[], verify = false, includeSheets = false): Promise<{ name: string; text: string; check?: StepCheck; mended?: StepMend[] }> => {
     const bodies = useReverse.getState().bodies
     const labels = bodyIds.map((id) => {
       const b = bodies.find((x) => x.id === id)
       return { name: b?.name ?? `Body ${id}`, color: b?.color ?? bodyColor(id) }
     })
-    const { text, check, mended } = await requireClient().exportStepChecked(bodyIds, labels, verify)
+    const { text, check, mended } = await requireClient().exportStepChecked(bodyIds, labels, verify, includeSheets)
     return { name: `${exportStem('model')}-body.step`, text, ...(check ? { check } : {}), ...(mended ? { mended } : {}) }
   }
 

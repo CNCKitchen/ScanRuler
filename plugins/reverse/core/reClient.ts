@@ -357,8 +357,8 @@ export class ReClient {
 
   /** The bodies as one STEP file — each a part under its label's name and
    *  colour, when labels are given (one per body). */
-  async exportStep(bodyIds: number[], labels?: StepLabel[]): Promise<string> {
-    return (await this.exportStepChecked(bodyIds, labels, false)).text
+  async exportStep(bodyIds: number[], labels?: StepLabel[], includeSheets = false): Promise<string> {
+    return (await this.exportStepChecked(bodyIds, labels, false, includeSheets)).text
   }
 
   /** The bodies cut by a plane: each one's section as polylines in the
@@ -372,7 +372,7 @@ export class ReClient {
   /** The same file, and with `verify` read back and held against the
    *  bodies (ReKernel.verifyStep); `mended`, the parts that read back open
    *  by hairs and were mended (ReKernel.exportStepMended). */
-  async exportStepChecked(bodyIds: number[], labels: StepLabel[] | undefined, verify: boolean): Promise<{ text: string; check?: StepCheck; mended?: StepMend[] }> {
+  async exportStepChecked(bodyIds: number[], labels: StepLabel[] | undefined, verify: boolean, includeSheets = false): Promise<{ text: string; check?: StepCheck; mended?: StepMend[] }> {
     const requestId = this.nextId++
     const res = await this.request<Extract<ReWorkerResponse, { type: 'step-ok' }>>({
       type: 'export-step',
@@ -380,6 +380,7 @@ export class ReClient {
       bodyIds,
       ...(labels ? { labels } : {}),
       ...(verify ? { verify } : {}),
+      ...(includeSheets ? { includeSheets } : {}),
     }, [], HEAVY_MS)
     return { text: res.text, ...(res.check ? { check: res.check } : {}), ...(res.mended ? { mended: res.mended } : {}) }
   }

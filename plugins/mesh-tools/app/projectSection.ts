@@ -69,6 +69,7 @@ export type ScanEditJson =
   | { kind: 'flip'; triangles: number; region?: number }
   | { kind: 'cut'; plane: string; removed: number; capped: number; open: number }
   | { kind: 'fill'; maxSize: number; mode: 'curved' | 'flat'; holes: number; triangles: number }
+  | { kind: 'bridge'; width: number; span: number; triangles: number; bend?: number }
   | { kind: 'smooth'; size: number; limit: number; maxMove: number; region?: number }
   | { kind: 'boolean'; op: 'subtract' | 'add' | 'intersect'; solid: string; removed: number; added: number; volume: number }
   | { kind: 'offset'; distance: number; maxMove: number; region?: number }
@@ -167,6 +168,10 @@ function validateMeshPart(raw: unknown): MeshPart {
       } else if (edit.kind === 'fill') {
         fields(edit, 'maxSize holes triangles', 'number', where)
         if (edit.mode !== 'curved' && edit.mode !== 'flat') invalid(`${where}.mode`)
+      } else if (edit.kind === 'bridge') {
+        fields(edit, 'width span triangles', 'number', where)
+        if (edit.bend !== undefined && (typeof edit.bend !== 'number' || !Number.isFinite(edit.bend) || edit.bend < 0 || edit.bend > 1)) invalid(`${where}.bridge.bend`)
+        if (!(Number(edit.width) > 0) || !(Number(edit.span) > 0) || !Number.isSafeInteger(edit.triangles) || Number(edit.triangles) < 1) invalid(`${where}.bridge`)
       } else if (edit.kind === 'smooth') {
         fields(edit, 'size limit maxMove', 'number', where)
         if (edit.region !== undefined && typeof edit.region !== 'number') invalid(`${where}.region`)
@@ -210,6 +215,8 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
       return { kind: e.kind, plane: e.plane, removed: e.removed, capped: e.capped, open: e.open }
     case 'fill':
       return { kind: e.kind, maxSize: e.maxSize, mode: e.mode, holes: e.holes, triangles: e.triangles }
+    case 'bridge':
+      return { kind: e.kind, width: e.width, span: e.span, triangles: e.triangles, ...(e.bend !== undefined ? { bend: e.bend } : {}) }
     case 'smooth':
       return { kind: e.kind, size: e.size, limit: e.limit, maxMove: e.maxMove, ...(e.region !== undefined ? { region: e.region } : {}) }
     case 'boolean':

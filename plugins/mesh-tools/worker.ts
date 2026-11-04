@@ -18,6 +18,8 @@ import { markedTriangles, type EditedMesh } from './core/edit'
 import { flipTriangles } from './core/flip'
 import { cutMesh, cutPreview } from './core/cut'
 import { fillHoles, surveyHoles } from './core/fillHoles'
+import { bridgeGap, BridgeGuidanceError, reduceBridgeBend } from './core/bridge'
+import { adjustBridgePoints } from './core/bridgePoints'
 import { smoothMesh } from './core/smooth'
 import { booleanMesh, closedness } from './core/boolean'
 import { offsetMesh, thickenMesh } from './core/offset'
@@ -26,6 +28,7 @@ import { loadManifold } from './core/manifold'
 import { defaultBreakSpeck, findBreak } from './core/breakSurface'
 import { prepareBody, trimToScan, type PreparedBody } from './core/trimToScan'
 import { selectVertices } from './core/select'
+import { deletionMask } from './core/deleteSelection'
 import { MESH_TOOLS, type MeshEditReport, type MeshToolsOps, type TrimBody } from './core/protocol'
 import { extentOf } from '../../src/core/geometry/bounds'
 import { tetraVolume6 } from '../../src/core/geometry/centroid'
@@ -109,6 +112,42 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
     return { result: preview, transfer: [preview.cap.buffer, preview.open.buffer] }
   },
 
+  'bridge-preview'({ settings }, ctx) {
+    const g = subjectOf(ctx)
+    ctx.progress('Checking the bridge...')
+    const result = bridgeGap(g.positions, g.indices, g.vertexCount, settings)
+    const patch = result.indices.subarray(g.indices.length)
+    const soup = new Float32Array(patch.length * 3)
+    for (let i = 0; i < patch.length; i++) soup.set(result.positions.subarray(patch[i] * 3, patch[i] * 3 + 3), i * 3)
+    return { result: { triangles: soup, report: result.report }, transfer: [soup.buffer] }
+  },
+  'bridge-check'(payload, ctx) {
+    try { return ops['bridge-preview'](payload, ctx) }
+    catch (error) {
+      if (error instanceof BridgeGuidanceError) return { result: { guidance: error.guidance } }
+      throw error
+    }
+  },
+  'bridge-reduce-bend'({ settings }, ctx) {
+    const g = subjectOf(ctx)
+    ctx.progress('Searching for a valid reduced-bend bridge...')
+    const { result, bend } = reduceBridgeBend(g.positions, g.indices, g.vertexCount, settings)
+    const patch = result.indices.subarray(g.indices.length)
+    const triangles = new Float32Array(patch.length * 3)
+    for (let i = 0; i < patch.length; i++) triangles.set(result.positions.subarray(patch[i] * 3, patch[i] * 3 + 3), i * 3)
+    return { result: { triangles, report: result.report, bend }, transfer: [triangles.buffer] }
+  },
+  'bridge-adjust-points'({ settings }, ctx) {
+    const g = subjectOf(ctx)
+    ctx.progress('Searching for valid surface guide positions...')
+    const { result, points, moved } = adjustBridgePoints(g, settings,
+      () => ctx.surfaceOf(g, 'Preparing the scan to adjust surface guides...'))
+    const patch = result.indices.subarray(g.indices.length)
+    const triangles = new Float32Array(patch.length * 3)
+    for (let i = 0; i < patch.length; i++) triangles.set(result.positions.subarray(patch[i] * 3, patch[i] * 3 + 3), i * 3)
+    return { result: { triangles, report: result.report, points, moved }, transfer: [triangles.buffer] }
+  },
+
   closedness(_payload, ctx) {
     const g = subjectOf(ctx)
     return { result: closedness(g.indices, g.vertexCount) }
@@ -145,8 +184,11 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
     const g = subjectOf(ctx)
     let result: EditedMesh
     let report: MeshEditReport
-    if (edit.type === 'delete-marked') {
-      const { mask, count } = markedTriangles(g.indices, edit.vertices, g.vertexCount)
+    if (edit.type === 'delete-marked' || edit.type === 'delete-triangles') {
+      const mask = edit.type === 'delete-triangles'
+        ? deletionMask(g.positions, g.indices, edit.preview, edit.triangles)
+        : markedTriangles(g.indices, edit.vertices, g.vertexCount).mask
+      const count = mask.reduce((n, v) => n + v, 0)
       if (count === 0) throw new Error('Nothing is marked — mark the surface to delete on the part first.')
       if (count === g.triangleCount) throw new Error('The whole scan is marked — nothing would be left.')
       result = withoutTriangles(g.positions, g.indices, g.vertexCount, mask)
@@ -171,6 +213,11 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
       const filled = fillHoles(g.positions, g.indices, g.vertexCount, edit.maxSize, edit.mode, ctx.progress, edit.at)
       result = filled
       report = { kind: 'fill', report: filled.report }
+    } else if (edit.type === 'bridge') {
+      ctx.progress('Bridging the gap...')
+      const bridged = bridgeGap(g.positions, g.indices, g.vertexCount, edit.settings)
+      result = bridged
+      report = { kind: 'bridge', report: bridged.report }
     } else if (edit.type === 'smooth') {
       ctx.progress('Smoothing…')
       const smoothed = smoothMesh(g.positions, g.indices, g.vertexCount, edit.settings, ctx.progress)

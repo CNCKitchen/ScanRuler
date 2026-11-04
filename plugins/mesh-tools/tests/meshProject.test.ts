@@ -110,6 +110,8 @@ describe('the Mesh Tools part of a project', () => {
         { kind: 'boolean', op: 'subtract', solid: 'Solid 2', removed: 40, added: 260, volume: -42.4 },
         { kind: 'cut', plane: 'XY plane, Z 0.5 mm', removed: 3400, capped: 1, open: 0 },
         { kind: 'fill', maxSize: 8, mode: 'flat', holes: 3, triangles: 96 },
+        { kind: 'bridge', width: 2, span: 40, triangles: 160 },
+        { kind: 'bridge', width: 2, span: 40, triangles: 160, bend: 0.75 },
         { kind: 'smooth', size: 0.5, limit: 0.02, maxMove: 0.018 },
         { kind: 'smooth', size: 2, limit: 0.5, maxMove: 0.1, region: 1200 },
       ],
@@ -155,6 +157,7 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, size: 0 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, scope: 'some' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'cut', plane: 3, removed: 1, capped: 0, open: 0 }] } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'bridge', width: -1, span: 4, triangles: 16 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, boolean: { op: 'xor' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'boolean', op: 'subtract', solid: 2, removed: 1, added: 1, volume: 0 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, offset: { ...json.mesh.offset, direction: 'up' } } }))).toThrow(/Malformed/)

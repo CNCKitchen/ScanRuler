@@ -1,11 +1,112 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/scanruler-logo-horizontal-on-dark.svg" />
-  <img src="docs/brand/scanruler-logo-horizontal.svg" alt="ScanRuler by CNC Kitchen" width="420" />
-</picture>
+# ScanRuler Workshop Review
 
-# ScanRuler by CNC Kitchen
+> **UNOFFICIAL EXPERIMENTAL FORK - NOT APPROVED BY CNC KITCHEN**
+>
+> This is Myuavbug66's independently modified version of ScanRuler. It has not
+> been reviewed, approved or endorsed by CNC Kitchen or the original project's
+> maintainers. Testing is limited to the development computer; it has not been
+> independently validated or broadly tested. Use at your own risk and keep
+> separate backups of your projects.
 
-**Use it live at <https://scanruler.com/>** — nothing to install.
+The original project is [ScanRuler by CNC Kitchen](https://github.com/CNCKitchen/ScanRuler).
+The official hosted application is <https://scanruler.com/>; it does **not**
+include this fork's changes. Submitting a pull request does not imply approval.
+Windows review installers are distributed separately to invited reviewers;
+this public repository does not publish an EXE release.
+
+> **This checkout includes a local Bridge gap tool.** Run it separately from
+> the hosted app at <http://127.0.0.1:5199/>. From your checkout, run
+> `npm ci` and then `npm run dev -- --host 127.0.0.1 --port 5199 --strictPort`.
+> The server binds to this PC's loopback interface only.
+> Open a copy of your saved project, not a replacement for the live session.
+> See [Bridge gap instructions](plugins/mesh-tools/README.md#local-development-addition-bridge-gap).
+> Failed bow checks offer separate guide-point adjustment and reduced-bend
+> previews. Point adjustment highlights moved guides and can restore previous
+> picks; neither option applies the bridge automatically. To measure an
+> applied repair, use **Measure edited mesh**; changing tabs alone keeps the
+> original analysis scan and shows a reminder in Measurement.
+> Angled crossings use checked alternate stitching at uneven rims without
+> moving guides or flattening the bow; genuine intersections are still rejected.
+> Keep revisions separate: the unmodified hosted app does not know the new
+> `bridge` project edit entry. No extra MCP server is needed.
+
+**Local surface deletion upgrade:** **Delete marked** now defaults to visible-only
+triangle selection from the current view, including from underneath. Select
+the current view, invert the entire mesh, and refine with visible-only Add/Remove.
+Yellow lines mark selection boundaries, not geometric intersections. Preview and
+two separate confirmations precede undoable removal; unselected triangles remain
+unchanged. **Through (legacy)** retains the original selection behavior.
+See [deletion instructions](plugins/mesh-tools/README.md#delete-marked).
+
+### Saving local numbered revisions
+
+In this customized build, **Save** writes a new numbered `.scanruler` file
+directly into your selected project output folder, instead of downloading an
+unnumbered file.
+
+In standalone **Chrome or Edge**, the first Save asks you to select and
+allow writing to the output folder. The browser does not disclose an
+uploaded project's original directory to the app, so this initial selection
+cannot be automatic. The app retains the folder across project loads and
+stores its handle in this browser's IndexedDB for reloads. The browser may
+still require renewed write permission; this does not require selecting the
+folder again. Clearing site data removes the remembered handle. Write failures
+do not clear the folder.
+
+On Windows, the **VS Code embedded browser and standalone Edge/Chrome** use a
+normal Windows **Save As** dialog through the localhost development server,
+without asking you to select a directory first.
+The dialog is owned by the foreground browser window and centered in that
+monitor's working area, including monitors with different display scaling.
+Configure the initial output directory
+in the gitignored `.scanruler-output.local` at the checkout root:
+
+```json
+{"directory":"C:\\Your\\Project\\Mods"}
+```
+
+The setting is local to this checkout and survives browser reloads and server
+restarts. Restart the development server after changing this setting.
+The endpoint accepts only same-origin localhost requests. Save As lets you edit
+the filename, browse to another folder, or cancel. Existing files are replaced
+only after the Windows overwrite prompt. The selected path is authorized by a
+single-use token; uploads are staged beside the destination before replacing
+it. After a successful save, its folder becomes the default and is recorded in
+the local setting. Exports keep a separate remembered folder, described below.
+This server functionality is not included in production builds.
+
+Names follow `Example Part-1.scanruler`, `Example Part-2.scanruler`, etc.
+The next number exceeds both the opened revision and every matching file
+already in that folder. Save As proposes that filename in the last saved folder;
+you can change either. Other browser/platform deployments retain the browser
+output-directory permission flow described above.
+Subsequent saves continue the last successfully chosen filename: choosing
+`Example Part_A-9.scanruler` proposes `Example Part_A-10.scanruler` next.
+Changing the project title explicitly starts a sequence under the new title.
+Choose **Save** to approve, or **Cancel** (or Escape) to write nothing. Cancelling
+does not consume a revision number or mark unsaved changes as saved.
+Save reports the folder and actual filename only after writing finishes. A cancelled or failed
+write does not mark your work saved. The agent's project-save API still returns
+the archive for the connector to write to its requested path.
+
+### Local export Save As
+
+On the customized Windows localhost app, **all export buttons** use the standard
+Windows **Save As** dialog: STEP, STL, 3MF, PLY, XYZ, CSV, SVG and DXF, including
+edited, reduced and trimmed meshes. The first export starts in the remembered
+project-save directory. After a successful export, its selected folder becomes
+the default for exports of **every format**, independently of project Save.
+Changing the export folder never moves the project-save default; saving a
+project elsewhere never resets an already chosen export folder.
+
+The local configuration retains `directory` for projects and, after an export,
+`exportDirectory` for exports. Both survive reloads and server restarts.
+Cancelling or failing a write changes neither remembered folder. Renaming and
+overwriting are controlled by the normal dialog and its overwrite confirmation.
+Local export failures are reported, not silently redirected to Downloads.
+Other deployments retain their existing browser downloads and edited-mesh
+directory flow.
+Agent exports with explicit paths continue using those paths.
 
 > **Open source under the AGPL, with commercial licenses available.** Want to
 > build ScanRuler into closed-source software, or host a modified version
@@ -167,7 +268,9 @@ files, projects and agent answers stay in millimetres.
   (`0` iso, `1` top, `3` front …). The button above the axis gizmo fits the
   part back into view. **⚙ Settings → Mouse controls** switches to the mouse
   scheme of your CAD tool. A 3Dconnexion **SpaceMouse** works in Chrome and
-  Edge, and touch screens work too.
+  Edge, and touch screens work too. SpaceMouse motion affects only the focused,
+  visible ScanRuler page; background windows and tabs stay still while you use
+  another ScanRuler window or a CAD application.
 - **View bar** (bottom left): show or hide the scan, reference and elements,
   make them transparent, show the mesh or the back faces. **Section** cuts
   everything open at a plane to look inside.

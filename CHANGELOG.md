@@ -7,6 +7,104 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Local development: independent export Save As location**. Route all UI
+  export formats through the standard Windows Save As dialog on localhost.
+  Start in the project-save folder until an export succeeds, then remember
+  its folder across formats and restarts independently of project Save.
+  Preserve both defaults on cancellation or write failure.
+
+- **Local development: STEP export feedback and sheet performance**. Show
+  immediate export progress, disable repeated clicks, display errors beside
+  the button and show the saved path (or explain browser Downloads fallback).
+  Avoid importing all-sheet exports for solid-only gap mending; explicit
+  read-back verification and mixed/solid export behavior remain unchanged.
+
+- **Local development: opt-in open-sheet STEP export**. Add **Include open
+  sheets** and the agent's `includeSheets: true` option for fitted surfaces
+  and cutting sheets. Preserve default cutter exclusion and network-skin
+  export. Verify selected sheets as open surfaces, retain holes and alignment,
+  skip solid-gap mending on sheets, and report only bodies actually exported.
+
+- **Local development: visible-only surface deletion**. Select frontmost
+  triangles from the current view, including back-facing undersides; invert
+  across the mesh and refine with visible-only Add/Remove window, brush and
+  lasso strokes. Show orange selected triangles and yellow selection-boundary
+  edges. Require an exact preview and two separate deletion confirmations,
+  preserve unselected triangles and shared vertices, and retain undo and
+  existing project edit compatibility. Keep Through selection explicitly
+  labeled as legacy behavior; do not infer intersection seams or fill gaps.
+  Supplement raster selection with geometric visibility checks so subpixel
+  triangles are not skipped at distant zoom levels. Select current view
+  honors Add/Remove without replacing the rest of the selection.
+  Match preview faces to worker faces by exact oriented vertices rather than
+  viewport triangle numbers, which picking acceleration can reorder. Verify
+  the entire mesh and reject ambiguous duplicate-face selections before removal.
+
+- **Local development: oblique bridge attachments**. Repair inverted
+  arc-length zipper diagonals using an orientation-checked triangulation of
+  the same rows. Preserve reference points, bow, width and all vertex
+  coordinates, and leave valid existing stitching unchanged. Retain the full
+  surface-intersection, self-intersection and clean-boundary checks.
+
+- **Local development: bridge guide-point correction**. Keep the existing
+  reduced-bend option and add an explicit surface-constrained guide adjustment
+  at full sampled bend. Keep inner rim points and width fixed, validate the
+  entire candidate, highlight moved guides in green, and offer restoration of
+  the previous picks and bend setting. Failed searches change nothing.
+
+- **Local development: bridge bend correction and repair measurement**. Show
+  bridge errors in red and offer an explicit bounded search for a valid
+  reduced-bow preview without moving reference points or attachment vertices.
+  Keep Apply explicit and persist the retained bend setting. Add **Measure
+  edited mesh** and a Measurement reminder; taking repairs into analysis is
+  explicit, refits existing elements, remeasures results, and remains undoable.
+
+- **Local development: visual bridge guidance**. Highlight numbered guides
+  implicated by failed checks, explain corrections beside the controls, and
+  show rim-target arrows only when a nearest attachment location is known.
+  Preserve bridge geometry and never reposition points automatically.
+
+- **Local development: draw-to-bridge**. Draw across one visible gap to generate
+  surface-constrained reference points using the selected side counts. Preview
+  automatically, adjust the numbered points, or cancel without losing previous
+  picks. Reject insufficient surface coverage and multiple-gap crossings.
+
+- Continue numbered saves from the last successful Save As filename, including
+  renamed variants, rather than reverting to the project title.
+
+- **Local development: native Save As**. Replace the read-only confirmation
+  with Windows Save As in VS Code, and the browser Save As picker in Edge/Chrome.
+  Propose the next revision, allow renaming and browsing, remember the last
+  successful local folder, and preserve unsaved changes on cancellation.
+
+- **Local development: retained output folders and VS Code saving**. Remember
+  the browser directory handle across reloads, retain the folder across project
+  loads and write errors, and use an explicitly configured localhost writer
+  in VS Code's embedded browser instead of its failing permission picker.
+
+- **Local development: adjustable bridge reference points**. Choose unequal
+  counts with at least two points per side and no more than ten total.
+  Numbered points drag along the scan; release refreshes the checked preview.
+  Two samples give a secant slope, more fit a quadratic using every sample.
+  Existing six-point commands and saved bridge edits remain supported.
+
+- **Local development: edited-mesh exports use the project output folder**.
+  STL/3MF from Edited copy reuse Save's selected directory, or ask for one
+  first, and number duplicate export names instead of overwriting them.
+
+- **Local development: numbered project saves** (2026-11-02). The Save button
+  asks once per opened project/tab for an output folder in Chrome/Edge, then
+  writes increasing `-1`, `-2`, ... revisions there. Existing revision numbers
+  and the opened filename determine the next number. Failed writes leave the
+  session unsaved; agent archive packing retains its existing interface.
+
+- **Local development: Bridge gap** (2026-11-02, Mesh Tools). Six surface
+  picks guide a narrow flat or gently curved ribbon stitched into an open
+  rim, creating a hole that Fill holes can close. Preview and intersection
+  checks precede applying; original scan vertices stay fixed. Includes an
+  undoable `mesh.bridge` agent command and editable project persistence.
+  Projects with this new edit entry require this customized build.
+
 - **Contributors are credited** (2026-11-01). Each publish to this repository now
   names the people whose work it brings as co-authors, starting with Jozkah and
   Starzrng. CONTRIBUTING.md says how it works.

@@ -7,6 +7,138 @@ documentation.
 
 ## Mesh Tools: cleaning up and reducing a scan
 
+### Local development addition: Bridge gap
+
+The panel follows the existing tools' compact layout: the **i** beside **Bridge
+gap** opens workflow instructions. The current picking/drawing prompt remains
+visible; validation errors, correction warnings and preview results appear only
+when relevant. Correction actions have their own **i** explanations.
+
+**Bridge gap** builds a narrow ribbon across an open bay, splitting its boundary
+into two loops so **Fill holes** can close the enclosed opening. This local tool
+is included in this development build, not added to the hosted scanruler.com app.
+
+1. Open a copy of the saved project in the local build and choose **Mesh Tools >
+   Bridge gap**.
+2. Choose **First side points** and **Other side points** independently:
+   at least **2 per side**, at most **10 total**, default **3 + 3**. Changing
+   either count clears temporary picks. Click the chosen number of points in
+   one row on existing surface, toward the gap on the first side, then away
+   from it on the other. The two inner points should be close to the open edges.
+   Use **Undo point** to correct a pick.
+   Alternatively, choose **Draw crossing**, then left-drag a line from well back
+   on the first surface, across one visible gap, and well onto the other surface.
+   Release to generate the selected number of points and preview automatically.
+   The line may be gently curved. Generated points are actual surface hits, not
+   interpolated positions across missing data, and remain individually draggable.
+   The closest samples on either side of the visible gap guide the attachments.
+   **Esc** cancels drawing and keeps the previous points and preview;
+   **Shift-drag** still navigates. Drawing is one-shot: after release, ordinary
+   point adjustment resumes. Choose **Draw crossing** again to replace the picks.
+3. Set **Bridge width**, then **Preview bridge**. Check the teal ribbon from both
+   sides, especially its attachments. Width is approximate: it includes complete
+   existing boundary edges. The report shows the distance the inner picks snapped.
+   Drag a numbered point along the scan to move it; the preview recalculates
+   on release. Off-surface moves are ignored; **Esc** cancels the drag.
+   Changing the width also refreshes an existing preview. Invalid adjustments
+   show an error and disable Apply until the bridge has a valid preview.
+   Failed checks also show guidance beside the controls. Yellow warning rings
+   identify involved numbered guides. A distant inner point gets an arrow
+   toward a diamond at its nearest detected boundary vertex; this is a rim
+   target, not a guarantee of a valid bridge. Ordering errors name the pair;
+   unstable slope checks highlight that side. Intersection/fold checks highlight
+   all contributing guides without claiming a particular point or move is at
+   fault. No point moves without dragging or an explicit correction action. Adjust a point to recheck; successful
+   previews clear the guidance. Unknown failures do not invent point highlights.
+   Errors have red text and a red-bordered panel. For excessive bow, folds, or
+   self-intersections, **Reduce bend to valid preview** tries progressively less
+   sampled bow with the same points, attachment vertices, and width. Every
+   candidate passes the complete bridge checks. A bounded search retains the
+   most bow it finds, not a guaranteed global maximum. The retained percentage
+   is shown; inspect the preview before Apply. This also reduces inferred
+   out-of-plane curvature and attachment slope, not just the curve seen from
+   above. If no valid candidate is found, settings stay unchanged and an error
+   explains alternatives. Moving a point restores full sampled bow; a width
+   change or another Preview retains the current factor.
+   The separate **Adjust guide points to valid preview** option moves surface
+   guides instead of reducing bridge tangents. It is also available after a
+   reduced-bend preview, so you can compare the alternatives. It starts with
+   implicated guides, includes the other side if validation exposes another
+   eligible curvature error, and keeps both inner rim picks and width fixed.
+   A bounded search moves guides toward the crossing line, projects them onto
+   similarly facing scan triangles, and rejects projections outside each
+   guide's local connected patch or more than half that side's guide reach
+   from its original position. Each accepted candidate passes all bridge checks
+   at full sampled bend. This is not a guaranteed minimum move or a fix for
+   ordering, disconnected rims, or arbitrary missing surface.
+   Green rings and a numbered list identify moved points. **Restore previous
+   points** restores the pre-adjustment picks and bend setting and rechecks at
+   the current width. Manual point changes clear that restore option.
+   Failed searches leave points and any valid preview unchanged and report an
+   error. Neither correction edits the scan until **Apply bridge**.
+4. **Apply bridge**, then choose **Fill holes**. Set its size large enough for
+   the newly enclosed opening and click that hole's ring to fill only that hole.
+5. Save a separate `.scanruler` revision. The original scan remains unchanged;
+   the bridge is part of the edited copy. **Ctrl+Z** removes an applied bridge.
+6. To measure a repaired area, choose **Measure edited mesh** under **Edited
+   copy**. This explicitly takes the copy into analysis and opens Measurement.
+   Merely changing tabs keeps the original analysis scan; Measurement shows a
+   reminder while a separate edited copy exists.
+
+The samples guide a cubic ribbon. Two samples on a side provide a straight
+local slope; three or more provide a least-squares quadratic slope using every
+sample on that side. Attachment edges reuse the mesh's existing vertices; all original points
+stay fixed. Crossings need not be perpendicular to the rim. When an uneven,
+oblique attachment would produce an inverted triangle with the usual
+arc-length zipper, the tool searches alternate monotone triangulations of
+the same rows, using only correctly oriented, nondegenerate faces and
+preferring better-shaped triangles. Valid existing stitching is left alone;
+the reference points, centreline bow, width, and all vertex coordinates are
+unchanged. The complete intersection and topology checks still run after
+stitching. This is not a guarantee for every angle: near-tangent crossings,
+genuine folds, or overlapping surface may still need different points or a
+narrower width.
+The tool rejects disconnected rims, overlapping attachments,
+excessive curvature, folds, and surface intersections. It supports flat and
+gently curved surfaces, not arbitrary missing geometry. A bridge is **inferred
+surface**, not newly measured scan data. Picks and unapplied previews are
+temporary; applied geometry and its edit entry are saved in the project.
+Projects containing the new `bridge` edit entry require this customized build;
+do not assume the unmodified hosted app can open them.
+
+Drawing requires exactly one visible off-surface interval between two surface
+traces. Hidden gaps or background surfaces behind an opening may prevent this:
+turn the view or use manual picks instead. Strokes crossing multiple gaps or
+starting/ending off the scan are rejected. Each surface trace must cover at
+least 12 screen pixels, or 4 pixels per point interval if greater; extend the
+line or zoom in when asked. Sampling is at most 2 pixels apart, capped at 4,096
+samples per gesture. A rejected stroke keeps previous picks. Existing bridge
+geometry checks still apply; drawing does not add disconnected-rim support.
+
+Agents can use `mesh.bridge { points: [[x,y,z], ...], firstSideCount: 3, width: 2, preview: true }`
+to check a proposal without editing, then omit `preview` to apply it as one
+undo step. Coordinates and width are millimetres. No additional MCP server is
+needed. `firstSideCount` defaults to 3 to preserve existing six-point calls;
+set it explicitly for other splits. The existing connector discovers the local build's registered command
+when connected to it.
+Optional `bend` ranges from 0 (straight centreline) to 1 (default full sampled
+bow), and is saved with the applied edit. All settings still undergo the same
+validation.
+
+Focused checks:
+
+```powershell
+npm test -- plugins\mesh-tools\tests\bridgeStroke.test.ts plugins\mesh-tools\tests\bridge.test.ts plugins\mesh-tools\tests\meshCommands.test.ts plugins\mesh-tools\tests\meshProject.test.ts
+npm run build
+```
+
+With the development server running, the isolated browser test
+`node plugins\mesh-tools\scripts\e2e-mesh-bridge.mjs` checks real viewport picking,
+drawn crossings, coverage rejection, cancellation, variable counts,
+numbered-point dragging, preview, apply, Fill holes, undo/redo,
+and editable project save/load. It does not
+pair with an agent or open a user's project.
+
 The **Mesh Tools** workspace works on the mesh itself rather than measuring
 it. The panel's **Tools** row picks the tool in hand — **Escape**, or the
 tool's key again, puts it away — and they are of the two kinds the
@@ -68,6 +200,13 @@ triangles beside the scan's, and holds what to do with it:
   reduction on hand are measured again, and a Reverse engineer surface keeps
   its region. The edits move to the **In use for analysis** list; the next
   edit makes a new copy of the scan as it now is.
+- **Measure edited mesh** takes the same explicit analysis action and opens
+  Measurement on success. A reminder in Measurement offers this action while
+  an edited copy is waiting. Changing tabs never silently adopts repairs.
+  Existing elements are refitted and results remeasured; **Ctrl+Z** restores
+  the previous analysis scan and the edited copy. Source files are not changed.
+  Widths can be measured on the repair, but an absent original surface cannot
+  establish deviation there: use a suitable CAD or surface reference.
 - **Discard** throws the copy and its edits away.
 - **Export mesh** saves the copy as it stands, as an STL or a 3MF —
   `name-edited.stl`, or `name-edited-aligned.stl` when the part was moved — in the pose the scan
@@ -130,18 +269,62 @@ What the scanner saw that is not the part — the clamp that held it, the
 fixture it sat in, a patch of the table, a finger — is marked on the part by
 hand and deleted.
 
-1. Pick **Delete marked**, then **Window**, **Brush** or **Lasso** — the same
-   marking tools a hand-marked fit and the local fine fit use. Marked surface
-   turns orange. The right button rubs out, **Erase** makes the left do the
-   same, and **Esc** or **Navigate** gives the camera its drags back without
-   losing what is marked.
-2. **Delete marked surface…** asks first, with how many points are marked;
-   **Delete** (or **Enter**) takes them off the copy, **Keep it** (or
-   **Esc**) leaves it as it is.
+This customized local build defaults to **Visible only (current view)**:
 
-A triangle goes when all three of its corners are marked — exactly the
-triangles shown in orange. The hole it leaves stays open; close it with
-[Fill holes](#fill-holes) if the part should be closed there.
+1. **Select current view** uses **Add visible** or **Remove visible**, preserving
+   the rest of the selection. Use **Clear** to explicitly start over. Visibility
+   includes back-facing triangles viewed from underneath. Hidden triangles
+   are not selected, even in a transparent view, and clipped-away triangles
+   do not obscure the remaining surface. Raster coverage is supplemented by
+   geometric centre-ray checks so fully visible triangles smaller than a
+   screen pixel are not skipped when zoomed out. Partially hidden triangles
+   are selected when a visible pixel or their visible centre lies inside the
+   selection region; no surface classification or hidden-triangle growth is
+   inferred. Dense meshes can take several seconds on the first selection
+   while their visibility acceleration structure is built.
+2. **Invert entire mesh** exchanges selected and unselected triangles,
+   including hidden ones. Rotate without losing the selection.
+3. Choose **Window**, **Brush**, or **Lasso**, then **Add visible** or
+   **Remove visible** to refine only frontmost triangles. Brush diameter is
+   in screen pixels, independent of model units. Release a stroke to update
+   selection. **Navigate**, **Esc**, or Shift-drag returns camera control.
+   Escape during a stroke cancels it without changing the previous selection.
+   Strokes are limited to 4,096 pointer samples; overly long strokes are
+   cancelled explicitly, not truncated into a different selection.
+4. Orange triangles would be deleted; the normal surface color is kept.
+   Yellow lines show shared-edge selection boundaries and selected open rims,
+   **not physical intersections** between overlapping surfaces.
+5. **Preview deletion...** displays the exact triangle count and locks the
+   selection. **Request deletion...** is the first confirmation; **Confirm
+   removal** is the second. **Keep it** or **Esc** at either stage removes
+   nothing and preserves the selection. Held Enter does not advance multiple
+   stages. Deleting the entire mesh is refused.
+   Face identities are matched by oriented welded vertices across the viewport
+   and worker; viewport picking can reorder triangle numbers. Coordinates and
+   all faces must match before deletion. A changed mesh or ambiguous partial
+   selection of identical duplicate faces is refused without removing anything.
+
+Only selected whole triangles are removed. Every unselected triangle, its
+coordinates, and any shared vertices it still uses are preserved. The original
+scan file stays untouched; **Ctrl+Z** restores the edited copy. The gaps left
+open can be inspected and repaired with [Bridge gap](#local-development-addition-bridge-gap)
+and [Fill holes](#fill-holes) when their boundary geometry supports it; no
+automatic fill or intersection trimming is performed.
+
+**Through (legacy)** explicitly retains the previous vertex-based marking:
+Window, Brush, Lasso, Erase, right-button removal and inversion operate as
+before, including the ability to reach hidden surface. A triangle goes only
+when all three corners are marked. The same preview and two confirmations
+are required for UI deletion.
+
+Selections and confirmations are temporary, not saved. Changing mesh, alignment,
+tool/workspace, or selection depth clears them. Applied edits use the existing
+`delete` project entry and remain compatible with existing save/load and undo.
+`mesh.mark` still creates legacy vertex marking; `mesh.delete_marked` with
+`region: "marked"` cannot reinterpret the new visible triangle selection as
+vertices or bypass its on-screen confirmations. Explicit command regions retain
+their previous semantics. Seed growth, painted growth barriers, geometric
+intersection seams, and automatic behind-skin cleanup are not implemented.
 
 ### Flip normals
 
@@ -564,6 +747,11 @@ saved project; the piece is not saved, a click makes it again. A break of a
 few square centimetres takes a second or two.
 
 ### Reduce mesh: a light mesh for CAD
+
+In the customized Windows localhost app, edited, reduced and trimmed mesh
+exports use the standard **Save As** dialog. Export folders are remembered
+across formats independently of project Save; see
+[local export Save As](../../README.md#local-export-save-as).
 
 A scan is millions of triangles, and CAD chokes on it: Fusion warns above
 about 10,000 facets when a mesh is converted to BRep, SOLIDWORKS turns every

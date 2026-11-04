@@ -47,3 +47,35 @@
   grid-template-columns: repeat(3, 1fr);
   margin-bottom: 8px;
 }
+
+.bridge-error {
+  color: var(--red);
+  border: 1px solid currentColor;
+  border-left-width: 4px;
+  border-radius: var(--r);
+  padding: 8px;
+  margin: 8px 0;
+  background: color-mix(in srgb, var(--red) 8%, var(--panel));
+}
+
+.bridge-error .hint {
+  color: inherit;
+}
+
+.bridge-adjustment {
+  border: 1px solid var(--green);
+  border-left-width: 4px;
+  border-radius: var(--r);
+  padding: 8px;
+  margin: 8px 0;
+}
+
+.mesh-analysis-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, var(--panel));
+}

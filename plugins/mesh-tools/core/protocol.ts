@@ -16,6 +16,8 @@ import type { PieceSurvey } from './pieces'
 import type { ReduceReport, ReduceSettings } from './reduce'
 import type { SmoothReport, SmoothSettings } from './smooth'
 import type { TrimReport, TrimSettings } from './trimToScan'
+import type { BridgeGuidance, BridgeReport, BridgeSettings } from './bridge'
+import type { DeleteMeshSnapshot } from './deleteSelection'
 
 /** The plugin's id, which its worker part answers to. */
 export const MESH_TOOLS = 'mesh-tools'
@@ -36,9 +38,11 @@ export type PieceCount = Omit<PieceSurvey, 'islandMask' | 'islandCentres'>
  *  (core/hollow) or thickens an open one into a solid (core/offset). */
 export type ScanEditRequest =
   | { type: 'delete-marked'; vertices: Uint32Array }
+  | { type: 'delete-triangles'; triangles: Uint32Array; preview: DeleteMeshSnapshot }
   | { type: 'flip'; vertices?: Uint32Array }
   | { type: 'cut'; origin: Vec3; normal: Vec3; cap: boolean }
   | { type: 'fill-holes'; maxSize: number; mode: FillMode; at?: Vec3 }
+  | { type: 'bridge'; settings: BridgeSettings }
   | { type: 'smooth'; settings: SmoothSettings }
   | { type: 'boolean'; op: BooleanOp; tools: BooleanTool[] }
   | { type: 'offset'; settings: OffsetSettings }
@@ -51,6 +55,7 @@ export type MeshEditReport =
   | { kind: 'flip'; triangles: number }
   | { kind: 'cut'; report: CutReport }
   | { kind: 'fill'; report: FillReport }
+  | { kind: 'bridge'; report: BridgeReport }
   | { kind: 'smooth'; report: SmoothReport }
   | { kind: 'boolean'; report: BooleanReport }
   | { kind: 'offset'; report: OffsetReport }
@@ -141,6 +146,10 @@ export interface MeshToolsOps {
   /** The cap a cut at this plane would close the part with, and what of the
    *  cut it would leave open. Nothing changes. */
   'cut-preview': { payload: { origin: Vec3; normal: Vec3 }; result: CutPreview }
+  'bridge-preview': { payload: { settings: BridgeSettings }; result: { triangles: Float32Array; report: BridgeReport } }
+  'bridge-check': { payload: { settings: BridgeSettings }; result: { triangles: Float32Array; report: BridgeReport } | { guidance: BridgeGuidance } }
+  'bridge-reduce-bend': { payload: { settings: BridgeSettings }; result: { triangles: Float32Array; report: BridgeReport; bend: number } }
+  'bridge-adjust-points': { payload: { settings: Omit<BridgeSettings, 'bend'> }; result: { triangles: Float32Array; report: BridgeReport; points: Vec3[]; moved: number[] } }
   /** How far the mesh is from closed, which a boolean needs it to be.
    *  Nothing changes. */
   closedness: { payload: Record<string, never>; result: Closedness }

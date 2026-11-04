@@ -34,6 +34,9 @@ import { CutTool } from './tools/CutTool'
 import { BooleanTool } from './tools/BooleanTool'
 import { TrimTool } from './tools/TrimTool'
 import { HolesTool } from './tools/HolesTool'
+import { BridgeTool } from './tools/BridgeTool'
+import type { BridgeToolState } from '../app/useBridgeTool'
+import type { DeleteToolState } from '../app/useDeleteTool'
 import { SmoothTool } from './tools/SmoothTool'
 import { OffsetTool } from './tools/OffsetTool'
 import { ShellTool } from './tools/ShellTool'
@@ -77,6 +80,12 @@ const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] =
     title: 'Close the holes a scanner left, every one smaller than a size you set, with patches that carry the surface across',
   },
   {
+    id: 'bridge',
+    icon: <Icon name="fillHoles" />,
+    label: 'Bridge gap',
+    title: 'Pick six surface points to guide a narrow stitched bridge across an open gap, then fill the enclosed opening',
+  },
+  {
     id: 'smooth',
     icon: <Icon name="smoothMesh" />,
     label: 'Smooth',
@@ -109,11 +118,12 @@ const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] =
 ]
 
 export function MeshPanel({
+  bridge,
+  deletion,
   onOpenScan,
   onReduce,
   onExport,
   onRemoveIslands,
-  onDeleteMarked,
   onFlip,
   onClearMarking,
   onCut,
@@ -126,13 +136,15 @@ export function MeshPanel({
   onExportTrimmed,
   onExportEdited,
   onUseEdited,
+  onMeasureEdited,
   onDiscardEdited,
 }: {
+  bridge: BridgeToolState
+  deletion: DeleteToolState
   onOpenScan: (file: File) => void
   onReduce: () => void
   onExport: (format: MeshFormat) => void
   onRemoveIslands: () => void
-  onDeleteMarked: () => void
   /** Turn the whole part over, or the surface marked on it. */
   onFlip: (scope: FlipScope) => void
   onClearMarking: () => void
@@ -150,6 +162,7 @@ export function MeshPanel({
   onExportEdited: (format: MeshFormat) => void
   /** Take the edited copy into use for every workspace, or throw it away. */
   onUseEdited: () => void
+  onMeasureEdited: () => void
   onDiscardEdited: () => void
 }) {
   const scanName = useStore((s) => s.fileName)
@@ -237,13 +250,15 @@ export function MeshPanel({
       ) : tool === 'islands' ? (
         <IslandsTool ready={Boolean(scanName)} busy={busy} onRemove={onRemoveIslands} />
       ) : tool === 'delete' ? (
-        <DeleteTool ready={Boolean(scanName)} busy={busy} onDelete={onDeleteMarked} onClear={onClearMarking} />
+        <DeleteTool ready={Boolean(scanName)} busy={busy} deletion={deletion} />
       ) : tool === 'flip' ? (
         <FlipTool ready={Boolean(scanName)} busy={busy} onFlip={onFlip} onClear={onClearMarking} />
       ) : tool === 'cut' ? (
         <CutTool ready={Boolean(scanName)} busy={busy} onCut={onCut} />
       ) : tool === 'holes' ? (
         <HolesTool ready={Boolean(scanName)} busy={busy} onFill={onFillHoles} />
+      ) : tool === 'bridge' ? (
+        <BridgeTool bridge={bridge} ready={Boolean(scanName)} busy={busy} />
       ) : tool === 'boolean' ? (
         <BooleanTool ready={Boolean(scanName)} busy={busy} onBoolean={onBoolean} />
       ) : tool === 'trim' ? (
@@ -256,7 +271,7 @@ export function MeshPanel({
         <SmoothTool ready={Boolean(scanName)} busy={busy} onSmooth={onSmooth} onClear={onClearMarking} />
       )}
 
-      <EditedCopy busy={busy} onUse={onUseEdited} onDiscard={onDiscardEdited} onExport={onExportEdited} />
+      <EditedCopy busy={busy} onUse={onUseEdited} onMeasure={onMeasureEdited} onDiscard={onDiscardEdited} onExport={onExportEdited} />
 
       {edits.length > 0 && (
         <div className="group" data-test="scan-edits">
@@ -279,4 +294,3 @@ export function MeshPanel({
     </aside>
   )
 }
-

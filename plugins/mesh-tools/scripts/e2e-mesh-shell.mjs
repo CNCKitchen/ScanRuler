@@ -157,10 +157,12 @@ check((await copyCount()) === beforeHollow && (await edits()) === 2, 'a step bac
 // ---- A small hole: Shell asks for it to be filled first ---------------------------------
 await page.click('[data-test=mesh-tool-delete]')
 await page.waitForSelector('[data-test=delete-tool]')
+await page.select('[data-test=delete-selection-mode]', 'through')
 check((await markMiddle(10)) > 0, 'a small patch is marked to delete')
 await page.keyboard.press('Escape')
 await page.click('[data-test=delete-marked]')
 await page.waitForSelector('[data-test=delete-confirm]')
+await page.click('[data-test=delete-request]')
 await page.click('[data-test=delete-marked-confirm]')
 await editsReach(3)
 await page.click('[data-test=mesh-tool-shell]')

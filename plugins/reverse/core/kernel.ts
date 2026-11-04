@@ -1718,8 +1718,11 @@ export class ReKernel {
    */
   exportStepMended(shapes: readonly Shape[], labels?: readonly StepLabel[], sheets?: readonly boolean[]): { text: string; mended: StepMend[]; check?: StepCheck } {
     const text = this.exportStep(shapes, labels)
+    // Sheets have no solid gaps to mend. Avoid importing the entire file
+    // just to discover that; explicit verifyStep still reads it back.
+    if (shapes.every((_, i) => sheets?.[i] === true)) return { text, mended: [] }
     const open = this.readBackEdges(text, shapes)
-    const hairs = open.map((edges) => (edges.length > 0 && edges.every((e) => e.kind === 'free' && e.length < SHORT_FREE_MM) ? edges.map((e) => e.at) : []))
+    const hairs = open.map((edges, i) => (!sheets?.[i] && edges.length > 0 && edges.every((e) => e.kind === 'free' && e.length < SHORT_FREE_MM) ? edges.map((e) => e.at) : []))
     if (hairs.every((at) => at.length === 0)) return { text, mended: [] }
     const snapped = snapCurveEnds(text, hairs.flat(), { maxMm: SNAP_MM })
     if (snapped.moved === 0) return { text, mended: [] }
@@ -2123,4 +2126,3 @@ export class ReKernel {
     }
   }
 }
-

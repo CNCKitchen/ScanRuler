@@ -20,7 +20,7 @@ import type { EdgeInfo, FaceInfo, PreviewStep } from '../core/build'
 import { liveMapScale, paintedSparse, sparseSummary } from '../core/liveMap'
 import { curvatureRange } from '../../../src/core/geometry/curvature'
 import { cornerUnreadable, readCornerCut } from '../core/filletEstimate'
-import { FACE_SLICE_INSET_MM, liftPoint, type Feature, type PlaneRef, type SketchFeature } from '../core/features'
+import { bodyMaker, FACE_SLICE_INSET_MM, liftPoint, type Feature, type PlaneRef, type SketchFeature } from '../core/features'
 import { resolveAxis, resolveFeatures, resolvePlaneFrame } from '../core/resolve'
 import { chainsOfEdges } from '../core/segment'
 import { imageCorners } from '../core/sketchImage'
@@ -66,6 +66,11 @@ export interface SketchChains {
   edges: EdgeChains
 }
 
+export interface StepExportState {
+  phase: 'running' | 'done' | 'error'
+  text: string
+}
+
 /** The colour a sketch is drawn in, on the part and in its row. */
 const SKETCH_COLOR = '#3d8fd6'
 /** The colour of a cut's ghost — what it is about to take away. */
@@ -96,6 +101,8 @@ export function useReverseWorkspace({
   // The kernel, the build and the bodies it made — the workspace's session,
   // which the commands work through too.
   const [session] = useState(() => createReverseSession({ sceneRef }))
+  const [stepExport, setStepExport] = useState<StepExportState | null>(null)
+  const stepExporting = useRef(false)
   useEffect(() => installReverseSession(session), [session])
   useEffect(() => session.watch(), [session])
   const meshes = session.meshes
@@ -1361,19 +1368,42 @@ export function useReverseWorkspace({
     // Runs on the listed dependencies only, not on everything it reads.
   }, [featureOpen, gripField, extrudeDraft, revolveDraft, featureDraft, sceneRef, units])
 
-  const exportStep = async () => {
+  const exportStep = async (includeSheets = false) => {
+    if (stepExporting.current) return
     const re = useReverse.getState()
-    const ids = re.bodies.filter((b) => b.visible).map((b) => b.id)
+    const networks = new Set(re.features.filter((f) => f.kind === 'network').map((f) => f.id))
+    const picked = re.bodies.filter((b) => b.visible && (includeSheets || !b.surface || networks.has(bodyMaker(b.id))))
+    const ids = picked.map((b) => b.id)
     if (ids.length === 0 || !session.client()) {
-      useStore.getState().setError('No visible body to export — build one first.')
+      const text = 'No exportable visible body — build one or enable Include open sheets.'
+      setStepExport({ phase: 'error', text })
+      useStore.getState().setError(text)
       return
     }
+    stepExporting.current = true
+    const text = `Preparing STEP for ${ids.length} visible bod${ids.length === 1 ? 'y' : 'ies'}. Large exports can take several minutes. Please wait; do not click again.`
+    setStepExport({ phase: 'running', text })
+    useStore.getState().setError(null)
+    useStore.getState().setStatus(text)
     try {
-      const { name, text } = await session.stepFile(ids)
-      saveFile(name, new Blob([text], { type: 'model/step' }))
-      useStore.getState().setStatus(`${ids.length} bod${ids.length === 1 ? 'y' : 'ies'} exported to ${name} as a STEP solid.`)
+      const { name, text } = await session.stepFile(ids, false, includeSheets)
+      const path = await saveFile(name, new Blob([text], { type: 'model/step' }))
+      const done = `${path ? `STEP saved to ${path}` : `STEP sent to your browser: ${name}`} (${ids.length} bod${ids.length === 1 ? 'y' : 'ies'}). ${path ? '' : 'Open Downloads (Ctrl+J) to find or save it. '}Geometry read-back verification was not run.`
+      setStepExport({ phase: 'done', text: done })
+      useStore.getState().setStatus(done)
     } catch (e) {
-      useStore.getState().setError(`STEP export failed: ${message(e)}`)
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        const text = 'STEP export cancelled. No file was written.'
+        setStepExport({ phase: 'done', text })
+        useStore.getState().setStatus(text)
+        return
+      }
+      const text = `STEP export failed: ${message(e)}`
+      setStepExport({ phase: 'error', text })
+      useStore.getState().setStatus('STEP export failed.')
+      useStore.getState().setError(text)
+    } finally {
+      stepExporting.current = false
     }
   }
 
@@ -1502,6 +1532,7 @@ export function useReverseWorkspace({
     projectablesOf,
     regionPainted,
     exportStep,
+    stepExport,
     compareReference,
   }
 }
