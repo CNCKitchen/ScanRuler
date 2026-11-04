@@ -82,7 +82,12 @@ export async function runElementMap({
       result = await ask()
     } catch (e) {
       if (!current()) return
-      if (!(e instanceof StaleScan)) break
+      if (!(e instanceof StaleScan)) {
+        // Measured here instead, which is the cost this moved off the main
+        // thread: a worker that keeps failing should not do so unheard.
+        console.warn('The worker could not measure the map against the element; measuring it here.', e)
+        break
+      }
     }
   }
   if (!current()) return
@@ -162,6 +167,15 @@ export function useElementField({
   const previousInputs = useRef<unknown[] | null>(null)
   const queue = useRef<ReturnType<typeof latestWins> | null>(null)
   if (!queue.current) queue.current = latestWins()
+
+  // A map still being measured when this goes away must not be settled by
+  // it: whoever mounts next measures its own, and it owns the status.
+  useEffect(
+    () => () => {
+      previousInputs.current = null
+    },
+    [],
+  )
 
   // Held stable across renders: applyExtension builds a fresh object every call,
   // so depending on it directly would recompute the field on every render.

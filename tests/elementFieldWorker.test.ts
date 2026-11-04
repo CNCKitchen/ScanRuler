@@ -108,8 +108,12 @@ describe('the map against an element, worked out in the worker', () => {
         expect(bits(there.values)).toEqual(bits(here))
         expect(bits(there.directions)).toEqual(bits(directions))
         expect(there.suggestedRange).toBe(suggestRange(here, 5))
-        // Something was measured, and something left out.
+        // Something was measured, and, under the facing limit, something left
+        // out by which way the scan faces — so the normals sent are in play. A
+        // ball about the cylinder's middle takes every face of it, whichever
+        // way it faces, so it is the one left whole.
         expect(here.some((v) => Number.isFinite(v))).toBe(true)
+        if (opts.maxNormalDeviation !== null && name !== 'a sphere') expect(here.some((v) => Number.isNaN(v))).toBe(true)
       })
     }
   }

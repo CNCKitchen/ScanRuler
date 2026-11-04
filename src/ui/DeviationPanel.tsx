@@ -831,7 +831,11 @@ export function DeviationPanel({
       {scanName && (
         <div className={'tailrow' + (d.marking ? ' muted' : '')}>
           <div className="divider" />
-          {hasMap && <CopyButton className="block" label="Copy report" onCopy={onCopy} />}
+          {hasMap && (
+            // Its figures are the map in hand's and its settings the new ones'
+            // until the map being measured lands.
+            <CopyButton className="block" label="Copy report" disabled={onElement && d.elementStatus === 'running'} onCopy={onCopy} />
+          )}
           <ExportMeshButton
             block
             testId="export-mesh"

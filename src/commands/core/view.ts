@@ -25,7 +25,7 @@ import { arr, bool, enumOf, int, num, obj, oneOf, vec3, type JsonSchema } from '
 import { publicWorkspace } from '../state'
 import { CommandError, type Command } from '../types'
 import { applyShow, settleShown, viewToggles, whyNotShown, type ShowApplied, type ViewToggle } from '../viewToggles'
-import { nextFrame, waitFor } from './common'
+import { mapSettled, nextFrame, waitFor } from './common'
 
 const VIEWS: readonly StandardView[] = ['iso', 'iso-front-left', 'iso-rear-left', 'iso-rear-right', 'top', 'bottom', 'front', 'rear', 'left', 'right']
 
@@ -316,6 +316,9 @@ const render: Command<{ width?: number; height?: number; view?: StandardView; vi
       const pictured = views ? await sheetOfViews(scene, views, width, height, show) : await picture(scene, width, height, view, show)
       // A sheet of views fits each; otherwise only fit: true does.
       const framed = framing(scaleOf(scene), frame, Boolean(views) || (!frame && fit === true))
+      // What the picture says of the map is said of the one measured, not of
+      // the one before it.
+      await mapSettled(scene)
       return { ...pictured, ...framed, ...whyOf(scene, show), ...absentOf(done), ...describeMapPainted(scene.mapPainted()) }
     } finally {
       // What was put away or cut for the picture comes back; the frame stays.
@@ -418,6 +421,7 @@ export function describeMapPainted(painted: MapPainted): Record<string, unknown>
   const none = (mapWhy: string) => ({ map: null, mapWhy })
   if (!d.showMap) return none('the map switch is off — deviation.settings { show: true } puts it on.')
   if (d.source === 'element') {
+    if (d.elementStatus === 'running') return none('the map against the element is still being measured — ask again in a moment.')
     if (d.elementStatus !== 'ready') return none('no map against an element is measured — deviation.set_target measures one.')
   } else {
     if (!d.nominalName) return none('no reference part is open — deviation.open_reference, then deviation.align.')

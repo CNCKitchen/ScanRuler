@@ -9,6 +9,7 @@ import { dimHolds } from '../../state/historyStore'
 import { useShell, type Workspace } from '../../state/shellStore'
 import { draftHolds, useStore } from '../../state/store'
 import { useFlat, flatDraftHolds } from '../../state/flatStore'
+import { useDeviation } from '../../state/deviationStore'
 import { bool, str, type JsonSchema } from '../schema'
 import { CommandError, type FileOut } from '../types'
 import { watchSession } from '../activity'
@@ -167,4 +168,17 @@ export async function nextFrame(scene?: { pumpFrame(): void } | null): Promise<v
   }
   await nextTask()
   scene?.pumpFrame()
+}
+
+/** The map against an element, measured: what any command that reads it waits
+ *  for first. The map follows its inputs in the mesh worker, so it is not in
+ *  step with them in the frame after they change — a datum moved, a facing
+ *  limit set, an undo — and a reader that took the status for the measure of
+ *  what it was just told would read the one before, or none. A frame first,
+ *  for the stores' change to reach the effect that asks; then the wait, which
+ *  is over at once when nothing is being measured. Settled is not measured:
+ *  the caller looks at the status for that. */
+export async function mapSettled(scene?: { pumpFrame(): void } | null): Promise<void> {
+  await nextFrame(scene)
+  await waitFor(() => useDeviation.getState().elementStatus !== 'running', 'the map against the element', 30_000)
 }
