@@ -45,14 +45,13 @@ import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
 import { colormapById, paintField, paintKey, type FieldScale } from '../core/field/colormap'
-import { fieldHistogram } from '../core/field/stats'
-import { deviationScale, deviationStats } from '../core/deviation/deviation'
+import { cachedDeviationStats, cachedHistogram, cachedThicknessStats } from '../core/field/readoutCache'
+import { deviationScale } from '../core/deviation/deviation'
 import {
   DEFLECTION_SMOOTHING,
   deflectionVectors,
   suggestDeflectionScale,
 } from '../core/deviation/deflection'
-import { thicknessStats } from '../core/thickness/thickness'
 import { identityRigid, rigidCompose, rigidInvert, rigidToColumnMajor } from '../core/deviation/rigid'
 import { sectionViewFrames, useSectionView } from '../state/sectionViewStore'
 import type { RefObject } from 'react'
@@ -867,12 +866,21 @@ export function useSceneSync({
     // A plugin's map brings its own figures; nothing here adds to them.
     const showing = workspace === 'deviation' || workspace === 'thickness' ? shownField() : null
     if (!showing) return
-    const { values, scale } = showing
-    const histogram = fieldHistogram(values, scale.low, scale.high, scale.validMin, scale.validMax)
+    const { values, scale, version } = showing
+    const histogram = cachedHistogram(values, version, scale.low, scale.high, scale.validMin, scale.validMax)
+    // The figures come back as the very objects the store already holds when
+    // nothing they read has moved (a tab, a source or a range tap on the same
+    // map), and setting them again would only wake every subscriber to the same
+    // numbers. The store is read here rather than subscribed to: this effect
+    // must not re-run on its own write.
     if (workspace === 'deviation') {
-      useDeviation.getState().setReadout(deviationStats(values, maxDistance, tolerance), histogram)
+      const stats = cachedDeviationStats(values, version, maxDistance, tolerance)
+      const held = useDeviation.getState()
+      if (held.stats !== stats || held.histogram !== histogram) held.setReadout(stats, histogram)
     } else {
-      useThickness.getState().setReadout(thicknessStats(values, thickLimit), histogram)
+      const stats = cachedThicknessStats(values, version, thickLimit)
+      const held = useThickness.getState()
+      if (held.stats !== stats || held.histogram !== histogram) held.setReadout(stats, histogram)
     }
   }, [
     workspace,
