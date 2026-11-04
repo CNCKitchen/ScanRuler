@@ -150,6 +150,8 @@ export interface StartPaneContent {
  * plugin's workspace is the one on screen; the rest always.
  */
 export interface PluginRuntime {
+  /** Always read: a contextual notice outside the workspace-specific panel. */
+  notice?: ReactNode
   /** The workspace's panel. */
   panel?: ReactNode
   /** Drawn on the stage just above the viewport — a sheet of the plugin's

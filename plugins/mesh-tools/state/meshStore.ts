@@ -31,7 +31,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
 
 /** The tool in hand. */
-export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell'
+export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'holes' | 'bridge' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell'
 
 /** What the viewport shows of a reduction: the reduced mesh with its
  *  triangles drawn, the scan painted with how far the reduced mesh strays
@@ -77,6 +77,7 @@ export type ScanEdit =
       open: number
     }
   | { kind: 'fill'; maxSize: number; mode: FillMode; holes: number; triangles: number }
+  | { kind: 'bridge'; width: number; span: number; triangles: number; bend?: number }
   | {
       kind: 'smooth'
       /** Bumps smaller than this across smoothed out, mm, and no point moved
@@ -737,6 +738,8 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return `Cut at ${cutPlaneText(e.plane, units)}${e.capped > 0 ? `, closed flat` : ''}`
     case 'fill':
       return `Filled ${count(e.holes)} hole${e.holes === 1 ? '' : 's'} under ${len(e.maxSize)}${e.mode === 'flat' ? ', flat' : ''}`
+    case 'bridge':
+      return `Bridged a ${len(e.span)} gap, width ${len(e.width)}${e.bend !== undefined && e.bend < 1 ? `, ${(e.bend * 100).toFixed(1)}% sampled bow` : ''}`
     case 'smooth':
       return `Smoothed bumps under ${len(e.size)}${e.region ? ' in a marked region' : ''}, within ${len(e.limit)}`
     case 'boolean':
@@ -762,6 +765,7 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
     case 'cut':
       return `−${count(e.removed)} △`
     case 'fill':
+    case 'bridge':
       return `+${count(e.triangles)} △`
     case 'smooth':
       return `≤ ${fmtLen(e.maxMove, units, 3)}`

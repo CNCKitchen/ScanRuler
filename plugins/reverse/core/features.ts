@@ -743,7 +743,7 @@ export interface BooleanFeature extends FeatureFlags {
 
 /** A sketch's pieces — an open chain, or a closed one — extruded as a
  *  surface, not a solid: a cutter to split a body with, a body of its own
- *  in the list, marked as a surface, never exported alone. */
+ *  in the list, marked as a surface, exported only with includeSheets. */
 export interface SheetFeature extends FeatureFlags {
   id: number
   kind: 'sheet'

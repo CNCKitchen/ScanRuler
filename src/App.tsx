@@ -8,7 +8,7 @@
 // its edges, project files, each plugin's hook (called in the same order
 // every render) and the agent connection.
 
-import { useEffect, useMemo, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { useProjectHistory } from './app/useProjectHistory'
 import { clearHistory, historyAction } from './state/historyStore'
 import { MeshWorkerClient } from './core/workerClient'
@@ -1557,6 +1557,7 @@ export default function App() {
       />
       <RecoveryBar recovery={recovery} />
       <ConnectorBar />
+      {runtimes.map((runtime, index) => <Fragment key={plugins()[index].id}>{runtime.notice}</Fragment>)}
       <div className="mid">
         {onDeviation ? (
           <DeviationPanel

@@ -52,6 +52,7 @@ import type { ReduceReport } from '../core/reduce'
 import { boundLength } from '../../../src/app/useUnits'
 import type { DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
+import type { BridgeSettings } from '../core/bridge'
 
 const count = (n: number) => n.toLocaleString('en-US')
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -407,10 +408,30 @@ export function createMeshToolsSession({
           edit: { kind: 'delete', triangles: n },
           status: `Deleted ${count(n)} triangles of marked surface. Ctrl+Z puts them back.`,
         }
+
       },
       run,
     )
   }
+
+  const deleteTriangles = (triangles: Uint32Array, run?: EditRun) =>
+    workerEdit(
+      'Mesh Tools: delete selected triangles',
+      'Deleting the selected surface...',
+      () => {
+        const mesh = sceneRef.current?.scanMesh()
+        if (!mesh) throw new Error('The deletion preview needs the current mesh in the viewport.')
+        return { type: 'delete-triangles', triangles, preview: { positions: mesh.positions.slice(), indices: mesh.indices.slice() } }
+      },
+      (r) => {
+        if (r.kind !== 'delete') throw new Error('The worker returned an unexpected deletion report.')
+        return {
+          edit: { kind: 'delete', triangles: r.triangles },
+          status: `Deleted ${count(r.triangles)} selected triangles. Unselected surface is unchanged. Ctrl+Z puts them back.`,
+        }
+      },
+      run,
+    )
 
   /** Turn the copy's triangles over — every one, or those of the surface
    *  marked on the part (or `region`, given) — so they face the other way.
@@ -475,6 +496,23 @@ export function createMeshToolsSession({
       run,
     )
   }
+
+  const bridgeScan = (settings: BridgeSettings, run?: EditRun) =>
+    workerEdit(
+      'Mesh Tools: bridge a gap',
+      'Bridging the gap...',
+      () => ({ type: 'bridge', settings }),
+      (r) => {
+        if (r.kind !== 'bridge') throw new Error('The mesh worker returned the wrong report for the bridge.')
+        const { width, span, triangles } = r.report
+        const len = lengthsOf(run?.units)
+        return {
+          edit: { kind: 'bridge', width, span, triangles, ...(settings.bend !== undefined && settings.bend !== 1 ? { bend: settings.bend } : {}) },
+          status: `Bridged ${len.fmt(span)} with ${count(triangles)} triangles. The inferred surface is not measured scan data. Use Fill holes on the enclosed opening. Ctrl+Z removes the bridge.`,
+        }
+      },
+      run,
+    )
 
   /** Close every hole under the size in the panel — or, given a point, the
    *  one of them nearest it alone. */
@@ -822,9 +860,11 @@ export function createMeshToolsSession({
     discardEditedCopy,
     removeIslands,
     deleteMarked,
+    deleteTriangles,
     flipScan,
     cutScan,
     fillScanHoles,
+    bridgeScan,
     smoothScan,
     offsetScan,
     shellScan,

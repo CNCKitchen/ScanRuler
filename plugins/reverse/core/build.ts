@@ -4639,22 +4639,22 @@ export class Builder {
 
   /** One STEP file of the given bodies — the solids, and a patch network's
    *  sheet, a part's skin; any other sheet is a cutter, not a part, and
-   *  stays out. With labels, one per id, each body is a part under its name
+   *  stays out unless includeSheets is true. With labels, one per id, each body is a part under its name
    *  and in its colour. */
-  exportStep(ids: readonly number[], labels?: readonly StepLabel[]): string {
-    return this.exportStepMended(ids, labels).text
+  exportStep(ids: readonly number[], labels?: readonly StepLabel[], includeSheets = false): string {
+    return this.exportStepMended(ids, labels, includeSheets).text
   }
 
   /** The same, and what was mended in it: a part that read back open by
    *  hairs, its curves made to end on their corners
    *  (ReKernel.exportStepMended). */
-  exportStepMended(ids: readonly number[], labels?: readonly StepLabel[]): { text: string; mended: StepMend[]; check?: StepCheck } {
-    const kept = this.stepBodies(ids, labels)
+  exportStepMended(ids: readonly number[], labels?: readonly StepLabel[], includeSheets = false): { text: string; mended: StepMend[]; check?: StepCheck } {
+    const kept = this.stepBodies(ids, labels, includeSheets)
     const bodies = kept.map((x) => x.body)
     const out = this.kernel.exportStepMended(
       bodies.map((b) => b.shape),
       labels ? kept.map((x) => x.label ?? { name: x.body.name }) : undefined,
-      bodies.map((b) => b.surface === true && b.patches !== undefined),
+      bodies.map((b) => b.surface === true),
     )
     return out.check ? { ...out, check: this.withMakers(out.check, bodies) } : out
   }
@@ -4671,15 +4671,15 @@ export class Builder {
 
   /** The STEP file exportStep wrote of these bodies, read back and held
    *  against them (ReKernel.verifyStep). */
-  verifyStep(ids: readonly number[], text: string): StepCheck {
-    const bodies = this.stepBodies(ids).map((x) => x.body)
-    return this.withMakers(this.kernel.verifyStep(text, bodies.map((b) => b.shape), { sheets: bodies.map((b) => b.surface === true && b.patches !== undefined) }), bodies)
+  verifyStep(ids: readonly number[], text: string, includeSheets = false): StepCheck {
+    const bodies = this.stepBodies(ids, undefined, includeSheets).map((x) => x.body)
+    return this.withMakers(this.kernel.verifyStep(text, bodies.map((b) => b.shape), { sheets: bodies.map((b) => b.surface === true) }), bodies)
   }
 
   /** The solids of the given bodies, and a network's sheet, each with its
    *  label: what a STEP file holds of them. */
-  private stepBodies(ids: readonly number[], labels?: readonly StepLabel[]) {
-    return ids.map((id, i) => ({ body: this.bodyById(id), label: labels?.[i] })).filter((x): x is { body: Body; label: StepLabel | undefined } => x.body !== undefined && (!x.body.surface || x.body.patches !== undefined))
+  private stepBodies(ids: readonly number[], labels?: readonly StepLabel[], includeSheets = false) {
+    return ids.map((id, i) => ({ body: this.bodyById(id), label: labels?.[i] })).filter((x): x is { body: Body; label: StepLabel | undefined } => x.body !== undefined && (includeSheets || !x.body.surface || x.body.patches !== undefined))
   }
 
   dispose(): void {

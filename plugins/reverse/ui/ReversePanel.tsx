@@ -18,7 +18,7 @@ import { SweepIcon } from './SweepFields'
 import { useStore } from '../../../src/state/store'
 import { useThickness } from '../../../src/state/thicknessStore'
 import { useLength } from '../../../src/app/useUnits'
-import type { SketchChains } from '../app/useReverseWorkspace'
+import type { SketchChains, StepExportState } from '../app/useReverseWorkspace'
 import { ElementRow } from '../../../src/ui/ElementRow'
 import { Icon } from '../../../src/ui/icons'
 import { InfoDot } from '../../../src/ui/InfoDot'
@@ -52,7 +52,8 @@ function exprNote(f: Feature): string {
   return exprs.length > 0 ? ` · ${exprs.map(([slot, e]) => `${slot} = ${e}`).join(', ')}` : ''
 }
 
-export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: { onOpenScan: (file: File) => void; onExportStep: () => void; onCompare: () => void; chainsOf: () => SketchChains | null }) {
+export function ReversePanel({ onOpenScan, onExportStep, stepExport, onCompare, chainsOf }: { onOpenScan: (file: File) => void; onExportStep: (includeSheets: boolean) => void; stepExport: StepExportState | null; onCompare: () => void; chainsOf: () => SketchChains | null }) {
+  const [includeSheets, setIncludeSheets] = useState(false)
   const fileName = useStore((s) => s.fileName)
   const triangleCount = useStore((s) => s.triangleCount)
   const busy = useStore((s) => s.busy)
@@ -128,7 +129,8 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
   const hasSolidElement = elements.some((e) => e.fit && (e.fit.kind === 'plane' || e.fit.kind === 'cylinder' || e.fit.kind === 'cone' || e.fit.kind === 'sphere' || e.fit.kind === 'torus'))
   const hasShadow = sections.some((x) => x.kind === 'shadow')
   // A Patch network's sheet is a skin of the part: it goes into the file too.
-  const canExport = bodies.some((b) => b.visible && (b.closed || (b.surface && features.some((f) => f.kind === 'network' && f.id === bodyMaker(b.id))))) && !building
+  const exporting = stepExport?.phase === 'running'
+  const canExport = ready && !busy && !exporting && bodies.some((b) => b.visible && (b.closed || (b.surface && (includeSheets || features.some((f) => f.kind === 'network' && f.id === bodyMaker(b.id)))))) && !building
   const canCompare = Boolean(fileName) && bodies.some((b) => b.visible && !b.surface) && !building && !busy
 
   // The rollback bar: dragged between the rows, it lands in the gap nearest
@@ -570,18 +572,25 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
         <>
           <div className="divider" />
           <div className="toolrow">
-            <button className="withicon" data-test="export-body-step" disabled={!canExport} onClick={onExportStep} title="Write every visible body into one STEP file as solids — what FreeCAD and Fusion open as a body">
+            <button className="withicon" data-test="export-body-step" disabled={!canExport} onClick={() => onExportStep(includeSheets)} title="Write visible solids and network skins into STEP; Include open sheets also exports visible fitted and cutting sheets">
               <Icon name="exportStep" size={18} />
-              Export body STEP
+              {exporting ? 'Exporting STEP...' : 'Export body STEP'}
             </button>
             <button className="withicon" data-test="compare-in-deviation" disabled={!canCompare} onClick={onCompare} title="Measure the scan against the visible bodies in the Deviation workspace — its scale, histogram, pins and report. The bodies go in as the reference part; no best fit is run, they stand in the scan's frame already">
               <Icon name="compare" size={18} />
               Compare in Deviation
             </button>
           </div>
+          <div className="checkrow">
+            <label>
+              <input type="checkbox" data-test="include-sheet-step" disabled={exporting} checked={includeSheets} onChange={(e) => setIncludeSheets(e.target.checked)} />
+              Include open sheets
+            </label>
+            <InfoDot title="Open-sheet STEP export">Export visible fitted surfaces and cutting sheets without closing or thickening them. Hide helper sheets first. Off by default; solid and patch-network exports are unchanged.</InfoDot>
+          </div>
+          {stepExport && <p className={`hint${stepExport.phase === 'error' ? ' warn' : ''}`} role={stepExport.phase === 'error' ? 'alert' : 'status'} data-test="step-export-status">{stepExport.text}</p>}
         </>
       )}
     </aside>
   )
 }
-

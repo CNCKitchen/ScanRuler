@@ -9,6 +9,7 @@ import { buildMeshFile, type MeshFormat } from '../../../src/core/exportMesh'
 import { parsePLY } from '../../../src/core/parsers/ply'
 import { rigidApplyToPoints } from '../../../src/core/deviation/rigid'
 import { exportStem, saveBuilt, type BuiltFile } from '../../../src/app/exports'
+import { projectOutputDirectory, usesLocalOutput, writeMeshExport } from '../../../src/app/projectRevisions'
 import { useStore } from '../../../src/state/store'
 import { useDeviation } from '../../../src/state/deviationStore'
 import { editedCopy } from '../state/editedCopy'
@@ -42,10 +43,31 @@ export function buildEditedMesh(format: MeshFormat): BuiltFile | null {
 }
 
 /** Hand the edited copy over as an STL or a 3MF — see buildEditedMesh. */
-export const exportEditedMesh = (format: MeshFormat) => {
+let exporting = false
+
+export const exportEditedMesh = async (format: MeshFormat): Promise<void> => {
+  if (exporting) return
+  exporting = true
   try {
-    saveBuilt(buildEditedMesh(format))
+    if (!editedCopy.current) throw new Error('There is no edited copy to export.')
+    if (usesLocalOutput()) {
+      const file = buildEditedMesh(format)
+      if (!file) throw new Error('There is no edited copy to export.')
+      await saveBuilt(file)
+    } else {
+      const directory = await projectOutputDirectory()
+      const file = buildEditedMesh(format)
+      if (!file) throw new Error('There is no edited copy to export.')
+      const name = await writeMeshExport(directory, file.name, file.bytes, file.mimeType)
+      useStore.getState().setStatus(`Edited copy exported to ${directory.name}\\${name}.`)
+    }
   } catch (e) {
-    useStore.getState().setError(`Export failed — ${e instanceof Error ? e.message : String(e)}`)
+    if (e instanceof DOMException && e.name === 'AbortError') {
+      useStore.getState().setStatus('Export cancelled. No mesh file was written.')
+    } else {
+      useStore.getState().setError(`Export failed — ${e instanceof Error ? e.message : String(e)}`)
+    }
+  } finally {
+    exporting = false
   }
 }

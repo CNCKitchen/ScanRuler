@@ -13,7 +13,7 @@ import { count } from './meshFormat'
 /** The copy of the scan the tools have edited, and what to do with it: the
  *  edits made on it, how large it is, and the buttons that take it into use
  *  or throw it away. */
-export function EditedCopy({ busy, onUse, onDiscard, onExport }: { busy: boolean; onUse: () => void; onDiscard: () => void; onExport: (format: MeshFormat) => void }) {
+export function EditedCopy({ busy, onUse, onMeasure, onDiscard, onExport }: { busy: boolean; onUse: () => void; onMeasure: () => void; onDiscard: () => void; onExport: (format: MeshFormat) => void }) {
   const pending = useMeshTools((s) => s.pending)
   const triangles = useMeshTools((s) => s.copyTriangles)
   const scanTriangles = useStore((s) => s.triangleCount)
@@ -80,6 +80,11 @@ export function EditedCopy({ busy, onUse, onDiscard, onExport }: { busy: boolean
           Use for analysis
         </button>
       </div>
+      <button className="block" data-test="measure-edited" disabled={busy} onClick={onMeasure}
+        title="Take the edited mesh into use, refit existing elements and open 3D Measure. Ctrl+Z reverses taking it into use.">
+        Measure edited mesh
+      </button>
+      <p className="hint">Loads the repairs into analysis and refits existing measurements. Your source file is not overwritten. New surface in missing scan areas needs a reference model to assess deviation.</p>
     </div>
   )
 }

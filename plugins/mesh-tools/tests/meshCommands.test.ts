@@ -19,6 +19,7 @@ import { refused, run, startHeadless, stlBytes, undoLabels, type Headless } from
 import { createMeshToolsSession, installMeshToolsSession } from '../app/meshToolsSession'
 import { useMeshTools } from '../state/meshStore'
 import plugin from '../plugin'
+import { bridgeFixture } from './bridgeFixture'
 
 // Kernel builds and real-scan fits run long, and longer on a slow machine.
 vi.setConfig({ testTimeout: 180_000 })
@@ -116,13 +117,87 @@ describe('cleaning a scan up through the commands', () => {
     expect((await refused('mesh.inspect')).code).toBe('no_scan')
     const mesh = listCommands().filter((c) => c.name.startsWith('mesh.'))
     expect(mesh.map((c) => c.name)).toEqual(
-      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
+      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.bridge', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
     )
     for (const c of mesh) {
       const w = schemaWeight(c.input)
       expect(w.bytes, c.name).toBeLessThanOrEqual(SCHEMA_BUDGET.bytes)
       expect(w.depth, c.name).toBeLessThanOrEqual(SCHEMA_BUDGET.depth)
     }
+  })
+
+  it('previews without edits, bridges, fills the enclosed hole, and undoes both through the worker', async () => {
+    const g = bridgeFixture(0.01)
+    const soup = Float32Array.from(Array.from(g.indices).flatMap((v) => Array.from(g.positions.subarray(v * 3, v * 3 + 3))))
+    await open('bay.stl', soup)
+    useHistory.setState({ past: [], future: [] })
+    const before = await run<Figures>('mesh.parts')
+    const preview = await run<{ preview: boolean; report: { triangles: number } }>('mesh.bridge', { points: g.points, width: 1.5, preview: true })
+    expect(preview.preview).toBe(true)
+    expect(preview.report.triangles).toBeGreaterThan(0)
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    expect(undoLabels()).toHaveLength(0)
+    const bridged = await run<EditAnswer>('mesh.bridge', { points: g.points, width: 1.5 })
+    expect(bridged.edit.kind).toBe('bridge')
+    expect(bridged.mesh.bad).toBe(0)
+    expect(bridged.mesh.working).toBe('edited copy')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge'])
+    const seen = await run<{ holes: { holes: number } }>('mesh.inspect', { holeSize: 10 })
+    expect(seen.holes.holes).toBe(1)
+    await run('mesh.fill_holes', { size: 10, at: [0, 1, 0] })
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge', 'fill'])
+    await run('history.undo')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge'])
+    await run('history.undo')
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    const restored = await run<Figures>('mesh.parts')
+    expect(restored).toEqual(before)
+    await run('history.redo')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge'])
+    const failed = await refused('mesh.bridge', { points: g.points, width: -1 })
+    expect(failed.code).toBe('invalid_input')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge'])
+  })
+
+  it('passes retained bend through preview and apply and rejects invalid factors without edits', async () => {
+    const g = bridgeFixture(0.01)
+    const soup = Float32Array.from(Array.from(g.indices).flatMap((v) => Array.from(g.positions.subarray(v * 3, v * 3 + 3))))
+    await open('reduced-bow.stl', soup)
+    useHistory.setState({ past: [], future: [] })
+    const settings = { points: g.points, width: 1.5, bend: 0.5 }
+    const result = await run<{ preview: boolean }>('mesh.bridge', { ...settings, preview: true })
+    expect(result.preview).toBe(true)
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    await run('mesh.bridge', settings)
+    expect(useMeshTools.getState().pending[0]).toMatchObject({ kind: 'bridge', bend: 0.5 })
+    await run('history.undo')
+    for (const bend of [-0.1, 1.1]) {
+      expect((await refused('mesh.bridge', { ...settings, bend })).code).toBe('invalid_input')
+    }
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+  })
+
+  it('passes unequal sample counts through preview and apply, and refuses invalid splits', async () => {
+    const g = bridgeFixture()
+    const soup = Float32Array.from(Array.from(g.indices).flatMap((v) => Array.from(g.positions.subarray(v * 3, v * 3 + 3))))
+    await open('unequal-bay.stl', soup)
+    useHistory.setState({ past: [], future: [] })
+    const points = [g.points[0], g.points[2], ...g.points.slice(3)]
+    const settings = { points, firstSideCount: 2, width: 1.5 }
+    const preview = await run<{ preview: boolean; report: { triangles: number } }>('mesh.bridge', { ...settings, preview: true })
+    expect(preview.preview).toBe(true)
+    expect(preview.report.triangles).toBeGreaterThan(0)
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    expect(undoLabels()).toHaveLength(0)
+    await refused('mesh.bridge', { ...settings, firstSideCount: 4, preview: true })
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    const result = await run<EditAnswer>('mesh.bridge', settings)
+    expect(result.edit.kind).toBe('bridge')
+    expect(result.mesh.bad).toBe(0)
+    await run('history.undo')
+    expect(useMeshTools.getState().pending).toHaveLength(0)
+    await run('history.redo')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['bridge'])
   })
 
   it('takes a speck off, deletes the top face, fills it, cuts, expands and hollows — a step each, all undone', async () => {

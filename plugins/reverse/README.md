@@ -7,6 +7,23 @@ documentation.
 
 ## Reverse engineer: from scan to a solid STEP body
 
+STEP export normally includes solids and patch-network skins, leaving fitted
+surfaces and cutting sheets out. Enable **Include open sheets** beside
+**Export body STEP** to export those visible sheets too, without closing holes
+or inventing thickness. Hide helper sheets and trimming solids first.
+The button changes to **Exporting STEP...** while the file is prepared and
+blocks repeated clicks. Progress, errors and completion appear beside it.
+In the customized Windows localhost app, a standard **Save As** dialog chooses
+the destination. The initial export folder is the project-save folder;
+subsequent exports of any format use the last successfully chosen export
+folder without changing the project-save default. Other deployments use the
+browser's Downloads list (**Ctrl+J** in Edge). This UI export does not
+perform geometry read-back verification. All-sheet exports skip the solid-only
+gap-mending readback; explicitly requested verification still runs normally.
+The agent command `reverse.export.step` supports the same opt-in with
+`includeSheets: true`; give `bodies` to select only the intended surfaces and
+`verify: true` to read back and validate the exported open sheets.
+
 The fourth workspace turns the scan into a **solid body** — a closed B-rep in
 a STEP file that FreeCAD and Fusion open as a body, not the analytic datums
 the 3D Measure workspace exports. It is built the way every reverse-engineering
@@ -586,7 +603,8 @@ the Move or takes it out.
    bodies transparent turns the veil round, and both solid shows where
    each stands proud of the other. The **Deviation** key at the side colours
    the scan against the committed bodies the way the ghost's map did.
-   **Export body STEP** writes every visible body as solids into one file,
+   **Export body STEP** writes visible solids and network skins into one file;
+   **Include open sheets** also includes visible fitted and cutting sheets,
    each a part under its name and in its colour: a body is named by a double
    click on its row and coloured from the swatches its dot opens.
 11. **Compare in Deviation** takes the visible solid bodies to the Deviation
