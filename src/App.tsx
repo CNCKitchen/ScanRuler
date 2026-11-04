@@ -102,7 +102,7 @@ import { creaseNote } from './app/scanImport'
 import { useFlatSceneSync, type SheetView } from './app/useFlatSceneSync'
 import { buildFlatCsvFile, drawnSummary, flatExportStem, flatReportInput } from './app/flatReport'
 import { sheetAlignment, sheetElements, sheetFrame, sheetLoupeActive, sheetNotes, sheetPoseOf, sheetScale } from './app/flatSheet'
-import { useHintChip } from './app/useHints'
+import { HintsProvider, useHintChip } from './app/useHints'
 import { useGlobalShortcuts } from './app/useGlobalShortcuts'
 import { useDragDrop } from './app/useDragDrop'
 import { useOpenFromAddress } from './app/useOpenFromAddress'
@@ -119,7 +119,18 @@ const NO_RUNTIME: PluginRuntime = {}
  *  split for it again, ms: a slider dragged across splits it once. */
 const CREASE_SETTLE_MS = 250
 
+/** The hint ladder is asked once, here, and handed down to every control that
+ *  can ring (usePulse) and to the chip over the model (useHintChip). It sits
+ *  above the whole app so a portal or a plugin's panel is under it too. */
 export default function App() {
+  return (
+    <HintsProvider>
+      <Workbench />
+    </HintsProvider>
+  )
+}
+
+function Workbench() {
   const clientRef = useRef<MeshWorkerClient | null>(null)
   if (!clientRef.current) clientRef.current = new MeshWorkerClient()
   const sceneRef = useRef<SceneManager | null>(null)

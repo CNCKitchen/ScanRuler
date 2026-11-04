@@ -3,7 +3,7 @@
 // ladder in core/hints what is still missing, and hands the answer to whichever
 // control is that step.
 
-import { useEffect } from 'react'
+import { createContext, createElement, useContext, useEffect, useMemo, type ReactNode } from 'react'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { nextHint, type HintInput, type HintResult, type HintTrack } from '../core/hints'
 import { useDeviation } from '../state/deviationStore'
@@ -124,27 +124,56 @@ export function hintNow(): HintResult {
   })
 }
 
+/** What the ladder says right now, boiled down to the three primitives the
+ *  controls need: the control to ring, the sentence for the chip, and whether
+ *  the workspace has been carried through. */
+interface Ladder {
+  active: string | null
+  text: string | null
+  done: boolean
+}
+
+/** Outside a HintsProvider nothing rings and nothing is said, which is what a
+ *  control rendered on its own (a test, a story) should do. */
+const SILENT: Ladder = { active: null, text: null, done: false }
+const LadderContext = createContext<Ladder>(SILENT)
+
+/** Asks the ladder once for the whole app. It used to be asked by every
+ *  control that can ring — one copy of the same twenty-odd store
+ *  subscriptions per control, each re-rendering its control on every change to
+ *  any of them — and the answer is the same for all of them. The value only changes when
+ *  the answer does, so a control is drawn again when its ring or the chip's
+ *  sentence moves, not when something the ladder merely looked at did. */
+export function HintsProvider({ children }: { children: ReactNode }) {
+  const result = useLadder()
+  const step = typeof result === 'object' && result !== null ? result : null
+  const active = step?.target ?? null
+  const text = step?.text ?? null
+  const done = result === 'done'
+  const value = useMemo(() => ({ active, text, done }), [active, text, done])
+  return createElement(LadderContext.Provider, { value }, children)
+}
+
 /** True when this control is the step to press next. Give it the control's own
  *  data-test id and put the returned class on the element — see `.pulse`. */
 export function usePulse(target: string): boolean {
-  const result = useLadder()
-  return typeof result === 'object' && result !== null && result.target === target
+  return useContext(LadderContext).active === target
 }
 
 /** The line for the chip over the model, or null when there is nothing to say
  *  or something on the stage is already saying it.
  *
- *  App's alone, and called exactly once: this is also where a workspace is
- *  recorded as carried through, which is what eventually retires its ring. */
+ *  App's alone, and called exactly once, under the HintsProvider: this is also
+ *  where a workspace is recorded as carried through, which is what eventually
+ *  retires its ring. */
 export function useHintChip(): string | null {
-  const result = useLadder()
+  const { text, done } = useContext(LadderContext)
   const workspace = useShell((s) => s.workspace)
   const markRun = useHintPrefs((s) => s.markRun)
-  const done = result === 'done'
 
   useEffect(() => {
     if (done) markRun(workspace)
   }, [done, workspace, markRun])
 
-  return typeof result === 'object' && result !== null ? result.text : null
+  return text
 }
