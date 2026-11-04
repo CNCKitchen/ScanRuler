@@ -756,7 +756,9 @@ export function useSceneSync({
   /** A plugin's `fieldVersion` is anything that changes when its map does —
    *  a string, the reading itself — so it is counted here into the number
    *  the paint key wants. A plugin that gives none can never be told to be
-   *  unchanged, and is painted every time. */
+   *  unchanged, and is painted every time. One count serves every plugin:
+   *  it only ever rises, and a buffer's key holds the count it was painted
+   *  under, so one plugin's version cannot pass for another's. */
   const pluginSerial = useRef<{ last: unknown; n: number }>({ last: undefined, n: 0 })
   /** The key each colour buffer was last painted under, so a repaint of what
    *  is already in it — a tab taken, the map put away and back — is skipped.
@@ -825,7 +827,9 @@ export function useSceneSync({
     }
     // Nothing a paint reads has changed since this buffer was last painted
     // (a tab taken, the map put away and back): its colours stand, and the
-    // scene is told so it does not lay them on or upload them again.
+    // scene is told so it does not lay them on or upload them again. This
+    // leans on a buffer only ever being handed to the scan state that is
+    // showing: the mesh tools' edited-copy swap runs before this effect.
     const map = colormapById(colormap)
     const key = paintKey(version, scale, map.id)
     const repainted = painted.current.get(rgb) !== key

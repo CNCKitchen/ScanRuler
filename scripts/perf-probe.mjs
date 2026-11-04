@@ -644,7 +644,8 @@ try {
   await run([
     { label: 'Deviation: map off', sel: '[data-test=toggle-colormap]', settle: 1500, budget: { links: 0 } },
     // Plan task 2: a colour buffer that did not change is not uploaded again.
-    { label: 'Deviation: map on', sel: '[data-test=toggle-colormap]', settle: 1500, budget: { links: 0, uploadMB: 0 } },
+    // The picture changes here (bare to map), so one colour upload is the floor (ruling R9).
+    { label: 'Deviation: map on', sel: '[data-test=toggle-colormap]', settle: 1500, budget: { links: 0, uploadMB: 0.7 } },
   ])
   await ensureProbes()
   await run([
@@ -746,7 +747,8 @@ try {
     tabRow('Tab → 3D Measure (maps in hand)', 'workspace-elements', { budget: { inpMs: { bare: 62, rich: 258 }, links: 0 } }),
     // Plan task 2: a map already painted is not uploaded again on the way in.
     tabRow('Tab → Surface Deviation (map in hand)', 'workspace-deviation', { budget: { uploadMB: 0, inpMs: { bare: 84, rich: 263 }, links: 0 } }),
-    tabRow('Tab → Wall Thickness (map in hand)', 'workspace-thickness', { budget: { uploadMB: 0, inpMs: { bare: 90, rich: 235 } } }),
+    // Bare to the thickness map: one colour upload is the floor (ruling R9).
+    tabRow('Tab → Wall Thickness (map in hand)', 'workspace-thickness', { budget: { uploadMB: 0.7, inpMs: { bare: 90, rich: 235 } } }),
     tabRow('Tab → Surface Deviation (from thickness)', 'workspace-deviation', { budget: { inpMs: { bare: 78, rich: 252 }, links: 0 } }),
   ])
   await run([
