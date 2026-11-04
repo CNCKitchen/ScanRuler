@@ -313,12 +313,12 @@ const render: Command<{ width?: number; height?: number; view?: StandardView; vi
         await nextFrame(scene)
       }
       await sectioned(scene, section)
+      // The map in the picture, and what is said of it, is the one measured
+      // for what the view was just told, not the one before it.
+      await mapSettled(scene)
       const pictured = views ? await sheetOfViews(scene, views, width, height, show) : await picture(scene, width, height, view, show)
       // A sheet of views fits each; otherwise only fit: true does.
       const framed = framing(scaleOf(scene), frame, Boolean(views) || (!frame && fit === true))
-      // What the picture says of the map is said of the one measured, not of
-      // the one before it.
-      await mapSettled(scene)
       return { ...pictured, ...framed, ...whyOf(scene, show), ...absentOf(done), ...describeMapPainted(scene.mapPainted()) }
     } finally {
       // What was put away or cut for the picture comes back; the frame stays.
