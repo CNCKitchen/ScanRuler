@@ -75,7 +75,7 @@ Production, bare scenario:
 | Thickness: histogram off | 40 | 48 | 0 ms | – |
 | Thickness: histogram on | 40 | 40 | 0 ms | – |
 | Tab → 3D Measure (reference loaded) | 80 | 80 | 0 ms | 0.6 MB |
-| Tab → Surface Deviation (first show of the reference) | 72 | 72 | 0 ms | 0.6 MB |
+| Tab → Surface Deviation (after reference load; INP first = the first show) | 72 | 72 | 0 ms | 0.6 MB |
 | Deviation: map off | 48 | 56 | 0 ms | 0.6 MB |
 | Deviation: map on | 64 | 80 | 0 ms | 0.6 MB |
 | Deviation: split on | 104 | 144 | 51 ms | 1 links, 6.8 MB, 1 new ctx |
