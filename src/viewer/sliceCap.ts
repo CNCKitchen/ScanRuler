@@ -3,7 +3,7 @@
 // SceneManager.setSlicePlane and setSectionView.
 
 import * as THREE from 'three'
-import { closedShells } from '../core/geometry/closedShells'
+import { closedShells, type ClosedShells } from '../core/geometry/closedShells'
 import { CAPPED_TRIANGLES } from './clipRaycast'
 import { hatch } from './hatch'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
@@ -57,14 +57,41 @@ export interface ClosedPart {
  *  nothing. */
 const closedCache = new WeakMap<object, ClosedPart>()
 
-/** The closed shells of a part's geometry — see core/geometry/closedShells. */
+/** The closed shells of a part's geometry — see core/geometry/closedShells.
+ *  Found here, on the main thread, only when nothing primed them (see
+ *  primeClosedPart). */
 export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
   const index = geometry.getIndex()
   const position = geometry.getAttribute('position')
   const key = index ?? position
   const known = closedCache.get(key)
   if (known) return known
-  const shells = closedShells(position.array as Float32Array, index ? index.array : null)
+  const part = partOf(closedShells(position.array as Float32Array, index ? index.array : null), index)
+  closedCache.set(key, part)
+  return part
+}
+
+/**
+ * Keep closed shells found elsewhere as this geometry's — the mesh worker's,
+ * found on its own welded copy of the same triangles in the same order (a
+ * split for shading only repeats corners, bit for bit) — so the first cut
+ * of a part loaded does not search it on the main thread. False, and
+ * nothing kept, when the answer cannot be about these triangles: a part
+ * replaced while it was on its way has another count of them.
+ */
+export function primeClosedPart(geometry: THREE.BufferGeometry, shells: ClosedShells): boolean {
+  const index = geometry.getIndex()
+  const position = geometry.getAttribute('position')
+  const total = Math.floor((index ? index.count : position.count) / 3)
+  if (shells.closed.length !== total) return false
+  const key = index ?? position
+  if (!closedCache.has(key)) closedCache.set(key, partOf(shells, index))
+  return true
+}
+
+/** The closed shells of a part with the index of their corners, when they
+ *  are not all of it. */
+function partOf(shells: ClosedShells, index: THREE.BufferAttribute | null): ClosedPart {
   const total = shells.closed.length
   let subset: Uint32Array | null = null
   if (shells.count > 0 && shells.count < total) {
@@ -75,9 +102,7 @@ export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
       for (let c = 0; c < 3; c++) subset[k++] = index ? index.getX(3 * t + c) : 3 * t + c
     }
   }
-  const part = { closed: shells.closed, count: shells.count, total, index: subset }
-  closedCache.set(key, part)
-  return part
+  return { closed: shells.closed, count: shells.count, total, index: subset }
 }
 
 export interface SliceCapOptions {

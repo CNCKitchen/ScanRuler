@@ -42,6 +42,7 @@ import { planeRegionReport, segmentPlanes } from './fit/segment'
 import { meanCurvature } from './geometry/curvature'
 import { scanSpot } from './geometry/nearest'
 import { boundsOf } from './geometry/bounds'
+import { closedShells } from './geometry/closedShells'
 import { gatherVertices, queryVertices } from './geometry/query'
 import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
@@ -542,6 +543,20 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }
+    return
+  }
+
+  if (msg.type === 'closed-shells') {
+    // On the welded copy held here: the render thread's is split for
+    // shading, but its triangles are these, in this order, and its corners
+    // are copies of these bit for bit — which is what closedShells welds on.
+    const mesh = msg.which === 'scan' ? (graph ? { positions: graph.positions, indices: graph.indices } : null) : nominal ? { positions: nominal.positions, indices: nominal.index } : null
+    if (!mesh) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const { closed, count } = closedShells(mesh.positions, mesh.indices)
+    post({ type: 'closed-shells-ok', requestId: msg.requestId, closed, count }, [closed.buffer])
     return
   }
 

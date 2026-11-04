@@ -64,7 +64,8 @@ import {
 } from './surfaceModes'
 import { principalAxis } from './scanLayout'
 import { patchScanShader } from './scanShader'
-import { CAP_SLOT, closedPartOf, cutColor, SliceCap, type ClosedPart } from './sliceCap'
+import { CAP_SLOT, closedPartOf, cutColor, primeClosedPart, SliceCap, type ClosedPart } from './sliceCap'
+import type { ClosedShells } from '../core/geometry/closedShells'
 import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
@@ -100,6 +101,51 @@ interface HeldCap {
   geometry: THREE.BufferGeometry
   index: THREE.BufferAttribute | null
   theme: ViewTheme
+}
+
+/** A program to warm before it is wanted — see SceneManager.warmPrograms:
+ *  the name its material is kept under, what that material was made from
+ *  (a live material, or a name for one made the same way every time), and
+ *  how to dress a throwaway scene with it, giving back what is to be kept. */
+interface WarmJob {
+  key: string
+  from: object | string
+  make: (scene: THREE.Scene) => { dispose(): void }
+}
+
+/** How much of an idle period has to be left for another program to be
+ *  warmed in it, ms: one usually takes the whole period and more. */
+const WARM_SLACK_MS = 10
+
+/** A turn of idle time for `run` — or half a second on, where the browser
+ *  has no idle callbacks; the returned function takes it back. */
+function inIdle(run: (deadline: IdleDeadline | null) => void): () => void {
+  if (typeof requestIdleCallback === 'function') {
+    const handle = requestIdleCallback((deadline) => run(deadline))
+    return () => cancelIdleCallback(handle)
+  }
+  const handle = setTimeout(() => run(null), 500)
+  return () => clearTimeout(handle)
+}
+
+/** Three corners at the origin, with every attribute `geometry` has — the
+ *  program drawn with is chosen by them as well as by the material — and
+ *  nothing to draw: what a program is warmed on (see warmPrograms). */
+function warmGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const tiny = new THREE.BufferGeometry()
+  for (const [name, attribute] of Object.entries(geometry.attributes)) {
+    if (!(attribute instanceof THREE.BufferAttribute)) continue
+    const array = new (attribute.array.constructor as THREE.TypedArrayConstructor)(3 * attribute.itemSize)
+    tiny.setAttribute(name, new THREE.BufferAttribute(array, attribute.itemSize, attribute.normalized))
+  }
+  return tiny
+}
+
+/** The map on the reference's material — see setReferenceMap. Matte,
+ *  whatever the scheme's finish: a CAD face square to the view takes the
+ *  whole highlight, and a map is read by its colours. */
+function referenceMapMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0 })
 }
 
 /** The overlay data and the marking brush are defined beside the modules that
@@ -314,6 +360,18 @@ export class SceneManager {
   private scanCap: HeldCap | null = null
   private referenceCap: HeldCap | null = null
   private capGeometry = new THREE.PlaneGeometry(1, 1)
+  /** The materials the programs were warmed with — see warmPrograms — by
+   *  the kind of program, with what each was made from. Kept until this
+   *  viewport goes, or a part of another make warms its kind again: a
+   *  program goes with the last material that used it. */
+  private warmKeepers = new Map<string, { from: object | string; keep: { dispose(): void } }>()
+  /** The warming run in hand, and the way to take its next turn back. */
+  private warmToken = 0
+  private warmCancel: (() => void) | null = null
+  /** Where the closed shells of a part loaded are found off the main thread
+   *  — the mesh worker, wired by the app — for the section view's caps (see
+   *  sliceCap primeClosedPart). Without it, a cut finds them itself. */
+  closedShellsFrom: ((which: 'scan' | 'nominal') => Promise<ClosedShells>) | null = null
   /** Elements lit because something being built refers to them, and
    *  elements lit because a picker's option is hovered — two reasons, one
    *  look; the overlays hear the union. */
@@ -959,6 +1017,8 @@ export class SceneManager {
       )
       this.scanAxis = axis
       this.frameCamera(geometry.boundingBox!, this.scanAxis)
+      this.primeClosedShells('scan', geometry)
+      this.warmPrograms()
     })
   }
 
@@ -1646,6 +1706,215 @@ export class SceneManager {
   }
 
   /**
+   * Compile, in idle time, the programs a tap would otherwise compile in its
+   * own frame: the scan and the reference cut by the section view and seen
+   * through, the cap that closes a cut, the gizmo on the plane, and the map
+   * on the reference. A program is linked the first time something is drawn
+   * with it — hundreds of milliseconds on a phone for the six the section
+   * view's first tap used to ask for — and three.js keeps it for as long as
+   * a material that used it lives, so each is drawn once here with a
+   * material of the same make, which is then kept (warmKeepers) for the
+   * live ones to find the program in the cache when their turn comes.
+   *
+   * three.js's own compile() does not do: it never sets the clipping state,
+   * so a cut material's program is not among what it compiles. Here each is
+   * really drawn, a corner-less triangle in a one-pixel scissor, into a
+   * throwaway scene. A program is chosen by the scene as well as by the
+   * material — the lights, by kind and number, the fog, the environment —
+   * so the throwaway scene is given copies of the stage's lights and the
+   * same fog and environment: drawing the stage itself instead would draw
+   * the whole scan again for each program. The renderer is the stage's, so
+   * its clipping, tone mapping and output colour space are the same too.
+   *
+   * One kind of program at a time, as idle time comes, and not under a hand
+   * moving the view; each call starts over, the run before it dropped —
+   * which is what a scan or a reference loaded, replaced or taken away does.
+   * The live materials are never touched.
+   */
+  private warmPrograms(): void {
+    this.cancelWarm()
+    const token = this.warmToken
+    let jobs: WarmJob[] | null = null
+    const step = (deadline: IdleDeadline | null): void => {
+      this.warmCancel = null
+      if (token !== this.warmToken) return
+      if (!this.viewport.navigating()) {
+        jobs ??= this.warmJobs()
+        if (jobs.length === 0) return
+        do this.warmOne(jobs.shift()!)
+        while (jobs.length > 0 && deadline !== null && deadline.timeRemaining() > WARM_SLACK_MS)
+        // The pixel drawn into is the canvas's, whose other pixels are not
+        // kept from the last frame once it was shown: the whole frame is
+        // drawn again before this task ends, so none of that is ever seen.
+        this.viewport.invalidate()
+        this.viewport.pump()
+        if (jobs.length === 0) return
+      }
+      this.warmCancel = inIdle(step)
+    }
+    this.warmCancel = inIdle(step)
+  }
+
+  /** Drop a warming run that has not finished — see warmPrograms. */
+  private cancelWarm(): void {
+    this.warmToken++
+    this.warmCancel?.()
+    this.warmCancel = null
+  }
+
+  /** What there is to warm on the stage as it now stands, the section
+   *  view's first, less one already warm from the same material. */
+  private warmJobs(): WarmJob[] {
+    const jobs: WarmJob[] = []
+    const scan = this.mesh
+    const nominal = this.nominalMesh
+    /** A part's own material, cut or whole, solid or see-through. */
+    const part = (name: string, mesh: THREE.Mesh | null, cut: boolean, seeThrough: boolean) => {
+      if (!mesh) return
+      const live = mesh.material as THREE.MeshStandardMaterial
+      const geometry = mesh.geometry as THREE.BufferGeometry
+      jobs.push({
+        key: `${name}:${cut ? 'cut' : 'whole'}:${seeThrough ? 'see-through' : 'solid'}`,
+        from: live,
+        make: (scene) => {
+          const m = live.clone()
+          // The amendments, by reference: a copy does not carry them, and
+          // the program is known by their text.
+          m.onBeforeCompile = live.onBeforeCompile
+          m.customProgramCacheKey = live.customProgramCacheKey
+          setSurfaceOpacity(m, seeThrough ? SEE_THROUGH_OPACITY : 1)
+          m.clippingPlanes = cut ? this.clipList : null
+          scene.add(new THREE.Mesh(warmGeometry(geometry), m))
+          return m
+        },
+      })
+    }
+    part('scan', scan, true, false)
+    if (scan || nominal) {
+      // The section view's cap, as updateCaps makes it: flat, in a cut
+      // colour, its counting passes cut by the plane.
+      const source = (scan ?? nominal)!.geometry as THREE.BufferGeometry
+      jobs.push({
+        key: 'cap',
+        from: 'cap',
+        make: (scene) => {
+          const target = new THREE.Mesh(warmGeometry(source), new THREE.MeshBasicMaterial({ visible: false }))
+          const cap = new SliceCap(target, this.clipList, this.capGeometry, { slot: CAP_SLOT.scan, color: cutColor(CAP_SLOT.scan), flat: true, theme: this.theme })
+          scene.add(target)
+          return {
+            dispose: () => {
+              cap.dispose()
+              ;(target.material as THREE.Material).dispose()
+            },
+          }
+        },
+      })
+      // The plane's gizmo, as ExtendGrips draws its grips: unlit and
+      // see-through, and the arrow both sides — which three.js draws in two
+      // passes, a program each; a ring is the front pass's.
+      jobs.push({
+        key: 'grips',
+        from: 'grips',
+        make: (scene) => {
+          const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side: THREE.DoubleSide })
+          scene.add(new THREE.Mesh(warmGeometry(this.capGeometry), m))
+          return m
+        },
+      })
+    }
+    part('reference', nominal, false, false)
+    if (nominal) {
+      // The map on the reference — never cut and never see-through, so the
+      // one program; made before the map is, from the material it will have.
+      jobs.push({
+        key: 'referenceMap',
+        from: 'referenceMap',
+        make: (scene) => {
+          const geometry = new THREE.BufferGeometry()
+          geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3))
+          geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3))
+          geometry.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(9), 3, true))
+          const m = referenceMapMaterial()
+          scene.add(new THREE.Mesh(geometry, m))
+          return m
+        },
+      })
+    }
+    part('reference', nominal, true, false)
+    for (const cut of [false, true]) {
+      part('scan', scan, cut, true)
+      part('reference', nominal, cut, true)
+    }
+    part('scan', scan, false, false)
+    return jobs.filter((job) => this.warmKeepers.get(job.key)?.from !== job.from)
+  }
+
+  /** Draw one job's throwaway scene into a pixel, keep its material, and
+   *  let go of the rest. */
+  private warmOne(job: WarmJob): void {
+    const renderer = this.viewport.renderer
+    const scene = new THREE.Scene()
+    const lights: THREE.Light[] = []
+    this.scene.traverseVisible((o) => {
+      if (!(o as THREE.Light).isLight) return
+      const light = (o as THREE.Light).clone(false)
+      lights.push(light)
+      scene.add(light)
+    })
+    scene.environment = this.scene.environment
+    scene.fog = this.scene.fog
+    const keep = job.make(scene)
+    // The triangles have no size: kept from the frustum test, which would
+    // otherwise be all that decides whether they are drawn.
+    scene.traverse((o) => {
+      o.frustumCulled = false
+    })
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+    camera.position.set(0, 0, 5)
+    const viewport = renderer.getViewport(new THREE.Vector4())
+    const scissor = renderer.getScissor(new THREE.Vector4())
+    const scissorTest = renderer.getScissorTest()
+    renderer.setScissorTest(true)
+    renderer.setScissor(0, 0, 1, 1)
+    renderer.setViewport(0, 0, 1, 1)
+    try {
+      renderer.render(scene, camera)
+    } finally {
+      renderer.setViewport(viewport)
+      renderer.setScissor(scissor)
+      renderer.setScissorTest(scissorTest)
+    }
+    // The geometries are this job's own but for the cap's sheet, which is
+    // the stage's.
+    scene.traverse((o) => {
+      const geometry = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined
+      if (geometry && geometry !== this.capGeometry) geometry.dispose()
+    })
+    for (const light of lights) light.dispose()
+    // The program stays referenced throughout: the new keeper holds it
+    // before the old one lets go.
+    const held = this.warmKeepers.get(job.key)
+    this.warmKeepers.set(job.key, { from: job.from, keep })
+    held?.keep.dispose()
+  }
+
+  /** Have the closed shells of a part just put in place found off the main
+   *  thread (see closedShellsFrom), for its first cut to find ready. An
+   *  answer is kept only for the geometry it was asked about, still the
+   *  part's; one that comes back for a part since replaced is dropped, and
+   *  that part's cut finds its own. */
+  private primeClosedShells(which: 'scan' | 'nominal', geometry: THREE.BufferGeometry): void {
+    this.closedShellsFrom?.(which).then(
+      (shells) => {
+        const mesh = which === 'scan' ? this.mesh : this.nominalMesh
+        if (mesh?.geometry === geometry) primeClosedPart(geometry, shells)
+      },
+      // Not found off the thread: found on it, if a cut comes to need them.
+      () => {},
+    )
+  }
+
+  /**
    * Cut what is drawn on the part with the section view: the elements, the
    * dimensions, the sections and the pins — their meshes and lines clipped
    * by the plane, and their labels, which no plane clips, put away when what
@@ -2282,6 +2551,8 @@ export class SceneManager {
       this.scene.add(this.nominalMesh)
       // Cut with the rest, if the section view is cutting.
       this.applySlice()
+      this.primeClosedShells('nominal', geometry)
+      this.warmPrograms()
       this.invalidate()
     })
   }
@@ -2290,12 +2561,16 @@ export class SceneManager {
     this.disposeMesh()
     this.setPreview(null)
     this.setAlignment(null)
+    // A run under way may hold the scan's material: started again on what
+    // is left.
+    this.warmPrograms()
     this.invalidate()
   }
 
   clearNominal(): void {
     this.disposeNominal()
     this.setReferenceMap(null)
+    this.warmPrograms()
     this.invalidate()
   }
 
@@ -2428,13 +2703,13 @@ export class SceneManager {
       geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1))
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
-      // Matte, whatever the scheme's finish: a CAD face square to the view
-      // takes the whole highlight, and a map is read by its colours.
-      const material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0 })
-      this.referenceMapMesh = new THREE.Mesh(geometry, material)
+      this.referenceMapMesh = new THREE.Mesh(geometry, referenceMapMaterial())
       this.referenceMapMesh.visible = false
       this.referenceMapMesh.renderOrder = 1
       this.scene.add(this.referenceMapMesh)
+      // Its program was warmed with the reference's; a run is cheap when
+      // every kind is warm already.
+      this.warmPrograms()
     }
     this.invalidate()
   }
@@ -2977,6 +3252,9 @@ export class SceneManager {
     this.gizmo.dispose()
     this.disposeNominal()
     this.disposeMesh()
+    this.cancelWarm()
+    for (const { keep } of this.warmKeepers.values()) keep.dispose()
+    this.warmKeepers.clear()
     this.viewport.dispose()
   }
 

@@ -1642,6 +1642,9 @@ export default function App() {
               onReady={(s) => {
                 sceneRef.current = s
                 attachSurfaceScene(() => sceneRef.current)
+                // A part's closed shells are searched in the worker as it
+                // loads, not on the main thread at the first cut.
+                s.closedShellsFrom = (which) => clientRef.current!.closedShells(which)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
