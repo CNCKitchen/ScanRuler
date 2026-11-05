@@ -39,6 +39,18 @@ export type MapSide = 'scan' | 'reference'
 export type AlignStatus = 'idle' | 'running' | 'done' | 'failed'
 export type MapStatus = 'idle' | 'running' | 'ready'
 
+/** Whether the map this workspace reads is on screen to be read: measured, or
+ *  being measured again with the readout of the one before still up — a facing
+ *  limit dragged, a region brushed. A map that is only being measured the first
+ *  time has no readout yet. That is what lets the panel and the scale beside
+ *  the slider stay mounted while it is re-measured, and not under the finger
+ *  that is dragging it. What reads the map itself asks for 'ready'. */
+export function mapHeld(s: Pick<DeviationState, 'source' | 'elementStatus' | 'mapStatus' | 'stats'>): boolean {
+  return s.source === 'element'
+    ? s.elementStatus === 'ready' || (s.elementStatus === 'running' && s.stats !== null)
+    : s.mapStatus === 'ready'
+}
+
 /** Colour of a point pair in the split view — the same pair gets the same
  *  colour on both sides, which is the only thing tying them together visually. */
 export function pairColor(index: number): string {
@@ -191,10 +203,14 @@ interface DeviationState extends ProbeSlice {
   setTarget: (id: number | null, side?: MaterialSide) => void
   flipTargetSide: () => void
   setTargetFacing: (deg: number | null) => void
-  /** A fresh element field has landed. Cheap enough to be computed on the main
-   *  thread, so unlike the reference map there is no running state to pass
-   *  through — it is ready by the time anything can ask. */
+  /** The map against the element is being measured, in the worker: nothing
+   *  that reads it as ready may take the one in hand for the one wanted. */
+  beginElementMap: () => void
+  /** A fresh element field has landed. */
   resolveElementMap: (range: number, preserveProbes?: boolean) => void
+  /** The map could not be measured at all. Back to idle, so that nothing waits
+   *  on a status that will never change; the element chosen stays chosen. */
+  failElementMap: () => void
   clearElementMap: () => void
   setShowElement: (v: boolean) => void
   setTargetScope: (scope: 'all' | 'marked') => void
@@ -418,6 +434,10 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   // The scale and the pins belong to whichever map is being read, and this one
   // is also recomputed behind the reference map whenever the element it measures
   // against changes under it — so neither is touched unless it is this map's.
+  beginElementMap: () => set({ elementStatus: 'running' }),
+
+  failElementMap: () => set({ elementStatus: 'idle' }),
+
   resolveElementMap: (range, preserveProbes = false) =>
     set((s) => ({
       elementStatus: 'ready',

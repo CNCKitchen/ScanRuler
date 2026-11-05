@@ -33,6 +33,8 @@ import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
+import { forgetTree, refitAfterRigid, sparingRays, treeAwaited, treeOffThread } from './bvh'
+import type { SerializedTree } from '../core/workerProtocol'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotate, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { deflectionFactor, deflectionStartPhase } from '../core/deviation/deflection'
@@ -63,7 +65,7 @@ import {
 } from './surfaceModes'
 import { principalAxis } from './scanLayout'
 import { patchScanShader } from './scanShader'
-import { CAP_SLOT, closedPartOf, cutColor, SliceCap, type ClosedPart } from './sliceCap'
+import { CAP_SLOT, closedPartOf, cutColor, primeClosedPart, SliceCap, type ClosedPart } from './sliceCap'
 import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
@@ -99,6 +101,51 @@ interface HeldCap {
   geometry: THREE.BufferGeometry
   index: THREE.BufferAttribute | null
   theme: ViewTheme
+}
+
+/** A program to warm before it is wanted — see SceneManager.warmPrograms:
+ *  the name its material is kept under, what that material was made from
+ *  (a live material, or a name for one made the same way every time), and
+ *  how to dress a throwaway scene with it, giving back what is to be kept. */
+interface WarmJob {
+  key: string
+  from: object | string
+  make: (scene: THREE.Scene) => { dispose(): void }
+}
+
+/** How much of an idle period has to be left for another program to be
+ *  warmed in it, ms: one usually takes the whole period and more. */
+const WARM_SLACK_MS = 10
+
+/** A turn of idle time for `run` — or half a second on, where the browser
+ *  has no idle callbacks; the returned function takes it back. */
+function inIdle(run: (deadline: IdleDeadline | null) => void): () => void {
+  if (typeof requestIdleCallback === 'function') {
+    const handle = requestIdleCallback((deadline) => run(deadline))
+    return () => cancelIdleCallback(handle)
+  }
+  const handle = setTimeout(() => run(null), 500)
+  return () => clearTimeout(handle)
+}
+
+/** Three corners at the origin, with every attribute `geometry` has — the
+ *  program drawn with is chosen by them as well as by the material — and
+ *  nothing to draw: what a program is warmed on (see warmPrograms). */
+function warmGeometry(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  const tiny = new THREE.BufferGeometry()
+  for (const [name, attribute] of Object.entries(geometry.attributes)) {
+    if (!(attribute instanceof THREE.BufferAttribute)) continue
+    const array = new (attribute.array.constructor as THREE.TypedArrayConstructor)(3 * attribute.itemSize)
+    tiny.setAttribute(name, new THREE.BufferAttribute(array, attribute.itemSize, attribute.normalized))
+  }
+  return tiny
+}
+
+/** The map on the reference's material — see setReferenceMap. Matte,
+ *  whatever the scheme's finish: a CAD face square to the view takes the
+ *  whole highlight, and a map is read by its colours. */
+function referenceMapMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0 })
 }
 
 /** The overlay data and the marking brush are defined beside the modules that
@@ -159,6 +206,10 @@ export interface MarkingChannel {
   setPaintColor: (rgb: [number, number, number]) => void
   /** The scan's own vertex behind a render index — see graphVertex. */
   graphVertex: (v: number) => number
+  /** Hear when a part's tree lands from off the thread (see bvh.ts
+   *  treeOffThread): what was under the cursor is to be looked at again.
+   *  The returned function stops it. */
+  onTreeLanded?: (heard: () => void) => () => void
 }
 
 /** A mesh laid out for the scan's place in the viewport: its geometry, the
@@ -313,6 +364,27 @@ export class SceneManager {
   private scanCap: HeldCap | null = null
   private referenceCap: HeldCap | null = null
   private capGeometry = new THREE.PlaneGeometry(1, 1)
+  /** The materials the programs were warmed with — see warmPrograms — by
+   *  the kind of program, with what each was made from. Kept until this
+   *  viewport goes, a part of another make warms its kind again, or the
+   *  stage no longer has that kind to warm: a program goes with the last
+   *  material that used it. */
+  private warmKeepers = new Map<string, { from: object | string; keep: { dispose(): void } }>()
+  /** The warming run in hand, and the way to take its next turn back. */
+  private warmToken = 0
+  private warmCancel: (() => void) | null = null
+  /** Where the closed shells of a part loaded are found off the main thread
+   *  — the mesh worker, wired by the app — for the section view's caps (see
+   *  sliceCap primeClosedPart). Without it, a cut finds them itself. */
+  closedShellsFrom: ((which: 'scan' | 'nominal') => Promise<Uint8Array>) | null = null
+  /** Where a scan's bounds tree is built off the main thread — the mesh
+   *  worker, wired by the app — from copies of its positions and index; see
+   *  bvh.ts treeOffThread. Without it, the tree is built here as the scan is
+   *  prepared. */
+  boundsTreeFrom: ((positions: Float32Array, indices: Uint32Array) => Promise<SerializedTree>) | null = null
+  /** Who else looks again when a tree lands — the split picker's brush
+   *  footprint; see MarkingChannel.onTreeLanded. */
+  private treeHeard = new Set<() => void>()
   /** Elements lit because something being built refers to them, and
    *  elements lit because a picker's option is hovered — two reasons, one
    *  look; the overlays hear the union. */
@@ -393,6 +465,9 @@ export class SceneManager {
   /** When the loop began, in performance.now() time. */
   private deflectStart = 0
   private uDeflect: DeflectionUniform = { value: 0 }
+  /** Whether the offsets' buffer stays on the scan at rest — see
+   *  setDeflectionHeld. */
+  private deflectHeld = false
   /** See-through surfaces, so what is inside the part — the reference, the
    *  fitted elements, the pinned readings — shows: the scan's and the
    *  reference's, each from its own key. Held here as well as on the
@@ -466,23 +541,28 @@ export class SceneManager {
         this.grips.followView()
         this.grips.putAwayWhile(this.marking.gestureArmed())
         this.overlays.setPreviewBrushing(this.marking.gestureArmed())
-        this.updateHover()
+        // The pointer tests a frame makes skip a scan whose tree is still on
+        // its way, rather than run through its every triangle.
+        sparingRays(() => this.updateHover())
         // Anything held at a fixed size on screen — the picked-point markers —
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
-        this.overlays.setPixelScale(this.viewport.worldPerPixel())
-        this.sections.setPixelScale(this.viewport.worldPerPixel())
+        const pixel = this.viewport.worldPerPixel()
+        this.overlays.setPixelScale(pixel)
+        this.sections.setPixelScale(pixel)
         // Pins on the far side of the part go away as it turns, if asked to;
         // a no-op unless the view moved.
-        this.overlays.updateProbeOcclusion()
-        // The section curves are fat lines sized in pixels and need the canvas.
-        const el = this.viewport.renderer.domElement
-        this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
-        for (const layer of this.layers) layer.tick?.(el.clientWidth || 1, el.clientHeight || 1)
+        sparingRays(() => this.overlays.updateProbeOcclusion())
+        // The section curves are fat lines sized in pixels and need the
+        // canvas's size: the viewport's cached one, since a read of the
+        // layout every frame is a forced layout pass after any DOM write.
+        const { w, h } = this.viewport.size
+        this.sections.setResolution(w, h)
+        for (const layer of this.layers) layer.tick?.(w, h)
         // A viewport that follows a sheet re-reads its scale when its own
         // size changes — shown again after being put away, or the window
         // resized — since the scale is millimetres per pixel.
-        if (this.sheetFollow && (el.clientWidth !== this.followedSize.w || el.clientHeight !== this.followedSize.h)) {
+        if (this.sheetFollow && this.viewport.shown && (w !== this.followedSize.w || h !== this.followedSize.h)) {
           this.applyFollow(0)
         }
         this.stepDeflection()
@@ -496,6 +576,15 @@ export class SceneManager {
         this.syncCopies()
       },
       onAfterRender: (w, h) => this.drawGizmo(w, h),
+      // What wants frames although nothing is marked yet: the motion of the
+      // deviation map, a stroke's positions still queued, and what is drawn
+      // on the part waiting to be dressed for the section view's cut. The
+      // last two are belt and braces: the tick above has drained the queue
+      // and dressed the cut by the time this is asked, and what sets them
+      // wakes the loop itself (the marking's wake, invalidate). The motion
+      // invalidates every frame it plays as well; it is named here so the
+      // loop's reasons to stay up are read in one place.
+      keepAwake: () => this.deflectionPlaying() || this.marking.strokePending() || this.clipDirty,
     })
     this.container = container
     this.gizmo = new AxisGizmo()
@@ -523,10 +612,9 @@ export class SceneManager {
         this.invalidate()
       },
       invalidate: this.invalidate,
+      wake: this.viewport.wake,
       claimDrag: (on) => this.claimDrag('paint', on),
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       onPaintChange: (count) => this.onPaintChange?.(count),
     })
     this.overlays = new Overlays({
@@ -556,9 +644,7 @@ export class SceneManager {
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
       claimDrag: (on) => this.claimDrag('handle', on),
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
       // Only an element's ghost has ends to mark; a section plane's gizmo
       // stands on a sheet that is its own mark, and a plugin's grips are on
@@ -600,6 +686,13 @@ export class SceneManager {
   private invalidate = (): void => {
     this.clipDirty = true
     this.viewport.invalidate()
+  }
+
+  /** What is under the cursor is to be looked at again on the next frame —
+   *  which the loop may have stopped asking for. */
+  private requestHover = (): void => {
+    this.hoverDirty = true
+    this.viewport.wake()
   }
 
   /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
@@ -669,7 +762,7 @@ export class SceneManager {
 
   /** The gizmo arrow under a client point, if any. */
   private gizmoAt(clientX: number, clientY: number): GizmoAxis | null {
-    const rect = this.viewport.renderer.domElement.getBoundingClientRect()
+    const rect = this.viewport.canvasRect()
     return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
   }
 
@@ -856,20 +949,33 @@ export class SceneManager {
     // region, over what lies behind — and nothing lights under the gizmo
     // corner, which is a button first.
     let covered = axis !== null
+    // While a part's tree is still on its way the frame's rays skip it (see
+    // bvh.ts sparingRays), and it would hide nothing behind it: an element
+    // or a face of a layer's would light through the part. Nothing lights
+    // until the tree lands and the cursor is looked at again.
+    const over = this.partTreeAwaited() ? null : at
     // A step the arrow keys took lights alone: every other layer is covered.
-    const stepped = this.cyclingLayer(at)
+    const stepped = this.cyclingLayer(over)
     for (const step of this.hoverSteps()) {
       const under = stepped ? step.layer !== stepped : covered
       if (step.layer) this.hoverCovered.set(step.layer, under)
-      if (step.hover(at, under) && step.covers) covered = true
+      if (step.hover(over, under) && step.covers) covered = true
     }
     if (!this.hoverEnabled) return
-    const hit = at ? this.pick(at.x, at.y) : null
+    const hit = over ? this.pick(over.x, over.y) : null
     // Silence is worth reporting once, not every frame the cursor spends off
     // the part.
     if (!hit && !this.hoverWasHit) return
     this.hoverWasHit = hit !== null
     this.onHover?.(hit)
+  }
+
+  /** Whether a part on the stage — the scan, or a reference shown — is
+   *  still waiting for its tree from off the thread. */
+  private partTreeAwaited(): boolean {
+    const scan = this.mesh?.geometry as THREE.BufferGeometry | undefined
+    const reference = this.nominalMesh?.visible ? (this.nominalMesh.geometry as THREE.BufferGeometry) : undefined
+    return Boolean((scan && treeAwaited(scan)) || (reference && treeAwaited(reference)))
   }
 
   setHoverEnabled(enabled: boolean): void {
@@ -884,7 +990,8 @@ export class SceneManager {
   }
 
   /** Replace the displayed mesh. Synchronous and heavy (includes the BVH
-   *  build) — callers should show a status message and yield a frame first.
+   *  build where no worker builds it — see boundsTreeFrom) — callers should
+   *  show a status message and yield a frame first.
    *  `copyOf` names the scan vertex behind each render vertex past the
    *  scan's own — the copies its sharp edges were split into for shading. */
   setMesh(
@@ -921,7 +1028,13 @@ export class SceneManager {
       false,
       surface,
     )
-    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    // A scan's tree is the longest single task in opening it: built in the
+    // worker once the part is in place, where the app has wired one — the
+    // part is on screen and turns meanwhile — and here otherwise.
+    const offThread = this.boundsTreeFrom
+    if (!offThread) {
+      try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    }
     const axis = principalAxis(positions)
 
     // Scans have holes; double-sided rendering keeps interior surfaces
@@ -958,6 +1071,26 @@ export class SceneManager {
       )
       this.scanAxis = axis
       this.frameCamera(geometry.boundingBox!, this.scanAxis)
+      // Asked for before the closed shells, which only a cut needs: a pick
+      // needs the tree.
+      if (offThread) this.treeFrom(offThread, geometry)
+      this.primeClosedShells('scan', geometry)
+      this.warmPrograms()
+    })
+  }
+
+  /** Have a part's tree built off the thread (see bvh.ts treeOffThread), and
+   *  when it lands, look again at what the frames skipped while it was out:
+   *  what is under the cursor, and the pins' line of sight. The loop may be
+   *  asleep by then. */
+  private treeFrom(build: NonNullable<SceneManager['boundsTreeFrom']>, geometry: THREE.BufferGeometry): void {
+    treeOffThread(geometry, build, () => {
+      this.overlays.retestOcclusion()
+      this.requestHover()
+      // A stroke laid while it was out is laid now.
+      this.marking.treeLanded()
+      this.invalidate()
+      for (const heard of this.treeHeard) heard()
     })
   }
 
@@ -1098,6 +1231,9 @@ export class SceneManager {
     }
     const own = geometry.getAttribute('surface')?.array as Uint8Array | undefined
     const surface = own ? own.slice(0, this.scanVertices * 3) : null
+    // A tree still on its way is for the layout going: this one builds its
+    // own below.
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(
@@ -1113,8 +1249,14 @@ export class SceneManager {
     )
     this.regions.rebind(colors, paint, tint, this.scanVertices)
     // The offsets are the scan's own, laid out again over the new copies.
-    this.layOutDeflection()
+    // A buffer kept at rest is the old layout's, and the geometry was just
+    // disposed: it goes, and the next play lays a new one.
+    if (this.deflection?.geometry === geometry) this.layOutDeflection()
+    else geometry.deleteAttribute('deflect')
     geometry.computeBoundsTree()
+    // The tree is here at once: strokes held for the one that was on its way
+    // are laid on it now rather than at the next dab.
+    this.marking.treeLanded()
     // A cap over the closed shells alone is cut from the old triangles.
     this.applySlice()
     this.invalidate()
@@ -1326,9 +1468,15 @@ export class SceneManager {
     this.viewport.pump()
   }
 
+  /** Have the viewport's next frame asked for now, if its loop had gone to
+   *  sleep — ahead of a wait on the browser's next frame (commands'
+   *  nextFrame), so the frame waited for is one the stage is drawn in. */
+  wakeFrame(): void {
+    this.viewport.wake()
+  }
+
   viewSize(): { width: number; height: number } {
-    const el = this.viewport.renderer.domElement
-    return { width: el.clientWidth || 1, height: el.clientHeight || 1 }
+    return { width: this.viewport.size.w, height: this.viewport.size.h }
   }
 
   /** What a picture of the view as it stands spans at `width` × `height`
@@ -1389,12 +1537,10 @@ export class SceneManager {
   private applyFollow(ms: number): void {
     const f = this.sheetFollow
     if (!f) return
-    const el = this.viewport.renderer.domElement
-    const w = el.clientWidth
-    const h = el.clientHeight
     // Put away: nothing to size by until it is shown again — the tick
     // applies it then.
-    if (!w || !h) return
+    if (!this.viewport.shown) return
+    const { w, h } = this.viewport.size
     this.followedSize = { w, h }
     this.partGroup.updateMatrixWorld(true)
     const m = this.partGroup.matrixWorld
@@ -1645,6 +1791,254 @@ export class SceneManager {
   }
 
   /**
+   * Compile, in idle time, the programs a tap would otherwise compile in its
+   * own frame: the scan and the reference cut by the section view and seen
+   * through, the cap that closes a cut, the gizmo on the plane, and the map
+   * on the reference. A program is linked the first time something is drawn
+   * with it — hundreds of milliseconds on a phone for the six the section
+   * view's first tap used to ask for — and three.js keeps it for as long as
+   * a material that used it lives, so each is drawn once here with a
+   * material of the same make, which is then kept (warmKeepers) for the
+   * live ones to find the program in the cache when their turn comes.
+   *
+   * three.js's own compile() does not do: it never sets the clipping state,
+   * so a cut material's program is not among what it compiles. Here each is
+   * really drawn, a corner-less triangle in a one-pixel scissor, into a
+   * throwaway scene. A program is chosen by the scene as well as by the
+   * material — the lights, by kind and number, the fog, the environment —
+   * so the throwaway scene is given copies of the stage's lights and the
+   * same fog and environment: drawing the stage itself instead would draw
+   * the whole scan again for each program. The renderer is the stage's, so
+   * its clipping, tone mapping and output colour space are the same too.
+   *
+   * One kind of program at a time, as idle time comes, and not under a hand
+   * moving the view; each call starts over, the run before it dropped —
+   * which is what a scan or a reference loaded, replaced or taken away does.
+   * The live materials are never touched.
+   */
+  private warmPrograms(): void {
+    this.cancelWarm()
+    const token = this.warmToken
+    let jobs: WarmJob[] | null = null
+    const step = (deadline: IdleDeadline | null): void => {
+      this.warmCancel = null
+      if (token !== this.warmToken) return
+      if (!this.viewport.navigating()) {
+        jobs ??= this.warmJobs()
+        if (jobs.length === 0) return
+        try {
+          do this.warmOne(jobs.shift()!)
+          while (jobs.length > 0 && deadline !== null && deadline.timeRemaining() > WARM_SLACK_MS)
+        } finally {
+          // The pixel drawn into is the canvas's, whose other pixels are not
+          // kept from the last frame once it was shown: the whole frame is
+          // drawn again before this task ends, so none of that is ever seen
+          // — a job that threw after the pixel was cleared included.
+          this.viewport.invalidate()
+          this.viewport.pump()
+        }
+        if (jobs.length === 0) return
+      }
+      this.warmCancel = inIdle(step)
+    }
+    this.warmCancel = inIdle(step)
+  }
+
+  /** Drop a warming run that has not finished — see warmPrograms. */
+  private cancelWarm(): void {
+    this.warmToken++
+    this.warmCancel?.()
+    this.warmCancel = null
+  }
+
+  /** What there is to warm on the stage as it now stands, the section
+   *  view's first, less one already warm from the same material. A job
+   *  compiles one program at most, so that one idle turn costs one: a
+   *  see-through surface drawn both sides is drawn by three.js in two
+   *  passes — the back faces, then the front, a program each — and a
+   *  material made one-sided with a pass's side is given that pass's
+   *  program; a cap is three meshes, warmed one by one. */
+  private warmJobs(): WarmJob[] {
+    const jobs: WarmJob[] = []
+    const scan = this.mesh
+    const nominal = this.nominalMesh
+    /** A part's own material, cut or whole, solid or see-through. */
+    const part = (name: string, mesh: THREE.Mesh | null, cut: boolean, seeThrough: boolean) => {
+      if (!mesh) return
+      const live = mesh.material as THREE.MeshStandardMaterial
+      const geometry = mesh.geometry as THREE.BufferGeometry
+      const sides = seeThrough && live.side === THREE.DoubleSide ? [THREE.BackSide, THREE.FrontSide] : [live.side]
+      for (const side of sides) {
+        jobs.push({
+          key: `${name}:${cut ? 'cut' : 'whole'}:${seeThrough ? 'see-through' : 'solid'}:${side}`,
+          from: live,
+          make: (scene) => {
+            const m = live.clone()
+            // The amendments, by reference: a copy does not carry them, and
+            // the program is known by their text.
+            m.onBeforeCompile = live.onBeforeCompile
+            m.customProgramCacheKey = live.customProgramCacheKey
+            setSurfaceOpacity(m, seeThrough ? SEE_THROUGH_OPACITY : 1)
+            m.clippingPlanes = cut ? this.clipList : null
+            m.side = side
+            scene.add(new THREE.Mesh(warmGeometry(geometry), m))
+            return m
+          },
+        })
+      }
+    }
+    part('scan', scan, true, false)
+    if (scan || nominal) {
+      // The section view's cap, as updateCaps makes it: flat, in a cut
+      // colour, its counting passes cut by the plane — the passes up and
+      // down and the sheet, one at a time, the others put out of the way.
+      const source = (scan ?? nominal)!.geometry as THREE.BufferGeometry
+      for (const pass of [0, 1, 2]) {
+        jobs.push({
+          key: `cap:${pass}`,
+          from: 'cap',
+          make: (scene) => {
+            const target = new THREE.Mesh(warmGeometry(source), new THREE.MeshBasicMaterial({ visible: false }))
+            const cap = new SliceCap(target, this.clipList, this.capGeometry, { slot: CAP_SLOT.scan, color: cutColor(CAP_SLOT.scan), flat: true, theme: this.theme })
+            target.children.forEach((mesh, i) => {
+              mesh.visible = i === pass
+            })
+            scene.add(target)
+            return {
+              dispose: () => {
+                cap.dispose()
+                ;(target.material as THREE.Material).dispose()
+              },
+            }
+          },
+        })
+      }
+      // The plane's gizmo, as ExtendGrips draws its grips: unlit and
+      // see-through, the arrow both sides — two passes, as above — and a
+      // ring the front pass's.
+      for (const side of [THREE.FrontSide, THREE.BackSide]) {
+        jobs.push({
+          key: `grips:${side}`,
+          from: 'grips',
+          make: (scene) => {
+            const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, side })
+            scene.add(new THREE.Mesh(warmGeometry(this.capGeometry), m))
+            return m
+          },
+        })
+      }
+    }
+    part('reference', nominal, false, false)
+    if (nominal) {
+      // The map on the reference — never cut and never see-through, so the
+      // one program; made before the map is, from the material it will have.
+      jobs.push({
+        key: 'referenceMap',
+        from: 'referenceMap',
+        make: (scene) => {
+          const geometry = new THREE.BufferGeometry()
+          geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3))
+          geometry.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(9), 3))
+          geometry.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(9), 3, true))
+          const m = referenceMapMaterial()
+          scene.add(new THREE.Mesh(geometry, m))
+          return m
+        },
+      })
+    }
+    part('reference', nominal, true, false)
+    for (const cut of [false, true]) {
+      part('scan', scan, cut, true)
+      part('reference', nominal, cut, true)
+    }
+    part('scan', scan, false, false)
+    // A kind the stage no longer has — the reference cleared, the scan
+    // closed — lets its keeper go, and with it a program nothing draws with
+    // any more; a kind still wanted keeps its keeper until a new one is in.
+    const wanted = new Set(jobs.map((job) => job.key))
+    for (const [key, held] of this.warmKeepers) {
+      if (wanted.has(key)) continue
+      this.warmKeepers.delete(key)
+      held.keep.dispose()
+    }
+    return jobs.filter((job) => this.warmKeepers.get(job.key)?.from !== job.from)
+  }
+
+  /** Draw one job's throwaway scene into a pixel, keep its material, and
+   *  let go of the rest — all of it, the material too, if the job throws. */
+  private warmOne(job: WarmJob): void {
+    const renderer = this.viewport.renderer
+    const scene = new THREE.Scene()
+    const lights: THREE.Light[] = []
+    let keep: { dispose(): void } | null = null
+    let kept = false
+    try {
+      this.scene.traverseVisible((o) => {
+        if (!(o as THREE.Light).isLight) return
+        const light = (o as THREE.Light).clone(false)
+        lights.push(light)
+        scene.add(light)
+      })
+      scene.environment = this.scene.environment
+      scene.fog = this.scene.fog
+      keep = job.make(scene)
+      // The triangles have no size: kept from the frustum test, which would
+      // otherwise be all that decides whether they are drawn.
+      scene.traverse((o) => {
+        o.frustumCulled = false
+      })
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
+      camera.position.set(0, 0, 5)
+      const viewport = renderer.getViewport(new THREE.Vector4())
+      const scissor = renderer.getScissor(new THREE.Vector4())
+      const scissorTest = renderer.getScissorTest()
+      renderer.setScissorTest(true)
+      renderer.setScissor(0, 0, 1, 1)
+      renderer.setViewport(0, 0, 1, 1)
+      try {
+        renderer.render(scene, camera)
+      } finally {
+        renderer.setViewport(viewport)
+        renderer.setScissor(scissor)
+        renderer.setScissorTest(scissorTest)
+      }
+      // The program stays referenced throughout: the new keeper holds it
+      // before the old one lets go.
+      const held = this.warmKeepers.get(job.key)
+      this.warmKeepers.set(job.key, { from: job.from, keep })
+      kept = true
+      held?.keep.dispose()
+    } finally {
+      // The geometries are this job's own but for the cap's sheet, which is
+      // the stage's.
+      scene.traverse((o) => {
+        const geometry = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined
+        if (geometry && geometry !== this.capGeometry) geometry.dispose()
+      })
+      for (const light of lights) light.dispose()
+      if (!kept) keep?.dispose()
+    }
+  }
+
+  /** Have the closed shells of a part just put in place found off the main
+   *  thread (see closedShellsFrom), for its first cut to find ready. An
+   *  answer is kept only for the geometry it was asked about, still the
+   *  part's and laid out as it was: one that comes back for a part since
+   *  replaced, or split again for shading, is dropped, and that part's cut
+   *  finds its own. */
+  private primeClosedShells(which: 'scan' | 'nominal', geometry: THREE.BufferGeometry): void {
+    const index = geometry.getIndex()
+    this.closedShellsFrom?.(which).then(
+      (vertices) => {
+        const mesh = which === 'scan' ? this.mesh : this.nominalMesh
+        if (mesh?.geometry === geometry && geometry.getIndex() === index) primeClosedPart(geometry, vertices)
+      },
+      // Not found off the thread: found on it, if a cut comes to need them.
+      () => {},
+    )
+  }
+
+  /**
    * Cut what is drawn on the part with the section view: the elements, the
    * dimensions, the sections and the pins — their meshes and lines clipped
    * by the plane, and their labels, which no plane clips, put away when what
@@ -1814,14 +2208,14 @@ export class SceneManager {
 
   setElementPickEnabled(enabled: boolean): void {
     this.elementPickEnabled = enabled
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Narrow element picking to the given elements (null: any) — see
    *  elementPickOnly. */
   setElementPickOnly(ids: ReadonlySet<number> | null): void {
     this.elementPickOnly = ids
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Whether the element under the cursor lights while element picking is
@@ -1952,7 +2346,7 @@ export class SceneManager {
   setSectionPickEnabled(enabled: boolean): void {
     if (this.sectionPickEnabled === enabled) return
     this.sectionPickEnabled = enabled
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Make the given elements read as selected: their translucent shells get
@@ -2081,7 +2475,7 @@ export class SceneManager {
     this.sections.setWorldPlanes(centre)
     // The cursor may be over a plane that has just gone, or one that has
     // just arrived under it.
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** The coordinate plane under a client point, if one is on offer there.
@@ -2111,14 +2505,17 @@ export class SceneManager {
     if (had !== has) this.viewport.nav.setPaintMode(has)
   }
 
+  /** The measured elements and their dimensions, drawn or put away; whether
+   *  that drew anything — see Overlays.updateOverlays. */
   updateOverlays(
     elements: OverlayElement[],
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     tags: OverlayTag[],
     visible: boolean,
-  ): void {
-    this.overlays.updateOverlays(elements, pairs, angles, tags, visible)
+    existing?: ReadonlySet<number>,
+  ): boolean {
+    return this.overlays.updateOverlays(elements, pairs, angles, tags, visible, existing)
   }
 
   setPaused(paused: boolean): void {
@@ -2192,6 +2589,10 @@ export class SceneManager {
         setPaintUniform(this.uPaintColor, rgb)
         this.invalidate()
       },
+      onTreeLanded: (heard) => {
+        this.treeHeard.add(heard)
+        return () => this.treeHeard.delete(heard)
+      },
     }
   }
 
@@ -2260,7 +2661,12 @@ export class SceneManager {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
-    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    // Off the thread once the reference is in place, as a scan's is — see
+    // prepareMesh.
+    const offThread = this.boundsTreeFrom
+    if (!offThread) {
+      try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    }
 
     const material = new THREE.MeshStandardMaterial({
       color: this.theme.nominal,
@@ -2281,6 +2687,9 @@ export class SceneManager {
       this.scene.add(this.nominalMesh)
       // Cut with the rest, if the section view is cutting.
       this.applySlice()
+      if (offThread) this.treeFrom(offThread, geometry)
+      this.primeClosedShells('nominal', geometry)
+      this.warmPrograms()
       this.invalidate()
     })
   }
@@ -2289,19 +2698,24 @@ export class SceneManager {
     this.disposeMesh()
     this.setPreview(null)
     this.setAlignment(null)
+    // A run under way may hold the scan's material: started again on what
+    // is left.
+    this.warmPrograms()
     this.invalidate()
   }
 
   clearNominal(): void {
     this.disposeNominal()
     this.setReferenceMap(null)
+    this.warmPrograms()
     this.invalidate()
   }
 
   /** Bake a datum alignment into the scan's vertices. Vertex order is
    *  untouched, so painted regions, element ownership and the deviation field
    *  all stay valid; only the coordinates (and the BVH built over them)
-   *  change. Heavy — the BVH is rebuilt synchronously. */
+   *  change. The BVH is refitted, not rebuilt: the triangles are the same, so
+   *  only the boxes round them move. */
   applyTransform(m: Rigid): void {
     if (!this.mesh) return
     const geometry = this.mesh.geometry as THREE.BufferGeometry
@@ -2311,10 +2725,8 @@ export class SceneManager {
     rigidRotateVectors(m, normals.array as Float32Array)
     positions.needsUpdate = true
     normals.needsUpdate = true
-    geometry.computeBoundingBox()
-    geometry.computeBoundingSphere()
-    geometry.disposeBoundsTree?.()
-    geometry.computeBoundsTree()
+    // Also renews the bounding box and sphere.
+    refitAfterRigid(geometry)
     // The edited copy — or the scan, while the copy is shown — is in the same
     // frame, and moves with it.
     if (this.other) {
@@ -2323,10 +2735,7 @@ export class SceneManager {
       rigidRotateVectors(m, g.getAttribute('normal').array as Float32Array)
       g.getAttribute('position').needsUpdate = true
       g.getAttribute('normal').needsUpdate = true
-      g.computeBoundingBox()
-      g.computeBoundingSphere()
-      g.disposeBoundsTree?.()
-      g.computeBoundsTree()
+      refitAfterRigid(g)
       this.other.axis = rotatedDirection(m, this.other.axis)
     }
     // So does whatever the layers keep in the scan's frame.
@@ -2431,13 +2840,13 @@ export class SceneManager {
       geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1))
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
-      // Matte, whatever the scheme's finish: a CAD face square to the view
-      // takes the whole highlight, and a map is read by its colours.
-      const material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide, roughness: 1, metalness: 0 })
-      this.referenceMapMesh = new THREE.Mesh(geometry, material)
+      this.referenceMapMesh = new THREE.Mesh(geometry, referenceMapMaterial())
       this.referenceMapMesh.visible = false
       this.referenceMapMesh.renderOrder = 1
       this.scene.add(this.referenceMapMesh)
+      // Its program was warmed with the reference's; a run is cheap when
+      // every kind is warm already.
+      this.warmPrograms()
     }
     this.invalidate()
   }
@@ -2709,9 +3118,12 @@ export class SceneManager {
     const geometry = this.mesh.geometry as THREE.BufferGeometry
     this.marking.meshDisposed()
     // Keyed by vertex number, like the colouring: whoever moves this scan
-    // lays them on again.
+    // lays them on again, over its own count of vertices — the buffer kept
+    // between plays goes too.
     this.dropDeflection()
+    this.releaseDeflect(geometry)
     for (const layer of this.layers) layer.scanReplaced?.()
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(geometry, positions, indices, normals, wireSlots, copyOf, null, true, surface)
@@ -2770,9 +3182,11 @@ export class SceneManager {
   }
 
   /** Paint the scan from a measured map — deviation, wall thickness — or pass
-   *  null to hand the surface back to the element colours. */
-  setFieldColors(colors: Uint8Array | null): void {
-    const painted = this.regions.setFieldColors(colors)
+   *  null to hand the surface back to the element colours. The map already on
+   *  the surface is not laid on or uploaded again; `repainted` says that the
+   *  array was painted afresh since it was last handed over. */
+  setFieldColors(colors: Uint8Array | null, repainted = false): void {
+    const painted = this.regions.setFieldColors(colors, repainted)
     this.invalidate()
     if (!painted) return
     this.surfaceRepainted()
@@ -2843,20 +3257,37 @@ export class SceneManager {
     attr.needsUpdate = true
   }
 
-  /** Back at rest, with the offsets taken off the geometry they were laid on. */
+  /** Back at rest. While held (see setDeflectionHeld) the offsets' buffer
+   *  stays on the geometry, drawn with nothing added: letting it go means
+   *  disposing the geometry and sending the whole scan to the GPU again, and
+   *  while the map is up the loop is stopped and started again often. Not
+   *  held, it is taken off the geometry it was laid on. */
   private dropDeflection(): void {
     const d = this.deflection
     this.deflection = null
     this.uDeflect.value = 0
     if (this.mesh) this.mesh.frustumCulled = true
-    if (d) this.releaseDeflect(d.geometry)
+    if (d && !this.deflectHeld) this.releaseDeflect(d.geometry)
+  }
+
+  /** Keep the offsets' buffer on the scan between plays — while the
+   *  deviation workspace is on screen — or stop keeping it. Let go, it is
+   *  released at once from the scan and from an edited copy waiting beside
+   *  it, whichever it was laid on, but for a loop still playing, which lets
+   *  its own go when it stops. */
+  setDeflectionHeld(held: boolean): void {
+    this.deflectHeld = held
+    if (held) return
+    for (const geometry of [this.mesh?.geometry, this.other?.geometry]) {
+      if (geometry && geometry !== this.deflection?.geometry) this.releaseDeflect(geometry as THREE.BufferGeometry)
+    }
   }
 
   /** Take the offsets' attribute off a geometry, GPU buffer and all. three.js
    *  lets an attribute's buffer go only when its geometry is disposed, so it
    *  is: the rest of the scan is uploaded again on the next frame it is
    *  drawn — once, the price of not keeping a buffer the size of the
-   *  positions for a loop nobody is playing. */
+   *  positions once the map is put away. */
   private releaseDeflect(geometry: THREE.BufferGeometry): void {
     if (!geometry.getAttribute('deflect')) return
     geometry.dispose()
@@ -2866,9 +3297,7 @@ export class SceneManager {
   /** Where the loop is this frame. Playing, it draws every frame — that is
    *  what it is for; at rest it costs a comparison. */
   private stepDeflection(): void {
-    const d = this.deflection
-    const playing = d !== null && this.mesh !== null && this.mesh.visible && d.geometry === this.mesh.geometry
-    if (!playing) {
+    if (!this.deflectionPlaying()) {
       // Off the geometry on screen, the attribute is not there to be read
       // and the shader must not add anything at all.
       if (this.uDeflect.value !== 0) {
@@ -2880,6 +3309,13 @@ export class SceneManager {
     const phase = (performance.now() - this.deflectStart) / DEFLECTION_PERIOD_MS
     this.uDeflect.value = deflectionFactor(phase, this.deflectScale) - 1
     this.invalidate()
+  }
+
+  /** Whether the loop is playing: there is motion, laid on the geometry on
+   *  screen, and the scan is shown. */
+  private deflectionPlaying(): boolean {
+    const d = this.deflection
+    return d !== null && this.mesh !== null && this.mesh.visible && d.geometry === this.mesh.geometry
   }
 
   /** Paint a reading on some of the scan's vertices, leaving the rest as
@@ -2937,6 +3373,7 @@ export class SceneManager {
     if (!this.nominalMesh) return
     this.referenceCap = this.keepCap(this.referenceCap, null)
     const geometry = this.nominalMesh.geometry as THREE.BufferGeometry
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     ;(this.nominalMesh.material as THREE.Material).dispose()
@@ -2954,6 +3391,7 @@ export class SceneManager {
     if (!this.mesh) return
     this.scanCap = this.keepCap(this.scanCap, null)
     const geometry = this.mesh.geometry as THREE.BufferGeometry
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     ;(this.mesh.material as THREE.Material).dispose()
@@ -2978,6 +3416,9 @@ export class SceneManager {
     this.gizmo.dispose()
     this.disposeNominal()
     this.disposeMesh()
+    this.cancelWarm()
+    for (const { keep } of this.warmKeepers.values()) keep.dispose()
+    this.warmKeepers.clear()
     this.viewport.dispose()
   }
 
@@ -3005,13 +3446,12 @@ export class SceneManager {
       partGroup: this.partGroup,
       raycaster: this.raycaster,
       canvas: this.viewport.renderer.domElement,
+      canvasRect: () => this.viewport.canvasRect(),
       container: this.container,
       camera: () => this.camera,
       setPickRay: (x, y) => this.setPickRay(x, y),
       invalidate: this.invalidate,
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       setCursor: (cursor) => {
         this.viewport.renderer.domElement.style.cursor = cursor
       },

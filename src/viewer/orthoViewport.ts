@@ -11,6 +11,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js'
 import { spreadLabels } from './labelSpread'
 import type { LinkedView } from './cameraLink'
+import { FrameLoop } from './frameLoop'
 import type { ControlScheme } from './navSchemes'
 import { OrthoNavigator } from './orthoNav'
 import {
@@ -19,6 +20,7 @@ import {
   readSpaceMouse,
   releaseSpaceMouse,
   spaceMouseAttached,
+  watchSpaceMouse,
 } from './spaceMouse'
 import type { ViewTheme } from './viewThemes'
 
@@ -128,12 +130,20 @@ export interface OrthoViewportOptions {
   /** A second finger has landed: whatever one-finger gesture was live is over,
    *  because the hand has moved on to navigating. */
   onMultiTouch?: () => void
-  /** Runs every animation tick, rendered or not — this is where the owner
-   *  drains its per-frame queues and decides whether to invalidate. */
+  /** Runs on every frame the loop runs, rendered or not — this is where the
+   *  owner drains its per-frame queues and decides whether to invalidate.
+   *  Not every animation tick: the loop sleeps while nothing changes (see
+   *  FrameLoop), so state polled here must, when it changes, wake the loop
+   *  — invalidate, or the owner's requestHover — or it is not looked at
+   *  until something else does. */
   onTick?: () => void
   /** Runs after the scene render, before the labels — a corner gizmo drawn
    *  into the same canvas goes here. */
   onAfterRender?: (width: number, height: number) => void
+  /** Whether the owner has something under way that wants frames although
+   *  nothing is marked for drawing yet — a stroke still queued, a motion
+   *  playing. Asked before the loop goes to sleep; see FrameLoop. */
+  keepAwake?: () => boolean
   /** A see-through canvas with no stage of its own: what a viewport laid
    *  over another one is — the sketch sheet over the 3D view. */
   transparent?: boolean
@@ -161,14 +171,51 @@ export class OrthoViewport {
    *  re-framing a new model just writes to it. */
   readonly clipSphere = { center: new THREE.Vector3(), radius: 1 }
   /** Skips rendering entirely while the viewport is hidden (behind the
-   *  split-screen picker); everything loaded stays loaded. */
-  paused = false
+   *  split-screen picker, or kept alive behind `hidden` after its split or 2D
+   *  view was closed); everything loaded stays loaded. A paused viewport asks
+   *  for no frames at all — its loop winds down and nothing wakes it — and
+   *  lets go of the SpaceMouse; shown again, it wakes. */
+  get paused(): boolean {
+    return this.isPaused
+  }
+  set paused(paused: boolean) {
+    if (paused === this.isPaused) return
+    this.isPaused = paused
+    if (paused) releaseSpaceMouse(this)
+    else this.wake()
+  }
+  private isPaused = false
+  /** The container's size in CSS pixels as of the last resize — what the
+   *  frame, the frustum and worldPerPixel read rather than asking the layout
+   *  engine, which after any DOM write is a forced layout pass on the spot.
+   *  The ResizeObserver keeps it current. Never 1 × 1 past a real size: a
+   *  viewport put away behind `hidden` keeps the size it was last shown at
+   *  (see resize). */
+  readonly size = { w: 1, h: 1 }
+  /** Whether the container has a size on the page now, as of the last
+   *  resize: false while it is put away behind `hidden`, where `size` still
+   *  holds the size it was shown at. */
+  get shown(): boolean {
+    return this.isShown
+  }
+  private isShown = false
   /** Half-extents of the model on the screen plane at the framing camera
    *  orientation; the frustum is rebuilt from these on every resize so the
    *  user's zoom survives. */
   private fitExtent = { halfW: 1, halfH: 1 }
   private resizeObserver: ResizeObserver
-  private rafId = 0
+  /** Whether the container has ever had a size — see resize. */
+  private sized = false
+  /** The frame loop, asleep whenever there is nothing to draw — see
+   *  FrameLoop. What could change the picture wakes it: invalidate, a hand
+   *  on the canvas or the keyboard, a resize, the tab shown again, a puck
+   *  attached. */
+  private loop: FrameLoop
+  /** Told on every invalidate — a view linked to this one, which has to
+   *  look whether this one moved (see CameraLink). */
+  private invalidateWatchers = new Set<() => void>()
+  /** What dispose takes down besides the canvas's own listeners. */
+  private unlisten: (() => void)[] = []
   private pointerDown: { x: number; y: number } | null = null
   /** Fingers down on the canvas, and whether this touch has been more than one
    *  of them at any point. A tap picks, but the moment a second finger lands
@@ -176,10 +223,11 @@ export class OrthoViewport {
    *  and end within the drag threshold must not also fit a sphere. */
   private touchIds = new Set<number>()
   private multiTouch = false
-  /** Render-on-demand: the rAF loop keeps ticking (the early-out is nearly
-   *  free) but the scene is only drawn on frames something marked. A missed
-   *  mark shows as a stale image, so every path that could change what is on
-   *  screen calls invalidate — an extra repaint costs nothing. */
+  /** Render-on-demand: the scene is only drawn on frames something marked,
+   *  and once nothing has been marked for a while the loop stops asking for
+   *  frames at all. A missed mark shows as a stale image, so every path that
+   *  could change what is on screen calls invalidate — an extra repaint
+   *  costs nothing — and invalidate wakes the loop. */
   private needsRender = true
   /** A turn of the camera under way — see animateLook. `from` is how far
    *  along the eased way the pose q0, t0, zoom0 was taken: 0 for a turn
@@ -199,9 +247,19 @@ export class OrthoViewport {
 
   invalidate = (): void => {
     this.needsRender = true
+    this.wake()
+    for (const fn of this.invalidateWatchers) fn()
+  }
+
+  /** Run frames again, if the loop had gone to sleep. A paused viewport
+   *  stays asleep: it draws nothing, and showing it wakes it. */
+  wake = (): void => {
+    if (!this.isPaused) this.loop?.wake()
   }
 
   constructor(private container: HTMLDivElement, private opts: OrthoViewportOptions) {
+    // Built first: everything below may already invalidate.
+    this.loop = new FrameLoop(() => this.frame())
     // A stencil buffer, for the cap that closes a part cut open at a plane
     // — three.js leaves it out unless asked.
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: Boolean(opts.transparent), stencil: true })
@@ -231,6 +289,31 @@ export class OrthoViewport {
     this.scene.add(this.keyLight.target)
     this.setTheme(opts.theme)
 
+    // A hand on the canvas wakes the loop before anything else hears of it —
+    // capture, and ahead of the navigator's own listeners — so the hover
+    // pass, the stroke queue and the drag it starts all find frames running.
+    // A pointer leaving wakes it too: the hover it lit has to go out.
+    const canvas = this.renderer.domElement
+    for (const type of ['pointerdown', 'pointermove', 'pointerup', 'pointerleave', 'pointercancel', 'wheel', 'touchstart', 'touchmove'])
+      canvas.addEventListener(type, this.wake, { capture: true, passive: true })
+    // Keys move the view and step what is lit under the cursor, whichever
+    // element has the focus; a modifier held changes what a click would do.
+    window.addEventListener('keydown', this.wake)
+    window.addEventListener('keyup', this.wake)
+    // Shown again, the tab draws whatever was marked while it was not.
+    const visible = (): void => {
+      if (document.visibilityState === 'visible') this.wake()
+    }
+    document.addEventListener('visibilitychange', visible)
+    this.unlisten.push(
+      () => window.removeEventListener('keydown', this.wake),
+      () => window.removeEventListener('keyup', this.wake),
+      () => document.removeEventListener('visibilitychange', visible),
+      // A puck has no events to wake on: attached, it is read every frame,
+      // so the loop stays awake while one is there.
+      watchSpaceMouse(this.wake),
+    )
+
     // OrbitControls owns the target and the per-frame lookAt, nothing else:
     // its own rotate/pan/zoom are off because the control scheme decides which
     // buttons do what, and because orbiting has to happen about the point
@@ -248,6 +331,7 @@ export class OrthoViewport {
       this.renderer.domElement,
       opts.navTargets,
       this.clipSphere,
+      () => this.size.h,
     )
     this.scene.add(this.nav.pivotMarker)
     // The navigator says when a gesture changed the view; the controls'
@@ -301,7 +385,10 @@ export class OrthoViewport {
       this.endTouch(e)
     })
 
-    this.resizeObserver = new ResizeObserver(() => this.resize())
+    this.resizeObserver = new ResizeObserver(() => {
+      this.resize()
+      this.wake()
+    })
     this.resizeObserver.observe(this.container)
     this.resize()
 
@@ -309,14 +396,10 @@ export class OrthoViewport {
       this.flight = null
     })
 
-    const animate = (): void => {
-      this.rafId = requestAnimationFrame(animate)
-      this.frame()
-    }
     // Scheduled, not run inline: the owner composing this viewport is still
     // mid-constructor here, and its tick hooks reach for modules it has not
     // built yet. The first frame is one rAF away either way.
-    this.rafId = requestAnimationFrame(animate)
+    this.wake()
   }
 
   /** One frame drawn now, out of the browser's turn — while the tab is
@@ -326,10 +409,12 @@ export class OrthoViewport {
     this.frame()
   }
 
-  private frame(): void {
-    // Ahead of the pause, so that a paused viewport lets go of the puck.
+  /** One frame; whether it had anything to do — drew, or has something
+   *  under way that wants the next frame — which is what keeps the loop
+   *  from going to sleep. */
+  private frame(): boolean {
     if (spaceMouseAttached()) this.stepSpaceMouse()
-    if (this.paused) return
+    if (this.isPaused) return false
     // These run every tick, rendered or not: a turn under way moves the
     // camera a step, the clip planes track the camera (and let the
     // navigator drop its cached canvas rect), update() is what notices
@@ -339,10 +424,9 @@ export class OrthoViewport {
     this.nav.updateClipPlanes()
     this.controls.update()
     this.opts.onTick?.()
-    if (!this.needsRender) return
+    if (!this.needsRender) return this.flight !== null || spaceMouseAttached() || this.opts.keepAwake?.() === true
     this.needsRender = false
-    const w = this.container.clientWidth || 1
-    const h = this.container.clientHeight || 1
+    const { w, h } = this.size
     this.keyLight.position.copy(this.camera.position)
     this.keyLight.target.position.copy(this.controls.target)
     this.renderer.setViewport(0, 0, w, h)
@@ -350,6 +434,7 @@ export class OrthoViewport {
     this.opts.onAfterRender?.(w, h)
     this.labelRenderer.render(this.scene, this.camera)
     spreadLabels(this.labelRenderer.domElement)
+    return true
   }
 
   /** One frame of the SpaceMouse. A viewport that is paused or hidden — the 3D
@@ -357,7 +442,7 @@ export class OrthoViewport {
    *  view. The puck takes the camera back from a turn under way, as a hand on
    *  the canvas does. */
   private stepSpaceMouse(): void {
-    const m = readSpaceMouse(this, !this.paused && this.container.clientWidth > 0)
+    const m = readSpaceMouse(this, !this.isPaused && this.shown)
     if (m) this.flight = null
     this.nav.stepSpaceMouse(m)
   }
@@ -396,6 +481,13 @@ export class OrthoViewport {
     return this.nav.navigating()
   }
 
+  /** The canvas's box on the page, read of the layout once a frame or a
+   *  task at most — what a hit test that runs on every hover pass measures
+   *  client points against. */
+  canvasRect(): DOMRect {
+    return this.nav.canvasRect()
+  }
+
   /** Aim the shared raycaster through the cursor. */
   setPickRay(clientX: number, clientY: number): void {
     this.nav.setPickRay(this.raycaster, clientX, clientY)
@@ -406,8 +498,10 @@ export class OrthoViewport {
    *  part — a picked-point marker — is scaled by. Parallel projection, so the
    *  figure is the same everywhere in the frame and at every depth. */
   worldPerPixel(): number {
-    const h = this.container.clientHeight || 1
-    return (this.camera.top - this.camera.bottom) / this.camera.zoom / h
+    // The cached size: this runs every frame and on every grip and marker
+    // re-scale, and a read of the layout here after any DOM write was a
+    // whole forced layout pass, most of what a tap cost.
+    return (this.camera.top - this.camera.bottom) / this.camera.zoom / this.size.h
   }
 
   /**
@@ -570,6 +664,8 @@ export class OrthoViewport {
       zoom1: goal.zoom,
       dist: goal.dist,
     }
+    // The turn plays over frames the loop may have stopped asking for.
+    this.wake()
     this.stepFlight()
   }
 
@@ -741,13 +837,18 @@ export class OrthoViewport {
       extents: () => this.fitExtent,
       setExtents: (halfW, halfH) => this.setExtents(halfW, halfH),
       invalidate: this.invalidate,
+      wake: this.wake,
+      watch: (fn) => {
+        this.invalidateWatchers.add(fn)
+        return () => this.invalidateWatchers.delete(fn)
+      },
     }
   }
 
   /** Rebuild the orthographic frustum for the current viewport aspect,
    *  leaving camera.zoom (the user's zoom) alone. */
   private applyFrustum(): void {
-    const aspect = (this.container.clientWidth || 1) / (this.container.clientHeight || 1)
+    const aspect = this.size.w / this.size.h
     const h = viewHalfHeight(this.fitExtent, aspect)
     this.camera.top = h
     this.camera.bottom = -h
@@ -809,8 +910,19 @@ export class OrthoViewport {
   }
 
   resize(): void {
-    const w = this.container.clientWidth || 1
-    const h = this.container.clientHeight || 1
+    const cw = this.container.clientWidth
+    const ch = this.container.clientHeight
+    this.isShown = cw > 0 && ch > 0
+    // A viewport kept alive behind `hidden` reports 0 × 0, and resizing to that
+    // would reallocate both buffers for a size nobody sees; it keeps the last
+    // one, and the real size arrives with the first resize after it is shown.
+    // So does the cached size: a 0 × 0 is never written over a real one.
+    if (cw === 0 && ch === 0 && this.sized) return
+    if (cw > 0 && ch > 0) this.sized = true
+    const w = cw || 1
+    const h = ch || 1
+    this.size.w = w
+    this.size.h = h
     this.renderer.setSize(w, h)
     this.labelRenderer.setSize(w, h)
     this.applyFrustum()
@@ -818,14 +930,21 @@ export class OrthoViewport {
   }
 
   dispose(): void {
-    cancelAnimationFrame(this.rafId)
+    this.loop.stop()
     releaseSpaceMouse(this)
     this.resizeObserver.disconnect()
+    for (const off of this.unlisten) off()
+    this.invalidateWatchers.clear()
     // The navigator listens on the document so drags can leave the canvas;
     // nothing else takes those down with the container.
     this.nav.dispose()
     this.controls.dispose()
     this.renderer.dispose()
+    // Dropping the renderer leaves its context to the garbage collector, and
+    // the browser counts it against its cap on live contexts until then. The
+    // split and 2D viewports now live as long as their geometry does, so one
+    // replaced under a long session must give its context back at once.
+    this.renderer.forceContextLoss()
     // Only what this viewport put there. Emptying the container instead would
     // also take out whatever React had rendered into it — the fit-to-view
     // button — and React, having not been told, would never put it back. Which

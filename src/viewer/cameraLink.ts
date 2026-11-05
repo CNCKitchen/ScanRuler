@@ -27,6 +27,11 @@ export interface LinkedView {
   extents: () => { halfW: number; halfH: number }
   setExtents: (halfW: number, halfH: number) => void
   invalidate: () => void
+  /** Run this view's frames again if they had stopped — see FrameLoop. */
+  wake: () => void
+  /** Be told whenever this view is marked for drawing, which a move of its
+   *  camera always is; returns the unsubscribe. */
+  watch: (fn: () => void) => () => void
 }
 
 interface Pose {
@@ -99,10 +104,16 @@ function push(from: LinkedView, to: LinkedView): void {
  * telling that echo apart from a genuine gesture costs more than the dozen
  * float comparisons a tick does here. Whoever has moved since the last tick is
  * the driver; a frame in which neither has costs nothing.
+ *
+ * A view's frames stop while nothing changes in it (see FrameLoop), and the
+ * loop polling the link may be the one standing still while the other half
+ * is dragged. So each half wakes the other whenever it is marked for
+ * drawing, which a move of its camera always is.
  */
 export class CameraLink {
   private poseA = emptyPose()
   private poseB = emptyPose()
+  private unwatch: (() => void)[]
 
   constructor(
     private a: LinkedView,
@@ -111,6 +122,13 @@ export class CameraLink {
     push(a, b)
     readPose(a, this.poseA)
     readPose(b, this.poseB)
+    this.unwatch = [a.watch(b.wake), b.watch(a.wake)]
+  }
+
+  /** Let go of both views: a link replaced, or its half closed. */
+  dispose(): void {
+    for (const off of this.unwatch) off()
+    this.unwatch = []
   }
 
   tick(): void {

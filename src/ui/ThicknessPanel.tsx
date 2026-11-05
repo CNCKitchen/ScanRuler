@@ -5,6 +5,7 @@
 // as it is turned. Laid out like the deviation panel next door, because it is
 // the same instrument pointed at a different question.
 
+import { useShallow } from 'zustand/react/shallow'
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
 import { useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
@@ -29,7 +30,38 @@ export function ThicknessPanel({
   const scanName = useStore((s) => s.fileName)
   const scanTriangles = useStore((s) => s.triangleCount)
   const scanBusy = useStore((s) => s.busy)
-  const t = useThickness()
+  // Only what the panel shows and sets: the store is also written when a map
+  // lands (stats, histogram, mapVersion), none of which this panel reads, and
+  // the actions are stable, so picking them costs no re-render.
+  const t = useThickness(
+    useShallow((s) => ({
+      bands: s.bands,
+      clearProbes: s.clearProbes,
+      coneAngleDeg: s.coneAngleDeg,
+      coneRays: s.coneRays,
+      high: s.high,
+      limit: s.limit,
+      low: s.low,
+      maxThickness: s.maxThickness,
+      message: s.message,
+      method: s.method,
+      normalDeviationDeg: s.normalDeviationDeg,
+      probes: s.probes,
+      removeProbe: s.removeProbe,
+      setBands: s.setBands,
+      setConeAngle: s.setConeAngle,
+      setConeRays: s.setConeRays,
+      setHigh: s.setHigh,
+      setLimit: s.setLimit,
+      setLow: s.setLow,
+      setMaxThickness: s.setMaxThickness,
+      setMethod: s.setMethod,
+      setNormalDeviation: s.setNormalDeviation,
+      setShowHistogram: s.setShowHistogram,
+      showHistogram: s.showHistogram,
+      status: s.status,
+    })),
+  )
   // Lengths are held in millimetres and shown in the units shown.
   const len = useLength()
   const pulse = usePulse('measure-thickness')

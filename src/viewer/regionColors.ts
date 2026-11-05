@@ -42,6 +42,7 @@ const REGION_STATE = [
   'previewRegion',
   'previewRgb',
   'sparse',
+  'fieldPainted',
   'paintMask',
   'count',
   'tintMask',
@@ -71,6 +72,11 @@ export class RegionColors {
    *  layer above the element tints and below the preview region, put back
    *  on top by every repaint underneath it. */
   private sparse: { subset: Uint32Array; rgb: Uint8Array } | null = null
+  /** Whether the colour buffer holds what `setFieldColors` last made of
+   *  `fieldColors` and nothing has touched the layers since — so asking for
+   *  the same field again would write the same bytes over themselves. Every
+   *  call that records or paints a change to the layers puts it down. */
+  private fieldPainted = false
   /** Hand-painted surface selection: one byte per vertex, vertex indices like
    *  everything else the fitter speaks. The mesh's paint attribute — written in
    *  place, thresholded per triangle by the scan's shader. */
@@ -93,6 +99,7 @@ export class RegionColors {
   setBaseColor(rgb: Rgb): boolean {
     if (rgb.every((c, i) => c === this.baseColor[i])) return false
     this.baseColor = rgb
+    this.fieldPainted = false
     if (!this.colors || this.fieldColors) return false
     this.repaintFromElements()
     return true
@@ -126,6 +133,7 @@ export class RegionColors {
     this.elementColors.clear()
     this.hiddenRegions.clear()
     this.fieldColors = null
+    this.fieldPainted = false
     this.previewRegion = null
     this.sparse = null
     this.paintMask = paint
@@ -145,6 +153,8 @@ export class RegionColors {
     this.scanVertices = scanVertices
     this.paintMask = paint
     this.tintMask = tint
+    // The arrays are new: whatever they hold was copied, not painted.
+    this.fieldPainted = false
   }
 
   /** Trade everything with another compositor: its buffers, its ownership,
@@ -168,6 +178,7 @@ export class RegionColors {
     this.elementColors.clear()
     this.hiddenRegions.clear()
     this.fieldColors = null
+    this.fieldPainted = false
     this.previewRegion = null
     this.sparse = null
     this.paintMask = null
@@ -191,6 +202,7 @@ export class RegionColors {
    *  element owned before. Returns whether the colour buffer changed. */
   applyRegion(elementId: number, rgb: Rgb, region: Uint32Array): boolean {
     if (!this.colors || !this.owner) return false
+    this.fieldPainted = false
     const cleared = this.clearElement(elementId)
     this.elementColors.set(elementId, rgb)
     for (let i = 0; i < region.length; i++) this.owner[region[i]] = elementId
@@ -214,6 +226,7 @@ export class RegionColors {
   /** Take an element's region away and hand the surface back to bare scan. */
   clearElement(elementId: number): boolean {
     if (!this.colors || !this.owner) return false
+    this.fieldPainted = false
     this.elementColors.delete(elementId)
     this.hiddenRegions.delete(elementId)
     const arr = this.colors
@@ -235,6 +248,7 @@ export class RegionColors {
 
   clearAllRegions(): boolean {
     if (!this.colors || !this.owner) return false
+    this.fieldPainted = false
     this.owner.fill(0)
     this.elementColors.clear()
     this.hiddenRegions.clear()
@@ -255,6 +269,7 @@ export class RegionColors {
    *  lifting the preview restores whatever was underneath. */
   setPreviewRegion(region: Uint32Array | null, rgb?: Rgb): boolean {
     if (!this.colors || !this.owner || this.fieldColors) return false
+    this.fieldPainted = false
     if (rgb) this.previewRgb = rgb
     const arr = this.colors
     const tint = this.tintMask!
@@ -277,9 +292,17 @@ export class RegionColors {
    *  null to hand the surface back to the element colours. Returns whether the
    *  colour buffer was there to paint. A map is a reading at every vertex, so
    *  it tints every vertex: no triangle falls under the shader's threshold and
-   *  the map stays the smooth interpolation it is meant to be. */
-  setFieldColors(field: Uint8Array | null): boolean {
+   *  the map stays the smooth interpolation it is meant to be.
+   *
+   *  The same field asked for again, with the layers untouched since, is
+   *  already what the buffer holds: nothing is written and false comes back,
+   *  so the caller uploads nothing. A field whose colours were repainted into
+   *  the same array since — `repainted` — is a different field that happens to
+   *  share it, and is laid on again. */
+  setFieldColors(field: Uint8Array | null, repainted = false): boolean {
+    if (!repainted && this.fieldPainted && field === this.fieldColors) return false
     this.fieldColors = field
+    this.fieldPainted = false
     if (!this.colors) return false
     // A map is a reading per vertex of the scan, and the buffer may run on
     // past those with the copies sharp edges were split into for shading
@@ -291,6 +314,7 @@ export class RegionColors {
       this.tintMask!.fill(1)
       this.paintOverlays()
     } else this.repaintFromElements()
+    this.fieldPainted = true
     return true
   }
 
@@ -304,6 +328,7 @@ export class RegionColors {
     const next = subset && rgb && rgb.length === subset.length * 3 ? { subset, rgb } : null
     if (!next && !this.sparse) return false
     this.sparse = next
+    this.fieldPainted = false
     if (!this.colors || this.fieldColors) return false
     this.repaintFromElements()
     return true
@@ -318,6 +343,7 @@ export class RegionColors {
     if (next.size === this.hiddenRegions.size && ids.every((id) => this.hiddenRegions.has(id)))
       return false
     this.hiddenRegions = next
+    this.fieldPainted = false
     if (!this.colors || this.fieldColors) return false
     this.repaintFromElements()
     return true
@@ -327,6 +353,7 @@ export class RegionColors {
    *  ownership records, then put the overlays back on top. */
   repaintFromElements(): void {
     if (!this.colors || !this.owner) return
+    this.fieldPainted = false
     const arr = this.colors
     const tint = this.tintMask!
     for (let v = 0; v < this.owner.length; v++) {

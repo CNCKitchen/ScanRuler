@@ -40,6 +40,7 @@ import type { Vec3 } from '../core/types'
 import { AXIS_COLORS } from './axisGizmo'
 import { SECTION_LINE_DEFAULT } from './lineWidths'
 import { pinLabel } from './overlays'
+import { unclip } from './clipTree'
 import { onFramePlane, planeSheet } from './frameBasis'
 import { LineWidthRegistry } from './lineWidthRegistry'
 
@@ -67,6 +68,22 @@ export interface SectionOverlayItem {
   extrude?: boolean
 }
 
+/** What one finished section is drawn with, kept for as long as the section is
+ *  on offer, drawn or not. A material let go takes its shader program with it
+ *  once nothing else holds that program, and the next one drawn compiles it
+ *  again in the middle of whatever tap asked for it — so a rebuild sets the
+ *  colour, width and opacity of what it finds here and makes only what is
+ *  missing. The flags that pick a program are fixed where each is made. */
+interface SectionMaterials {
+  cut?: LineMaterial
+  elements?: LineMaterial
+  dot?: THREE.MeshBasicMaterial
+  block?: THREE.MeshBasicMaterial
+  edge?: THREE.LineBasicMaterial
+  /** Lets the fat lines above go from the registry that keeps them sized. */
+  letGo: (() => void)[]
+}
+
 export interface SectionOverlayContext {
   partGroup: THREE.Group
   /** Half the scan's bounding-box diagonal — what the preview sheet is sized to. */
@@ -81,6 +98,9 @@ export class SectionOverlay {
   private group = new THREE.Group()
   private previewGroup = new THREE.Group()
   private cleanup: (() => void)[] = []
+  /** The materials of every finished section on offer, by its id — see
+   *  SectionMaterials. */
+  private materials = new Map<number, SectionMaterials>()
   /** The dots of points on the sections, and what a pixel is worth. */
   private pointDots = new Set<THREE.Mesh>()
   private worldPerPixel = 0
@@ -160,6 +180,14 @@ export class SectionOverlay {
   /** The finished sections, rebuilt wholesale when anything about them
    *  changes — the same policy as the element overlays. */
   setSections(items: readonly SectionOverlayItem[], visible: boolean): void {
+    // A section on offer keeps its materials, drawn or not; only one that goes
+    // from the list lets them go.
+    for (const [id, mats] of this.materials) {
+      if (items.some((item) => item.id === id)) continue
+      for (const letGo of mats.letGo) letGo()
+      for (const m of [mats.cut, mats.elements, mats.dot, mats.block, mats.edge]) m?.dispose()
+      this.materials.delete(id)
+    }
     for (const fn of this.cleanup) fn()
     this.cleanup = []
     this.group.clear()
@@ -168,12 +196,14 @@ export class SectionOverlay {
     this.cuts = visible ? items.flatMap((item) => (item.cut ? [{ id: item.id, points: item.cut.points }] : [])) : []
     if (!visible) return
     for (const item of items) {
+      let held = this.materials.get(item.id)
+      if (!held) this.materials.set(item.id, (held = { letGo: [] }))
       // On the surface it was cut from, and hidden with it: a section on the
       // far side of the part is read by turning the part, like its tint.
       if (item.cut)
-        this.addPolylines(this.group, this.cleanup, item.cut, item.color, 0.95, SECTION_LINE_DEFAULT, !item.cut.shadow)
-      if (item.extrude && item.cut?.shadow) this.addBlock(this.group, this.cleanup, item.cut.shadow, item.color)
-      if (item.elements.length > 0) this.addElements(this.group, this.cleanup, item.elements, item.color)
+        this.addPolylines(this.group, this.cleanup, item.cut, item.color, 0.95, SECTION_LINE_DEFAULT, !item.cut.shadow, held)
+      if (item.extrude && item.cut?.shadow) this.addBlock(this.group, this.cleanup, item.cut.shadow, item.color, held)
+      if (item.elements.length > 0) this.addElements(this.group, this.cleanup, item.elements, item.color, held)
       const label = pinLabel('element-label', item.name, '', item.color)
       const lift = this.ctx.modelRadius() * 0.02
       label.position.set(
@@ -282,7 +312,13 @@ export class SectionOverlay {
   /** A shadow extruded: each outer loop with its holes as a shape on the
    *  sheet, stood up from the part's lowest point along the normal to its
    *  highest — translucent, so the part shows through it. */
-  private addBlock(group: THREE.Group, cleanup: (() => void)[], sh: ShadowShape, color: string): void {
+  private addBlock(
+    group: THREE.Group,
+    cleanup: (() => void)[],
+    sh: ShadowShape,
+    color: string,
+    held?: SectionMaterials,
+  ): void {
     const depth = sh.extent.max - sh.extent.min
     if (!(depth > 0)) return
     const step = Math.PI / 36
@@ -301,26 +337,29 @@ export class SectionOverlay {
     geo.applyMatrix4(
       new THREE.Matrix4().makeBasis(new THREE.Vector3(...basisU), new THREE.Vector3(...basisV), new THREE.Vector3(...normal)).setPosition(base),
     )
-    const mat = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.18,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    })
+    // The preview's block is made afresh each time and goes with its cleanup;
+    // a finished section's is its own for as long as it is on offer.
+    const makeBlock = () =>
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide })
+    const mat = held ? (held.block ??= makeBlock()) : makeBlock()
+    unclip(mat).color.set(color)
     const block = new THREE.Mesh(geo, mat)
     block.renderOrder = 2
     group.add(block)
     const edges = new THREE.EdgesGeometry(geo, 30)
-    const edgeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6, depthWrite: false })
+    const makeEdge = () => new THREE.LineBasicMaterial({ transparent: true, opacity: 0.6, depthWrite: false })
+    const edgeMat = held ? (held.edge ??= makeEdge()) : makeEdge()
+    unclip(edgeMat).color.set(color)
     const outline = new THREE.LineSegments(edges, edgeMat)
     outline.renderOrder = 3
     group.add(outline)
     cleanup.push(() => {
       geo.dispose()
-      mat.dispose()
       edges.dispose()
-      edgeMat.dispose()
+      if (!held) {
+        mat.dispose()
+        edgeMat.dispose()
+      }
     })
   }
 
@@ -425,6 +464,47 @@ export class SectionOverlay {
     this.ctx.invalidate()
   }
 
+  /** A fat-line material for a section's cut or for its elements, set as
+   *  asked. A finished section's (`held`) is the one it has had since it was
+   *  first drawn, made if it has none; the preview's is made afresh and goes
+   *  with its cleanup. `offset` is the polygon offset pulling it in front of
+   *  the surface it lies on, none for 0. */
+  private fatLine(
+    cleanup: (() => void)[],
+    held: SectionMaterials | undefined,
+    slot: 'cut' | 'elements',
+    color: string,
+    opacity: number,
+    width: number,
+    depthTest: boolean,
+    offset: number,
+  ): LineMaterial {
+    let mat = held?.[slot]
+    if (!mat) {
+      mat = new LineMaterial({ transparent: true, depthWrite: false, worldUnits: false })
+      const letGo = this.fatLines.track(mat, width)
+      if (held) {
+        held[slot] = mat
+        held.letGo.push(letGo)
+      } else {
+        const own = mat
+        cleanup.push(() => {
+          letGo()
+          own.dispose()
+        })
+      }
+    }
+    unclip(mat)
+    mat.color.set(new THREE.Color(color).getHex())
+    mat.linewidth = width * this.fatLines.scale
+    mat.opacity = opacity
+    mat.depthTest = depthTest
+    mat.polygonOffset = offset !== 0
+    mat.polygonOffsetFactor = offset
+    mat.polygonOffsetUnits = offset
+    return mat
+  }
+
   /** The chains of a cut as screen-space fat lines. `onSurface` hides them
    *  behind the part like anything else on it; otherwise they draw ahead of
    *  the depth buffer. */
@@ -436,28 +516,11 @@ export class SectionOverlay {
     opacity: number,
     width: number,
     onSurface: boolean,
+    held?: SectionMaterials,
   ): void {
-    const mat = new LineMaterial({
-      color: new THREE.Color(color).getHex(),
-      linewidth: width * this.fatLines.scale,
-      transparent: true,
-      opacity,
-      depthTest: onSurface,
-      depthWrite: false,
-      worldUnits: false,
-    })
     // On the surface, a hair in front of it: the curve lies exactly on the
     // triangles it was cut from and would stripe with them otherwise.
-    if (onSurface) {
-      mat.polygonOffset = true
-      mat.polygonOffsetFactor = -2
-      mat.polygonOffsetUnits = -2
-    }
-    const letGo = this.fatLines.track(mat, width)
-    cleanup.push(() => {
-      letGo()
-      mat.dispose()
-    })
+    const mat = this.fatLine(cleanup, held, 'cut', color, opacity, width, onSurface, onSurface ? -2 : 0)
     for (let c = 0; c + 1 < cut.offsets.length; c++) {
       const start = cut.offsets[c]
       const end = cut.offsets[c + 1]
@@ -481,32 +544,19 @@ export class SectionOverlay {
     cleanup: (() => void)[],
     elements: readonly SectionGeometry[],
     color: string,
+    held?: SectionMaterials,
   ): void {
-    const width = SECTION_LINE_DEFAULT + 1
-    const mat = new LineMaterial({
-      color: new THREE.Color(color).getHex(),
-      linewidth: width * this.fatLines.scale,
-      transparent: true,
-      opacity: 1,
-      depthTest: true,
-      depthWrite: false,
-      worldUnits: false,
-    })
-    mat.polygonOffset = true
-    mat.polygonOffsetFactor = -3
-    mat.polygonOffsetUnits = -3
-    const letGo = this.fatLines.track(mat, width)
-    cleanup.push(() => {
-      letGo()
-      mat.dispose()
-    })
+    const mat = this.fatLine(cleanup, held, 'elements', color, 1, SECTION_LINE_DEFAULT + 1, true, -3)
     let dotMat: THREE.MeshBasicMaterial | null = null
     for (const g of elements) {
       const stroke = sectionStroke(g)
       if (!stroke) {
         // Only a point has no stroke — it is a dot where it was picked.
         if (g.kind !== 'point') continue
-        dotMat ??= new THREE.MeshBasicMaterial({ color })
+        if (!dotMat) {
+          dotMat = held ? (held.dot ??= new THREE.MeshBasicMaterial()) : new THREE.MeshBasicMaterial()
+          unclip(dotMat).color.set(color)
+        }
         const dot = new THREE.Mesh(this.unitSphere, dotMat)
         dot.position.set(g.center[0], g.center[1], g.center[2])
         this.pointDots.add(dot)
@@ -524,7 +574,7 @@ export class SectionOverlay {
       group.add(line)
       cleanup.push(() => geo.dispose())
     }
-    if (dotMat) {
+    if (dotMat && !held) {
       const m = dotMat
       cleanup.push(() => m.dispose())
     }

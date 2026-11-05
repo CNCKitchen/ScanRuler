@@ -323,10 +323,10 @@ export class FlatScene {
         // ruled over.
         if (this.gridFrame && this.gridStale()) this.rebuildGrid()
         if (this.sketchDims && Math.abs(this.unitsPerScreenPx() / this.sketchDims.px - 1) > 0.01) this.rebuildDimStrokes()
-        // Fat lines are sized in screen pixels and need to know the canvas.
-        const el = this.viewport.renderer.domElement
-        const w = el.clientWidth || 1
-        const h = el.clientHeight || 1
+        // Fat lines are sized in screen pixels and need to know the canvas:
+        // its cached size, as a read of the layout every frame is a forced
+        // layout pass after any DOM write.
+        const { w, h } = this.viewport.size
         if (this.fatLines.setResolution(w, h)) {
           this.edgeMaterial.resolution.copy(this.fatLines.resolution)
           this.viewport.invalidate()
@@ -1109,9 +1109,7 @@ export class FlatScene {
   /** Document units per screen pixel at the current zoom — what turns a snap
    *  radius the hand understands into one the sheet understands. */
   unitsPerScreenPx(): number {
-    const cam = this.viewport.camera
-    const h = this.viewport.renderer.domElement.clientHeight || 1
-    return (cam.top - cam.bottom) / cam.zoom / h
+    return this.viewport.worldPerPixel()
   }
 
   /** The polyline a fit draws as: a segment, a full circle, an arc. A point
@@ -1883,6 +1881,14 @@ export class FlatScene {
     if (this.edgeMaterial.linewidth === px) return
     this.edgeMaterial.linewidth = px
     this.viewport.invalidate()
+  }
+
+  /** Held back while the sheet is not on screen: no frame is drawn and no
+   *  layout is read. What the stores pushed in the meantime is on the sheet
+   *  already and is drawn on the first frame after it comes back. */
+  setPaused(paused: boolean): void {
+    this.viewport.paused = paused
+    if (!paused) this.viewport.resize()
   }
 
   dispose(): void {

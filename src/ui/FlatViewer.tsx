@@ -45,11 +45,14 @@ export function useFlatSceneSettings(sceneRef: RefObject<FlatScene | null>): voi
 
 /** The 2D Measure viewport, in the same thin-wrapper shape as Viewer:
  *  construct once, wire callbacks through refs so prop changes never
- *  re-create the scene. Mounted only while its workspace is up — unlike the
- *  3D viewport there is no expensive BVH to protect, and a dropped image
- *  redecodes in well under a second. */
+ *  re-create the scene. Mounted when its workspace is first opened and kept
+ *  from then on: there is no BVH to protect here, but a new viewport is a new
+ *  WebGL context, and the tab is one people switch back and forth with. While
+ *  its workspace is not up it is paused and out of the layout. */
 export function FlatViewer({
+  active,
   onReady,
+  onResync,
   onPick,
   onPickDrag,
   onPinClick,
@@ -61,9 +64,15 @@ export function FlatViewer({
   onHover,
   loupe,
 }: {
+  /** Whether the workspace is on screen. False pauses the scene; the owner
+   *  hides the viewport's slot. */
+  active: boolean
   /** The scene when it comes up, null when the viewport unmounts — so the
    *  owner never holds a disposed scene. */
   onReady: (scene: FlatScene | null) => void
+  /** The scene is shown again after being kept: lay the sheet out on it once
+   *  more, as onReady did when it was new. */
+  onResync: (scene: FlatScene) => void
   onPick: (p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
   /** A draft pin dragged to a new spot, by index. */
   onPickDrag: (index: number, p: Vec2, meta: { alt: boolean; unitsPerScreenPx: number }) => void
@@ -113,6 +122,12 @@ export function FlatViewer({
   hoverRef.current = onHover
   const readyRef = useRef(onReady)
   readyRef.current = onReady
+  const resyncRef = useRef(onResync)
+  resyncRef.current = onResync
+  const activeRef = useRef(active)
+  activeRef.current = active
+  /** The state the scene was last put in, so that only a change is acted on. */
+  const wasActive = useRef(active)
   const loupeOpts = useRef(loupe)
   loupeOpts.current = loupe
 
@@ -202,6 +217,8 @@ export function FlatViewer({
       ctx.stroke()
     }
     sceneRef.current = scene
+    scene.setPaused(!activeRef.current)
+    wasActive.current = activeRef.current
     readyRef.current(scene)
     return () => {
       sceneRef.current = null
@@ -209,6 +226,18 @@ export function FlatViewer({
       scene.dispose()
     }
   }, [])
+
+  // Shown again after being kept. The sheet and its layers were pushed as the
+  // stores changed, hidden or not, but the sheet is framed as a fresh viewport
+  // frames it, and a layer that was pushed against a collapsed layout is laid
+  // again at the real size.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || wasActive.current === active) return
+    wasActive.current = active
+    scene.setPaused(!active)
+    if (active) resyncRef.current(scene)
+  }, [active])
 
   // The scheme and theme settings live in the settings dialog and serve every
   // viewport; this one follows them the same way the main view does.

@@ -13,12 +13,12 @@ import { usePrefs } from '../../state/prefsStore'
 import { COLORMAPS, type ColormapId } from '../../core/field/colormap'
 import { useMark } from '../../state/markStore'
 import { useStore } from '../../state/store'
-import { commandHost, requireScene } from '../host'
+import { commandHost, requireScene, sceneOf } from '../host'
 import { elementRefSchema, measuredElement, requireScan, type ElementRef } from '../refs'
 import { arr, bool, bytes, enumOf, int, num, obj, oneOf, vec3, type JsonSchema } from '../schema'
 import { describeDeviation } from '../state'
 import { CommandError, type Command } from '../types'
-import { fileNameSchema, fileOf, lastError, showWorkspace, waitFor } from './common'
+import { fileNameSchema, fileOf, lastError, mapSettled, showWorkspace, waitFor } from './common'
 import { unitsSchema } from './scan'
 import { round3 } from '../../core/round'
 import { deviationFileBytes, isMeasured, type DeviationFormat } from '../../core/deviation/exportDeviation'
@@ -146,7 +146,7 @@ const setTarget: Command<{ element: ElementRef | null; side?: 'outward' | 'inwar
   label: () => 'measure against element',
   run: async ({ element, side, facingDeg }) => {
     requireScan()
-    requireScene('A map against an element')
+    const scene = requireScene('A map against an element')
     showWorkspace('deviation')
     const { session } = commandHost()
     if (element === null) {
@@ -161,8 +161,9 @@ const setTarget: Command<{ element: ElementRef | null; side?: 'outward' | 'inwar
     const want = side === undefined ? undefined : side === 'outward' ? 1 : -1
     if (want !== undefined && useDeviation.getState().targetSide !== want) useDeviation.getState().flipTargetSide()
     if (facingDeg !== undefined) useDeviation.getState().setTargetFacing(facingDeg)
-    // The map follows the choice on its own (useElementField).
-    await waitFor(() => useDeviation.getState().elementStatus === 'ready', 'the map against the element', 30_000)
+    // The map follows the choice on its own (useElementField), once the stores' change has reached it.
+    await mapSettled(scene, { always: true })
+    if (useDeviation.getState().elementStatus !== 'ready') throw new CommandError('failed', 'The map against the element could not be measured.')
     return { deviation: describeDeviation() }
   },
 }
@@ -277,6 +278,7 @@ const hotspotsCommand: Command<{ tolerance?: number; patches?: number; grain?: n
   run: async ({ tolerance, patches = HOTSPOT_PATCHES, grain, on = 'scan' }) => {
     requireScan()
     if (on === 'reference') return referenceHotspots(tolerance, patches, grain)
+    await mapSettled(sceneOf())
     const d = useDeviation.getState()
     const maps = commandHost().session.maps
     const values = d.source === 'element' ? maps.elementField.current : maps.deviation.current
@@ -352,6 +354,7 @@ const hotspotsCommand: Command<{ tolerance?: number; patches?: number; grain?: n
  *  material missing, misplaced or extra, as hotspotsCommand reads it,
  *  for a judgement on the model as a whole. Empty with no map to read. */
 export async function scanFeaturePatches(tolerance: number | undefined, limit = 50): Promise<{ at: Vec3; depth: number; far: boolean; outside: boolean }[]> {
+  await mapSettled(sceneOf())
   const d = useDeviation.getState()
   const maps = commandHost().session.maps
   const values = d.source === 'element' ? maps.elementField.current : maps.deviation.current
@@ -444,6 +447,7 @@ const exportCommand: Command<{ side?: MapSide; format?: DeviationFormat }> = {
   returnsFile: true,
   run: async ({ side = 'scan', format = 'ply' }) => {
     requireScan()
+    await mapSettled(sceneOf())
     const d = useDeviation.getState()
     const { session } = commandHost()
     let positions: Float32Array

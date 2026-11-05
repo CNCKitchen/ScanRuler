@@ -16,6 +16,7 @@ import type { AutoAlignResult } from './autoAlign'
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { VolumeDeviation } from './deviation/volume'
+import type { ElementTarget, MaterialSide } from './deviation/elementField'
 import { mmPerUnit, type MeshUnits } from './meshUnits'
 import type { StepInfo } from './parsers/step'
 import type { SectionFrame } from './section/frame'
@@ -25,7 +26,7 @@ import type { ObjCompanions } from './parsers/objTexture'
 import type { FitGuide } from './fit/guide'
 import type { PlaneRegionReport, Segmentation, SegmentOptions } from './fit/segment'
 import type { RayGrid } from './geometry/scanQa'
-import type { WorkerRequest, WorkerResponse } from './workerProtocol'
+import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
   positions: Float32Array
@@ -102,6 +103,16 @@ export interface RestoreChannel {
   call(plugin: string, op: string, payload: unknown): Promise<unknown>
 }
 
+/** An answer about the scan's vertices as they were when it was asked for,
+ *  that came back after they moved or were replaced — see deflection. Not a
+ *  failure: whoever asked asks again about the scan in hand, and drops it. */
+export class StaleScan extends Error {
+  constructor() {
+    super('The scan moved or was replaced before its answer came back.')
+    this.name = 'StaleScan'
+  }
+}
+
 /** A message that expects an answer — everything but the abort signal, which
  *  carries no id and is never replied to on its own. */
 type Request = Exclude<WorkerRequest, { type: 'align-abort' }>
@@ -129,6 +140,15 @@ export class MeshWorkerClient {
   /** Async callers must not apply a result to a different imported session. */
   scanVersion = 0
   nominalVersion = 0
+  /** Moves on whenever the worker's scan vertices do — another scan put in
+   *  place, a datum baked in — at the moment it is asked for, so an answer
+   *  about them asked before can be told from one asked after. */
+  private scanToken = 0
+  /** Whether the worker's scan vertices are the render thread's bit for bit:
+   *  they are while the render arrays in use came from the worker and both
+   *  have been moved by the same transforms since. A restart reads the scan
+   *  back in under its whole alignment at once, which rounds differently. */
+  private renderParity = true
   onProgress: ((text: string, fraction?: number) => void) | null = null
   /** Poses from part-way through an alignment. Not a request result — they
    *  arrive while the request is still open, so they must not settle it. */
@@ -151,6 +171,7 @@ export class MeshWorkerClient {
       this.rpc.restart()
       const state = this.restoreState?.()
       if (state?.scan) {
+        this.renderParity = false
         const { name, bytes, crease, transform, units } = state.scan
         const buffer = bytes.slice().buffer
         await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
@@ -204,8 +225,15 @@ export class MeshWorkerClient {
   }
 
   async commitImport(slots: { scan?: number | null; nominal?: number | null }): Promise<void> {
+    // Before the commit is sent, so an answer asked ahead of it is told from
+    // one asked behind it.
+    if (slots.scan !== undefined) this.scanToken++
     await this.request({ type: 'commit-import', requestId: this.nextId++, ...slots })
-    if (slots.scan !== undefined) this.scanVersion++
+    if (slots.scan !== undefined) {
+      this.scanVersion++
+      // In place: the render thread lays out the arrays it was posted with.
+      this.renderParity = true
+    }
     if (slots.nominal !== undefined) this.nominalVersion++
   }
 
@@ -403,6 +431,7 @@ export class MeshWorkerClient {
 
   /** Bake a datum alignment into the worker's copy of the scan. */
   async transform(transform: Rigid): Promise<void> {
+    this.scanToken++
     const requestId = this.nextId++
     await this.request({ type: 'transform', requestId, transform })
   }
@@ -485,6 +514,93 @@ export class MeshWorkerClient {
     const requestId = this.nextId++
     const res = await this.request<Extract<WorkerResponse, { type: 'nearest-ok' }>>({ type: 'nearest', requestId, ...at })
     return res.result
+  }
+
+  /** Which of the scan's or the reference's vertices lie in closed shells —
+   *  1 for each, over the render layout last loaded (its vertices, then its
+   *  shading copies) — found in the worker; see viewer/sliceCap
+   *  primeClosedPart. An answer that lands after another scan or reference
+   *  was put in place is about the one before, and is turned away rather
+   *  than handed on. */
+  async closedShells(which: 'scan' | 'nominal'): Promise<Uint8Array> {
+    const version = () => (which === 'scan' ? this.scanVersion : this.nominalVersion)
+    const asked = version()
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'closed-shells-ok' }>>({ type: 'closed-shells', requestId, which })
+    if (version() !== asked) throw new Error(`The ${which === 'scan' ? 'scan' : 'reference'} was replaced before its closed shells came back.`)
+    return res.closed
+  }
+
+  /** A bounds tree over a mesh as the viewport lays it out, built in the
+   *  worker — see viewer/bvh.ts treeOffThread. The arrays are handed over,
+   *  so the caller sends copies. Nothing of the scan the worker holds goes
+   *  into it, so nothing about that can go stale here: whether the tree
+   *  still fits the geometry it was asked for is the viewport's to judge
+   *  when it lands. */
+  async boundsTree(positions: Float32Array, indices: Uint32Array): Promise<SerializedTree> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'bounds-tree-ok' }>>(
+      { type: 'bounds-tree', requestId, positions, indices },
+      [positions.buffer, indices.buffer],
+    )
+    return res.tree
+  }
+
+  /** How far each scan vertex moves to play a map as motion — see
+   *  deviation/deflection.ts deflectionVectors — worked out in the worker,
+   *  over its own copy of the scan's vertices. Where that copy may not be
+   *  the viewport's bit for bit (see renderParity), `positions` is asked
+   *  for and a copy of it goes with the request instead. The map is copied,
+   *  not transferred: the caller keeps showing it. An answer about vertices
+   *  since moved or replaced rejects with StaleScan. */
+  async deflection(
+    values: Float32Array,
+    directions: Int8Array,
+    opts: { limit: number; maxDistance: number; smoothing: number },
+    positions?: () => Float32Array | null,
+  ): Promise<Float32Array> {
+    // A restart this request would wait on reads the scan back in first.
+    await this.ready()
+    const asked = this.scanToken
+    const own = this.renderParity ? null : (positions?.()?.slice() ?? null)
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'deflection-ok' }>>(
+      { type: 'deflection', requestId, values, directions, ...opts, ...(own ? { positions: own } : {}) },
+      own ? [own.buffer] : [],
+    )
+    if (this.scanToken !== asked) throw new StaleScan()
+    return res.vectors
+  }
+
+  /** The map against a fitted element — see deviation/elementField.ts
+   *  computeElementDeviation — measured in the worker, over its own copy of
+   *  the scan's vertices. `render` is asked for the viewport's own arrays:
+   *  its normals always go with the request (a copy — the worker's are not
+   *  the ones its sharp edges were split for), and its positions only where
+   *  the worker's may not match them (see renderParity). The marked region
+   *  is copied too: the brush goes on writing into it. An answer about
+   *  vertices since moved or replaced rejects with StaleScan. */
+  async elementDeviation(
+    target: ElementTarget,
+    opts: { side: MaterialSide; maxNormalDeviation: number | null; subset: Uint32Array | null; maxDistance: number },
+    render: () => { positions: Float32Array; normals: Float32Array } | null,
+  ): Promise<{ values: Float32Array; directions: Int8Array; suggestedRange: number }> {
+    // A restart this request would wait on reads the scan back in first.
+    await this.ready()
+    const asked = this.scanToken
+    const arrays = render()
+    if (!arrays) throw new Error('There is no scan to measure.')
+    const normals = arrays.normals.slice()
+    const positions = this.renderParity ? null : arrays.positions.slice()
+    const subset = opts.subset ? opts.subset.slice() : null
+    const transfer = [normals.buffer, ...(positions ? [positions.buffer] : []), ...(subset ? [subset.buffer] : [])] as ArrayBuffer[]
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'element-deviation-ok' }>>(
+      { type: 'element-deviation', requestId, target, ...opts, subset, normals, ...(positions ? { positions } : {}) },
+      transfer,
+    )
+    if (this.scanToken !== asked) throw new StaleScan()
+    return { values: res.values, directions: res.directions, suggestedRange: res.suggestedRange }
   }
 
   /** The box around the scan as it now stands, mm. */

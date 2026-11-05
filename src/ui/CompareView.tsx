@@ -7,6 +7,15 @@
 // Viewer keeps its exact place in the tree when the split opens; moved into a
 // wrapper it would be unmounted and remounted, and a scan's BVH costs seconds
 // to build.
+//
+// Once opened it is kept, hidden, when the split view closes: a new half is a
+// new WebGL context and a new upload of the reference's vertex buffers, and the
+// stage needs both again at the next tap of the switch. Hidden, it draws
+// nothing and reads no layout. What changes in the stores meanwhile is applied
+// as it arrives (the effects below keep running, and setting a uniform on a
+// paused viewport is only a flag), except for the camera and the section
+// plane, which are read off the scan every frame and so are caught up when
+// the half is shown again.
 
 import { useEffect, useRef } from 'react'
 import type * as THREE from 'three'
@@ -23,6 +32,7 @@ export function CompareView({
   geometry,
   role,
   name,
+  active,
 }: {
   /** The main viewport, whose camera this half follows — and which follows it
    *  back when the hand is on this side. */
@@ -30,6 +40,9 @@ export function CompareView({
   geometry: THREE.BufferGeometry
   role: string
   name: string
+  /** Whether the half is on the stage. False keeps it, and its context, alive
+   *  but paused and out of the layout. */
+  active: boolean
 }) {
   const holder = useRef<HTMLDivElement>(null)
   const compareRef = useRef<CompareScene | null>(null)
@@ -63,6 +76,17 @@ export function CompareView({
     }
   }, [geometry, scene])
 
+  // Shown again: the scan's camera has moved on while this half stood still, so
+  // the link is made afresh, which puts this half in the scan's pose (see
+  // CameraLink). Runs after the effect above on a fresh half, which is then
+  // linked twice; one pose copy.
+  useEffect(() => {
+    const compare = compareRef.current
+    if (!compare) return
+    compare.setPaused(!active)
+    if (active) compare.linkTo(scene.viewLink())
+  }, [active, geometry, scene])
+
   useEffect(() => {
     compareRef.current?.setNavScheme(schemeById(navScheme))
   }, [navScheme])
@@ -86,7 +110,7 @@ export function CompareView({
   }, [wireframe])
 
   return (
-    <div className="comparehalf" data-test="compare-half">
+    <div className="comparehalf" data-test="compare-half" hidden={!active}>
       <div className="compareview" ref={holder} />
       <div className="splitcap">
         <b>{role}</b>

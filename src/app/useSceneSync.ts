@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { creationMethod, takesSurface } from '../core/elements/construct'
 import { translationToOrigin } from '../core/alignment'
-import type { ReferenceDeviationResult } from '../core/workerClient'
+import { StaleScan, type MeshWorkerClient, type ReferenceDeviationResult } from '../core/workerClient'
 import { referenceScale } from '../core/deviation/onReference'
 import { isDeviationTarget } from '../core/deviation/elementField'
 import { isExtendable } from '../core/elements/extend'
@@ -39,20 +39,19 @@ import { pinValue } from '../viewer/pinLabel'
 import { fmtLen, unitWord } from '../core/units'
 import { useUnits } from './useUnits'
 import { providersFor } from '../ui/RefSelect'
-import { MARK_COLOR, useDeviation } from '../state/deviationStore'
+import { MARK_COLOR, mapHeld, useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
-import { colormapById, paintField, type FieldScale } from '../core/field/colormap'
-import { fieldHistogram } from '../core/field/stats'
-import { deviationScale, deviationStats } from '../core/deviation/deviation'
+import { colormapById, paintField, paintKey, type FieldScale } from '../core/field/colormap'
+import { cachedDeviationStats, cachedHistogram, cachedThicknessStats } from '../core/field/readoutCache'
+import { deviationScale } from '../core/deviation/deviation'
 import {
   DEFLECTION_SMOOTHING,
   deflectionVectors,
   suggestDeflectionScale,
 } from '../core/deviation/deflection'
-import { thicknessStats } from '../core/thickness/thickness'
 import { identityRigid, rigidCompose, rigidInvert, rigidToColumnMajor } from '../core/deviation/rigid'
 import { sectionViewFrames, useSectionView } from '../state/sectionViewStore'
 import type { RefObject } from 'react'
@@ -62,8 +61,35 @@ import type { PluginRuntime } from '../plugins/api'
  *  its motion is worked out again — see the effect at the end. */
 const DEFLECTION_SETTLE_MS = 150
 
+/**
+ * Everything useSceneSync reads of a plugin's runtime, in a form two renders
+ * can be compared by. A plugin builds its runtime afresh on every render of
+ * the Workbench, so the runtime itself is a new object each time though
+ * nothing in it has moved; SceneSync compares these instead, so a plugin's
+ * workspace does not re-render the scene's follower on every render of the
+ * screen. Its map is read through `fieldVersion`, which changes whenever the
+ * map does — the effects that paint it key on nothing else — and a plugin that
+ * gives none, with a map up, is never taken for unchanged. A new read of
+ * `plugin` in the hook belongs here too.
+ */
+export function pluginReads(plugin: PluginRuntime | null): readonly unknown[] {
+  if (!plugin) return [null]
+  return [
+    plugin.marking?.color ?? null,
+    plugin.marking?.gestures ?? false,
+    Boolean(plugin.scanKey?.seeThrough),
+    Boolean(plugin.scanKey?.shown),
+    Boolean(plugin.showsElements),
+    Boolean(plugin.hideScan),
+    Boolean(plugin.hoverReadout),
+    Boolean(plugin.hovers),
+    plugin.fieldVersion === undefined && plugin.field ? {} : plugin.fieldVersion,
+  ]
+}
+
 export function useSceneSync({
   sceneRef,
+  clientRef,
   deviation,
   deviationRgb,
   referenceMap,
@@ -78,6 +104,9 @@ export function useSceneSync({
   cancelDraft,
 }: {
   sceneRef: RefObject<SceneManager | null>
+  /** The mesh worker, where the deformation animation's motion is worked
+   *  out. */
+  clientRef: RefObject<MeshWorkerClient | null>
   deviation: RefObject<Float32Array | null>
   deviationRgb: RefObject<Uint8Array | null>
   /** The map the other way round, on the reference cut finer, and its
@@ -347,13 +376,19 @@ export function useSceneSync({
         muted: !showElements && e.id !== targetId,
       }))
     // Distances draw as a line between their two anchor points, angles as an
-    // arc at their hinge.
-    const rows = evaluateDimensions(
-      dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
-      dimensionRefsOf(elements, sections),
-      surfaceSource,
-      units,
-    ).filter((r) => !r.value.invalid)
+    // arc at their hinge. They are the measure workspace's alone — a distance
+    // between two elements has nothing to say about a map, and its leader
+    // lines would cross the reading — so nowhere else are they worked out:
+    // everything below that reads a dimension (the panels, the agent's
+    // commands) evaluates its own.
+    const rows = elementsWorkspace
+      ? evaluateDimensions(
+          dimensions.filter((d) => d.visible !== false && d.id !== editingDimensionId),
+          dimensionRefsOf(elements, sections),
+          surfaceSource,
+          units,
+        ).filter((r) => !r.value.invalid)
+      : []
     const verdictOf = (r: EvaluatedDimension) => ({
       notes: pinNotes(r),
       over: r.verdict ? !r.verdict.pass : false,
@@ -391,15 +426,18 @@ export function useSceneSync({
         },
       ]
     })
-    // Dimensions are the measure workspace's alone: a distance between two
-    // elements has nothing to say about a map, and its leader lines would cross
-    // the reading.
-    sceneRef.current?.updateOverlays(
+    // Overlays that would be drawn exactly as they stand are not drawn again —
+    // most of what sets this effect off, a tab or the map's switch, leaves the
+    // elements as they were — and one that does come back to the stage finds
+    // its materials kept, since `existing` says which elements still exist
+    // though none of them is drawn.
+    const drew = sceneRef.current?.updateOverlays(
       items,
-      elementsWorkspace ? pairs : [],
-      elementsWorkspace ? angles : [],
-      elementsWorkspace ? tags : [],
+      pairs,
+      angles,
+      tags,
       (showElements || items.length > 0) && !elementsKeyHides,
+      new Set(elements.map((e) => e.id)),
     )
     // A hidden element's surface tint goes with its overlay — and outside the
     // measure workspace that is every element, so the scan is bare underneath
@@ -417,7 +455,7 @@ export function useSceneSync({
       ).map((e) => e.id),
     )
     // Overlays were rebuilt, so the selection glow has to be re-applied.
-    sceneRef.current?.setHighlightedElements(highlightIds)
+    if (drew) sceneRef.current?.setHighlightedElements(highlightIds)
     // Runs on the listed dependencies only, not on everything it reads.
   }, [
     elements,
@@ -753,6 +791,18 @@ export function useSceneSync({
   }, [volumeHover, volume])
   const pluginRef = useRef(plugin)
   pluginRef.current = plugin
+  /** A plugin's `fieldVersion` is anything that changes when its map does —
+   *  a string, the reading itself — so it is counted here into the number
+   *  the paint key wants. A plugin that gives none can never be told to be
+   *  unchanged, and is painted every time. One count serves every plugin:
+   *  it only ever rises, and a buffer's key holds the count it was painted
+   *  under, so one plugin's version cannot pass for another's. */
+  const pluginSerial = useRef<{ last: unknown; n: number }>({ last: undefined, n: 0 })
+  /** The key each colour buffer was last painted under, so a repaint of what
+   *  is already in it — a tab taken, the map put away and back — is skipped.
+   *  Keyed by the buffer: a new scan, or a map re-measured, brings a new one,
+   *  and the old key goes with the old buffer. */
+  const painted = useRef(new WeakMap<Uint8Array, string>())
   /** Whichever map this workspace is showing: its values, and the scale they
    *  are read through. The maps differ only in that scale and in the figures
    *  that go under it — the two deviation maps not even in that, since a
@@ -762,7 +812,7 @@ export function useSceneSync({
     if (workspace === 'deviation' && source === 'reference' && mapOn === 'reference') {
       const values = referenceMap.current?.values
       if (!values) return null
-      return { values, rgb: referenceRgb, scale: referenceScale(range, maxDistance, bands), onReference: true }
+      return { values, rgb: referenceRgb, scale: referenceScale(range, maxDistance, bands), version: referenceVersion, onReference: true }
     }
     if (workspace === 'deviation') {
       const values = source === 'element' ? elementField.current : deviation.current
@@ -771,12 +821,21 @@ export function useSceneSync({
         values,
         rgb: source === 'element' ? elementRgb : deviationRgb,
         scale: deviationScale(range, maxDistance, bands),
+        version: source === 'element' ? elementVersion : mapVersion,
       }
     }
     if (workspace === 'thickness' && thickness.current) {
-      return { values: thickness.current, rgb: thicknessRgb, scale: thickScale }
+      return { values: thickness.current, rgb: thicknessRgb, scale: thickScale, version: thickVersion }
     }
-    return pluginRef.current?.field ?? null
+    const field = pluginRef.current?.field
+    if (!field) return null
+    const serial = pluginSerial.current
+    const version = pluginRef.current?.fieldVersion
+    if (version === undefined || version !== serial.last) {
+      serial.last = version
+      serial.n++
+    }
+    return { ...field, version: serial.n }
   }
   // The colour plot can be switched off to look at the bare scan surface — its
   // shape, its holes, the marks a finish leaves — with the map still measured
@@ -798,17 +857,30 @@ export function useSceneSync({
       return
     }
 
-    const { values, rgb: rgbRef, scale } = showing
+    const { values, rgb: rgbRef, scale, version } = showing
     let rgb = rgbRef.current
     if (!rgb || rgb.length !== values.length * 3) {
       rgb = new Uint8Array(values.length * 3)
       rgbRef.current = rgb
     }
-    paintField(values, scale, colormapById(colormap), rgb)
+    // Nothing a paint reads has changed since this buffer was last painted
+    // (a tab taken, the map put away and back): its colours stand, and the
+    // scene is told so it does not lay them on or upload them again. This
+    // leans on a buffer only ever being handed to the scan state that is
+    // showing: the mesh tools' edited-copy swap runs before this effect, as
+    // a layout effect, since this one runs in a child of the Workbench that
+    // swaps and so ahead of its plain effects (see SceneSync.tsx).
+    const map = colormapById(colormap)
+    const key = paintKey(version, scale, map.id)
+    const repainted = painted.current.get(rgb) !== key
+    if (repainted) {
+      paintField(values, scale, map, rgb)
+      painted.current.set(rgb, key)
+    }
     if ('onReference' in showing) {
       scene.setFieldColors(null)
       scene.setReferenceMapColors(rgb)
-    } else scene.setFieldColors(rgb)
+    } else scene.setFieldColors(rgb, repainted)
   }, [
     workspace,
     source,
@@ -835,12 +907,21 @@ export function useSceneSync({
     // A plugin's map brings its own figures; nothing here adds to them.
     const showing = workspace === 'deviation' || workspace === 'thickness' ? shownField() : null
     if (!showing) return
-    const { values, scale } = showing
-    const histogram = fieldHistogram(values, scale.low, scale.high, scale.validMin, scale.validMax)
+    const { values, scale, version } = showing
+    const histogram = cachedHistogram(values, version, scale.low, scale.high, scale.validMin, scale.validMax)
+    // The figures come back as the very objects the store already holds when
+    // nothing they read has moved (a tab, a source or a range tap on the same
+    // map), and setting them again would only wake every subscriber to the same
+    // numbers. The store is read here rather than subscribed to: this effect
+    // must not re-run on its own write.
     if (workspace === 'deviation') {
-      useDeviation.getState().setReadout(deviationStats(values, maxDistance, tolerance), histogram)
+      const stats = cachedDeviationStats(values, version, maxDistance, tolerance)
+      const held = useDeviation.getState()
+      if (held.stats !== stats || held.histogram !== histogram) held.setReadout(stats, histogram)
     } else {
-      useThickness.getState().setReadout(thicknessStats(values, thickLimit), histogram)
+      const stats = cachedThicknessStats(values, version, thickLimit)
+      const held = useThickness.getState()
+      if (held.stats !== stats || held.histogram !== histogram) held.setReadout(stats, histogram)
     }
   }, [
     workspace,
@@ -972,9 +1053,7 @@ export function useSceneSync({
   }, [picking])
 
   // Hover testing only earns its frame when there is a map to read.
-  const hasDeviationMap = useDeviation((s) =>
-    s.source === 'element' ? s.elementStatus === 'ready' : s.mapStatus === 'ready',
-  )
+  const hasDeviationMap = useDeviation(mapHeld)
   const hasThicknessMap = useThickness((s) => s.status === 'ready')
   const hasMap =
     (workspace === 'deviation' && hasDeviationMap) ||
@@ -1004,25 +1083,71 @@ export function useSceneSync({
     // over the space around each point — a pass over the whole scan, a moment
     // on a large one. So it is put off until whatever moved has come to rest:
     // a range dragged along its slider is one new motion, not one per step,
-    // and the loop plays the last one meanwhile.
+    // and the loop plays the last one meanwhile. And it is worked out in the
+    // mesh worker, over its own copy of the scan's vertices, so the pass
+    // never holds up the next tap.
+    let cancelled = false
     const timer = setTimeout(() => {
-      // The scale first, so a loop that is starting starts from the scan as
-      // it is on screen rather than wherever the old scale put it.
       const dev = useDeviation.getState()
       if (dev.animScaleAuto) dev.suggestAnimScale(suggestDeflectionScale(range, 2 * modelSize))
-      scene.setDeflectionScale(useDeviation.getState().animScale)
-      scene.setDeflection(
-        deflectionVectors(showing.values, directions, {
-          limit: range,
-          maxDistance,
-          positions: scene.scanPositions(),
-          smoothing: DEFLECTION_SMOOTHING * 2 * modelSize,
-        }),
-      )
+      const opts = { limit: range, maxDistance, smoothing: DEFLECTION_SMOOTHING * 2 * modelSize }
+      const play = (vectors: Float32Array) => {
+        if (cancelled) return
+        // The scale first, so a loop that is starting starts from the scan as
+        // it is on screen rather than wherever the old scale put it.
+        scene.setDeflectionScale(useDeviation.getState().animScale)
+        scene.setDeflection(vectors)
+      }
+      // Without the worker, or with a worker that could not answer, the
+      // motion is worked out here as it always could be. A map that cannot
+      // be played leaves the scan at rest rather than an error unhandled.
+      const here = () => {
+        try {
+          play(deflectionVectors(showing.values, directions, { ...opts, positions: scene.scanPositions() }))
+        } catch (e) {
+          console.warn('The deformation animation could not be worked out.', e)
+        }
+      }
+      const client = clientRef.current
+      if (!client) return here()
+      const ask = (retry: boolean) => {
+        const version = client.scanVersion
+        client.deflection(showing.values, directions, opts, () => scene.scanPositions()).then(
+          // A retry's answer is played only for the scan it was asked
+          // about: one put in its place since leaves the map to whoever
+          // measures it again.
+          (vectors) => {
+            if (!retry || client.scanVersion === version) play(vectors)
+          },
+          (e) => {
+            if (cancelled) return
+            // About a scan moved or replaced while it was worked out. What
+            // moved it does not always run this again — a datum baked in
+            // with the map left as it is, a replacement that failed — so it
+            // is asked once more, of the scan as it is now.
+            if (e instanceof StaleScan) {
+              if (!retry) ask(true)
+              return
+            }
+            here()
+          },
+        )
+      }
+      ask(false)
     }, DEFLECTION_SETTLE_MS)
-    return () => clearTimeout(timer)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
     // Runs on the listed dependencies only, not on everything it reads.
   }, [playing, source, mapVersion, elementVersion, range, maxDistance, modelSize])
+  // The motion's buffer stays on the scan between plays while the deviation
+  // workspace is up — stopping and starting the loop then costs no upload of
+  // the whole scan — and goes when it is left.
+  const deviationWorkspace = workspace === 'deviation'
+  useEffect(() => {
+    sceneRef.current?.setDeflectionHeld(deviationWorkspace)
+  }, [deviationWorkspace])
   useEffect(() => {
     sceneRef.current?.setDeflectionScale(animScale)
   }, [animScale])

@@ -10,6 +10,7 @@ import type { Vec3 } from '../core/types'
 import { SurfaceMarking, type PaintBrush } from './marking'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
+import { sparingRays } from './bvh'
 import { paintUniform, patchPaintTint, setPaintUniform } from './paintTint'
 import type { MarkingChannel } from './SceneManager'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
@@ -63,6 +64,8 @@ export class PickScene {
    *  footprint is resolved once per frame rather than once per pointermove. */
   private hoverAt: { x: number; y: number } | null = null
   private hoverDirty = false
+  /** Stops hearing the scan's tree land — see armMarking. */
+  private stopHearing: (() => void) | null = null
 
   onPick: ((point: Vec3) => void) | null = null
   /** How many vertices the marking covers, reported when a gesture ends. */
@@ -89,6 +92,8 @@ export class PickScene {
         this.marking?.drainStroke()
         this.updateHover()
       },
+      // A stroke's positions still queued for the next frame to land.
+      keepAwake: () => this.marking?.strokePending() === true,
       onClick: (x, y) => {
         const point = this.pick(x, y)
         if (point) this.onPick?.(point)
@@ -151,13 +156,23 @@ export class PickScene {
         this.viewport.invalidate()
       },
       invalidate: this.viewport.invalidate,
+      wake: this.viewport.wake,
       claimDrag: (on) => this.viewport.nav.setPaintMode(on),
       requestHover: () => {
         this.hoverDirty = true
+        this.viewport.wake()
       },
       onPaintChange: (count) => this.onPaintChange?.(count),
     })
     this.marking.setTheme(theme)
+    // The brush footprint skips the scan until its tree lands (see bvh.ts
+    // sparingRays); when it does, the cursor is looked at again here too,
+    // and a stroke laid here meanwhile is laid on the part.
+    this.stopHearing = channel.onTreeLanded?.(() => {
+      this.marking?.treeLanded()
+      this.hoverDirty = true
+      this.viewport.wake()
+    }) ?? null
     const canvas = this.viewport.renderer.domElement
     canvas.addEventListener('pointermove', (e) => {
       this.hoverAt = { x: e.clientX, y: e.clientY }
@@ -214,7 +229,10 @@ export class PickScene {
   private updateHover(): void {
     if (!this.hoverDirty || !this.marking) return
     this.hoverDirty = false
-    if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
+    // The scan is the main viewport's, and its tree may still be on its way
+    // — see bvh.ts sparingRays.
+    const marking = this.marking
+    if (marking.armed()) sparingRays(() => marking.updateBrushRing(this.hoverAt))
   }
 
   private pick(clientX: number, clientY: number): Vec3 | null {
@@ -257,6 +275,7 @@ export class PickScene {
     // shared mask, and what becomes of it is decided by whoever opened this
     // picker, not by the canvas closing.
     this.marking?.dispose()
+    this.stopHearing?.()
     this.markerGeometry.dispose()
     this.material.dispose()
     this.viewport.dispose()

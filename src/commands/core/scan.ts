@@ -5,7 +5,7 @@ import { MESH_UNITS, type MeshUnits } from '../../core/meshUnits'
 import type { Vec3 } from '../../core/types'
 import { useStore } from '../../state/store'
 import { useDeviation } from '../../state/deviationStore'
-import { commandHost } from '../host'
+import { commandHost, sceneOf } from '../host'
 import { locationSchema, requireScan, resolveLocation, type Location } from '../refs'
 import { arr, bool, bytes, enumOf, int, num, obj, oneOf, str, vec3 } from '../schema'
 import { acrossAxes, dominantFacing, type RimCircle, robustPlane } from '../../core/geometry/scanQa'
@@ -13,7 +13,7 @@ import { orthoBasis } from '../../core/fit/linalg'
 import { niceCeil } from '../../core/field/stats'
 import { scanBounds } from '../state'
 import { CommandError, type Command } from '../types'
-import { discardSchema, fileNameSchema, fileOf, lastError, requireDiscardable } from './common'
+import { discardSchema, fileNameSchema, fileOf, lastError, mapSettled, requireDiscardable } from './common'
 import { roundTo } from '../../core/round'
 import { cellNoise, heightLevels, rampsOf, reliefGrid, slopedCells } from '../../core/geometry/heightGrid'
 import { basePlaneOf } from '../../core/basePlanes'
@@ -679,6 +679,7 @@ const heightmap: Command<{
     const showPicture = picture || grid === false
     const boxed = boxOf(box)
     // Read up front, so a map with nothing to read refuses before it rays.
+    if (of === 'deviation') await mapSettled(sceneOf())
     const dev = of === 'deviation' ? deviationValues() : null
     const side = showGrid ? HEIGHT_SIDE : HEIGHT_SIDE_FINE
     const most = showGrid ? HEIGHT_CELLS : HEIGHT_CELLS_FINE

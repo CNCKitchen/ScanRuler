@@ -100,6 +100,18 @@ function ProjectName() {
  *  when everything spelled out does not fit its row. */
 const FOLDS = 5
 
+/** What the fold depends on, read without asking the page for a layout: the
+ *  words, how many things hold them, the class that sets the bar's mode, and
+ *  which tab is open, since from the fourth fold on only that tab shows its
+ *  word, so the row's width follows the tab with no change of text. The
+ *  project's name sits in an input, whose words are not the bar's text: its
+ *  size, which follows the name, stands in for them. */
+function signature(el: HTMLElement) {
+  const open = el.querySelector('.modeswitch .on')?.getAttribute('data-test')
+  const name = el.querySelector<HTMLInputElement>('.projectname')?.size
+  return el.textContent + '|' + el.childElementCount + '|' + el.className + '|' + open + '|' + name
+}
+
 /** Folds the bar just as far as its row needs, and marks the ends with keys
  *  scrolled out of sight ('start', 'end' or both) for the fade that says
  *  there is more that way. Measured rather than set by window width, since
@@ -108,12 +120,18 @@ const FOLDS = 5
  *  before the part's name is cut to an ellipsis. Written to
  *  the bar directly, so a fit costs no render; it runs after every render of
  *  the bar — a chip coming or going changes the row and not the bar — and
- *  whenever the bar's own width changes. */
+ *  whenever the bar's own width changes. A render that left the bar's content
+ *  as it was (a tab tap re-renders the bar for the highlight alone) is told
+ *  apart without a layout read and skipped: each fit forces the page's layout
+ *  several times over, which is most of what such a tap costs. The resize and
+ *  font paths always fit, as then it is the width, not the content, that moved. */
 function useFit(ref: RefObject<HTMLElement | null>) {
-  const fit = useRef(() => {})
-  fit.current = () => {
+  const fit = useRef((_force?: boolean) => {})
+  const last = useRef('')
+  fit.current = (force) => {
     const el = ref.current
     if (!el) return
+    if (!force && signature(el) === last.current) return
     el.classList.add('measuring')
     for (let fold = 0; ; fold++) {
       el.dataset.fold = Array.from({ length: fold }, (_, i) => i + 1).join(' ')
@@ -121,6 +139,9 @@ function useFit(ref: RefObject<HTMLElement | null>) {
     }
     el.classList.remove('measuring')
     markEnds(el)
+    // Taken after the fold and the measuring class are settled, so what is
+    // remembered is what the next render will be compared with.
+    last.current = signature(el)
   }
   useLayoutEffect(() => fit.current())
   useEffect(() => {
@@ -129,9 +150,9 @@ function useFit(ref: RefObject<HTMLElement | null>) {
     const onScroll = () => markEnds(el)
     el.addEventListener('scroll', onScroll, { passive: true })
     // The web fonts arriving widen every word.
-    document.fonts?.ready.then(() => fit.current())
+    document.fonts?.ready.then(() => fit.current(true))
     if (typeof ResizeObserver === 'undefined') return () => el.removeEventListener('scroll', onScroll)
-    const observer = new ResizeObserver(() => fit.current())
+    const observer = new ResizeObserver(() => fit.current(true))
     observer.observe(el)
     return () => {
       observer.disconnect()

@@ -66,3 +66,16 @@ describe('waits in a hidden tab', () => {
     expect(pumpFrame).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('a frame waited for while the page is shown', () => {
+  it('wakes the viewport first, so its frame is asked for ahead of the wait’s', async () => {
+    vi.stubGlobal('document', { visibilityState: 'visible' })
+    const asked: string[] = []
+    vi.stubGlobal('requestAnimationFrame', (f: () => void) => {
+      asked.push('wait')
+      return setTimeout(f, 0)
+    })
+    await nextFrame({ pumpFrame: () => asked.push('pump'), wakeFrame: () => asked.push('wake') })
+    expect(asked).toEqual(['wake', 'wait'])
+  })
+})
