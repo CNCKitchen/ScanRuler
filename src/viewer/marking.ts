@@ -339,7 +339,12 @@ export class SurfaceMarking {
     }
     // Switching gesture mid-session leaves the marking alone but takes the
     // footprint of the old one off the part, and abandons anything in flight.
-    if (gesture !== 'brush') this.brushRing.visible = false
+    if (gesture !== 'brush') {
+      this.brushRing.visible = false
+      // Dabs held for a tree still on its way were laid by the brush: another
+      // gesture, or none, does not lay them later at whatever size is set then.
+      this.heldDabs.length = 0
+    }
     if (gesture === null) {
       this.painting = false
       this.paintLast = null

@@ -1254,6 +1254,9 @@ export class SceneManager {
     if (this.deflection?.geometry === geometry) this.layOutDeflection()
     else geometry.deleteAttribute('deflect')
     geometry.computeBoundsTree()
+    // The tree is here at once: strokes held for the one that was on its way
+    // are laid on it now rather than at the next dab.
+    this.marking.treeLanded()
     // A cap over the closed shells alone is cut from the old triangles.
     this.applySlice()
     this.invalidate()
