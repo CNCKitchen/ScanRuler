@@ -841,7 +841,9 @@ export function useSceneSync({
     // (a tab taken, the map put away and back): its colours stand, and the
     // scene is told so it does not lay them on or upload them again. This
     // leans on a buffer only ever being handed to the scan state that is
-    // showing: the mesh tools' edited-copy swap runs before this effect.
+    // showing: the mesh tools' edited-copy swap runs before this effect, as
+    // a layout effect, since this one runs in a child of the Workbench that
+    // swaps and so ahead of its plain effects (see SceneSync.tsx).
     const map = colormapById(colormap)
     const key = paintKey(version, scale, map.id)
     const repainted = painted.current.get(rgb) !== key

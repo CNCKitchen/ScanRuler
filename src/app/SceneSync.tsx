@@ -9,9 +9,14 @@
 //
 // It is mounted after the viewport, so on the first commit the scene exists by
 // the time these effects first run, exactly as it did when they ran in the
-// Workbench; its effects now run ahead of the Workbench's own in a commit,
-// which nothing there depends on (they act on the stores, the worker and the
-// 2D sheet, not on what the viewport was last told).
+// Workbench. Its effects now run ahead of the Workbench's own in a commit —
+// the plugins' among them, which the Workbench calls. One of those the paint
+// here does depend on: Mesh Tools swapping its edited copy in and out of the
+// scan's place, which has to come first so a map is laid on whichever of the
+// two is on screen. That one is a layout effect (useMeshWorkspace), which runs
+// ahead of every plain effect wherever it sits. The rest act on the stores,
+// the worker, the 2D sheet, or layers and switches of the viewport that
+// nothing here writes as well, or writes to agree with them.
 import { memo } from 'react'
 import { useElementField } from './useElementField'
 import { useSceneSync } from './useSceneSync'
