@@ -798,6 +798,11 @@ try {
   if (rich && probesPinned < 5) budgetFails.push(`BUDGET FAIL: rich scenario: ${probesPinned === Infinity ? 'no' : probesPinned} deviation probes pinned, 5 wanted`)
 
   // ---- idle cost: what the page burns doing nothing ---------------------------------
+  // A second's grace first: a viewport winds its loop down over a few dozen
+  // frames after the last thing that moved, and those frames are the end of
+  // the last tap, not idling. After that an idle page runs no frame callback
+  // at all — a phone's battery pays for every one.
+  await sleep(1000)
   await page.evaluate(() => (window.__idle0 = window.__gl.raf))
   await cdp.send('Profiler.start')
   await sleep(3000)
@@ -807,8 +812,9 @@ try {
     const nd = idleProfile.nodes.find((n) => n.id === idleProfile.samples[i])
     return nd.callFrame.functionName === '(idle)' ? s : s + d
   }, 0) / 1000
-  console.log(`\n## Idle (3 s, nothing touched): ${idleRaf} animation-frame callbacks ran, main thread busy ${idleBusy.toFixed(0)}ms`)
+  console.log(`\n## Idle (3 s after 1 s idle, nothing touched): ${idleRaf} animation-frame callbacks ran, main thread busy ${idleBusy.toFixed(0)}ms`)
   for (const h of hot(idleProfile, 6)) console.log('   cpu:', h)
+  if (idleRaf > 0) budgetFails.push(`BUDGET FAIL: idle: ${idleRaf} frame callbacks in 3 s, 0 wanted`)
 
   // ---- summary --------------------------------------------------------------------------
   console.log(`\n## Summary — ${isDev ? 'dev' : 'production'}, ${SCENARIO}, PERF_RUNS=${RUNS}, ${THROTTLE}x throttle, ${fileInfo}`)
