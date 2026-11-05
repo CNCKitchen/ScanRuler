@@ -196,3 +196,16 @@ export async function mapSettled(scene?: FrameSource | null): Promise<void> {
   await nextFrame(scene)
   await waitFor(() => useDeviation.getState().elementStatus !== 'running', 'the map against the element', 30_000)
 }
+
+/** As mapSettled, for a command that only reads the session out: past the
+ *  wait with the map still being measured — the mesh worker busy with a long
+ *  job queued ahead of it — the answer is given anyway, and says the map is
+ *  "running" where its figures would be, rather than failing a read for
+ *  being slow. A command that acts on the map waits strictly. */
+export async function mapSettledOrMeasuring(scene?: FrameSource | null): Promise<void> {
+  try {
+    await mapSettled(scene)
+  } catch (e) {
+    if (useDeviation.getState().elementStatus !== 'running') throw e
+  }
+}

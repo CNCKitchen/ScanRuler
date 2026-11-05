@@ -13,7 +13,7 @@ import { RECENT_KEPT, RECENT_RESULT_CHARS, recentOutcomes } from '../registry'
 import { enumOf, int, obj, str } from '../schema'
 import { internalWorkspace, publicWorkspace, sessionAfterStep, sessionState, workspaceNames } from '../state'
 import { CommandError, type Command } from '../types'
-import { discardSchema, mapSettled, requireDiscardable, waitFor } from './common'
+import { discardSchema, mapSettledOrMeasuring, requireDiscardable, waitFor } from './common'
 
 const state: Command = {
   name: 'state',
@@ -24,7 +24,7 @@ const state: Command = {
   readOnly: true,
   headless: true,
   run: async () => {
-    await mapSettled(sceneOf())
+    await mapSettledOrMeasuring(sceneOf())
     return sessionState()
   },
 }
@@ -78,8 +78,9 @@ const report: Command<{ format?: 'json' | 'text'; workspace?: ReportWorkspace }>
   readOnly: true,
   run: async ({ format = 'json', workspace: w = 'measure' }) => {
     // The report pairs the map's figures with the settings it was measured
-    // under: the one measured, not the one before.
-    await mapSettled(sceneOf())
+    // under: the one measured, not the one before — or, past the wait, none,
+    // with the map said to be running.
+    await mapSettledOrMeasuring(sceneOf())
     return format === 'text' ? { format, workspace: w, text: reportText(w) } : { format, report: reportJson() }
   },
 }

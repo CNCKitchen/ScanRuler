@@ -4,7 +4,7 @@
 // reads it must wait for that, and not take the status for a refusal ("no
 // map") or hand back the figures of the map before. On a 40 mm box, in the
 // in-process worker — see commandKit.ts.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { useDeviation } from '../src/state/deviationStore'
 import { runCommand } from '../src/commands/registry'
 import { boxMesh } from './helpers'
@@ -45,6 +45,43 @@ describe('a command that reads the map against an element', () => {
     // The measure failed: now it is refused for what it is.
     useDeviation.getState().failElementMap()
     expect((await refusal)?.message).toContain('no deviation map')
+  })
+
+  // The mesh worker answers in order, so a map queued behind a long job — a
+  // thickness map, a boolean — can be measured for longer than a command
+  // waits. A read of the session says so; a command that acts on the map
+  // gives up, as it waits for a map it needs.
+  describe('past the wait, with the map still being measured', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+      useDeviation.getState().failElementMap()
+    })
+    /** Run a command with the clock run on past the 30 s wait. */
+    const pastTheWait = async <T,>(name: string): Promise<T | Error> => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      useDeviation.setState({ source: 'element', elementStatus: 'running' })
+      const answer = (runCommand(name, {}) as Promise<T>).then((v) => v, (e: Error) => e)
+      await vi.advanceTimersByTimeAsync(31_000)
+      return answer
+    }
+
+    it('session.state answers, the map said to be running', async () => {
+      const read = await pastTheWait<{ deviation: { map: string; stats: unknown } }>('session.state')
+      expect(read).not.toBeInstanceOf(Error)
+      expect((read as { deviation: { map: string } }).deviation.map).toBe('running')
+    })
+
+    it('report.get answers too', async () => {
+      const read = await pastTheWait<{ report: unknown }>('report.get')
+      expect(read).not.toBeInstanceOf(Error)
+      expect((read as { report: unknown }).report).toBeTruthy()
+    })
+
+    it('deviation.hotspots still gives up', async () => {
+      const refusal = await pastTheWait('deviation.hotspots')
+      expect(refusal).toBeInstanceOf(Error)
+      expect((refusal as Error).message).toContain('Gave up waiting for the map against the element')
+    })
   })
 
   it('goes straight on when nothing is being measured', async () => {
