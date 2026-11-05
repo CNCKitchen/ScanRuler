@@ -562,7 +562,12 @@ export class SceneManager {
       onAfterRender: (w, h) => this.drawGizmo(w, h),
       // What wants frames although nothing is marked yet: the motion of the
       // deviation map, a stroke's positions still queued, and what is drawn
-      // on the part waiting to be dressed for the section view's cut.
+      // on the part waiting to be dressed for the section view's cut. The
+      // last two are belt and braces: the tick above has drained the queue
+      // and dressed the cut by the time this is asked, and what sets them
+      // wakes the loop itself (the marking's wake, invalidate). The motion
+      // invalidates every frame it plays as well; it is named here so the
+      // loop's reasons to stay up are read in one place.
       keepAwake: () => this.deflectionPlaying() || this.marking.strokePending() || this.clipDirty,
     })
     this.container = container
@@ -1401,6 +1406,13 @@ export class SceneManager {
    *  and the browser draws none (commands' nextFrame). */
   pumpFrame(): void {
     this.viewport.pump()
+  }
+
+  /** Have the viewport's next frame asked for now, if its loop had gone to
+   *  sleep — ahead of a wait on the browser's next frame (commands'
+   *  nextFrame), so the frame waited for is one the stage is drawn in. */
+  wakeFrame(): void {
+    this.viewport.wake()
   }
 
   viewSize(): { width: number; height: number } {

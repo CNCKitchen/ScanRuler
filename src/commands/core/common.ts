@@ -156,13 +156,27 @@ export const nextTask = (): Promise<void> =>
     channel.port2.postMessage(null)
   })
 
+/** What a wait on the stage asks of the viewport — SceneManager. */
+export interface FrameSource {
+  pumpFrame(): void
+  wakeFrame?(): void
+}
+
 /** A frame for the stage to follow the stores: the browser's next one — or,
  *  while the tab is hidden and the browser draws none, a task's turn and
  *  then the viewport's frame drawn by hand (SceneManager.pumpFrame), so a
- *  wait on the screen does not stall in a background tab. */
-export async function nextFrame(scene?: { pumpFrame(): void } | null): Promise<void> {
+ *  wait on the screen does not stall in a background tab.
+ *
+ *  The viewport's frames stop while nothing changes in it, and one woken
+ *  only by what the stores set off — a React effect, in the microtasks
+ *  after this call — would ask for its frame after this wait asked for
+ *  its own, and draw after the wait was over. So the viewport is woken
+ *  first: its frame is asked for ahead of this one, and the frame this
+ *  wait ends on is one the stage was drawn in. */
+export async function nextFrame(scene?: FrameSource | null): Promise<void> {
   const hidden = typeof document === 'undefined' || document.visibilityState === 'hidden'
   if (!hidden && typeof requestAnimationFrame === 'function') {
+    scene?.wakeFrame?.()
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
     return
   }
@@ -178,7 +192,7 @@ export async function nextFrame(scene?: { pumpFrame(): void } | null): Promise<v
  *  for the stores' change to reach the effect that asks; then the wait, which
  *  is over at once when nothing is being measured. Settled is not measured:
  *  the caller looks at the status for that. */
-export async function mapSettled(scene?: { pumpFrame(): void } | null): Promise<void> {
+export async function mapSettled(scene?: FrameSource | null): Promise<void> {
   await nextFrame(scene)
   await waitFor(() => useDeviation.getState().elementStatus !== 'running', 'the map against the element', 30_000)
 }

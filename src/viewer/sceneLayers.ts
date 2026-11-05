@@ -111,7 +111,11 @@ export interface SceneLayer {
    *  While it holds, the layer alone lights under the cursor and takes the
    *  next click, ahead of every layer before it. */
   cycling?(at: { x: number; y: number } | null): boolean
-  /** Every frame, before it is drawn, with the canvas's size in pixels. */
+  /** On every frame the viewport runs, before it is drawn, with the
+   *  canvas's size in pixels. Not every animation tick: the viewport's
+   *  frames stop while nothing changes, so what a layer polls here must,
+   *  when it changes, call the host's invalidate or requestHover to be
+   *  looked at. */
   tick?(width: number, height: number): void
   themeChanged?(theme: ViewTheme): void
   /** The part was cut open at a plane — or closed again, with null. The

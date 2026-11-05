@@ -130,8 +130,12 @@ export interface OrthoViewportOptions {
   /** A second finger has landed: whatever one-finger gesture was live is over,
    *  because the hand has moved on to navigating. */
   onMultiTouch?: () => void
-  /** Runs every animation tick, rendered or not — this is where the owner
-   *  drains its per-frame queues and decides whether to invalidate. */
+  /** Runs on every frame the loop runs, rendered or not — this is where the
+   *  owner drains its per-frame queues and decides whether to invalidate.
+   *  Not every animation tick: the loop sleeps while nothing changes (see
+   *  FrameLoop), so state polled here must, when it changes, wake the loop
+   *  — invalidate, or the owner's requestHover — or it is not looked at
+   *  until something else does. */
   onTick?: () => void
   /** Runs after the scene render, before the labels — a corner gizmo drawn
    *  into the same canvas goes here. */
@@ -191,7 +195,10 @@ export class OrthoViewport {
   /** Whether the container has a size on the page now, as of the last
    *  resize: false while it is put away behind `hidden`, where `size` still
    *  holds the size it was shown at. */
-  shown = false
+  get shown(): boolean {
+    return this.isShown
+  }
+  private isShown = false
   /** Half-extents of the model on the screen plane at the framing camera
    *  orientation; the frustum is rebuilt from these on every resize so the
    *  user's zoom survives. */
@@ -406,7 +413,6 @@ export class OrthoViewport {
    *  under way that wants the next frame — which is what keeps the loop
    *  from going to sleep. */
   private frame(): boolean {
-    // Ahead of the pause, so that a paused viewport lets go of the puck.
     if (spaceMouseAttached()) this.stepSpaceMouse()
     if (this.isPaused) return false
     // These run every tick, rendered or not: a turn under way moves the
@@ -906,7 +912,7 @@ export class OrthoViewport {
   resize(): void {
     const cw = this.container.clientWidth
     const ch = this.container.clientHeight
-    this.shown = cw > 0
+    this.isShown = cw > 0 && ch > 0
     // A viewport kept alive behind `hidden` reports 0 × 0, and resizing to that
     // would reallocate both buffers for a size nobody sees; it keeps the last
     // one, and the real size arrives with the first resize after it is shown.

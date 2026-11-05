@@ -136,4 +136,40 @@ describe('spreadLabels', () => {
     run()
     expect([a.reads, b.reads]).toEqual([4, 4])
   })
+
+  it('keeps no size measured at nothing, and measures that label again', () => {
+    // Out of the layout when first measured — a parent not yet shown — and
+    // then in it: the size read at nothing must not stand for it.
+    let w = 0
+    let reads = 0
+    const p = { style: { display: '', transform: 'translate(100px, 100px)', top: '' }, textContent: 'a', className: 'viewport-label' }
+    const late = Object.defineProperties(p, {
+      offsetWidth: { get: () => (reads++, w) },
+      offsetHeight: { get: () => (reads++, w ? 22 : 0) },
+    }) as typeof p & { offsetWidth: number; offsetHeight: number }
+    const other = pin(100, 100)
+    const run = () => spreadLabels({ querySelectorAll: () => [late, other] } as unknown as HTMLElement)
+    run()
+    expect(reads).toBe(2)
+    expect(other.style.top).toBe('')
+    w = 100
+    run()
+    expect(reads).toBe(4)
+    // Measured now, it stacks with the other one.
+    expect([late.style.top, other.style.top].sort()).toEqual(['', '-24px'])
+    run()
+    expect(reads).toBe(4)
+  })
+
+  it('leaves out labels cut away by the section view, and does nothing with the labels off', () => {
+    const cut = { ...pin(100, 100), classList: { contains: (c: string) => c === 'cut-away' } }
+    const a = pin(100, 100)
+    const b = pin(100, 100)
+    spreadLabels({ querySelectorAll: () => [cut, a, b] } as unknown as HTMLElement)
+    expect(tops([cut, a, b])).toEqual(['', '', '-24px'])
+    const c = pin(100, 100)
+    const d = pin(100, 100)
+    spreadLabels({ closest: (sel: string) => (sel === '.nolabels' ? {} : null), querySelectorAll: () => [c, d] } as unknown as HTMLElement)
+    expect(tops([c, d])).toEqual(['', ''])
+  })
 })
