@@ -155,6 +155,10 @@ export interface MarkingContext {
    *  costs nothing per vertex. */
   setPaintColor(rgb: [number, number, number]): void
   invalidate(): void
+  /** Run the viewport's frames again, if they had stopped: a stroke's
+   *  positions are queued for the next frame to land, and a stroke carried
+   *  off the canvas wakes nothing there. */
+  wake(): void
   /** Take the plain drags off the camera while a gesture is live. */
   claimDrag(on: boolean): void
   /** Ask for a hover pass on the next frame (the footprint follows settings
@@ -656,6 +660,12 @@ export class SurfaceMarking {
     // gets.
     this.flushPendingDab()
     this.strokeQueue.push({ x: e.clientX, y: e.clientY, erase: erasing })
+    this.ctx.wake()
+  }
+
+  /** Whether a stroke has positions buffered for the next frame to land. */
+  strokePending(): boolean {
+    return this.strokeQueue.length > 0
   }
 
   /** Land the dabs for every position a stroke buffered since the last frame.

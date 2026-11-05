@@ -108,4 +108,32 @@ describe('spreadLabels', () => {
       expect(overlapping(pins)).toEqual([])
     }
   })
+
+  it('measures a label once, and again only when its text or classes change', () => {
+    // A pin whose size reads are counted: each one is a forced layout pass
+    // in the browser.
+    const counted = (x: number, y: number, text: string) => {
+      const p = { style: { display: '', transform: `translate(${x}px, ${y}px)`, top: '' }, textContent: text, className: 'viewport-label', w: 100, reads: 0 }
+      return Object.defineProperties(p, {
+        offsetWidth: { get: () => (p.reads++, p.w) },
+        offsetHeight: { get: () => (p.reads++, 22) },
+      }) as typeof p & { offsetWidth: number; offsetHeight: number }
+    }
+    const a = counted(100, 100, '12.00')
+    const b = counted(100, 100, '3.00')
+    const run = () => spreadLabels({ querySelectorAll: () => [a, b] } as unknown as HTMLElement)
+    run()
+    expect([a.reads, b.reads]).toEqual([2, 2])
+    for (let frame = 0; frame < 10; frame++) run()
+    expect([a.reads, b.reads]).toEqual([2, 2])
+    expect(b.style.top).toBe('-24px')
+    // New text, a new size: measured again, and the layout follows it.
+    a.textContent = '12.000 mm'
+    a.w = 300
+    run()
+    expect([a.reads, b.reads]).toEqual([4, 2])
+    b.className = 'viewport-label over'
+    run()
+    expect([a.reads, b.reads]).toEqual([4, 4])
+  })
 })

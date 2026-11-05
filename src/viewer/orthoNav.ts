@@ -113,10 +113,11 @@ export class OrthoNavigator {
   private q2 = new THREE.Quaternion()
   private q3 = new THREE.Quaternion()
   private pickNdc = new THREE.Vector2()
-  /** The canvas rect, asked of the layout engine at most once per frame:
-   *  getBoundingClientRect can force a layout pass, and setPickRay runs for
-   *  every dab of a brush stroke. Cleared in updateClipPlanes, which the owner
-   *  already calls once per frame. */
+  /** The canvas rect, asked of the layout engine at most once per frame or
+   *  task: getBoundingClientRect can force a layout pass, and setPickRay runs
+   *  for every dab of a brush stroke. Cleared in updateClipPlanes, which the
+   *  owner already calls once per frame, and at the end of the task that
+   *  read it — see canvasRect. */
   private rect: DOMRect | null = null
 
   constructor(
@@ -129,6 +130,9 @@ export class OrthoNavigator {
      *  hiding a model takes it out of reach. */
     private orbitTargets: () => THREE.Object3D[],
     private clipSphere: ClipSphere,
+    /** The canvas's height in CSS pixels: the viewport's cached size, so a
+     *  pan step reads no layout. */
+    private canvasHeight: () => number = () => canvas.clientHeight,
   ) {
     this.pivotMarker = new THREE.Mesh(
       new THREE.SphereGeometry(1, 16, 10),
@@ -309,8 +313,17 @@ export class OrthoNavigator {
     if (back < 0) ray.recast(back)
   }
 
-  private canvasRect(): DOMRect {
-    if (!this.rect) this.rect = this.canvas.getBoundingClientRect()
+  canvasRect(): DOMRect {
+    if (!this.rect) {
+      this.rect = this.canvas.getBoundingClientRect()
+      // And forgotten once this task is done as well: the frames that clear
+      // it stop while the view stands still, and the canvas can be moved
+      // under a still view — a panel opening beside it — before the next
+      // pick, which would aim through where the canvas was.
+      queueMicrotask(() => {
+        this.rect = null
+      })
+    }
     return this.rect
   }
 
@@ -637,7 +650,7 @@ export class OrthoNavigator {
     if (dx === 0 && dy === 0) return
     // Every pan is a drag's: a mouse chord's, one finger on a sheet, two.
     this.moving = true
-    const h = Math.max(1, this.canvas.clientHeight)
+    const h = Math.max(1, this.canvasHeight())
     const worldPerPx = (this.camera.top - this.camera.bottom) / this.camera.zoom / h
     this.camera.updateMatrixWorld()
     this.right.setFromMatrixColumn(this.camera.matrixWorld, 0).normalize()

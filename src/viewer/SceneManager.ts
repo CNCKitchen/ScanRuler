@@ -531,19 +531,22 @@ export class SceneManager {
         // Anything held at a fixed size on screen — the picked-point markers —
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
-        this.overlays.setPixelScale(this.viewport.worldPerPixel())
-        this.sections.setPixelScale(this.viewport.worldPerPixel())
+        const pixel = this.viewport.worldPerPixel()
+        this.overlays.setPixelScale(pixel)
+        this.sections.setPixelScale(pixel)
         // Pins on the far side of the part go away as it turns, if asked to;
         // a no-op unless the view moved.
         this.overlays.updateProbeOcclusion()
-        // The section curves are fat lines sized in pixels and need the canvas.
-        const el = this.viewport.renderer.domElement
-        this.sections.setResolution(el.clientWidth || 1, el.clientHeight || 1)
-        for (const layer of this.layers) layer.tick?.(el.clientWidth || 1, el.clientHeight || 1)
+        // The section curves are fat lines sized in pixels and need the
+        // canvas's size: the viewport's cached one, since a read of the
+        // layout every frame is a forced layout pass after any DOM write.
+        const { w, h } = this.viewport.size
+        this.sections.setResolution(w, h)
+        for (const layer of this.layers) layer.tick?.(w, h)
         // A viewport that follows a sheet re-reads its scale when its own
         // size changes — shown again after being put away, or the window
         // resized — since the scale is millimetres per pixel.
-        if (this.sheetFollow && (el.clientWidth !== this.followedSize.w || el.clientHeight !== this.followedSize.h)) {
+        if (this.sheetFollow && this.viewport.shown && (w !== this.followedSize.w || h !== this.followedSize.h)) {
           this.applyFollow(0)
         }
         this.stepDeflection()
@@ -557,6 +560,10 @@ export class SceneManager {
         this.syncCopies()
       },
       onAfterRender: (w, h) => this.drawGizmo(w, h),
+      // What wants frames although nothing is marked yet: the motion of the
+      // deviation map, a stroke's positions still queued, and what is drawn
+      // on the part waiting to be dressed for the section view's cut.
+      keepAwake: () => this.deflectionPlaying() || this.marking.strokePending() || this.clipDirty,
     })
     this.container = container
     this.gizmo = new AxisGizmo()
@@ -584,10 +591,9 @@ export class SceneManager {
         this.invalidate()
       },
       invalidate: this.invalidate,
+      wake: this.viewport.wake,
       claimDrag: (on) => this.claimDrag('paint', on),
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       onPaintChange: (count) => this.onPaintChange?.(count),
     })
     this.overlays = new Overlays({
@@ -617,9 +623,7 @@ export class SceneManager {
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
       claimDrag: (on) => this.claimDrag('handle', on),
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       onExtendDrag: (side, delta, phase) => this.onExtendDrag?.(side, delta, phase),
       // Only an element's ghost has ends to mark; a section plane's gizmo
       // stands on a sheet that is its own mark, and a plugin's grips are on
@@ -661,6 +665,13 @@ export class SceneManager {
   private invalidate = (): void => {
     this.clipDirty = true
     this.viewport.invalidate()
+  }
+
+  /** What is under the cursor is to be looked at again on the next frame —
+   *  which the loop may have stopped asking for. */
+  private requestHover = (): void => {
+    this.hoverDirty = true
+    this.viewport.wake()
   }
 
   /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
@@ -730,7 +741,7 @@ export class SceneManager {
 
   /** The gizmo arrow under a client point, if any. */
   private gizmoAt(clientX: number, clientY: number): GizmoAxis | null {
-    const rect = this.viewport.renderer.domElement.getBoundingClientRect()
+    const rect = this.viewport.canvasRect()
     return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
   }
 
@@ -1393,8 +1404,7 @@ export class SceneManager {
   }
 
   viewSize(): { width: number; height: number } {
-    const el = this.viewport.renderer.domElement
-    return { width: el.clientWidth || 1, height: el.clientHeight || 1 }
+    return { width: this.viewport.size.w, height: this.viewport.size.h }
   }
 
   /** What a picture of the view as it stands spans at `width` × `height`
@@ -1455,12 +1465,10 @@ export class SceneManager {
   private applyFollow(ms: number): void {
     const f = this.sheetFollow
     if (!f) return
-    const el = this.viewport.renderer.domElement
-    const w = el.clientWidth
-    const h = el.clientHeight
     // Put away: nothing to size by until it is shown again — the tick
     // applies it then.
-    if (!w || !h) return
+    if (!this.viewport.shown) return
+    const { w, h } = this.viewport.size
     this.followedSize = { w, h }
     this.partGroup.updateMatrixWorld(true)
     const m = this.partGroup.matrixWorld
@@ -2119,14 +2127,14 @@ export class SceneManager {
 
   setElementPickEnabled(enabled: boolean): void {
     this.elementPickEnabled = enabled
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Narrow element picking to the given elements (null: any) — see
    *  elementPickOnly. */
   setElementPickOnly(ids: ReadonlySet<number> | null): void {
     this.elementPickOnly = ids
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Whether the element under the cursor lights while element picking is
@@ -2257,7 +2265,7 @@ export class SceneManager {
   setSectionPickEnabled(enabled: boolean): void {
     if (this.sectionPickEnabled === enabled) return
     this.sectionPickEnabled = enabled
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** Make the given elements read as selected: their translucent shells get
@@ -2386,7 +2394,7 @@ export class SceneManager {
     this.sections.setWorldPlanes(centre)
     // The cursor may be over a plane that has just gone, or one that has
     // just arrived under it.
-    this.hoverDirty = true
+    this.requestHover()
   }
 
   /** The coordinate plane under a client point, if one is on offer there.
@@ -3197,9 +3205,7 @@ export class SceneManager {
   /** Where the loop is this frame. Playing, it draws every frame — that is
    *  what it is for; at rest it costs a comparison. */
   private stepDeflection(): void {
-    const d = this.deflection
-    const playing = d !== null && this.mesh !== null && this.mesh.visible && d.geometry === this.mesh.geometry
-    if (!playing) {
+    if (!this.deflectionPlaying()) {
       // Off the geometry on screen, the attribute is not there to be read
       // and the shader must not add anything at all.
       if (this.uDeflect.value !== 0) {
@@ -3211,6 +3217,13 @@ export class SceneManager {
     const phase = (performance.now() - this.deflectStart) / DEFLECTION_PERIOD_MS
     this.uDeflect.value = deflectionFactor(phase, this.deflectScale) - 1
     this.invalidate()
+  }
+
+  /** Whether the loop is playing: there is motion, laid on the geometry on
+   *  screen, and the scan is shown. */
+  private deflectionPlaying(): boolean {
+    const d = this.deflection
+    return d !== null && this.mesh !== null && this.mesh.visible && d.geometry === this.mesh.geometry
   }
 
   /** Paint a reading on some of the scan's vertices, leaving the rest as
@@ -3339,13 +3352,12 @@ export class SceneManager {
       partGroup: this.partGroup,
       raycaster: this.raycaster,
       canvas: this.viewport.renderer.domElement,
+      canvasRect: () => this.viewport.canvasRect(),
       container: this.container,
       camera: () => this.camera,
       setPickRay: (x, y) => this.setPickRay(x, y),
       invalidate: this.invalidate,
-      requestHover: () => {
-        this.hoverDirty = true
-      },
+      requestHover: this.requestHover,
       setCursor: (cursor) => {
         this.viewport.renderer.domElement.style.cursor = cursor
       },

@@ -44,6 +44,7 @@ function stage(): { scene: SceneManager; part: THREE.Group } {
     partGroup: part,
     raycaster: new THREE.Raycaster(),
     canvas: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) } as unknown as HTMLCanvasElement,
+    canvasRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) as DOMRect,
     container: {} as HTMLElement,
     camera: () => camera,
     setPickRay: () => {},

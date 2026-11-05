@@ -89,6 +89,8 @@ export class PickScene {
         this.marking?.drainStroke()
         this.updateHover()
       },
+      // A stroke's positions still queued for the next frame to land.
+      keepAwake: () => this.marking?.strokePending() === true,
       onClick: (x, y) => {
         const point = this.pick(x, y)
         if (point) this.onPick?.(point)
@@ -151,9 +153,11 @@ export class PickScene {
         this.viewport.invalidate()
       },
       invalidate: this.viewport.invalidate,
+      wake: this.viewport.wake,
       claimDrag: (on) => this.viewport.nav.setPaintMode(on),
       requestHover: () => {
         this.hoverDirty = true
+        this.viewport.wake()
       },
       onPaintChange: (count) => this.onPaintChange?.(count),
     })

@@ -789,7 +789,7 @@ export class NetworkLayer {
   private projector(): (p: ArrayLike<number>, i?: number) => { x: number; y: number } {
     const camera = this.host.camera()
     const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(this.host.partGroup.matrixWorld).elements
-    const r = this.host.canvas.getBoundingClientRect()
+    const r = this.host.canvasRect()
     return (p, i = 0) => {
       const x = p[i], y = p[i + 1], z = p[i + 2]
       const w = e[3] * x + e[7] * y + e[11] * z + e[15]

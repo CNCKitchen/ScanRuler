@@ -34,6 +34,11 @@ export interface SceneLayerHost {
   readonly partGroup: THREE.Group
   readonly raycaster: THREE.Raycaster
   readonly canvas: HTMLCanvasElement
+  /** The canvas's box on the page, read of the layout at most once a frame
+   *  or a task: what a hit test run on every hover pass measures against,
+   *  rather than a getBoundingClientRect of its own that may force a layout
+   *  pass. */
+  canvasRect(): DOMRect
   /** The viewport's element, for anything laid over the canvas. */
   readonly container: HTMLElement
   camera(): THREE.OrthographicCamera

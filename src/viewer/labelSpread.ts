@@ -13,6 +13,25 @@
 /** Sub-pixel distances two labels may still be apart and count as clear. */
 const SLACK = 1e-6
 
+/** Each label's size as last measured, with the text and classes it was
+ *  measured with. A label's offsetWidth read after the renderer has just
+ *  written every label's transform is a forced layout pass — every frame
+ *  the view moves, for sizes that only change when the text does. So a
+ *  label is measured again only when its text or its classes changed (an
+ *  empty note's italic, a pin cut away). A label measured at nothing — out
+ *  of the layout at the time — is not kept, and is measured again. */
+const sizes = new WeakMap<HTMLElement, { w: number; h: number; text: string | null; cls: string }>()
+
+function sizeOf(el: HTMLElement): { w: number; h: number } {
+  const text = el.textContent
+  const cls = el.className
+  const known = sizes.get(el)
+  if (known && known.text === text && known.cls === cls) return known
+  const measured = { w: el.offsetWidth, h: el.offsetHeight, text, cls }
+  if (measured.w > 0 || measured.h > 0) sizes.set(el, measured)
+  return measured
+}
+
 export function spreadLabels(labelDom: HTMLElement, gap = 2): void {
   const els = Array.from(labelDom.querySelectorAll<HTMLElement>('.viewport-label')).filter(
     (el) => el.style.display !== 'none',
@@ -25,8 +44,7 @@ export function spreadLabels(labelDom: HTMLElement, gap = 2): void {
     const m = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*$/.exec(el.style.transform)
     const cx = m ? parseFloat(m[1]) : 0
     const cy = m ? parseFloat(m[2]) : 0
-    const w = el.offsetWidth
-    const h = el.offsetHeight
+    const { w, h } = sizeOf(el)
     return { el, x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, dy: 0 }
   })
   boxes.sort((a, b) => b.y1 - a.y1)

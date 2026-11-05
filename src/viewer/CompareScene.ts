@@ -103,6 +103,8 @@ export class CompareScene {
   /** Hold this half in the same pose as the scan's viewport, in both
    *  directions: either half can be the one under the hand. */
   linkTo(scan: LinkedView): void {
+    // The link before goes: it would go on waking both halves.
+    this.link?.dispose()
     this.link = new CameraLink(scan, this.viewport.viewLink())
   }
 
@@ -209,6 +211,8 @@ export class CompareScene {
   }
 
   dispose(): void {
+    this.link?.dispose()
+    this.link = null
     this.cap?.dispose()
     this.capGeometry.dispose()
     this.material.dispose()
