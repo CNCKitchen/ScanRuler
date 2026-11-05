@@ -166,8 +166,10 @@ export class PickScene {
     })
     this.marking.setTheme(theme)
     // The brush footprint skips the scan until its tree lands (see bvh.ts
-    // sparingRays); when it does, the cursor is looked at again here too.
+    // sparingRays); when it does, the cursor is looked at again here too,
+    // and a stroke laid here meanwhile is laid on the part.
     this.stopHearing = channel.onTreeLanded?.(() => {
+      this.marking?.treeLanded()
       this.hoverDirty = true
       this.viewport.wake()
     }) ?? null

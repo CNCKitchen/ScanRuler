@@ -1087,6 +1087,8 @@ export class SceneManager {
     treeOffThread(geometry, build, () => {
       this.overlays.retestOcclusion()
       this.requestHover()
+      // A stroke laid while it was out is laid now.
+      this.marking.treeLanded()
       this.invalidate()
       for (const heard of this.treeHeard) heard()
     })
