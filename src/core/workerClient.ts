@@ -26,7 +26,7 @@ import type { ObjCompanions } from './parsers/objTexture'
 import type { FitGuide } from './fit/guide'
 import type { PlaneRegionReport, Segmentation, SegmentOptions } from './fit/segment'
 import type { RayGrid } from './geometry/scanQa'
-import type { WorkerRequest, WorkerResponse } from './workerProtocol'
+import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 
 export interface LoadedMesh {
   positions: Float32Array
@@ -529,6 +529,21 @@ export class MeshWorkerClient {
     const res = await this.request<Extract<WorkerResponse, { type: 'closed-shells-ok' }>>({ type: 'closed-shells', requestId, which })
     if (version() !== asked) throw new Error(`The ${which === 'scan' ? 'scan' : 'reference'} was replaced before its closed shells came back.`)
     return res.closed
+  }
+
+  /** A bounds tree over a mesh as the viewport lays it out, built in the
+   *  worker — see viewer/bvh.ts treeOffThread. The arrays are handed over,
+   *  so the caller sends copies. Nothing of the scan the worker holds goes
+   *  into it, so nothing about that can go stale here: whether the tree
+   *  still fits the geometry it was asked for is the viewport's to judge
+   *  when it lands. */
+  async boundsTree(positions: Float32Array, indices: Uint32Array): Promise<SerializedTree> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'bounds-tree-ok' }>>(
+      { type: 'bounds-tree', requestId, positions, indices },
+      [positions.buffer, indices.buffer],
+    )
+    return res.tree
   }
 
   /** How far each scan vertex moves to play a map as motion — see

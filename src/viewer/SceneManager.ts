@@ -33,7 +33,8 @@ import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
-import { refitAfterRigid } from './bvh'
+import { forgetTree, refitAfterRigid, sparingRays, treeOffThread } from './bvh'
+import type { SerializedTree } from '../core/workerProtocol'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotate, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
 import { deflectionFactor, deflectionStartPhase } from '../core/deviation/deflection'
@@ -371,6 +372,11 @@ export class SceneManager {
    *  — the mesh worker, wired by the app — for the section view's caps (see
    *  sliceCap primeClosedPart). Without it, a cut finds them itself. */
   closedShellsFrom: ((which: 'scan' | 'nominal') => Promise<Uint8Array>) | null = null
+  /** Where a scan's bounds tree is built off the main thread — the mesh
+   *  worker, wired by the app — from copies of its positions and index; see
+   *  bvh.ts treeOffThread. Without it, the tree is built here as the scan is
+   *  prepared. */
+  boundsTreeFrom: ((positions: Float32Array, indices: Uint32Array) => Promise<SerializedTree>) | null = null
   /** Elements lit because something being built refers to them, and
    *  elements lit because a picker's option is hovered — two reasons, one
    *  look; the overlays hear the union. */
@@ -527,7 +533,9 @@ export class SceneManager {
         this.grips.followView()
         this.grips.putAwayWhile(this.marking.gestureArmed())
         this.overlays.setPreviewBrushing(this.marking.gestureArmed())
-        this.updateHover()
+        // The pointer tests a frame makes skip a scan whose tree is still on
+        // its way, rather than run through its every triangle.
+        sparingRays(() => this.updateHover())
         // Anything held at a fixed size on screen — the picked-point markers —
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
@@ -536,7 +544,7 @@ export class SceneManager {
         this.sections.setPixelScale(pixel)
         // Pins on the far side of the part go away as it turns, if asked to;
         // a no-op unless the view moved.
-        this.overlays.updateProbeOcclusion()
+        sparingRays(() => this.overlays.updateProbeOcclusion())
         // The section curves are fat lines sized in pixels and need the
         // canvas's size: the viewport's cached one, since a read of the
         // layout every frame is a forced layout pass after any DOM write.
@@ -961,7 +969,8 @@ export class SceneManager {
   }
 
   /** Replace the displayed mesh. Synchronous and heavy (includes the BVH
-   *  build) — callers should show a status message and yield a frame first.
+   *  build where no worker builds it — see boundsTreeFrom) — callers should
+   *  show a status message and yield a frame first.
    *  `copyOf` names the scan vertex behind each render vertex past the
    *  scan's own — the copies its sharp edges were split into for shading. */
   setMesh(
@@ -998,7 +1007,13 @@ export class SceneManager {
       false,
       surface,
     )
-    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    // A scan's tree is the longest single task in opening it: built in the
+    // worker once the part is in place, where the app has wired one — the
+    // part is on screen and turns meanwhile — and here otherwise.
+    const offThread = this.boundsTreeFrom
+    if (!offThread) {
+      try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    }
     const axis = principalAxis(positions)
 
     // Scans have holes; double-sided rendering keeps interior surfaces
@@ -1035,8 +1050,23 @@ export class SceneManager {
       )
       this.scanAxis = axis
       this.frameCamera(geometry.boundingBox!, this.scanAxis)
+      // Asked for before the closed shells, which only a cut needs: a pick
+      // needs the tree.
+      if (offThread) this.treeFrom(offThread, geometry)
       this.primeClosedShells('scan', geometry)
       this.warmPrograms()
+    })
+  }
+
+  /** Have a part's tree built off the thread (see bvh.ts treeOffThread), and
+   *  when it lands, look again at what the frames skipped while it was out:
+   *  what is under the cursor, and the pins' line of sight. The loop may be
+   *  asleep by then. */
+  private treeFrom(build: NonNullable<SceneManager['boundsTreeFrom']>, geometry: THREE.BufferGeometry): void {
+    treeOffThread(geometry, build, () => {
+      this.overlays.retestOcclusion()
+      this.requestHover()
+      this.invalidate()
     })
   }
 
@@ -3310,6 +3340,7 @@ export class SceneManager {
     if (!this.mesh) return
     this.scanCap = this.keepCap(this.scanCap, null)
     const geometry = this.mesh.geometry as THREE.BufferGeometry
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     ;(this.mesh.material as THREE.Material).dispose()

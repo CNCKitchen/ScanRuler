@@ -9,6 +9,7 @@
 
 import type * as THREE from 'three'
 import { acceleratedRaycast } from 'three-mesh-bvh'
+import { raySpared } from './bvh'
 
 /** How far behind a plane a hit may lie and still count as on it, mm: the
  *  clip in the shader and the hit off the BVH are worked out apart. */
@@ -57,6 +58,9 @@ export function keptHits(
 
 /** Mesh.raycast for every mesh: three-mesh-bvh's, holding to the clip. */
 export function clippedRaycast(this: THREE.Mesh, raycaster: THREE.Raycaster, intersects: THREE.Intersection[]): void {
+  // A frame's pointer test does not go through every triangle of a part
+  // whose tree is still on its way — see bvh.ts sparingRays.
+  if (raySpared(this.geometry)) return
   const planes = clipPlanesOf(this.material)
   if (!planes) {
     acceleratedRaycast.call(this, raycaster, intersects)

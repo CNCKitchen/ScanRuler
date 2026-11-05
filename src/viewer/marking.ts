@@ -431,15 +431,16 @@ export class SurfaceMarking {
     const mesh = this.ctx.mesh()
     const brush = this.paint
     if (!mesh || !brush || !this.ctx.paintAttr()) return
-
-    this.ctx.setPickRay(clientX, clientY)
-    const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
-    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
-
+    // The sweep needs the tree; without it — still being built off the
+    // thread — the ray would go through every triangle for nothing.
     const geometry = mesh.geometry as THREE.BufferGeometry
     const bvh = geometry.boundsTree
     const index = geometry.getIndex()
     if (!bvh || !index) return
+
+    this.ctx.setPickRay(clientX, clientY)
+    const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
+    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
     const idx = index.array as ArrayLike<number>
     const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
 

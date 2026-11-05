@@ -247,6 +247,13 @@ export type WorkerRequest =
       normals: Float32Array
       positions?: Float32Array
     }
+  /** A bounds tree over a mesh as the render thread lays it out — its
+   *  positions and its index as drawn, shading copies and all — built here
+   *  so that a million triangles are not sorted on the thread that answers
+   *  the user (see viewer/bvh.ts treeOffThread). The arrays are the render
+   *  thread's own, copied and sent over: the tree describes them whatever
+   *  this worker holds of the scan, or whether it holds it at all. */
+  | { type: 'bounds-tree'; requestId: number; positions: Float32Array; indices: Uint32Array }
   /** A request for a plugin's part of the worker — see workerPluginApi.ts.
    *  `op` names the plugin's operation, `payload` is its own. */
   | { type: 'plugin'; requestId: number; plugin: string; op: string; payload: unknown }
@@ -378,6 +385,20 @@ export type WorkerResponse =
   /** The map against an element, the direction each reading was taken
    *  along, and the colour scale the tool would choose for it, in mm. */
   | { type: 'element-deviation-ok'; requestId: number; values: Float32Array; directions: Int8Array; suggestedRange: number }
+  /** The tree, serialized — see SerializedTree. */
+  | { type: 'bounds-tree-ok'; requestId: number; tree: SerializedTree }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }
+
+/** A bounds tree as it crosses between threads: its nodes, and the order it
+ *  keeps the triangles in. Indirect — the tree sorts that list of triangle
+ *  numbers and never the index it was built over — so it is laid back over
+ *  the render thread's geometry as it stands, and the index already drawn
+ *  and read by triangle keeps every triangle where it was. See three-mesh-bvh
+ *  MeshBVH.serialize; the index it would carry is left out, being the render
+ *  thread's own. */
+export interface SerializedTree {
+  roots: ArrayBuffer[]
+  indirectBuffer: Uint32Array | Uint16Array
+}

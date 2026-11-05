@@ -10,6 +10,7 @@ import type { Vec3 } from '../core/types'
 import { SurfaceMarking, type PaintBrush } from './marking'
 import type { ControlScheme } from './navSchemes'
 import { OrthoViewport } from './orthoViewport'
+import { sparingRays } from './bvh'
 import { paintUniform, patchPaintTint, setPaintUniform } from './paintTint'
 import type { MarkingChannel } from './SceneManager'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
@@ -218,7 +219,10 @@ export class PickScene {
   private updateHover(): void {
     if (!this.hoverDirty || !this.marking) return
     this.hoverDirty = false
-    if (this.marking.armed()) this.marking.updateBrushRing(this.hoverAt)
+    // The scan is the main viewport's, and its tree may still be on its way
+    // — see bvh.ts sparingRays.
+    const marking = this.marking
+    if (marking.armed()) sparingRays(() => marking.updateBrushRing(this.hoverAt))
   }
 
   private pick(clientX: number, clientY: number): Vec3 | null {

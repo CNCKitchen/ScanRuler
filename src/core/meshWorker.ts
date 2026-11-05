@@ -9,7 +9,7 @@
 // prepared beside the models in use, put in their place when committed.
 
 import type { MeshGraph, ParsedMesh, TextureNote, Vec3 } from './types'
-import type { WorkerRequest, WorkerResponse } from './workerProtocol'
+import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
@@ -50,7 +50,8 @@ import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
 import { workerPlugins } from './workerPlugins'
 import type { WorkerContext } from './workerPluginApi'
-import type { MeshBVH } from 'three-mesh-bvh'
+import * as THREE from 'three'
+import { MeshBVH, type MeshBVHOptions } from 'three-mesh-bvh'
 import { reply } from './workerRpc'
 import { firstHits, firstHitsAt, localNoise, scanRim, scanRims } from './geometry/scanQa'
 import { rimLoops, type RimLoop } from './geometry/openEdges'
@@ -573,6 +574,21 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     const closed = closedVertices(mesh.positions, mesh.indices, renderCopies.get(mesh.held) ?? [])
     post({ type: 'closed-shells-ok', requestId: msg.requestId, closed }, [closed.buffer])
+    return
+  }
+
+  if (msg.type === 'bounds-tree') {
+    // Indirect, so that the tree sorts a list of triangle numbers of its own
+    // and leaves the index alone: the render thread lays the tree over a
+    // geometry whose index is already drawn, and read by triangle by the
+    // section caps and the picks, as it was sent. The positions and index
+    // sent are this request's own; the tree takes them over and only its
+    // nodes and its triangle order go back.
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(msg.positions, 3))
+    geometry.setIndex(new THREE.BufferAttribute(msg.indices, 1))
+    const { roots, indirectBuffer } = MeshBVH.serialize(new MeshBVH(geometry, { indirect: true } as MeshBVHOptions), { cloneBuffers: false }) as unknown as SerializedTree
+    post({ type: 'bounds-tree-ok', requestId: msg.requestId, tree: { roots, indirectBuffer } }, [...roots, indirectBuffer.buffer as ArrayBuffer])
     return
   }
 
