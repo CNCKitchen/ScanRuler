@@ -19,9 +19,22 @@
 // nothing here writes as well, or writes to agree with them.
 import { memo } from 'react'
 import { useElementField } from './useElementField'
-import { useSceneSync } from './useSceneSync'
+import { pluginReads, useSceneSync } from './useSceneSync'
 
 export type SceneSyncProps = Parameters<typeof useSceneSync>[0] & Parameters<typeof useElementField>[0]
+
+/** The props as this draws them: every one by identity — refs, the session's
+ *  handlers, values held stable by the Workbench — but the plugin's runtime,
+ *  which is new on every render, by what is read of it (pluginReads). */
+export function sameSceneSyncProps(a: SceneSyncProps, b: SceneSyncProps): boolean {
+  for (const key of Object.keys(a) as (keyof SceneSyncProps)[]) {
+    if (key !== 'plugin' && !Object.is(a[key], b[key])) return false
+  }
+  if (Object.keys(a).length !== Object.keys(b).length) return false
+  const x = pluginReads(a.plugin)
+  const y = pluginReads(b.plugin)
+  return x.length === y.length && x.every((v, i) => Object.is(v, y[i]))
+}
 
 export const SceneSync = memo(function SceneSync({
   sceneRef,
@@ -61,4 +74,4 @@ export const SceneSync = memo(function SceneSync({
     cancelDraft,
   })
   return null
-})
+}, sameSceneSyncProps)

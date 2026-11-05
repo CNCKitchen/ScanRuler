@@ -114,6 +114,9 @@ export class OrthoNavigator {
   private q2 = new THREE.Quaternion()
   private q3 = new THREE.Quaternion()
   private pickNdc = new THREE.Vector2()
+  /** Scratch for surfaceAt's test of a part still waiting for its tree. */
+  private waitingBox = new THREE.Box3()
+  private waitingHit = new THREE.Vector3()
   /** The canvas rect, asked of the layout engine at most once per frame or
    *  task: getBoundingClientRect can force a layout pass, and setPickRay runs
    *  for every dab of a brush stroke. Cleared in updateClipPlanes, which the
@@ -549,15 +552,29 @@ export class OrthoNavigator {
   /** The point on the model under a client position, if the model is there.
    *  A pivot has somewhere to fall back to, so a part whose tree is still on
    *  its way is not run through triangle by triangle to find one — see
-   *  bvh.ts sparingRays — and nothing is found at all while it is: skipped,
-   *  it would let the ray through to whatever lies behind it. */
+   *  bvh.ts sparingRays. Skipped outright, though, it would let the ray
+   *  through to whatever lies behind it: so the parts with a tree are tested,
+   *  and a hit on them stands only where no waiting part's box comes nearer
+   *  along the ray. */
   surfaceAt(clientX: number, clientY: number): THREE.Vector3 | null {
     const targets = this.orbitTargets()
     if (!targets.length) return null
-    if (targets.some((t) => (t as THREE.Mesh).isMesh && treeAwaited((t as THREE.Mesh).geometry))) return null
+    const waiting = (t: THREE.Object3D) => (t as THREE.Mesh).isMesh === true && treeAwaited((t as THREE.Mesh).geometry)
+    const ready = targets.filter((t) => !waiting(t))
+    if (!ready.length) return null
     this.setPickRay(this.orbitRaycaster, clientX, clientY)
-    const hits = sparingRays(() => this.orbitRaycaster.intersectObjects(targets, false))
-    return hits.length ? hits[0].point.clone() : null
+    const hit = sparingRays(() => this.orbitRaycaster.intersectObjects(ready, false))[0]
+    if (!hit) return null
+    const ray = this.orbitRaycaster.ray
+    for (const t of targets) {
+      if (!waiting(t)) continue
+      const geometry = (t as THREE.Mesh).geometry
+      if (!geometry.boundingBox) geometry.computeBoundingBox()
+      this.waitingBox.copy(geometry.boundingBox!).applyMatrix4(t.matrixWorld)
+      const at = ray.intersectBox(this.waitingBox, this.waitingHit)
+      if (at && ray.origin.distanceTo(at) < hit.distance) return null
+    }
+    return hit.point.clone()
   }
 
   /**

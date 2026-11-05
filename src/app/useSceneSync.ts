@@ -61,6 +61,32 @@ import type { PluginRuntime } from '../plugins/api'
  *  its motion is worked out again — see the effect at the end. */
 const DEFLECTION_SETTLE_MS = 150
 
+/**
+ * Everything useSceneSync reads of a plugin's runtime, in a form two renders
+ * can be compared by. A plugin builds its runtime afresh on every render of
+ * the Workbench, so the runtime itself is a new object each time though
+ * nothing in it has moved; SceneSync compares these instead, so a plugin's
+ * workspace does not re-render the scene's follower on every render of the
+ * screen. Its map is read through `fieldVersion`, which changes whenever the
+ * map does — the effects that paint it key on nothing else — and a plugin that
+ * gives none, with a map up, is never taken for unchanged. A new read of
+ * `plugin` in the hook belongs here too.
+ */
+export function pluginReads(plugin: PluginRuntime | null): readonly unknown[] {
+  if (!plugin) return [null]
+  return [
+    plugin.marking?.color ?? null,
+    plugin.marking?.gestures ?? false,
+    Boolean(plugin.scanKey?.seeThrough),
+    Boolean(plugin.scanKey?.shown),
+    Boolean(plugin.showsElements),
+    Boolean(plugin.hideScan),
+    Boolean(plugin.hoverReadout),
+    Boolean(plugin.hovers),
+    plugin.fieldVersion === undefined && plugin.field ? {} : plugin.fieldVersion,
+  ]
+}
+
 export function useSceneSync({
   sceneRef,
   clientRef,

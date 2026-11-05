@@ -191,10 +191,21 @@ export async function nextFrame(scene?: FrameSource | null): Promise<void> {
  *  what it was just told would read the one before, or none. A frame first,
  *  for the stores' change to reach the effect that asks; then the wait, which
  *  is over at once when nothing is being measured. Settled is not measured:
- *  the caller looks at the status for that. */
-export async function mapSettled(scene?: FrameSource | null): Promise<void> {
+ *  the caller looks at the status for that.
+ *
+ *  Only a reader of that map waits: with the reference map the one read, the
+ *  element map is measured again behind it whenever its element changes, and
+ *  a read of the reference map has no business waiting for it — the worker
+ *  may be busy for longer than the wait. `always` is for the command that has
+ *  just asked for the element map itself, whichever map is on screen.
+ *  `timeoutMs` is how long it waits at most. */
+export async function mapSettled(
+  scene?: FrameSource | null,
+  { always = false, timeoutMs = 30_000 }: { always?: boolean; timeoutMs?: number } = {},
+): Promise<void> {
   await nextFrame(scene)
-  await waitFor(() => useDeviation.getState().elementStatus !== 'running', 'the map against the element', 30_000)
+  if (!always && useDeviation.getState().source !== 'element') return
+  await waitFor(() => useDeviation.getState().elementStatus !== 'running', 'the map against the element', timeoutMs)
 }
 
 /** As mapSettled, for a command that only reads the session out: past the
@@ -202,9 +213,9 @@ export async function mapSettled(scene?: FrameSource | null): Promise<void> {
  *  job queued ahead of it — the answer is given anyway, and says the map is
  *  "running" where its figures would be, rather than failing a read for
  *  being slow. A command that acts on the map waits strictly. */
-export async function mapSettledOrMeasuring(scene?: FrameSource | null): Promise<void> {
+export async function mapSettledOrMeasuring(scene?: FrameSource | null, timeoutMs?: number): Promise<void> {
   try {
-    await mapSettled(scene)
+    await mapSettled(scene, { timeoutMs })
   } catch (e) {
     if (useDeviation.getState().elementStatus !== 'running') throw e
   }

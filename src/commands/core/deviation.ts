@@ -162,7 +162,7 @@ const setTarget: Command<{ element: ElementRef | null; side?: 'outward' | 'inwar
     if (want !== undefined && useDeviation.getState().targetSide !== want) useDeviation.getState().flipTargetSide()
     if (facingDeg !== undefined) useDeviation.getState().setTargetFacing(facingDeg)
     // The map follows the choice on its own (useElementField), once the stores' change has reached it.
-    await mapSettled(scene)
+    await mapSettled(scene, { always: true })
     if (useDeviation.getState().elementStatus !== 'ready') throw new CommandError('failed', 'The map against the element could not be measured.')
     return { deviation: describeDeviation() }
   },

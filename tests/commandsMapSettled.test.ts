@@ -47,6 +47,18 @@ describe('a command that reads the map against an element', () => {
     expect((await refusal)?.message).toContain('no deviation map')
   })
 
+  it('is not waited for by a reader of the reference map', async () => {
+    // Measured again behind the reference map whenever its element changes:
+    // nothing that reads the reference map waits on that.
+    useDeviation.setState({ source: 'reference', elementStatus: 'running' })
+    const hotspots = runCommand('deviation.hotspots', {})
+    const refusal = hotspots.then(() => null, (e: Error) => e)
+    expect(await settledAfter(hotspots, 1000)).toBe(true)
+    // Refused at once for the map it reads, of which there is none here.
+    expect((await refusal)?.message).toContain('no deviation map')
+    useDeviation.getState().failElementMap()
+  })
+
   // The mesh worker answers in order, so a map queued behind a long job — a
   // thickness map, a boolean — can be measured for longer than a command
   // waits. A read of the session says so; a command that acts on the map
