@@ -64,6 +64,8 @@ export class PickScene {
    *  footprint is resolved once per frame rather than once per pointermove. */
   private hoverAt: { x: number; y: number } | null = null
   private hoverDirty = false
+  /** Stops hearing the scan's tree land — see armMarking. */
+  private stopHearing: (() => void) | null = null
 
   onPick: ((point: Vec3) => void) | null = null
   /** How many vertices the marking covers, reported when a gesture ends. */
@@ -163,6 +165,12 @@ export class PickScene {
       onPaintChange: (count) => this.onPaintChange?.(count),
     })
     this.marking.setTheme(theme)
+    // The brush footprint skips the scan until its tree lands (see bvh.ts
+    // sparingRays); when it does, the cursor is looked at again here too.
+    this.stopHearing = channel.onTreeLanded?.(() => {
+      this.hoverDirty = true
+      this.viewport.wake()
+    }) ?? null
     const canvas = this.viewport.renderer.domElement
     canvas.addEventListener('pointermove', (e) => {
       this.hoverAt = { x: e.clientX, y: e.clientY }
@@ -265,6 +273,7 @@ export class PickScene {
     // shared mask, and what becomes of it is decided by whoever opened this
     // picker, not by the canvas closing.
     this.marking?.dispose()
+    this.stopHearing?.()
     this.markerGeometry.dispose()
     this.material.dispose()
     this.viewport.dispose()

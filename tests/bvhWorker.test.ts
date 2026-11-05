@@ -113,6 +113,24 @@ describe('the scan\'s bounds tree built in the worker', () => {
     return replies.at(-1)!
   }
 
+  it('meets on the reference what a tree built on the render thread meets, the index untouched', () => {
+    const buffer = buildBinaryStl(cylinderMesh(10, 30, 96, 24, 0.02).positions, null, null, '')
+    const loaded = send({ type: 'load-nominal', requestId: 1, name: 'reference.stl', buffer })
+    if (loaded.type !== 'nominal-loaded') throw new Error(JSON.stringify(loaded))
+    const geometry = renderGeometry(loaded.positions, loaded.indices)
+    const drawn = (geometry.getIndex()!.array as Uint32Array).slice()
+    const reply = send({ type: 'bounds-tree', requestId: 2, positions: loaded.positions.slice(), indices: loaded.indices.slice() })
+    if (reply.type !== 'bounds-tree-ok') throw new Error(JSON.stringify(reply))
+    adopt(geometry, reply.tree)
+    const here = renderGeometry(loaded.positions, loaded.indices)
+    here.computeBoundsTree = computeBoundsTree
+    here.computeBoundsTree()
+    const want = hitsThrough(here, 11)
+    expect(want.filter((h) => h.length > 0).length).toBeGreaterThan(200)
+    expect(hitsThrough(geometry, 11)).toEqual(want)
+    expect(geometry.getIndex()!.array).toEqual(drawn)
+  })
+
   for (const [name, file] of scans) {
     it(`meets what a tree built on the render thread meets, the index untouched: ${name}`, () => {
       const loaded = send({ type: 'load', requestId: 1, name: 'scan.stl', buffer: file(), crease: { mode: 'on', angleDeg: 30 } })
@@ -222,6 +240,15 @@ describe('a tree built off the thread, landing', () => {
     here.computeBoundsTree = computeBoundsTree
     here.computeBoundsTree()
     expect(hitsThrough(geometry, 4)).toEqual(hitsThrough(here, 4))
+  })
+
+  it('is turned away from a geometry whose positions were laid anew before it landed', async () => {
+    const { geometry, land, landed } = pending(8)
+    const p = geometry.getAttribute('position') as THREE.BufferAttribute
+    geometry.setAttribute('position', new THREE.BufferAttribute((p.array as Float32Array).slice(), 3))
+    await land()
+    expect(geometry.boundsTree).toBeUndefined()
+    expect(landed).not.toHaveBeenCalled()
   })
 
   it('is turned away from a geometry laid out again before it landed', async () => {

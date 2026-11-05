@@ -27,7 +27,7 @@ import {
   type NavAction,
 } from './navSchemes'
 import { spaceMouseBusy, type SpaceMouseMotion } from './spaceMouse'
-import { sparingRays } from './bvh'
+import { sparingRays, treeAwaited } from './bvh'
 
 // SpaceMouse speeds at full deflection, BumpMesh's.
 const PUCK_TURN_RAD_PER_S = 2.4
@@ -549,10 +549,12 @@ export class OrthoNavigator {
   /** The point on the model under a client position, if the model is there.
    *  A pivot has somewhere to fall back to, so a part whose tree is still on
    *  its way is not run through triangle by triangle to find one — see
-   *  bvh.ts sparingRays. */
+   *  bvh.ts sparingRays — and nothing is found at all while it is: skipped,
+   *  it would let the ray through to whatever lies behind it. */
   surfaceAt(clientX: number, clientY: number): THREE.Vector3 | null {
     const targets = this.orbitTargets()
     if (!targets.length) return null
+    if (targets.some((t) => (t as THREE.Mesh).isMesh && treeAwaited((t as THREE.Mesh).geometry))) return null
     this.setPickRay(this.orbitRaycaster, clientX, clientY)
     const hits = sparingRays(() => this.orbitRaycaster.intersectObjects(targets, false))
     return hits.length ? hits[0].point.clone() : null

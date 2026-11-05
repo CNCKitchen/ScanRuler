@@ -35,7 +35,21 @@ export function refitAfterRigid(geometry: THREE.BufferGeometry): void {
   geometry.computeBoundingBox()
   geometry.computeBoundingSphere()
   if (geometry.boundsTree) geometry.boundsTree.refit()
-  else if (!treeAwaited(geometry)) computeBoundsTree.call(geometry)
+  else if (!treeAwaited(geometry)) computeBoundsTree.call(geometry, INDIRECT)
+}
+
+/** A tree that sorts its own list of triangle numbers and never the index:
+ *  the index is drawn and read by triangle — the section caps, the picks —
+ *  so a tree built over a part already shown must leave it as it is. */
+const INDIRECT = { indirect: true } as MeshBVHOptions
+
+/** A tree sent from the worker, laid over the geometry it was built for,
+ *  whose index it reads as it stands. */
+function treeFrom(data: SerializedTree, geometry: THREE.BufferGeometry, index: THREE.BufferAttribute): MeshBVH {
+  // three-mesh-bvh's own type knows nothing of the indirect order; the
+  // index it asks for is the geometry's, and is not laid back (setIndex).
+  const serialized = { roots: data.roots, indirectBuffer: data.indirectBuffer, index: index.array }
+  return MeshBVH.deserialize(serialized, geometry, { setIndex: false })
 }
 
 /** The geometries whose tree is being built off the thread, each with the
@@ -91,15 +105,23 @@ export function treeOffThread(
   new Promise<SerializedTree>((resolve) => resolve(build((position.array as Float32Array).slice(), new Uint32Array(index.array)))).then(
     (tree) => {
       if (!current()) return
-      const bvh = MeshBVH.deserialize(tree as never, geometry, { setIndex: false })
-      // Moved while the tree was out: the same triangles, boxes elsewhere.
-      if (position.version !== version) bvh.refit()
-      geometry.boundsTree = bvh
+      try {
+        const bvh = treeFrom(tree, geometry, index)
+        // Moved while the tree was out: the same triangles, boxes elsewhere.
+        if (position.version !== version) bvh.refit()
+        geometry.boundsTree = bvh
+      } catch (e) {
+        // A tree that does not fit what it landed on: built here instead.
+        console.warn('The bounds tree from the mesh worker could not be used; building it here.', e)
+        geometry.boundsTree = undefined
+        computeBoundsTree.call(geometry, INDIRECT)
+      }
       landed()
     },
-    () => {
+    (e) => {
       if (!current()) return
-      computeBoundsTree.call(geometry, { indirect: true } as MeshBVHOptions)
+      console.warn('The mesh worker could not build the bounds tree; building it here.', e)
+      computeBoundsTree.call(geometry, INDIRECT)
       landed()
     },
   )

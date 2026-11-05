@@ -33,7 +33,7 @@ import type { SectionCut } from '../core/section/slice'
 import type { ControlScheme } from './navSchemes'
 import type { PickMarker } from './PickScene'
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh'
-import { forgetTree, refitAfterRigid, sparingRays, treeOffThread } from './bvh'
+import { forgetTree, refitAfterRigid, sparingRays, treeAwaited, treeOffThread } from './bvh'
 import type { SerializedTree } from '../core/workerProtocol'
 import type { FitData, Vec3 } from '../core/types'
 import { rigidApplyToPoints, rigidRotate, rigidRotateVectors, type Rigid } from '../core/deviation/rigid'
@@ -206,6 +206,10 @@ export interface MarkingChannel {
   setPaintColor: (rgb: [number, number, number]) => void
   /** The scan's own vertex behind a render index — see graphVertex. */
   graphVertex: (v: number) => number
+  /** Hear when a part's tree lands from off the thread (see bvh.ts
+   *  treeOffThread): what was under the cursor is to be looked at again.
+   *  The returned function stops it. */
+  onTreeLanded?: (heard: () => void) => () => void
 }
 
 /** A mesh laid out for the scan's place in the viewport: its geometry, the
@@ -377,6 +381,9 @@ export class SceneManager {
    *  bvh.ts treeOffThread. Without it, the tree is built here as the scan is
    *  prepared. */
   boundsTreeFrom: ((positions: Float32Array, indices: Uint32Array) => Promise<SerializedTree>) | null = null
+  /** Who else looks again when a tree lands — the split picker's brush
+   *  footprint; see MarkingChannel.onTreeLanded. */
+  private treeHeard = new Set<() => void>()
   /** Elements lit because something being built refers to them, and
    *  elements lit because a picker's option is hovered — two reasons, one
    *  look; the overlays hear the union. */
@@ -941,20 +948,33 @@ export class SceneManager {
     // region, over what lies behind — and nothing lights under the gizmo
     // corner, which is a button first.
     let covered = axis !== null
+    // While a part's tree is still on its way the frame's rays skip it (see
+    // bvh.ts sparingRays), and it would hide nothing behind it: an element
+    // or a face of a layer's would light through the part. Nothing lights
+    // until the tree lands and the cursor is looked at again.
+    const over = this.partTreeAwaited() ? null : at
     // A step the arrow keys took lights alone: every other layer is covered.
-    const stepped = this.cyclingLayer(at)
+    const stepped = this.cyclingLayer(over)
     for (const step of this.hoverSteps()) {
       const under = stepped ? step.layer !== stepped : covered
       if (step.layer) this.hoverCovered.set(step.layer, under)
-      if (step.hover(at, under) && step.covers) covered = true
+      if (step.hover(over, under) && step.covers) covered = true
     }
     if (!this.hoverEnabled) return
-    const hit = at ? this.pick(at.x, at.y) : null
+    const hit = over ? this.pick(over.x, over.y) : null
     // Silence is worth reporting once, not every frame the cursor spends off
     // the part.
     if (!hit && !this.hoverWasHit) return
     this.hoverWasHit = hit !== null
     this.onHover?.(hit)
+  }
+
+  /** Whether a part on the stage — the scan, or a reference shown — is
+   *  still waiting for its tree from off the thread. */
+  private partTreeAwaited(): boolean {
+    const scan = this.mesh?.geometry as THREE.BufferGeometry | undefined
+    const reference = this.nominalMesh?.visible ? (this.nominalMesh.geometry as THREE.BufferGeometry) : undefined
+    return Boolean((scan && treeAwaited(scan)) || (reference && treeAwaited(reference)))
   }
 
   setHoverEnabled(enabled: boolean): void {
@@ -1067,6 +1087,7 @@ export class SceneManager {
       this.overlays.retestOcclusion()
       this.requestHover()
       this.invalidate()
+      for (const heard of this.treeHeard) heard()
     })
   }
 
@@ -2550,6 +2571,10 @@ export class SceneManager {
         setPaintUniform(this.uPaintColor, rgb)
         this.invalidate()
       },
+      onTreeLanded: (heard) => {
+        this.treeHeard.add(heard)
+        return () => this.treeHeard.delete(heard)
+      },
     }
   }
 
@@ -2618,7 +2643,12 @@ export class SceneManager {
     geometry.setIndex(new THREE.BufferAttribute(indices, 1))
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
-    try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    // Off the thread once the reference is in place, as a scan's is — see
+    // prepareMesh.
+    const offThread = this.boundsTreeFrom
+    if (!offThread) {
+      try { geometry.computeBoundsTree() } catch (e) { geometry.dispose(); throw e }
+    }
 
     const material = new THREE.MeshStandardMaterial({
       color: this.theme.nominal,
@@ -2639,6 +2669,7 @@ export class SceneManager {
       this.scene.add(this.nominalMesh)
       // Cut with the rest, if the section view is cutting.
       this.applySlice()
+      if (offThread) this.treeFrom(offThread, geometry)
       this.primeClosedShells('nominal', geometry)
       this.warmPrograms()
       this.invalidate()
@@ -3323,6 +3354,7 @@ export class SceneManager {
     if (!this.nominalMesh) return
     this.referenceCap = this.keepCap(this.referenceCap, null)
     const geometry = this.nominalMesh.geometry as THREE.BufferGeometry
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     ;(this.nominalMesh.material as THREE.Material).dispose()

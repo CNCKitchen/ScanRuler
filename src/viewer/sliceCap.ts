@@ -75,8 +75,10 @@ export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
  * Keep closed shells found elsewhere as this geometry's — the mesh worker's,
  * a flag for each vertex (see closedVertices) — so the first cut of a part
  * loaded does not search it on the main thread. A triangle is read off its
- * first corner, through the index as it stands now: a bounds tree built
- * over the geometry reorders its triangles and never its vertices. False,
+ * first corner, through the index as it stands now. A part's tree from the
+ * worker is indirect and leaves the index alone (see bvh.ts treeOffThread),
+ * but one built here as a part is laid out again — a resplit, an edit —
+ * reorders its triangles; neither ever moves a vertex. False,
  * and nothing kept, when the count of flags is not this geometry's count
  * of vertices. That alone does not prove the flags are this geometry's —
  * a replacement can have as many — so the caller also checks that the
