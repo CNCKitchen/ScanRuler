@@ -366,8 +366,9 @@ export class SceneManager {
   private capGeometry = new THREE.PlaneGeometry(1, 1)
   /** The materials the programs were warmed with — see warmPrograms — by
    *  the kind of program, with what each was made from. Kept until this
-   *  viewport goes, or a part of another make warms its kind again: a
-   *  program goes with the last material that used it. */
+   *  viewport goes, a part of another make warms its kind again, or the
+   *  stage no longer has that kind to warm: a program goes with the last
+   *  material that used it. */
   private warmKeepers = new Map<string, { from: object | string; keep: { dispose(): void } }>()
   /** The warming run in hand, and the way to take its next turn back. */
   private warmToken = 0
@@ -1228,6 +1229,9 @@ export class SceneManager {
     }
     const own = geometry.getAttribute('surface')?.array as Uint8Array | undefined
     const surface = own ? own.slice(0, this.scanVertices * 3) : null
+    // A tree still on its way is for the layout going: this one builds its
+    // own below.
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(
@@ -1943,6 +1947,15 @@ export class SceneManager {
       part('reference', nominal, cut, true)
     }
     part('scan', scan, false, false)
+    // A kind the stage no longer has — the reference cleared, the scan
+    // closed — lets its keeper go, and with it a program nothing draws with
+    // any more; a kind still wanted keeps its keeper until a new one is in.
+    const wanted = new Set(jobs.map((job) => job.key))
+    for (const [key, held] of this.warmKeepers) {
+      if (wanted.has(key)) continue
+      this.warmKeepers.delete(key)
+      held.keep.dispose()
+    }
     return jobs.filter((job) => this.warmKeepers.get(job.key)?.from !== job.from)
   }
 
@@ -3105,6 +3118,7 @@ export class SceneManager {
     this.dropDeflection()
     this.releaseDeflect(geometry)
     for (const layer of this.layers) layer.scanReplaced?.()
+    forgetTree(geometry)
     geometry.disposeBoundsTree?.()
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(geometry, positions, indices, normals, wireSlots, copyOf, null, true, surface)
