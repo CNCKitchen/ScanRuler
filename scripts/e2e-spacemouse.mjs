@@ -14,6 +14,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   canvasRect,
+  APP_URL,
   check,
   click,
   finish,
@@ -244,5 +245,46 @@ before = await camera()
 await hold([1, 0, 0, 0, 0, 0])
 after = await camera()
 check(dist(after.pos, before.pos) > 1, 'back in 3D, the puck drives the main view again')
+
+// Two app windows see the same physical puck, but only the focused one moves.
+const other = await browser.newPage()
+await other.evaluateOnNewDocument(() => {
+  Object.defineProperty(navigator, 'getGamepads', {
+    configurable: true,
+    value: () => [{
+      id: 'SpaceMouse Compact (Vendor: 256f Product: c635)',
+      index: 0, connected: true, axes: [1, 0, 0, 0, 0, 0],
+    }],
+  })
+})
+await other.goto(APP_URL, { waitUntil: 'networkidle0' })
+await other.waitForFunction(() => window.__scanruler?.scene())
+const otherPosition = () => other.evaluate(() => window.__scanruler.scene().viewport.camera.position.toArray())
+await page.evaluate(() => { window.__puck.axes = [1, 0, 0, 0, 0, 0] })
+await other.bringToFront()
+await other.waitForFunction(() => document.hasFocus())
+before = await camera()
+let otherBefore = await otherPosition()
+await sleep(350)
+check(dist((await camera()).pos, before.pos) < 1e-9, 'the background ScanRuler window ignores a deflected puck')
+check(dist(await otherPosition(), otherBefore) > 0, 'only the foreground ScanRuler window moves')
+await page.bringToFront()
+await page.waitForFunction(() => document.hasFocus())
+before = await camera()
+otherBefore = await otherPosition()
+await sleep(350)
+check(dist((await camera()).pos, before.pos) > 1, 'switching focus transfers SpaceMouse control to the other ScanRuler window')
+check(dist(await otherPosition(), otherBefore) < 1e-9, 'the formerly active ScanRuler window stops moving')
+const external = await browser.newPage()
+await external.goto('about:blank')
+await external.bringToFront()
+await external.waitForFunction(() => document.hasFocus())
+before = await camera()
+otherBefore = await otherPosition()
+await sleep(350)
+check(dist((await camera()).pos, before.pos) < 1e-9 && dist(await otherPosition(), otherBefore) < 1e-9,
+  'both ScanRuler windows stay still when an unrelated page has focus')
+await external.close()
+await other.close()
 
 await finish(browser, consoleErrors)
