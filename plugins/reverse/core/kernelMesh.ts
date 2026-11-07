@@ -80,6 +80,28 @@ export function meshVolume(m: { positions: ArrayLike<number>; indices: ArrayLike
   return Math.abs(v) / 6
 }
 
+/**
+ * The indices without a triangle two of whose corners lie on one point. The
+ * mesher leaves one where a surface closes to a point, a cone's apex: its
+ * seam and the apex's zero-length edge meet there. It has no area, so a
+ * volume or a picture never shows it, but it counts twice on the edge beside
+ * it: a file for a printer then has an edge four triangles share and an edge
+ * from a point to itself. Taken out, every edge has its two.
+ */
+export function withoutCollapsed(positions: ArrayLike<number>, indices: Uint32Array): Uint32Array {
+  const same = (a: number, b: number) => positions[a * 3] === positions[b * 3] && positions[a * 3 + 1] === positions[b * 3 + 1] && positions[a * 3 + 2] === positions[b * 3 + 2]
+  const kept = new Uint32Array(indices.length)
+  let at = 0
+  for (let t = 0; t + 2 < indices.length; t += 3) {
+    const a = indices[t], b = indices[t + 1], c = indices[t + 2]
+    if (same(a, b) || same(b, c) || same(c, a)) continue
+    kept[at++] = a
+    kept[at++] = b
+    kept[at++] = c
+  }
+  return at === indices.length ? indices : kept.slice(0, at)
+}
+
 /** What triangles a mesh's runs, one a face, cover: by the face's hash. */
 function coveredByFace(m: RawMesh): Map<number, number> {
   const out = new Map<number, number>()
