@@ -36,6 +36,7 @@ import { collapsesInward, type FaceOffsetLimit, faceOffsetLimits, mostSpecific, 
 import { meshEveryFace, meshVolume } from './kernelMesh'
 import { filesOpenEdges, hasLeftHandedTorus, mendTorusLoops, snapCurveEnds } from './kernelStep'
 import { narrowFaces, nearestEdges, nearestFaces, type OddEdge, oddEdges, type OddKind, type Poles, type ShortEdge, shortEdges, shellSpots, strayEdges } from './kernelEdges'
+import { type CutPiece, cutPieces, type PointReading, probePoints, probeRay, type RayHit } from './kernelProbe'
 import { faceLoops, type LoopSummary, loopSummary } from './stepLoops'
 import { threadTracked } from './kernelThread'
 import { type Thickened, thickenSheet, type ThickenWay } from './kernelThicken'
@@ -293,6 +294,11 @@ const MEASURING_ANGLE = 0.1
 /** A point of the file this near the same face of the body is not asked of
  *  the whole body, mm: well under what verifyStep fails on. */
 const SAME_FACE_MM = 1e-4
+/** How many faces' areas and centroids the kernel keeps (ReKernel.faces) —
+ *  some bodies' worth; the oldest let go. */
+const FACE_MEASURES_KEPT = 4096
+/** How many shapes' volumes the kernel keeps before it starts over. */
+const VOLUMES_KEPT = 4096
 
 /** A body's volume read back against its own, as verifyStep judges it:
  *  OCCT integrates offset and B-spline faces numerically, so the two can
@@ -329,6 +335,14 @@ export class ReKernel {
   /** What the kernel said when it first trapped inside its WebAssembly, or
    *  null: once set it is broken, and is let go (reService.ts). */
   trapped: string | null = null
+  /** Each face's area and centroid by its hash, the face held while kept so
+   *  no other can come to have that hash (faces). A step leaves the faces it
+   *  does not touch as they were, so each body after it is integrated only
+   *  where it changed. */
+  private readonly faceMeasures = new Map<number, { face: number; kind: string; uv: string; area: number; centroid: Vec3 }>()
+  /** A shape's volume by its handle — a handle never names another shape,
+   *  released or not. */
+  private readonly volumes = new Map<Shape, number>()
 
   private constructor(
     occt: OcctLike,
@@ -348,7 +362,7 @@ export class ReKernel {
       OcctKernel: { init(options?: { wasm?: WasmSource }): Promise<unknown> }
     }
     const kernel = (await mod.OcctKernel.init(wasm === undefined ? undefined : { wasm })) as OcctLike
-    return new ReKernel(kernel, 'OCCT 8.0.1 via occt-wasm 5.7.1')
+    return new ReKernel(kernel, 'OCCT 8.0.1 via occt-wasm 5.15.0')
   }
 
   private wire(loop: readonly LoopPiece[]): Shape {
@@ -1078,6 +1092,27 @@ export class ReKernel {
     })
   }
 
+  /** Edges of a solid, named by hash, rounded in one call each at a radius
+   *  of its own: a number, or `[r1, r2]` running evenly from r1 at the
+   *  edge's first end (its curve's start, as `ends` gives it) to r2 at its
+   *  other — on a copy of it (roundOnCopy). Edges of one tangent chain
+   *  round as one: they must agree where they meet, and an edge of the
+   *  chain not given runs between its neighbours' radii. */
+  filletRadii(solid: Shape, edges: readonly { hash: number; radius: number | readonly [number, number] }[]): Tracked {
+    return run('Filleting', () => {
+      const sizes = edges.flatMap((e) => (typeof e.radius === 'number' ? [e.radius] : [...e.radius]))
+      if (!sizes.every((r) => r > 0)) throw new KernelError('the radii must be positive.')
+      const most = Math.max(...sizes)
+      return this.roundOnCopy(solid, edges.map((e) => e.hash), (copy, hashes) =>
+        fullWidth(this.occt, this, copy, most, (size) => {
+          const k = size / most
+          const radii = edges.map((e) => (typeof e.radius === 'number' ? e.radius * k : { start: e.radius[0] * k, end: e.radius[1] * k }))
+          return withSubShapes(this.occt, copy, 'edge', hashes, (handles) => tracked(this.occt, this.occt.filletWithHistory(copy, handles, radii, this.faceHashes(copy), HASH_BOUND)))
+        }),
+      )
+    })
+  }
+
   /** One edge rounded at a radius running evenly from `r1` at its start —
    *  the end where the edge's curve begins, the first of `edges`' ends — to
    *  `r2` at its other end, on a copy of the solid. The kernel tracks no
@@ -1426,10 +1461,31 @@ export class ReKernel {
   faces(shape: Shape): RawFace[] {
     return run('Reading the faces', () => {
       const handles = this.occt.getSubShapes(shape, 'face')
+      const held = new Set<number>()
       try {
-        return handles.map((f) => readFace(this.occt, f))
+        return handles.map((f) =>
+          readFace(this.occt, f, (hash, kind, uvBounds) => {
+            const uv = `${uvBounds.uMin} ${uvBounds.uMax} ${uvBounds.vMin} ${uvBounds.vMax}`
+            const kept = this.faceMeasures.get(hash)
+            if (kept) this.faceMeasures.delete(hash)
+            if (kept?.kind === kind && kept.uv === uv) {
+              this.faceMeasures.set(hash, kept)
+              return kept
+            }
+            if (kept) this.occt.release(kept.face)
+            const read = { face: f, kind, uv, area: this.occt.getSurfaceArea(f), centroid: vec(this.occt.getSurfaceCenterOfMass(f)) }
+            this.faceMeasures.set(hash, read)
+            held.add(f)
+            for (const [h, old] of this.faceMeasures) {
+              if (this.faceMeasures.size <= FACE_MEASURES_KEPT) break
+              this.faceMeasures.delete(h)
+              this.occt.release(old.face)
+            }
+            return read
+          }),
+        )
       } finally {
-        for (const f of handles) this.occt.release(f)
+        for (const f of handles) if (!held.has(f)) this.occt.release(f)
       }
     })
   }
@@ -1512,7 +1568,7 @@ export class ReKernel {
       const type = this.occt.getShapeType(shape)
       if (type !== 'solid' && type !== 'compound') return false
       if (this.occt.subShapeCount(shape, 'solid') < 1) return false
-      return this.occt.isValid(shape) && this.occt.getVolume(shape) > 1e-9
+      return this.occt.isValid(shape) && this.volumeOf(shape) > 1e-9
     })
   }
 
@@ -1608,7 +1664,17 @@ export class ReKernel {
   }
 
   volume(shape: Shape): number {
-    return run('Measuring the volume', () => this.occt.getVolume(shape))
+    return run('Measuring the volume', () => this.volumeOf(shape))
+  }
+
+  /** The kernel's volume of a shape, read once. */
+  private volumeOf(shape: Shape): number {
+    let v = this.volumes.get(shape)
+    if (v === undefined) {
+      if (this.volumes.size >= VOLUMES_KEPT) this.volumes.clear()
+      this.volumes.set(shape, (v = this.occt.getVolume(shape)))
+    }
+    return v
   }
 
   /** A body's volume as an answer gives it. volume() is what the build's own
@@ -1618,7 +1684,7 @@ export class ReKernel {
    *  mesh stands where they part by more than VOLUME_PARTS. */
   measuredVolume(shape: Shape, drawn?: Pick<KernelMesh, 'positions' | 'indices'>): number {
     return run('Measuring the volume', () => {
-      const v = this.occt.getVolume(shape)
+      const v = this.volumeOf(shape)
       if (!this.hasFreeformFace(shape)) return v
       if (drawn && !partsFrom(meshVolume(drawn), v)) return v
       const meshed = this.volumeByMesh(shape)
@@ -1661,6 +1727,17 @@ export class ReKernel {
   bounds(shape: Shape): KernelBounds {
     return run('Measuring the extent', () => {
       const b = this.occt.getBoundingBox(shape)
+      return { min: [b.xmin, b.ymin, b.zmin], max: [b.xmax, b.ymax, b.zmax] }
+    })
+  }
+
+  /** A box the shape lies within: a curved face's control net where bounds
+   *  finds its true extremes, so a little larger, and on a freeform body a
+   *  hundred times quicker. For a size to scale a tolerance by, or to rule
+   *  out two shapes meeting — never a figure to give. */
+  extent(shape: Shape): KernelBounds {
+    return run('Measuring the extent', () => {
+      const b = this.occt.getBoundingBox(shape, { precise: false })
       return { min: [b.xmin, b.ymin, b.zmin], max: [b.xmax, b.ymax, b.zmax] }
     })
   }
@@ -2021,6 +2098,22 @@ export class ReKernel {
     })
   }
 
+  /** A shape cut by the plane through `origin` square to `normal`: the
+   *  section's edges as the kernel holds them — lines, circles with their
+   *  centre and radius, other curves sampled — each with the face it lies
+   *  on (kernelProbe.ts cutPieces). */
+  sectionPieces(shape: Shape, origin: Vec3, normal: Vec3, deflection: number): CutPiece[] {
+    return run('Cutting the body', () => cutPieces(this.occt, shape, origin, normal, deflection))
+  }
+
+  /** Points and rays read against a shape: each point's nearest point of
+   *  the skin, distance, side and face; each ray's crossings with the skin
+   *  (kernelProbe.ts probePoints, probeRay). `solid`: whether it has an
+   *  inside. */
+  probe(shape: Shape, points: readonly Vec3[], rays: readonly { from: Vec3; dir: Vec3 }[], solid: boolean): { points: (PointReading | null)[]; rays: { hits: RayHit[]; startsInside: boolean }[] } {
+    return run('Probing the body', () => ({ points: probePoints(this.occt, shape, points, solid), rays: rays.map((r) => probeRay(this.occt, shape, r.from, r.dir, solid)) }))
+  }
+
   /** The names a STEP file gives its parts, in its order. */
   readStepNames(text: string): string[] {
     return run('Reading STEP', () => {
@@ -2115,6 +2208,7 @@ export class ReKernel {
 
   release(...shapes: readonly Shape[]): void {
     for (const s of shapes) {
+      this.volumes.delete(s)
       try {
         this.occt.release(s)
       } catch {

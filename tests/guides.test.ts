@@ -126,7 +126,7 @@ describe('guide.read', () => {
     expect(huge.next).toEqual(['test-guide'])
     expect(huge.note).toMatch(/read it next — guide_read \{ topic: "test-guide" \}/)
     // What the description says.
-    expect(listCommands().find((c) => c.name === 'guide.read')!.description).toContain('as many as fit in about 80 k characters, the rest named in next')
+    expect(listCommands().find((c) => c.name === 'guide.read')!.description).toContain('as many as fit in about 60 k characters, the rest named in next')
   })
 
   it('cuts a guide too long by itself to the sections that fit, and names the rest', async () => {

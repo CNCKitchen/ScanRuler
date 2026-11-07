@@ -37,6 +37,10 @@
 import type { MeshoptSimplifier as Simplifier } from 'meshoptimizer/simplifier'
 import { emptyHit, NominalSurface } from '../../../src/core/deviation/surface'
 import type { FieldScale } from '../../../src/core/field/colormap'
+import { compactEdit } from './edit'
+import { round125 } from './round125'
+
+export { round125 }
 
 /** What the reduction is asked for. */
 export interface ReduceSettings {
@@ -81,6 +85,9 @@ export interface ReducedMesh {
   /** The reduced mesh, compact: only the vertices its triangles use. */
   positions: Float32Array
   indices: Uint32Array
+  /** Every scan vertex's number on it, −1 for one that was collapsed away —
+   *  what carries the scan's vertices over when it becomes the edited copy. */
+  vertexMap: Int32Array
   /** Signed distance from every scan vertex to the reduced surface, mm —
    *  positive where the scan lies outside it. NaN for a vertex no triangle
    *  uses. */
@@ -145,17 +152,6 @@ export function defaultTolerance(bboxDiagonal: number): number {
   return round125(bboxDiagonal * 2.5e-4)
 }
 
-/** A size rounded up onto the 1-2-5 steps a person would have typed. */
-export function round125(x: number): number {
-  if (!(x > 0)) return 0.1
-  const exp = Math.floor(Math.log10(x))
-  const m = x / Math.pow(10, exp)
-  const step = m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10
-  // Written from the digits rather than multiplied out, so 5 × 0.01 lands
-  // in the field as 0.05 and not 0.05000000000000001.
-  return Number((step * Math.pow(10, exp)).toFixed(Math.max(0, -exp)))
-}
-
 /** The vertices a mesh's triangles use, and the triangles renumbered onto
  *  them — what leaves the worker and what the file holds. */
 export function compactMesh(
@@ -189,6 +185,7 @@ export interface ScanMesh {
 interface Measured {
   positions: Float32Array
   indices: Uint32Array
+  vertexMap: Int32Array
   /** Distance of every measured scan vertex to the reduced surface, sorted. */
   forward: Float64Array
   /** Distance of the reduced surface back to the scan, sorted. */
@@ -236,7 +233,8 @@ export function reduceMesh(
       indices, positions, 3, NO_ATTRIBUTES, 0, [], pins,
       Math.min(indices.length, triangles * 3), target, ['ErrorAbsolute'],
     )
-    const reduced = compactMesh(positions, indices.subarray(0, count))
+    // The vertices left keep their numbers' order, as an edit's do.
+    const reduced = compactEdit(positions, indices.subarray(0, count), scan.vertexCount)
     const surface = new NominalSurface(reduced.positions, reduced.indices)
     const forward = scanToReduced(surface, scan.positions, measuredVertices, deviation)
     const back = reducedToScan(scanSurface(), reduced.positions, reduced.indices, tolerance)
@@ -296,6 +294,7 @@ export function reduceMesh(
   return {
     positions: m.positions,
     indices: m.indices,
+    vertexMap: m.vertexMap,
     deviation,
     report: {
       settings: { ...settings },

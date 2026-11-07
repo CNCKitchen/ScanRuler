@@ -107,7 +107,8 @@ export interface ReState {
   building: boolean
   /** Bumped whenever the features change in a way that needs a rebuild. */
   buildVersion: number
-  /** Bumped when a build has landed, so the scene redraws the bodies. */
+  /** Bumped when a build has landed, so the scene redraws the bodies — and
+   *  when the faces and edges of bodies it drew before reading them do. */
   bodiesVersion: number
   /** The message of the last build that failed outright. */
   buildError: string | null
@@ -567,7 +568,7 @@ export const useReverse = create<ReState>()((set, get) => ({
   stepFiles: {},
   addStepFile: (name, text) => {
     const file: StepFileRef = { key: stepFileKey(text), name, size: text.length }
-    if (get().stepFiles[file.key] === undefined) set((s) => ({ stepFiles: { ...s.stepFiles, [file.key]: text } }))
+    if (!Object.hasOwn(get().stepFiles, file.key)) set((s) => ({ stepFiles: { ...s.stepFiles, [file.key]: text } }))
     return file
   },
   setBodyStyle: (id, patch) =>

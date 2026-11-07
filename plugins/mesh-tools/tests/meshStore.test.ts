@@ -11,7 +11,7 @@ import {
   useMeshTools,
 } from '../state/meshStore'
 import type { ReduceReport } from '../core/reduce'
-import { cutPlaneOf } from '../core/cutPlane'
+import { cutPlaneOf, middleOffset } from '../core/cutPlane'
 
 function report(settings: ReduceReport['settings']): ReduceReport {
   return {
@@ -329,6 +329,18 @@ describe('the cut plane', () => {
     expect(typed.frame.origin[0]).toBeCloseTo(0.5)
     expect(typed.frame.normal).toEqual([1, 0, 0])
     expect(typed.label).toBe('YZ plane, X 0.5 mm')
+  })
+
+  it('starts through the middle on a step a person would have typed', () => {
+    // A part 100 mm across steps by 1 mm: centred on the origin, a box centre
+    // a hair off it starts at 0, not −0.001.
+    expect(cutPlaneOf('x', 0, true, 'plus', [], [-0.0006, 0, 0], 'mm', 100)!.offset).toBe(0)
+    expect(cutPlaneOf('z', 0, true, 'plus', [], [0, 0, 41.837], 'mm', 100)!.offset).toBe(42)
+    // A small part steps finer: 8 mm across by 0.1.
+    expect(cutPlaneOf('y', 0, true, 'plus', [], [0, 3.14159, 0], 'mm', 8)!.offset).toBe(3.1)
+    expect(middleOffset(-0.0004, 0)).toBe(0)
+    // A typed offset is never rounded.
+    expect(cutPlaneOf('z', 0.123, false, 'plus', [], [0, 0, 0], 'mm', 100)!.offset).toBe(0.123)
   })
 
   it('lies across an element along its direction, and there is none for an element that has gone', () => {

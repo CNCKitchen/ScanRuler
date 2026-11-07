@@ -124,7 +124,7 @@ export function cutPreview(
   return { cuts: true, cap, open: new Float32Array(segments), capped: c.capped, bridged: c.bridged, openStretches: c.open.length }
 }
 
-interface PlaneSides {
+export interface PlaneSides {
   n: Vec3
   /** Each vertex's height over the plane, and its side: +1 goes, −1 stays,
    *  0 on it — within a few units of the last place of the largest
@@ -135,7 +135,7 @@ interface PlaneSides {
   anyStays: boolean
 }
 
-function planeSides(positions: Float32Array, indices: Uint32Array, vertexCount: number, origin: Vec3, normal: Vec3): PlaneSides {
+export function planeSides(positions: Float32Array, indices: Uint32Array, vertexCount: number, origin: Vec3, normal: Vec3): PlaneSides {
   const len = Math.hypot(normal[0], normal[1], normal[2])
   if (!(len > 0)) throw new Error('The cut plane has no direction.')
   const n: Vec3 = [normal[0] / len, normal[1] / len, normal[2] / len]
@@ -168,7 +168,7 @@ function planeSides(positions: Float32Array, indices: Uint32Array, vertexCount: 
  * `atPlane` keeps only the triangles with an edge on the plane, which is
  * all a rim is made of.
  */
-function clip(positions: Float32Array, indices: Uint32Array, vertexCount: number, plane: PlaneSides, atPlane: boolean) {
+export function clip(positions: Float32Array, indices: Uint32Array, vertexCount: number, plane: PlaneSides, atPlane: boolean) {
   const { n, s, side } = plane
   const { crossing, extra } = edgeCrossings(positions, vertexCount, (p, q) => s[p] / (s[p] - s[q]))
 

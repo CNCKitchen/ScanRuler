@@ -303,6 +303,10 @@ check(Boolean(await page.$('[data-test=reduce-capped]')), 'the panel says the li
 await page.screenshot({ path: shotPath('mesh-capped.png') })
 
 // ---- the export --------------------------------------------------------------
+// In view first: a menu closes on a scroll, and the click's own scroll to reach
+// the button would arrive just after the menu opened.
+await page.$eval('[data-test=export-reduced-mesh]', (el) => el.scrollIntoView({ block: 'center' }))
+await sleep(200)
 await page.click('[data-test=export-reduced-mesh]')
 await page.waitForSelector('[data-test=export-reduced-mesh-stl]')
 await page.click('[data-test=export-reduced-mesh-stl]')
@@ -323,8 +327,66 @@ if (file) {
   check(/Reduced mesh exported/.test(status), 'the status line says what was written')
 }
 
-// ---- remove islands: marked, asked, deleted — and undo puts them back ---------
+// ---- the preview put away, and applied ---------------------------------------
 const scanCount = async () => count((await page.$eval('.file-info span', (el) => el.textContent)).split('·')[0])
+check(Boolean(await page.$('[data-test=reduce-preview]')), 'the result says it is a preview')
+check(!(await page.$('[data-test=edited-copy]')), 'and no edited copy has been made of it')
+await page.screenshot({ path: shotPath('mesh-reduce-preview.png') })
+await page.click('[data-test=reduce-discard]')
+await sleep(300)
+check(!(await page.$('[data-test=reduce-result]')), 'Discard puts the reduced mesh away')
+check(!(await page.$('[data-test=edited-copy]')), 'and leaves no copy')
+await reduceAndWait()
+check(count(await text('[data-test=reduce-triangles]')) === capped, 'reduced again, it comes to the same mesh')
+
+await page.click('[data-test=reduce-apply]')
+await page.waitForSelector('[data-test=edited-copy]', { timeout: 120_000 })
+await sleep(500)
+check((await text('[data-test=edited-triangles] b')).startsWith(capped.toLocaleString('en-US')), 'Apply makes the reduced mesh the edited copy')
+check(/Reduced to within \d+\.\d{1,3} mm/.test(await text('[data-test=pending-edit]')), 'and it is listed as an edit, its figure rounded')
+check(!(await page.$('[data-test=reduce-result]')), 'the preview has gone')
+check(!(await page.$('[data-test=mesh-ready-chip]')), 'and no chip asks for a reduction')
+check((await scanCount()) === scanTriangles, 'the scan in use is not touched')
+await page.screenshot({ path: shotPath('mesh-reduce-applied.png') })
+
+await page.click('[data-test=toggle-copy-deviation]')
+await page.waitForSelector('[data-test=copy-legend]', { timeout: 120_000 })
+check(/within .*Only at its own points/.test(await text('.strip .msg')), 'the Deviation key measures the applied copy, and says it reads only at its points')
+await page.screenshot({ path: shotPath('mesh-reduce-applied-deviation.png') })
+await page.click('[data-test=toggle-copy-deviation]')
+
+await page.keyboard.down('Control')
+await page.keyboard.press('KeyZ')
+await page.keyboard.up('Control')
+await page.waitForFunction(() => !document.querySelector('[data-test=edited-copy]'), { timeout: 120_000 })
+check(true, 'Ctrl+Z takes the applied reduction back')
+await page.screenshot({ path: shotPath('mesh-reduce-undone.png') })
+
+await page.keyboard.down('Control')
+await page.keyboard.press('KeyY')
+await page.keyboard.up('Control')
+await page.waitForSelector('[data-test=edited-copy]', { timeout: 120_000 })
+await sleep(300)
+await page.click('[data-test=use-edited]')
+await page.waitForSelector('[data-test=scan-edit]', { timeout: 300_000 })
+await sleep(300)
+check((await scanCount()) === capped, 'Use for analysis makes it the scan every workspace measures')
+check(/Reduced to within/.test(await text('[data-test=scan-edit]')), 'its edit is listed as in use')
+await page.screenshot({ path: shotPath('mesh-reduce-in-use.png') })
+
+await page.keyboard.down('Control')
+await page.keyboard.press('KeyZ')
+await page.keyboard.up('Control')
+await page.waitForFunction(() => !document.querySelector('[data-test=scan-edit]'), { timeout: 300_000 })
+await sleep(300)
+check((await scanCount()) === scanTriangles, 'Ctrl+Z goes back to the scan before')
+await page.keyboard.down('Control')
+await page.keyboard.press('KeyZ')
+await page.keyboard.up('Control')
+await page.waitForFunction(() => !document.querySelector('[data-test=edited-copy]'), { timeout: 120_000 })
+await sleep(300)
+
+// ---- remove islands: marked, asked, deleted — and undo puts them back ---------
 const orangePixels = async () => {
   const clip = await page.$eval('.viewslot canvas', (el) => {
     const r = el.getBoundingClientRect()

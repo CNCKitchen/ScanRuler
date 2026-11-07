@@ -746,6 +746,11 @@ function Workbench() {
     }
     const faceVertices = hit.vertices
     if (!store.fileName || store.busy) return
+    // A row of the Scale part box collecting two points takes the raw click.
+    if (store.scaleDraft?.pickRow != null && !store.draft) {
+      store.addScalePick(hit.point)
+      return
+    }
     // A slot of the alignment editor collecting points takes the raw click.
     if (store.alignDraft?.pickSlot) {
       store.addAlignmentPick(hit.point, hit.normal)
@@ -1226,6 +1231,7 @@ function Workbench() {
   const draft = useStore((s) => s.draft)
   const dimDraft = useStore((s) => s.dimDraft)
   const alignDraft = useStore((s) => s.alignDraft)
+  const scaleDraft = useStore((s) => s.scaleDraft)
   const sectionDraft = useStore((s) => s.sectionDraft)
   // Whether a fit draft is collecting its surface by hand — it decides which
   // hint rides above the model.
@@ -1237,6 +1243,7 @@ function Workbench() {
   )
   const marking = useDeviation((s) => s.marking)
   const markGesture = useMark((s) => s.gesture)
+  const markStraight = useMark((s) => s.straight)
   const workspace = useShell((s) => s.workspace)
   const range = useDeviation((s) => s.range)
   const maxDistance = useDeviation((s) => s.maxDistance)
@@ -1407,12 +1414,12 @@ function Workbench() {
   const fileName = useStore((s) => s.fileName)
   const vertexCountLoaded = useStore((s) => s.vertexCount > 0)
   const draftMode = draft ? creationMethod(draft.kind, draft.method).mode : null
-  const openSlotHint = openSlotHintOf({ draft, draftMode, sectionDraft, alignDraft, dimDraft, elements, sections: storeSections })
+  const openSlotHint = openSlotHintOf({ draft, draftMode, sectionDraft, alignDraft, dimDraft, elements, sections: storeSections, scaleDraft })
   const markCount = useMark((s) => s.count)
   const editingDraft = draft?.editId !== undefined
-  const paintHint = paintHintOf({ draft, painting, markGesture, markCount, editingDraft })
+  const paintHint = paintHintOf({ draft, painting, markGesture, markStraight, markCount, editingDraft })
   const stageHint = stageHintOf({ draft, draftMode, openSlotHint, painting, paintHint, editingDraft })
-  const markHint = markHintOf({ marking, markGesture, markCount, source: useDeviation.getState().source })
+  const markHint = markHintOf({ marking, markGesture, markStraight, markCount, source: useDeviation.getState().source })
 
   // The guided hints: which control is ringing is the control's own business
   // (usePulse), but the sentence that goes with it belongs on the stage, and
@@ -1636,6 +1643,8 @@ function Workbench() {
             onApplyAlignment={(m) => void handleApplyAlignment(m)}
             onApplyManual={(m) => void handleApplyManual(m)}
             onResetAlignment={() => void handleResetAlignment()}
+            scaleRefusal={() => session.scale.refusal()}
+            onApplyScale={(factor, references) => void session.scale.applyScale(factor, references)}
             onExportStep={handleExportStep}
             onExportMesh={handleExportMesh}
             onExportCloud={handleExportCloud}

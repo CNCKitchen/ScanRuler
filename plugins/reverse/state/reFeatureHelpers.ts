@@ -172,6 +172,15 @@ export function sketchesUsedBy(f: { kind: string; sketchId?: number | null; sket
   return []
 }
 
+/** The sketches an edit made a feature from that it was not made from
+ *  before — a station added to a loft, an extrude moved onto another
+ *  sketch: put out of view as a new feature's are (hideSketches). One it
+ *  was made from all along stays as the person left it. */
+export function sketchesTakenOn(before: Parameters<typeof sketchesUsedBy>[0] | undefined, after: Parameters<typeof sketchesUsedBy>[0]): number[] {
+  const had = new Set(before ? sketchesUsedBy(before) : [])
+  return sketchesUsedBy(after).filter((id) => !had.has(id))
+}
+
 /** A revolve's pitch and hand as the feature keeps them: none for a plain
  *  revolve, the hand only when it is left. */
 export function coilOf(d: Pick<RevolveDraft, 'pitch' | 'leftHanded'>): { pitch?: number; leftHanded?: true } {

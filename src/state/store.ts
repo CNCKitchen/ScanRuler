@@ -64,6 +64,8 @@ import {
   type SectionPlaneRef,
 } from '../core/section/frame'
 import { transformCut, type SectionCut } from '../core/section/slice'
+import { scaleExtension, scaleFit, scaleFrame, scaleRigid, scaleSource, type ScanScale } from '../core/scanScale'
+import { freshScaleDraft, type ScaleDraft } from './scaleModel'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import { DEFAULT_THEME, themeById } from '../viewer/viewThemes'
 import type { StepStyle } from '../core/exportStep'
@@ -135,6 +137,12 @@ interface AppState {
   /** Cumulative datum alignment already baked into the scan — inverted to
    *  put the part back where the scanner delivered it. */
   appliedAlignment: Rigid | null
+  /** How the scan got its true size, when it was scaled — see
+   *  core/scanScale. The factor is already in the scan as it is read (the
+   *  source's `scale`); this is the record of it. */
+  scanScale: ScanScale | null
+  /** The Scale part box, while it is open. */
+  scaleDraft: ScaleDraft | null
   nextId: number
   nextNumber: number
   /** Per-kind counters, so elements are named "Sphere 1", "Plane 1", … */
@@ -355,6 +363,16 @@ interface AppState {
    *  through an applied alignment. The mesh itself is the caller's business. */
   applyAlignment: (m: Rigid) => void
   clearAppliedAlignment: () => void
+  /** Open the Scale part box; it closes whatever else is in hand. */
+  startScale: () => void
+  cancelScale: () => void
+  setScaleDraft: (patch: Partial<ScaleDraft>) => void
+  /** A click on the scan while a row of the box collects two points. */
+  addScalePick: (point: Vec3) => void
+  /** Carry everything measured or placed on the part through a scale by
+   *  `s` about the frame's zero point, and keep `record` as how the scan got
+   *  its size. The mesh itself is the caller's business (app/partScale). */
+  applyScale: (s: number, record: ScanScale | null) => void
   startDimension: (type: string) => void
   /** Re-open an existing dimension — same slots, same preview, written back to
    *  the row it came from. */
@@ -474,11 +492,13 @@ function freshScanState() {
     dimensions: [],
     dimDraft: null,
     alignDraft: null,
+    scaleDraft: null,
     // Sections are cuts through this scan and go with it.
     sections: [],
     sectionDraft: null,
     nextSectionNumber: 1,
     appliedAlignment: null,
+    scanScale: null,
     nextNumber: 1,
     nextOfKind: freshCounters(),
     nextOfDimGroup: { distance: 1, angle: 1 },
@@ -658,6 +678,7 @@ export const useStore = create<AppState>()((set, get) => ({
       discarded: null,
       dimDraft: null,
       alignDraft: null,
+      scaleDraft: null,
       sectionDraft: null,
       errorText: null,
     })),
@@ -682,6 +703,7 @@ export const useStore = create<AppState>()((set, get) => ({
                 ? 'auto'
                 : s.selectMode,
         alignDraft: null,
+        scaleDraft: null,
         sectionDraft: null,
         errorText: null,
       }
@@ -960,6 +982,7 @@ export const useStore = create<AppState>()((set, get) => ({
         selectMode: 'paint',
         discarded: null,
         alignDraft: null,
+        scaleDraft: null,
         sectionDraft: null,
         errorText: null,
       }
@@ -1103,6 +1126,7 @@ export const useStore = create<AppState>()((set, get) => ({
       discarded: keptOf(s.draft),
       dimDraft: null,
       sectionDraft: null,
+      scaleDraft: null,
       errorText: null,
     })),
 
@@ -1125,6 +1149,7 @@ export const useStore = create<AppState>()((set, get) => ({
       discarded: keptOf(s.draft),
       dimDraft: null,
       sectionDraft: null,
+      scaleDraft: null,
       errorText: null,
     })),
 
@@ -1137,6 +1162,7 @@ export const useStore = create<AppState>()((set, get) => ({
       discarded: keptOf(s.draft),
       dimDraft: null,
       alignDraft: null,
+      scaleDraft: null,
       errorText: null,
     })),
 
@@ -1169,6 +1195,7 @@ export const useStore = create<AppState>()((set, get) => ({
         discarded: keptOf(s.draft),
         dimDraft: null,
         alignDraft: null,
+        scaleDraft: null,
         errorText: null,
       }
     }),
@@ -1468,6 +1495,7 @@ export const useStore = create<AppState>()((set, get) => ({
       const sections = s.sections.map(moveSection)
       return {
         alignDraft: null,
+        scaleDraft: null,
         appliedAlignment: s.appliedAlignment ? rigidCompose(m, s.appliedAlignment) : m,
         modelCenter: [moved[0], moved[1], moved[2]] as Vec3,
         elements: rebuilt(
@@ -1495,6 +1523,67 @@ export const useStore = create<AppState>()((set, get) => ({
 
   clearAppliedAlignment: () => set({ appliedAlignment: null }),
 
+  startScale: () =>
+    set((s) => ({
+      scaleDraft: freshScaleDraft(),
+      draft: null,
+      discarded: keptOf(s.draft),
+      dimDraft: null,
+      alignDraft: null,
+      sectionDraft: null,
+      errorText: null,
+    })),
+
+  cancelScale: () => set({ scaleDraft: null }),
+
+  setScaleDraft: (patch) => set((s) => (s.scaleDraft ? { scaleDraft: { ...s.scaleDraft, ...patch } } : {})),
+
+  addScalePick: (point) =>
+    set((s) => {
+      const d = s.scaleDraft
+      if (!d || d.pickRow === null) return {}
+      const row = d.refs[d.pickRow]
+      if (!row || row.kind !== 'points') return {}
+      // A third click starts the pair again: the two ends are what count.
+      const points = row.points.length >= 2 ? [point] : [...row.points, point]
+      const refs = d.refs.map((r, i) => (i === d.pickRow ? { ...row, points } : r))
+      return { scaleDraft: { ...d, refs, pickRow: points.length === 2 ? null : d.pickRow } }
+    }),
+
+  applyScale: (k, record) =>
+    set((s) => {
+      // A section keeps its plane, `k` times as far out; its cut is taken
+      // again on the scan read at the new size (see sectionCuts).
+      const sections = s.sections.map((sec) => ({
+        ...sec,
+        frame: scaleFrame(sec.frame, k),
+        offset: sec.offset * k,
+        cut: undefined,
+        cutKey: undefined,
+      }))
+      return {
+        scaleDraft: null,
+        alignDraft: null,
+        sectionDraft: null,
+        draft: null,
+        discarded: null,
+        dimDraft: null,
+        appliedAlignment: s.appliedAlignment ? scaleRigid(s.appliedAlignment, k) : null,
+        scanScale: record,
+        elements: rebuilt(
+          s.elements.map((el) => ({
+            ...el,
+            source: scaleSource(el.source, k),
+            fit: el.fit ? scaleFit(el.fit, k) : el.fit,
+            measured: el.measured ? scaleFit(el.measured, k) : el.measured,
+            ...(el.extend ? { extend: scaleExtension(el.extend, k) } : {}),
+          })),
+          { ...s, sections },
+        ),
+        sections,
+      }
+    }),
+
   // One thing in hand at a time: a dimension closes the element draft, as
   // an alignment or a section does, so a click in the viewport has one
   // taker — the slot. A marked surface is kept (see `discarded`).
@@ -1509,6 +1598,7 @@ export const useStore = create<AppState>()((set, get) => ({
       draft: null,
       discarded: keptOf(s.draft),
       alignDraft: null,
+      scaleDraft: null,
       sectionDraft: null,
     })),
 
@@ -1530,6 +1620,7 @@ export const useStore = create<AppState>()((set, get) => ({
         draft: null,
         discarded: keptOf(s.draft),
         alignDraft: null,
+        scaleDraft: null,
         sectionDraft: null,
       }
     }),

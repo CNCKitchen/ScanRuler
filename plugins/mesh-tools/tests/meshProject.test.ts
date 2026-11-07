@@ -52,12 +52,14 @@ describe('the Mesh Tools part of a project', () => {
       pieceSize: 3,
       pieceSizeAuto: false,
       cut: { ref: 'z', offset: 0.5, offsetAuto: false, keep: 'plus', cap: true },
+      mirror: { ref: 'x', offset: 0, offsetAuto: true, keep: 'plus', mode: 'whole' },
       fill: { size: 5, sizeAuto: true, mode: 'curved' },
       smooth: { size: 1, sizeAuto: true, limit: 0.2, limitAuto: true, keepEdges: true, scope: 'all' },
       boolean: { op: 'subtract' },
       offset: { distance: 0.1, direction: 'expand', scope: 'all' },
       shell: { thickness: 2, thicknessAuto: true, side: 'in' },
       trim: { offset: 0, depth: 0.3, flip: false },
+      wrap: { gap: 1, gapAuto: true, grow: 0, edges: 'sharp' },
     })
     const json = JSON.parse(JSON.stringify(manifest))
     useMeshTools.setState({ tolerance: 0.5, toleranceAuto: true, maxTriangles: 50_000, cutOffset: 9, cutOffsetAuto: true })
@@ -80,6 +82,11 @@ describe('the Mesh Tools part of a project', () => {
       cutOffsetAuto: false,
       cutKeep: 'minus',
       cutCap: false,
+      mirrorRef: 3,
+      mirrorOffset: 1.25,
+      mirrorOffsetAuto: false,
+      mirrorKeep: 'minus',
+      mirrorMode: 'symmetric',
       holeSize: 8,
       holeSizeAuto: false,
       fillMode: 'flat',
@@ -109,16 +116,19 @@ describe('the Mesh Tools part of a project', () => {
         { kind: 'shell', mode: 'thicken', thickness: 1.5, side: 'both', triangles: 4000 },
         { kind: 'boolean', op: 'subtract', solid: 'Solid 2', removed: 40, added: 260, volume: -42.4 },
         { kind: 'cut', plane: 'XY plane, Z 0.5 mm', removed: 3400, capped: 1, open: 0 },
+        { kind: 'mirror', mode: 'whole', plane: 'YZ plane, X 0 mm', triangles: 5000 },
+        { kind: 'mirror', mode: 'symmetric', plane: 'Plane 3', triangles: 2600 },
         { kind: 'fill', maxSize: 8, mode: 'flat', holes: 3, triangles: 96 },
         { kind: 'smooth', size: 0.5, limit: 0.02, maxMove: 0.018 },
         { kind: 'smooth', size: 2, limit: 0.5, maxMove: 0.1, region: 1200 },
+        { kind: 'reduce', tolerance: 0.05, held: true, p999: 0.04, triangles: 90_000 },
       ],
     })
     const saved = useMeshTools.getState()
     const { manifest } = collectProject(sources(), null, '0.1.0')
     const json = JSON.parse(JSON.stringify(manifest))
     useMeshTools.setState({
-      cutRef: 'z', cutKeep: 'plus', cutCap: true, holeSize: 5, fillMode: 'curved', smoothScope: 'all', smoothSize: 1, smoothEdges: true, boolOp: 'subtract',
+      cutRef: 'z', cutKeep: 'plus', cutCap: true, mirrorRef: 'x', mirrorOffset: 0, mirrorOffsetAuto: true, mirrorKeep: 'plus', mirrorMode: 'whole', holeSize: 5, fillMode: 'curved', smoothScope: 'all', smoothSize: 1, smoothEdges: true, boolOp: 'subtract',
       offsetDistance: 0.1, offsetDirection: 'expand', offsetScope: 'all', shellThickness: 2, shellThicknessAuto: true, shellSide: 'in', edits: [],
       trimOffset: 0, trimDepth: 0.3, trimFlip: false,
     })
@@ -128,6 +138,11 @@ describe('the Mesh Tools part of a project', () => {
       cutOffset: -2,
       cutKeep: 'minus',
       cutCap: false,
+      mirrorRef: 3,
+      mirrorOffset: 1.25,
+      mirrorOffsetAuto: false,
+      mirrorKeep: 'minus',
+      mirrorMode: 'symmetric',
       holeSize: 8,
       holeSizeAuto: false,
       fillMode: 'flat',
@@ -152,6 +167,9 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, cut: { ...json.mesh.cut, ref: 'w' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, cut: { ...json.mesh.cut, keep: 'up' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, fill: { ...json.mesh.fill, mode: 'round' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, mirror: { ...json.mesh.mirror, mode: 'half' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, mirror: { ...json.mesh.mirror, ref: 'w' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'mirror', mode: 'whole', plane: 'XY', triangles: '3' }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, size: 0 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, scope: 'some' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'cut', plane: 3, removed: 1, capped: 0, open: 0 }] } }))).toThrow(/Malformed/)
@@ -162,10 +180,14 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, shell: { ...json.mesh.shell, side: 'left' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'shell', mode: 'fill', thickness: 1, triangles: 1 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'offset', distance: '1', maxMove: 1 }] } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'reduce', tolerance: 0.05, held: 'yes', p999: 0.04, triangles: 1 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'flip', triangles: 3, region: 'top' }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, offset: -0.1 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, depth: 0 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, trim: { ...json.mesh.trim, flip: 'yes' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, wrap: { ...json.mesh.wrap, gap: 0 } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, wrap: { ...json.mesh.wrap, edges: 'round' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'wrap', gap: 1, grow: 0, edges: 'sharp', shells: '1', triangles: 1, dropped: 0, bridged: 0 }] } }))).toThrow(/Malformed/)
 
     // A project from before these tools keeps whatever they were set to.
     const older = { ...json, mesh: { ...json.mesh } }
@@ -176,13 +198,14 @@ describe('the Mesh Tools part of a project', () => {
     delete older.mesh.offset
     delete older.mesh.shell
     delete older.mesh.trim
-    useMeshTools.setState({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05 })
+    delete older.mesh.wrap
+    useMeshTools.setState({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05, wrapGrow: 0.3 })
     prepareProjectState(validateManifest(older))()
-    expect(useMeshTools.getState()).toMatchObject({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05 })
+    expect(useMeshTools.getState()).toMatchObject({ holeSize: 11, smoothSize: 3, boolOp: 'add', offsetDistance: 0.4, shellSide: 'out', trimOffset: 0.05, wrapGrow: 0.3 })
     useMeshTools.setState({
       edits: [], cutRef: 'z', cutOffsetAuto: true, smoothScope: 'all', boolOp: 'subtract',
       offsetDistance: 0.1, offsetDirection: 'expand', offsetScope: 'all', shellThickness: 2, shellThicknessAuto: true, shellSide: 'in',
-      trimOffset: 0, trimDepth: 0.3, trimFlip: false,
+      trimOffset: 0, trimDepth: 0.3, trimFlip: false, wrapGrow: 0,
     })
   })
 

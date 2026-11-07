@@ -224,37 +224,56 @@ export function computeDatumAlignment(
   return rigid
 }
 
-/** How far either side of a levelling plane another face counts as near it,
- *  mm, and the half-width of the band a face's points are gathered in. */
+/** How far either side of a levelling plane another face is looked for,
+ *  mm, and the widest and the narrowest half-width of the band a face's
+ *  points are gathered in: three times the plane's own scatter, between
+ *  the two. */
 const PARALLEL_REACH = 5
 const PARALLEL_BAND = 0.3
+const PARALLEL_BAND_MIN = 0.1
 
 /**
- * A face parallel to a levelling plane, a few millimetres off it, that holds
- * more of the scan than the plane itself — the plane may be a pad's floor or
- * a step, and the face the part stands on the other one.
+ * A face parallel to a levelling plane, a few tenths to a few millimetres
+ * off it, that holds more of the scan than the plane itself — the plane may
+ * be a pad's floor, a step, or a sheet's bead crowns, and the face the part
+ * stands on the other one.
  *
  * `points` are scan points facing the way the plane does (thinned evenly, so
- * their count stands for area). Those within PARALLEL_BAND of the plane are
- * its own; the densest band as wide as that, clear of it, is the other face. Returns that face's offset along the plane's normal (mm,
- * negative behind it) and how many times the plane's points it holds — or
- * null when no such face holds half as many again.
+ * their count stands for area). The band is three times the scatter of the
+ * points on the plane (the median distance of those within PARALLEL_BAND, as
+ * a standard deviation), so a clean plane sees a face 0.3 mm off and a noisy
+ * or warped one does not find its own spread; those within it are the
+ * plane's own, and the densest window as wide, clear of it, is the other
+ * face. Returns that face's offset along the plane's normal (mm, negative
+ * behind it) and how many times the plane's points it holds — or null when
+ * no such face holds half as many again.
  */
 export function parallelFaceNear(points: Float32Array, center: Vec3, normal: Vec3): { offset: number; times: number } | null {
   const n = normalize(normal)
   if (!n) return null
-  const offsets: number[] = []
-  let own = 0
+  const ds: number[] = []
+  const near: number[] = []
   for (let i = 0; i + 2 < points.length; i += 3) {
     const d = (points[i] - center[0]) * n[0] + (points[i + 1] - center[1]) * n[1] + (points[i + 2] - center[2]) * n[2]
-    if (Math.abs(d) <= PARALLEL_BAND) own++
-    else if (Math.abs(d) >= 2 * PARALLEL_BAND && Math.abs(d) <= PARALLEL_REACH) offsets.push(d)
+    if (Math.abs(d) > PARALLEL_REACH) continue
+    ds.push(d)
+    if (Math.abs(d) <= PARALLEL_BAND) near.push(Math.abs(d))
+  }
+  if (near.length === 0) return null
+  near.sort((a, b) => a - b)
+  const band = Math.min(PARALLEL_BAND, Math.max(PARALLEL_BAND_MIN, 3 * 1.4826 * near[Math.floor(near.length / 2)]))
+  const offsets: number[] = []
+  let own = 0
+  for (const d of ds) {
+    if (Math.abs(d) <= band) own++
+    else offsets.push(d)
   }
   offsets.sort((a, b) => a - b)
-  // The densest window two band-widths wide, by two pointers over the sorted offsets.
+  // The densest window two band-widths wide, by two pointers over the sorted
+  // offsets (the plane's own band leaves a gap as wide, so none straddles it).
   let best = { count: 0, from: 0, to: 0 }
   for (let lo = 0, hi = 0; lo < offsets.length; lo++) {
-    while (hi < offsets.length && offsets[hi] - offsets[lo] <= 2 * PARALLEL_BAND) hi++
+    while (hi < offsets.length && offsets[hi] - offsets[lo] <= 2 * band) hi++
     if (hi - lo > best.count) best = { count: hi - lo, from: lo, to: hi }
   }
   // A handful of points is no face, and one barely larger is no reason to doubt.

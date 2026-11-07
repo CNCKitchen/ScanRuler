@@ -515,6 +515,8 @@ export class SceneManager {
   constructor(container: HTMLDivElement) {
     this.viewport = new OrthoViewport(container, {
       theme: this.theme,
+      // The hint over the top of the stage and the view keys along its foot.
+      chrome: { top: 40, bottom: 52 },
       // An orbit pivots on whichever part is actually on screen: in the
       // deviation workspace the scan can be hidden behind the reference, or
       // the other way round, and turning about a surface nobody can see reads
@@ -614,6 +616,7 @@ export class SceneManager {
       invalidate: this.invalidate,
       wake: this.viewport.wake,
       claimDrag: (on) => this.claimDrag('paint', on),
+      navigates: (e) => this.viewport.nav.navigates(e),
       requestHover: this.requestHover,
       onPaintChange: (count) => this.onPaintChange?.(count),
     })
@@ -1452,6 +1455,19 @@ export class SceneManager {
     this.viewport.fitCamera(box)
     this.framedClip.center.copy(this.clipSphere.center)
     this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** Whether the stage draws any surface — the scan, the reference, a
+   *  layer's body or an element — and not lines and marks alone: a picture
+   *  of none is an empty frame. */
+  drawsSurface(): boolean {
+    let found = false
+    this.scene.traverseVisible((o) => {
+      if (found || !(o as THREE.Mesh).isMesh) return
+      const m = (o as THREE.Mesh).material
+      found = (Array.isArray(m) ? m : [m]).some((x) => x.visible && x.opacity > 0)
+    })
+    return found
   }
 
   /** Turn to one of the standard views — top, front, iso and so on — about

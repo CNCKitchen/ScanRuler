@@ -15,8 +15,10 @@ export interface FaceGroupTopology {
 }
 
 /** How the faces either side of each of a body's edges meet, by the edge's
- *  hash — read off its mesh, as the viewport draws the edges. */
-export function edgeJoins(mesh: KernelMesh, topology: FaceGroupTopology): Map<number, EdgeJoin> {
+ *  hash — read off its mesh, as the viewport draws the edges; with
+ *  `tangentDeg`, faces within that many degrees of each other meet
+ *  tangent. */
+export function edgeJoins(mesh: KernelMesh, topology: FaceGroupTopology, tangentDeg?: number): Map<number, EdgeJoin> {
   if (!mesh.faceHash) return new Map()
   const byHash = new Map(topology.faces.map((f) => [f.hash, f.fingerprint]))
   const oneSurface = (a: number, b: number) => {
@@ -24,7 +26,8 @@ export function edgeJoins(mesh: KernelMesh, topology: FaceGroupTopology): Map<nu
     const fb = byHash.get(b)
     return fa !== undefined && fb !== undefined && onOneSurface(fa, fb)
   }
-  return edgeShares(mesh.positions, mesh.normals, mesh.indices, mesh.faceHash, topology.edges, oneSurface).joins
+  const cos = tangentDeg === undefined ? undefined : Math.cos((tangentDeg * Math.PI) / 180)
+  return edgeShares(mesh.positions, mesh.normals, mesh.indices, mesh.faceHash, topology.edges, oneSurface, cos).joins
 }
 
 /** A round a tangent flood runs on into: a face of a fillet's chain — not

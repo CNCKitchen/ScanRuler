@@ -34,11 +34,14 @@ import { dimensionKind } from '../core/parameters'
 import { curveMoved, projectEdge, projectFaceOutline, projectSketchEntity, retakeMoved } from '../core/project'
 import { arcsOfChain, chainsOfEdges, segmentChain } from '../core/segment'
 import { splineCurve, splineSamples } from '../core/sketchSpline'
+import { type BoxSide, deviationsAt, type HeldAlong, overshootOf } from '../core/pointsFit'
+import { fitPointsChain } from '../state/reSketchDraft'
 import { addConstraint, addEntity, addPolygon, anchorPoint, arcPoint, arcThrough, addRectangle, addRectangleCentre, addTurnedRectangle, type AnchorAt, anchorsOf, cloneSketch, type Constraint, constraintEntities, type ConstraintInput, type ConstraintKind, DIMENSION_KINDS, emptySketch, endsOf, type EntityInput, entityOf, inferRelations, patternPieces, POLYGON_MAX_SIDES, type PolygonFit, relationTakes, renumbered, type Sketch, type SketchArc, type SketchEntity, type SketchPatternSpec, type SketchSpline, splineJoint, splinePointIndex, TOUCH_MM } from '../core/sketch'
 import { insetChains, insetKeeps, likeStation, runFactsWords, STATION_FOLD_HELP, stationFaults, type StationLoop, stationLoop } from '../core/stations'
 import { measureDimension, type Pull } from '../core/solver'
 import { bodyNamed, type EdgePickIn, edgesPicked, facePicked, type FacePickIn, type Json, re, type Ref, sketchNamed, topologyOf } from './reCommandCore'
 import type { ReverseSession } from './reSession'
+import { throughBand, type ThroughIn, throughOn, type ThroughOut } from './reThrough'
 
 const KEPT_ON_PIECES = ['points', 'scatter'] as const
 
@@ -254,6 +257,120 @@ function onSheet(sh: Json, frame: SectionFrame, where: string): Json {
   return out
 }
 
+/** The sizes each kind of shape takes by an expression (exprs). */
+const SHAPE_EXPR_SLOTS: Record<string, readonly string[]> = { circle: ['radius'], rectangle: ['width', 'height', 'radius'], slot: ['width', 'length'], polygon: ['radius'] }
+
+/** A shape's exprs read, its points on the sheet already: each checked and
+ *  worked out on the parameters as they stand, and the shape's numbers set
+ *  to what they come to — what it is drawn at; a rectangle's width or
+ *  height its size, or `to` moved off `from`; a slot's length `to` moved
+ *  along from → to. The expressions by field, for shapeDimensions. A fixed
+ *  shape takes none: its pieces are locked, and nothing would follow. A
+ *  point takes none either: a world point is put on the sheet by a
+ *  projection that mixes x, y and z, and the sketch's distances are
+ *  unsigned, so no one dimension follows one coordinate. */
+function shapeSized(sh: Json, where: string): { drawn: Json; exprs: Record<string, string> } {
+  const given = sh.exprs as Record<string, unknown> | undefined
+  if (given === undefined || given === null) return { drawn: sh, exprs: {} }
+  const slots = SHAPE_EXPR_SLOTS[String(sh.kind)] ?? []
+  const exprs: Record<string, string> = {}
+  for (const [k, v] of Object.entries(given)) {
+    if (['from', 'to', 'center', 'points'].includes(k))
+      invalid(`${where}: exprs.${k} — a point takes no expression: ${sh.world === true ? 'a world point lands on the sheet by a projection, and ' : ''}the sketch's distances are unsigned, so no one dimension follows a coordinate. Hold the point with a relation — constraints: [{ kind: "distance", p: { entity, at }, q: { datum: "yz" }, expr }] holds it off a coordinate plane the sketch plane is square to — or move the sketch's plane by its own offset expression.`)
+    if (!slots.includes(k)) invalid(`${where}: exprs.${k} — ${slots.length > 0 ? `a ${String(sh.kind)} takes expressions for ${slots.join(', ')}` : `a ${String(sh.kind)} takes no expressions`}.`)
+    if (typeof v !== 'string' || !v.trim()) invalid(`${where}: exprs.${k} is an expression — a string: "w", "d/2 + 0.5".`)
+    exprs[k] = (v as string).trim()
+  }
+  if (Object.keys(exprs).length === 0) return { drawn: sh, exprs }
+  if (sh.fixed === true) invalid(`${where}: exprs and fixed — fixed locks every piece where it is, so nothing could follow the expression. Leave fixed out: the shape's own relations keep its form and the dimensions its size; hold it in place with a relation (a coincident, or a distance to a datum).`)
+  const scope = re().parameterTable.scope
+  const value = (k: string): number => {
+    const r = evaluateFor(exprs[k], 'length', scope)
+    if (!r.ok) return invalid(`${where}: exprs.${k} “${exprs[k]}” — ${r.error}`)
+    // units-ok: a command's error — the commands take and answer mm
+    if (!(r.value > 0)) invalid(`${where}: exprs.${k} “${exprs[k]}” comes to ${round4(r.value)} mm — a size is above zero.`)
+    return r.value
+  }
+  const drawn: Json = { ...sh }
+  const p = (k: string) => sh[k] as Vec2 | undefined
+  switch (sh.kind) {
+    case 'circle':
+    case 'polygon':
+      drawn.radius = value('radius')
+      break
+    case 'rectangle': {
+      const w = exprs.width !== undefined ? value('width') : undefined
+      const h = exprs.height !== undefined ? value('height') : undefined
+      if (exprs.radius !== undefined) drawn.radius = value('radius')
+      if (w === undefined && h === undefined) break
+      const center = p('center')
+      const size = sh.size as Vec2 | undefined
+      const from = p('from')
+      const to = p('to')
+      const away = (a: number, b: number | undefined) => (b === undefined || b >= a ? 1 : -1)
+      if (center) {
+        if (!size && (w === undefined || h === undefined)) invalid(`${where}: about a center a rectangle takes size, or both exprs.width and exprs.height.`)
+        drawn.size = [w ?? size![0], h ?? size![1]]
+      } else if (from) {
+        if (!to && (w === undefined || h === undefined)) invalid(`${where}: from a corner a rectangle takes to, or both exprs.width and exprs.height.`)
+        drawn.to = [w !== undefined ? from[0] + away(from[0], to?.[0]) * w : to![0], h !== undefined ? from[1] + away(from[1], to?.[1]) * h : to![1]]
+      }
+      break
+    }
+    case 'slot': {
+      if (exprs.width !== undefined) drawn.width = value('width')
+      if (exprs.length === undefined) break
+      const length = value('length')
+      const [from, to] = [p('from'), p('to')]
+      if (p('center')) drawn.length = length
+      else if (from && to) {
+        const d = Math.hypot(to[0] - from[0], to[1] - from[1])
+        if (!(d > 1e-9)) invalid(`${where}: from and to are one point — no way along them for exprs.length.`)
+        drawn.to = [from[0] + ((to[0] - from[0]) / d) * length, from[1] + ((to[1] - from[1]) / d) * length]
+      }
+      break
+    }
+  }
+  return { drawn, exprs }
+}
+
+/** The dimensions that hold a drawn shape's sizes to their expressions:
+ *  added to its own sheet, to be numbered with its relations — and
+ *  following the parameters as any dimension does. A circle's or a
+ *  polygon's radius on the circle it is sized on; a slot's width as its
+ *  rounds' diameter, its length centre to centre; a rectangle's width and
+ *  height as the distance across its sides, its corners' radius on the
+ *  rounds' own dimensions. */
+function shapeDimensions(scratch: Sketch, kind: string, roles: Record<string, number | number[]>, exprs: Record<string, string>, where: string): void {
+  if (Object.keys(exprs).length === 0) return
+  const dim = (c: ConstraintInput) => addConstraint(scratch, c)
+  switch (kind) {
+    case 'circle':
+    case 'polygon':
+      dim({ kind: 'radius', entity: roles.circle as number, value: 0, expr: exprs.radius })
+      return
+    case 'slot': {
+      const [to, from] = roles.ends as number[]
+      if (exprs.width) dim({ kind: 'diameter', entity: to, value: 0, expr: exprs.width })
+      if (exprs.length) dim({ kind: 'distance', p: { entity: to, at: 'center' }, q: { entity: from, at: 'center' }, value: 0, expr: exprs.length })
+      return
+    }
+    case 'rectangle': {
+      // Rounded at half its shorter side it was drawn as a slot (or a
+      // circle): a slot's sizes are not a rectangle's.
+      if (!roles.sides || roles.ends || roles.circle) invalid(`${where}: rounded at half its shorter side the rectangle is drawn as a slot — give it as a slot, with exprs { width, length }.`)
+      const sides = roles.sides as number[]
+      if (exprs.width) dim({ kind: 'distance', p: { entity: sides[1], at: 'a' }, q: { line: sides[3] }, value: 0, expr: exprs.width })
+      if (exprs.height) dim({ kind: 'distance', p: { entity: sides[2], at: 'a' }, q: { line: sides[0] }, value: 0, expr: exprs.height })
+      if (exprs.radius) {
+        const rounds = new Set((roles.rounds as number[] | undefined) ?? [])
+        for (const c of scratch.constraints) if (c.kind === 'radius' && rounds.has(c.entity)) c.expr = exprs.radius
+      }
+      return
+    }
+  }
+}
+
 /** A shape of the input drawn as the panel's tool draws it, into a sketch
  *  of its own — its pieces numbered in the order they are made. Its pieces
  *  by what they are, by those numbers. */
@@ -385,6 +502,11 @@ function drawShape(scratch: Sketch, sh: Json, where: string): Record<string, num
       })
       return { spline: addEntity(scratch, { kind: 'spline', pts, closed: true }) }
     }
+    case 'circle': {
+      const r = sh.radius as number | undefined
+      if (!(typeof r === 'number' && r > 0)) return invalid(`${where}: a circle takes a radius — or exprs.radius.`)
+      return { circle: addEntity(scratch, { kind: 'circle', c: v2('center')!, r }) }
+    }
     default:
       return invalid(`${where}: there is no shape “${String(sh.kind)}”.`)
   }
@@ -443,8 +565,10 @@ export function sketchOf(input: Json, frame: SketchFeature['frame'], stored?: Sk
   ;((input.shapes as Json[] | undefined) ?? []).forEach((sh, i) => {
     const where = `shapes[${i}] (${String(sh.kind)})`
     const scratch = emptySketch()
-    const { sh: drawn, closedOn } = polylineClosing(onSheet(sh, frame, where))
+    const sized = shapeSized(onSheet(sh, frame, where), where)
+    const { sh: drawn, closedOn } = polylineClosing(sized.drawn)
     const roles = drawShape(scratch, drawn, where)
+    shapeDimensions(scratch, String(sh.kind), roles, sized.exprs, where)
     const start = typeof sh.id === 'number' ? sh.id : free()
     const map = new Map(scratch.entities.map((e, k) => [e.id, start + k]))
     const id = (old: number) => map.get(old)!
@@ -637,6 +761,11 @@ export function putSketch(sketch: Sketch, pull?: readonly Pull[]) {
 }
 
 export interface FitIn {
+  /** Points typed in, [u, v] mm on the sketch's sheet — one chain, or a
+   *  list of chains — fitted in place of the scan's cut. */
+  points?: Vec2[] | Vec2[][]
+  /** The typed points' chains each a loop. */
+  closed?: boolean
   chains?: 'all' | 'largest' | number[] | { at: Vec2 }
   within?: WithinBox
   skin?: SideRule['skin']
@@ -659,6 +788,9 @@ export interface FitIn {
   /** The taper the extrude from this sketch will have, degrees, signed as
    *  its draftDeg: the chains are moved for it (draftOffsetDraft). */
   draftDeg?: number
+  /** The scan seen through square onto the plane, in a band of heights
+   *  about it, in place of the scan cut there (reThrough.ts). */
+  through?: ThroughIn
 }
 
 /** The fit as asked for, and the chains it runs on — cut before the box
@@ -675,6 +807,19 @@ export interface PreparedFit {
   /** The station the run is fitted like (fit.like): its name, its sketch
    *  and its profile. */
   like?: { name: string; sketch: Sketch; loop: StationLoop }
+  /** The chains of typed points fitted in place of the cut (fit.points). */
+  given?: GivenChain[]
+  /** Seen through (fit.through): whether each chain is a hole, by its
+   *  index, and what the see-through read. */
+  holes?: boolean[]
+  through?: ThroughOut
+}
+
+/** A chain of points typed in, as a fit takes it: in order, a loop's
+ *  first point not repeated at its end. */
+export interface GivenChain {
+  points: Vec2[]
+  closed: boolean
 }
 
 /** What each fitted chain became: its pieces by id and kind — or, for a
@@ -685,11 +830,15 @@ export interface PreparedFit {
  *  made it of, bridged the gaps it bridged. */
 export interface FittedOut {
   chain: number
+  /** Seen through (fit.through): the chain is a hole in another. */
+  hole?: boolean
   run?: number
   joined?: number[]
   bridged?: { gaps: number; largest: number }
   closed?: boolean
-  pieces?: { id: number; kind: string }[]
+  /** Its pieces by id and kind — an arc's or a circle's radius too, for a
+   *  chain of typed points. */
+  pieces?: { id: number; kind: string; r?: number }[]
   /** A chain whose pieces close more than one region: it crosses itself. */
   crosses?: { regions: number; areas: number[] }
   /** A chain fitted open: its pieces' two free ends, the gap between
@@ -718,6 +867,15 @@ export interface FittedOut {
   /** Every point of the chain lies along a piece the sketch has: nothing
    *  of it is new. */
   drawn?: true
+  /** A chain of typed points (fit.points): the most any of them lies off
+   *  the pieces, mm, and each one's miss, worst first (point: its index in
+   *  the chain); whether the pieces run past the box round the points, how
+   *  far, past which side, where — false where they keep within it; and
+   *  the ends held running along the side their point lies on. */
+  maxDeviation?: number
+  deviations?: { point: number; mm: number }[]
+  overshoot?: { mm: number; side: BoxSide; at: Vec2 } | false
+  heldAlong?: HeldAlong[]
 }
 
 /** A run's end landed on a piece already there, as the answer gives it:
@@ -733,6 +891,8 @@ export interface JunctionOut {
   at: Vec2
   held: 'end' | 'on' | 'free'
   collinear?: true
+  /** Held tangent to the piece there too (a chain of typed points). */
+  tangent?: true
   /** The relations that hold it, by id — to take out with remove. */
   constraints?: number[]
 }
@@ -756,6 +916,12 @@ export interface FitDraftOut {
   shared?: SharedOut[]
   junctions?: JunctionOut[]
   corners?: number
+  /** What a fit seen through read (fit.through). */
+  through?: ThroughOut
+  /** The chains of typed points, by their place in fitted: the points and
+   *  the pieces — what givenOut reads them again on once the sketch is
+   *  solved for good. Not for the answer. */
+  given?: { fitted: number; points: Vec2[]; pieces: number[] }[]
 }
 
 const fitOptionsOf = (fit: FitIn): FitOptions => ({
@@ -848,14 +1014,63 @@ export function sideRuleOf(skin: SideRule['skin'] | undefined, facing: { dir: Ve
  *  for a sketch that asks for none. */
 export async function prepareFit(s: ReverseSession, plane: PlaneRef, fit: FitIn | undefined): Promise<PreparedFit | undefined> {
   if (!fit) return undefined
+  const given = givenOf(fit)
   const like = fit.like !== undefined ? likeOf(fit) : undefined
   const frame = plane.kind === 'bodyFace' || plane.kind === 'fitted' ? plane.frame : resolvePlaneFrame(plane, s.resolveContext())
   if (!frame) throw new CommandError('not_found', 'That plane is not there any more.')
+  // Typed points need no scan: nothing is cut.
+  if (given) return { chains: [], given, fit, frame, options: fitOptionsOf(fit) }
   const rule = sideRuleOf(fit.skin, fit.facing)
   if (fit.level !== undefined && !Number.isFinite(fit.level)) invalid('fit.level: mm along the sketch’s normal from its plane.') // units-ok: a command's error — the commands take and answer mm
+  if (fit.through !== undefined && fit.through !== false) {
+    if (rule) invalid('fit.through sees the sheet square on, with no side to it — leave skin and facing out; within keeps to part of it.')
+    const seen = await throughOn(frame, throughBand(fit.through, fit.level, 'fit.through'), { tolerance: fit.tolerance, within: withinOf(fit.within, 'fit.within') })
+    // A grid widened past the tolerance traces coarser than asked: the
+    // pieces follow the trace to its own steps, no closer.
+    const f = fit.tolerance !== undefined && fit.tolerance < seen.through.cell ? { ...fit, tolerance: seen.through.cell } : fit
+    return { chains: seen.chains, holes: seen.holes, through: seen.through, fit: f, frame, options: fitOptionsOf(f), ...(like ? { like } : {}) }
+  }
   if (!rule) return { chains: await chainsOn(plane, frame, fit.level), fit, frame, options: fitOptionsOf(fit), ...(like ? { like } : {}) }
   const sided = await sidedOn(plane, frame, fit.level)
   return { chains: sided.chains, side: sideOf(sided, rule), fit, frame, options: fitOptionsOf(fit), ...(like ? { like } : {}) }
+}
+
+/** What a fit to typed points does not take: what reads the scan's cut. */
+const NOT_WITH_POINTS = ['chains', 'within', 'skin', 'facing', 'level', 'draftDeg', 'closeGaps', 'like', 'through'] as const
+
+/** A fit's typed points as chains — one list of [u, v], or a list of them
+ *  — checked: refused beside what reads the scan's cut, a chain of too few
+ *  points, a point twice in a row. A chain whose last point is its first
+ *  (within SNAP_MM) is closed on it. Undefined for a fit of the scan. */
+export function givenOf(fit: FitIn): GivenChain[] | undefined {
+  if (fit.points === undefined) {
+    if (fit.closed !== undefined) invalid('fit.closed goes with fit.points: it closes the chains of typed points — a fit of the scan reads which chains close off the cut.')
+    return undefined
+  }
+  const asked = NOT_WITH_POINTS.filter((k) => fit[k] !== undefined)
+  if (asked.length > 0) invalid(`fit.points is fitted in place of the scan’s cut, and ${asked.join(', ')} ${asked.length === 1 ? 'reads' : 'read'} the cut — leave ${asked.length === 1 ? 'it' : 'them'} out.${asked.includes('chains') ? ' Several chains of points go in points as a list of lists.' : ''}${asked.includes('closeGaps') ? ' A loop of points takes closed: true.' : ''}`)
+  const raw = fit.points as unknown[]
+  const isPoint = (p: unknown) => Array.isArray(p) && p.length === 2 && p.every((x) => typeof x === 'number')
+  const one = raw.length > 0 && raw.every(isPoint)
+  const lists = (one ? [raw] : raw) as unknown[][]
+  if (lists.length === 0) invalid('fit.points: give the points, [[u, v], …] mm on the sketch’s sheet — or a list of such chains.') // units-ok: a command's error — the commands take and answer mm
+  return lists.map((list, i) => {
+    const where = one ? 'fit.points' : `fit.points[${i}]`
+    if (!Array.isArray(list) || !list.every(isPoint)) invalid(`${where}: each point is [u, v], mm on the sketch’s sheet — one chain as [[u, v], …], several as [[[u, v], …], …].`) // units-ok: a command's error — the commands take and answer mm
+    const pts = (list as Vec2[]).map((p): Vec2 => [p[0], p[1]])
+    if (!pts.every((p) => Number.isFinite(p[0]) && Number.isFinite(p[1]))) invalid(`${where}: a point is not a number.`)
+    let closed = fit.closed === true
+    if (pts.length >= 4 && Math.hypot(pts[pts.length - 1][0] - pts[0][0], pts[pts.length - 1][1] - pts[0][1]) <= SNAP_MM) {
+      pts.pop()
+      closed = true
+    }
+    if (pts.length < (closed ? 3 : 2)) invalid(`${where}: ${closed ? 'a loop takes three points at least' : 'a chain takes two points at least'} — it has ${pts.length}.`)
+    pts.forEach((p, k) => {
+      const q = pts[(k + 1) % pts.length]
+      if ((k + 1 < pts.length || closed) && Math.hypot(q[0] - p[0], q[1] - p[1]) < 1e-9) invalid(`${where}: points ${k} and ${(k + 1) % pts.length} are one point.`)
+    })
+    return { points: pts, closed }
+  })
 }
 
 /** The station a fit asks to be fitted like, its profile read — refused
@@ -907,6 +1122,7 @@ export function fitDraft(p: PreparedFit): FittedOut[] {
  *  piece's, and only the rest is fitted, as open runs whose ends land on
  *  the pieces they reach. */
 export function fitDraftShared(p: PreparedFit): FitDraftOut {
+  if (p.given) return fitGiven(p, p.given)
   if (p.chains.length === 0) invalid('The scan is not cut on this plane — there is no chain to fit.')
   const asked = p.fit.chains ?? 'all'
   const joined = p.fit.closeGaps ? joinChainEnds(p.chains, p.fit.closeGaps) : unjoined(p.chains)
@@ -932,7 +1148,8 @@ export function fitDraftShared(p: PreparedFit): FitDraftOut {
     invalid('No run of the outline lies in the box (within) — four points in it at least. [u, v] are the sketch’s.')
   }
   const levelOut = p.fit.level !== undefined ? { level: p.fit.level } : {}
-  if (p.like) return { fitted: [{ ...fitLike(p, work), ...pickedOut, ...levelOut }] }
+  const seen = p.through ? { through: p.through } : {}
+  if (p.like) return { fitted: [{ ...fitLike(p, work), ...pickedOut, ...levelOut }], ...seen }
   if (p.fit.tolerance !== undefined) re().setSketchTolerance(p.fit.tolerance)
   const share = p.fit.share ?? SHARE_MM
   const chains = work.map((w) => w.chain)
@@ -964,6 +1181,7 @@ export function fitDraftShared(p: PreparedFit): FitDraftOut {
   work.forEach((w, i) => {
     const named = {
       chain: w.of.from[0],
+      ...(p.holes ? { hole: p.holes[w.of.from[0]] } : {}),
       ...(w.run !== undefined ? { run: w.run } : {}),
       ...(w.of.from.length > 1 ? { joined: w.of.from } : {}),
       ...(w.of.gaps > 0 ? { bridged: { gaps: w.of.gaps, largest: round4(w.of.largest) } } : {}),
@@ -1011,7 +1229,7 @@ export function fitDraftShared(p: PreparedFit): FitDraftOut {
       ...(closed ? {} : openOut(d.sketch, f.order, w.run === undefined)),
     })
   })
-  if (Object.keys(report.chains).length === 0) return { fitted }
+  if (Object.keys(report.chains).length === 0) return { fitted, ...seen }
   // The shared stretches piece by piece, over every chain.
   const byPiece = new Map<number, { points: number; sum: number; max: number }>()
   for (const x of report.shared) {
@@ -1027,7 +1245,81 @@ export function fitDraftShared(p: PreparedFit): FitDraftOut {
     const solved = e ? anchorPoint(e, j.end.at) : j.at
     return [{ run, end: { piece: j.end.entity, at: j.end.at }, on: j.on, at: [round4(solved[0]), round4(solved[1])], held: j.held, ...(j.collinear ? { collinear: true as const } : {}), ...(j.held !== 'free' ? { constraints: j.constraints } : {}) }]
   })
-  return { fitted, shared, ...(junctions.length > 0 ? { junctions } : {}), ...(report.corners > 0 ? { corners: report.corners } : {}) }
+  return { fitted, shared, ...(junctions.length > 0 ? { junctions } : {}), ...(report.corners > 0 ? { corners: report.corners } : {}), ...seen }
+}
+
+/** How many of a chain's typed points the answer gives the miss of, worst
+ *  first. */
+const DEVIATIONS_LISTED = 20
+
+/** A chain of typed points read on its pieces as they lie in `sketch`: the
+ *  most any point misses them by, each point's miss worst first, and
+ *  whether they run past the box round the points. */
+function givenReading(sketch: Pick<Sketch, 'entities'>, points: readonly Vec2[], ids: readonly number[]): Pick<FittedOut, 'maxDeviation' | 'deviations' | 'overshoot'> {
+  const pieces = ids.flatMap((id) => {
+    const e = entityOf(sketch, id)
+    return e ? [e] : []
+  })
+  const miss = deviationsAt(pieces, points)
+  const deviations = miss.map((mm, point) => ({ point, mm: round4(mm) })).sort((a, b) => b.mm - a.mm || a.point - b.point)
+  const past = overshootOf(pieces, points)
+  return {
+    maxDeviation: deviations[0]?.mm ?? 0,
+    deviations: deviations.slice(0, DEVIATIONS_LISTED),
+    overshoot: past ? { mm: round4(past.mm), side: past.side, at: [round4(past.at[0]) + 0, round4(past.at[1]) + 0] } : false,
+  }
+}
+
+/**
+ * The sketch in hand given the chains of typed points fitted (fit.points):
+ * each as a slice's chain is cut — arcs, spline, detail, alignAxes,
+ * joinCorners as asked — then fitted to its points themselves
+ * (fitPointsChain, core/pointsFit.ts), an end on the end of a piece the
+ * sketch held before within share mm joined to it. No scan is read. A
+ * chain that does not fit fails the fit, by its index.
+ */
+function fitGiven(p: PreparedFit, given: readonly GivenChain[]): FitDraftOut {
+  if (p.fit.tolerance !== undefined) re().setSketchTolerance(p.fit.tolerance)
+  const sketch = cloneSketch(re().sketchDraft!.sketch)
+  const landOn = sketch.entities.map((e) => e.id)
+  const share = p.fit.share ?? SHARE_MM
+  const fitted: FittedOut[] = []
+  const junctions: JunctionOut[] = []
+  const reads: NonNullable<FitDraftOut['given']> = []
+  given.forEach((g, i) => {
+    const made = fitPointsChain(sketch, g.points, g.closed, p.fit.tolerance ?? null, p.options, { landOn, share })
+    if (typeof made === 'string') throw new CommandError('failed', `fit.points${given.length > 1 ? `[${i}]` : ''} could not be fitted: ${made}`)
+    const ids = made.order.map((o) => o.id)
+    for (const l of made.landed) {
+      const lines = entityOf(sketch, l.piece)?.kind === 'line' && entityOf(sketch, l.on)?.kind === 'line'
+      junctions.push({ run: fitted.length, end: { piece: l.piece, at: l.at }, on: l.on, at: [round4(l.point[0]) + 0, round4(l.point[1]) + 0], held: 'end', ...(l.tangent ? (lines ? { collinear: true as const } : { tangent: true as const }) : {}), constraints: l.constraints })
+    }
+    reads.push({ fitted: fitted.length, points: g.points, pieces: ids })
+    fitted.push({ chain: i, closed: g.closed, points: g.points.length, pieces: ids.map((id) => ({ id, kind: entityOf(sketch, id)?.kind ?? 'gone' })), ...(made.held.length > 0 ? { heldAlong: made.held } : {}) })
+  })
+  re().setSketch(sketch)
+  const d = re().sketchDraft!
+  if (d.error) throw new CommandError('failed', `The points could not be fitted: ${d.error}`)
+  const out: FitDraftOut = { fitted, ...(junctions.length > 0 ? { junctions } : {}), given: reads }
+  givenOut(out, d.sketch)
+  return out
+}
+
+/** A fit's chains of typed points read again on the sketch as it now lies
+ *  — once it is solved for good, the relations given beside the fit and
+ *  those accepted held: each chain's misses and overshoot (givenReading),
+ *  and its arcs' and circles' radii. Nothing for a fit of the scan. */
+export function givenOut(fit: FitDraftOut | undefined, sketch: Pick<Sketch, 'entities'> | undefined): void {
+  if (!fit?.given || !sketch) return
+  for (const g of fit.given) {
+    const f = fit.fitted[g.fitted]
+    if (!f) continue
+    Object.assign(f, givenReading(sketch, g.points, g.pieces))
+    f.pieces = (f.pieces ?? []).map((x) => {
+      const e = entityOf(sketch, x.id)
+      return e && (e.kind === 'arc' || e.kind === 'circle') ? { ...x, r: round4(e.r) } : x
+    })
+  }
 }
 
 /** The sketch in hand given the scan's run fitted like a station (fit.like,
@@ -1476,19 +1768,29 @@ export function piecesSetOut(done: PiecesSet, sketch: Sketch | undefined) {
  *  first — what an edit cost the fit, in millimetres. `{ count: 0 }` when
  *  none did: said, so that nothing moved reads as an answer. A piece new
  *  since `was` is measured from `fitted`, the sketch as the same call's fit
- *  left it, when it was fitted then. */
-export function movedPieces(was: Sketch, now: Sketch, fitted?: Sketch): { count: number; pieces?: { id: number; mm: number }[] } {
+ *  left it, when it was fitted then. `radii` names each arc or circle whose
+ *  radius changed, was and now. */
+export function movedPieces(was: Sketch, now: Sketch, fitted?: Sketch): { count: number; pieces?: { id: number; mm: number }[]; radii?: { id: number; was: number; now: number }[] } {
   const out: { id: number; mm: number }[] = []
+  // An arc's or circle's radius the edit changed, apart: a tangency held on
+  // a rounded drawing value took an R1 to 0.989 on the last part, read as
+  // 11 µm of travel.
+  const radii: { id: number; was: number; now: number }[] = []
   for (const e of now.entities) {
     const w = was.entities.find((x) => x.id === e.id) ?? fitted?.entities.find((x) => x.id === e.id)
     if (!w || w.kind !== e.kind) continue
     const mm = retakeMoved(w, e)
     if (Number.isFinite(mm) && mm > 1e-4) out.push({ id: e.id, mm: round4(mm) })
+    if ((w.kind === 'arc' || w.kind === 'circle') && (e.kind === 'arc' || e.kind === 'circle') && Math.abs(w.r - e.r) > RADIUS_CHANGED_MM) radii.push({ id: e.id, was: round4(w.r), now: round4(e.r) })
   }
-  if (out.length === 0) return { count: 0 }
+  if (out.length + radii.length === 0) return { count: 0 }
   out.sort((a, b) => b.mm - a.mm)
-  return { count: out.length, pieces: out.slice(0, 20) }
+  radii.sort((a, b) => Math.abs(b.now - b.was) - Math.abs(a.now - a.was))
+  return { count: out.length, pieces: out.slice(0, 20), ...(radii.length > 0 ? { radii: radii.slice(0, 20) } : {}) }
 }
+
+/** A radius change under this, mm, is the solver's noise, not news. */
+const RADIUS_CHANGED_MM = 5e-4
 
 /** The pieces whose own curve an edit moved past `limit` mm — what the
  *  relations or rounds added pulled, a fit's tangencies 5.9 mm on the last

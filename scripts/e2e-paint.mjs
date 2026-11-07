@@ -175,6 +175,72 @@ check(afterErase < afterSecond, `right-drag rubs the marking out (${afterSecond}
 
 check(await paintPreviewReady(), 'the fit is still ready after editing the marking')
 
+// A straight line: the switch and the held key draw the same one, however the
+// cursor wandered between press and release, and nothing lands before release.
+async function line(from, to, { key = null, button = 'left', wander = false, release = true } = {}) {
+  await page.mouse.move(from[0], from[1])
+  if (key) await page.keyboard.down(key)
+  await page.mouse.down({ button })
+  if (key) await page.keyboard.up(key)
+  if (wander) await page.mouse.move(from[0] + 8, from[1] + 30, { steps: 4 })
+  await page.mouse.move(to[0], to[1], { steps: 6 })
+  await sleep(50)
+  if (!release) return
+  await page.mouse.up({ button })
+  await sleep(250)
+}
+const clearMarking = async () => {
+  await click(page, '[data-test="mark-clear"]')
+  await sleep(150)
+}
+const lineFrom = [hit[0] - 12, hit[1]]
+const lineTo = [hit[0] + 12, hit[1]]
+const bandShown = () =>
+  page.$eval('.marquee', (e) => e.style.display !== 'none' && e.querySelector('polygon').getAttribute('points').split(' ').length > 2)
+
+await clearMarking()
+await click(page, '[data-test="mark-straight"]')
+await line(lineFrom, lineTo, { release: false })
+check(await bandShown(), 'a straight line shows its outline while it is dragged')
+check((await markedCount()) === 0, 'and marks nothing until it is let go')
+await page.mouse.up()
+await sleep(250)
+const lineCount = await markedCount()
+check(lineCount > 0, `the switch draws a straight line (${lineCount} points)`)
+check(!(await bandShown()), 'and the outline goes when it lands')
+
+await clearMarking()
+await line(lineFrom, lineTo, { wander: true })
+check((await markedCount()) === lineCount, 'the way the cursor went between press and release does not count')
+
+await line(lineFrom, lineTo, { button: 'right' })
+check((await markedCount()) === 0, 'the right button rubs the same line out')
+
+await click(page, '[data-test="mark-straight"]')
+await line(lineFrom, lineTo, { key: 'Control', wander: true })
+check((await markedCount()) === lineCount, `Ctrl-drag draws the same line without the switch (${lineCount} points)`)
+
+await clearMarking()
+await line(lineFrom, lineTo, { wander: true })
+const freehandCount = await markedCount()
+check(freehandCount !== lineCount, `a plain drag still follows the cursor (${lineCount} → ${freehandCount})`)
+
+// Standing the gesture down part way leaves nothing behind.
+await clearMarking()
+await click(page, '[data-test="mark-straight"]')
+await line(lineFrom, lineTo, { release: false })
+await page.keyboard.press('Escape')
+await sleep(150)
+await page.mouse.up()
+await sleep(250)
+check((await markedCount()) === 0, 'Esc part way through a line marks nothing')
+await click(page, '[data-test="mark-brush"]')
+await click(page, '[data-test="mark-straight"]')
+
+// Back to one stroke on the ball, for the fit the checks below stand on.
+await stroke(hit[0], hit[1])
+check(await paintPreviewReady(), 'the fit stands on the marking again')
+
 // The camera is still reachable while the brush has the plain left-drag: in a
 // scheme that orbits with the left button, Shift+left-drag orbits instead —
 // and orbiting must not mark anything. An orbit repaints a large share of the

@@ -234,3 +234,93 @@ describe('a bore that steps, and one a wrap closed', () => {
     expect(cad).not.toMatch(/Closed skin/)
   })
 })
+
+/** A cuboid from `min` to `max`, its faces cut into cells about `step` mm a
+ *  side, wound outward. */
+function cuboid(min: Vec3, max: Vec3, step = 1): number[] {
+  const [x0, y0, z0] = min
+  const [dx, dy, dz] = [max[0] - x0, max[1] - y0, max[2] - z0]
+  const faces: [Vec3, Vec3, Vec3][] = [
+    [[x0, y0, max[2]], [dx, 0, 0], [0, dy, 0]],
+    [[x0, y0, z0], [0, dy, 0], [dx, 0, 0]],
+    [[max[0], y0, z0], [0, dy, 0], [0, 0, dz]],
+    [[x0, y0, z0], [0, 0, dz], [0, dy, 0]],
+    [[x0, max[1], z0], [0, 0, dz], [dx, 0, 0]],
+    [[x0, y0, z0], [dx, 0, 0], [0, 0, dz]],
+  ]
+  const out: number[] = []
+  for (const [o, eu, ev] of faces) {
+    const nu = Math.max(1, Math.ceil(Math.hypot(...eu) / step))
+    const nv = Math.max(1, Math.ceil(Math.hypot(...ev) / step))
+    const at = (i: number, j: number) => [0, 1, 2].map((k) => o[k] + (i / nu) * eu[k] + (j / nv) * ev[k])
+    for (let i = 0; i < nu; i++) {
+      for (let j = 0; j < nv; j++) out.push(...at(i, j), ...at(i + 1, j), ...at(i + 1, j + 1), ...at(i, j), ...at(i + 1, j + 1), ...at(i, j + 1))
+    }
+  }
+  return out
+}
+
+/** A tray folded from 0.3 mm sheet, 60 × 30 × 20, open at the top or with
+ *  a lid; with `tabs`, two tabs 8 mm tall standing up off its floor. */
+function tray(opts: { lid?: boolean; tabs?: boolean } = {}): Float32Array {
+  const t = 0.3
+  const parts = [
+    cuboid([-30, -15, 0], [30, 15, t]),
+    cuboid([-30, -15, t], [30, -15 + t, 20]),
+    cuboid([-30, 15 - t, t], [30, 15, 20]),
+    cuboid([-30, -15 + t, t], [-30 + t, 15 - t, 20]),
+    cuboid([30 - t, -15 + t, t], [30, 15 - t, 20]),
+  ]
+  if (opts.lid) parts.push(cuboid([-30, -15, 20], [30, 15, 20 + t]))
+  if (opts.tabs) for (const x of [-10, 12]) parts.push(cuboid([x - t / 2, -4, t], [x + t / 2, 4, 8 + t], 0.5))
+  return Float32Array.from(parts.flat())
+}
+
+interface SheetQa extends Qa {
+  sheet?: { gauge: { p5: number; p50: number; p95: number }; twoSkins: number }
+  apart?: { reach: number; regions: { center: Vec3; box: { min: Vec3; max: Vec3 }; area: number }[] }
+}
+
+describe('scan.qa on sheet metal', () => {
+  it('reads a closed box of 0.3 mm sheet as sheet, not as the box its thickness sees', async () => {
+    await open(scattered(tray({ lid: true }), 0.01), 'sheet-box.stl')
+    const qa = await run<SheetQa>('scan.qa', { axis: 'z' })
+    expect(qa.thickness.p50).toBeGreaterThan(19)
+    expect(qa.sheet!.gauge.p50).toBeCloseTo(0.3, 1)
+    expect(qa.sheet!.gauge.p95).toBeLessThan(0.4)
+    expect(qa.sheet!.twoSkins).toBeGreaterThan(0.8)
+    const said = qa.notes.join(' ')
+    expect(said).toMatch(/Sheet metal: two skins 0\.3\d? mm apart over \d+ % of the area/)
+    expect(said).toMatch(/thickness along z \(p50 20(\.\d)? mm\) reads the box across the part, not the sheet/)
+    expect(said).not.toMatch(/varies from/)
+    expect(qa.apart).toBeUndefined()
+  })
+
+  it('names tabs standing off the walls up front, the largest first', async () => {
+    await open(scattered(tray({ tabs: true }), 0.01), 'tray-tabs.stl')
+    const qa = await run<SheetQa>('scan.qa', { axis: 'z' })
+    expect(qa.sheet!.gauge.p50).toBeCloseTo(0.3, 1)
+    const regions = qa.apart!.regions
+    expect(regions).toHaveLength(2)
+    expect(regions.map((r) => Math.round(r.center[0])).sort((a, b) => a - b)).toEqual([-10, 12])
+    for (const r of regions) {
+      expect(r.box.max[2]).toBeCloseTo(8.3, 0)
+      expect(r.box.min[2]).toBeGreaterThan(1)
+      expect(r.area).toBeGreaterThan(60)
+      expect(r.area).toBeLessThan(140)
+    }
+    expect(qa.notes.join(' ')).toMatch(/2 places stand over 1\.5 mm off every main wall/)
+  })
+
+  it('says nothing of sheet on a solid block with a boss, nor on a single skin', async () => {
+    const boss = Float32Array.from([...boxMesh(40, 20), ...cuboid([-5, -5, 20], [5, 5, 26], 1)])
+    await open(scattered(boss, 0.01), 'boss.stl')
+    const solid = await run<SheetQa>('scan.qa', { axis: 'z' })
+    expect(solid.sheet).toBeUndefined()
+    expect(solid.apart).toBeUndefined()
+    expect(solid.notes.join(' ')).not.toMatch(/Sheet|Thin walls|off every main wall/)
+    await open(openBox(), 'open.stl')
+    const skin = await run<SheetQa>('scan.qa', { axis: 'z' })
+    expect(skin.sheet).toBeUndefined()
+  })
+})

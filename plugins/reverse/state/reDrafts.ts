@@ -67,7 +67,7 @@ export function featureDraftReady(d: FeatureDraft): boolean {
     case 'mirror':
       return d.body !== null && d.plane !== null
     case 'boolean':
-      return d.body !== null && d.tool !== null && d.body !== d.tool
+      return d.body !== null && d.tool !== null && d.body !== d.tool && !(d.moreTools ?? []).includes(d.body)
     case 'sheet':
       return d.sketchId !== null && Math.abs(d.to - d.from) > 1e-9
     case 'split':
@@ -184,6 +184,13 @@ export function moveSlotPath(side: FeatureGripSide): string {
   return `${field}.${'xyz'[axis]}`
 }
 
+/** A Combine box's tools as the feature keeps them: one body as a number,
+ *  several as a list, each once. */
+function draftTools(d: Extract<FeatureDraft, { kind: 'boolean' }>): number | number[] {
+  const tools = [...new Set([d.tool!, ...(d.moreTools ?? [])])]
+  return tools.length === 1 ? tools[0] : tools
+}
+
 /** The feature a draft stands for, ready to be built, or null while it is
  *  not — the preview and the commit read the same thing. */
 export function featureOfDraft(d: FeatureDraft, id: number, name: string): Feature | null {
@@ -222,7 +229,7 @@ export function featureOfDraft(d: FeatureDraft, id: number, name: string): Featu
     case 'mirror':
       return { id, kind: 'mirror', name, body: d.body!, plane: d.plane!, join: d.join, visible: true }
     case 'boolean':
-      return { id, kind: 'boolean', name, op: d.op, body: d.body!, tool: d.tool!, ...(d.keep ? { keep: true } : {}), visible: true }
+      return { id, kind: 'boolean', name, op: d.op, body: d.body!, tool: draftTools(d), ...(d.keep ? { keep: true } : {}), visible: true }
     case 'sheet':
       return { id, kind: 'sheet', name, sketchId: d.sketchId!, from: d.from, to: d.to, visible: true }
     case 'split':

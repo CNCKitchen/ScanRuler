@@ -2,7 +2,7 @@
 // The Mesh Tools workspace's commands — what an agent cleans a scan up,
 // edits it and reduces it through (src/commands), registered from the
 // plugin's install() under `mesh`, the workspace's id: mesh.cut,
-// mesh.fill_holes and the rest. Each is the panel's own code path: the
+// mesh.mirror, mesh.fill_holes, mesh.wrap and the rest. Each is the panel's own code path: the
 // tool put in hand, its settings set through the store as the panel's
 // fields set them, and the verb the panel's button runs
 // (meshToolsSession.ts) run inside one step of the undo history
@@ -28,6 +28,7 @@ import { summarizeCopyDeviation } from '../core/edit'
 import type { BooleanOp } from '../core/boolean'
 import type { FillMode } from '../core/fillHoles'
 import type { ThickenSide } from '../core/offset'
+import type { WrapEdges } from '../core/wrap'
 import { DEFAULT_FACING_DEG } from '../core/select'
 import {
   DELETE_MARK_COLOR,
@@ -39,6 +40,7 @@ import {
   useMeshTools,
   type CutKeep,
   type MeshTool,
+  type MirrorMode,
   type OffsetDirection,
 } from '../state/meshStore'
 import { editedCopy } from '../state/editedCopy'
@@ -47,7 +49,7 @@ import { buildEditedMesh } from './exportEdited'
 import { buildReducedMesh } from './exportReduced'
 import { buildTrimmedMesh } from './exportTrimmed'
 import { MESH_FORMATS, type MeshFormat } from '../../../src/core/exportMesh'
-import { editOut, partsOut, pieceOut, pointOut, reductionOut } from './meshReadout'
+import { editOut, partsOut, pieceOut, pointOut, reductionOut, wrapOut } from './meshReadout'
 import { meshToolsSession, type EditLanded, type MeshToolsSession } from './meshToolsSession'
 import { errorMessage } from '../../../src/commands/types'
 
@@ -462,6 +464,52 @@ const cut: Command<{ plane: Ref; offset: number; keep: CutKeep; cap?: boolean }>
   },
 }
 
+const mirror: Command<{ plane: Ref; offset?: number; mode?: MirrorMode; keep?: CutKeep }> = {
+  name: 'mirror',
+  title: 'Mirror the mesh',
+  description:
+    'Reflect the mesh across a plane. mode whole (to start) reflects all of it — the left-hand version of a right-hand part. symmetric keeps the side keep names (plus to start) and reflects it onto the other side, which it replaces — a symmetric part scanned well on one side only, or damaged on one side; the halves join along the plane, so a closed part stays closed, and faces lying in the plane (the cap of an earlier cut there) are dropped. A part wholly on the kept side gets its mirror image beside it. offset left out puts the plane through the middle of the part. Edits the copy. One undo step. Returns the edit and the mesh after it.',
+  input: obj(
+    {
+      plane: oneOf(
+        [
+          str('A coordinate plane — "XY", "YZ" or "XZ" — or an element’s name.', { minLength: 1 }),
+          int('An element’s id.', { minimum: 1 }),
+        ],
+        'What to mirror across: a coordinate plane — after a datum alignment, the datum’s — or an element with a direction (a plane’s normal, a cylinder’s, cone’s or line’s axis, a circle’s normal).',
+      ),
+      offset: num(
+        'Where the plane lies, mm: for a coordinate plane its coordinate along the axis square to it (X for YZ); for an element, how far along its direction from it. Left out: through the middle of the part.',
+      ),
+      mode: enumOf(['whole', 'symmetric'] as MirrorMode[], 'whole (to start): the whole part reflected. symmetric: the side kept reflected onto the other.'),
+      keep: enumOf(
+        ['plus', 'minus'] as CutKeep[],
+        'For symmetric, the side kept: plus the side the plane’s direction points to — +X of YZ, +Y of XZ, above XY, along an element’s direction — minus the other.',
+      ),
+    },
+    ['plane'],
+  ),
+  history: false,
+  run: async ({ plane, offset, mode, keep }) => {
+    requireScan()
+    const ref = cutRefOf(plane)
+    const s = useStore.getState()
+    const at = cutPlaneOf(ref, offset ?? 0, offset === undefined, keep ?? m().mirrorKeep, s.elements, s.modelCenter, undefined, 2 * s.modelSize)
+    if (!at) invalid('That plane cannot be placed — its element has no direction.')
+    const symmetric = (mode ?? m().mirrorMode) === 'symmetric'
+    return editAnswer(
+      await step(`${symmetric ? 'make symmetric about' : 'mirror across'} ${at!.label}`, 'The mirror', async () => {
+        inHand('mirror')
+        m().setMirrorRef(ref)
+        if (offset !== undefined) m().setMirrorOffset(offset)
+        if (mode !== undefined) m().setMirrorMode(mode)
+        if (keep !== undefined) m().setMirrorKeep(keep)
+        return session().mirrorScan({ inStep: true })
+      }, true),
+    )
+  },
+}
+
 const fillHoles: Command<{ size?: number; patch?: FillMode; at?: Vec3 }> = {
   name: 'fill_holes',
   title: 'Fill holes',
@@ -620,13 +668,64 @@ const shell: Command<{ thickness?: number; side?: ThickenSide; mode?: 'hollow' |
   },
 }
 
+const wrapCommand: Command<{ gap: number; grow?: number; edges?: WrapEdges; tolerance?: number; preview?: boolean }> = {
+  name: 'wrap',
+  title: 'Wrap the mesh',
+  description:
+    'One closed skin round the mesh the workspace works on — the edited copy, or the scan — for a mesh that is a mess inside: an assembly exported as one file, channels and bosses inside a casting, overlapping or flipped shells, a scan with cracks. Any triangles do: only the distance to them is used. A ball of diameter gap is rolled round the mesh from outside; the wrap lies on the part where the ball touched it (its vertices moved onto the part’s triangles) and bridges every opening narrower than gap — a groove narrower than it is closed over too, so keep it small. Everything inside is dropped, internal shells and cavities made solid. grow (0 to start, at most gap) stands the wrap off the part all round: an open sheet wraps to nothing at 0, and to a slab 2 × grow thick. edges: sharp (to start) rebuilds the part’s sharp edges and corners where the wrap lies on the part (sharpEdges and sharpCorners say how many points it put back; a grown wrap’s edges are rounds), smooth leaves them rounded by the grid, a sixth of the gap. tolerance: how far the wrap’s reduction may stray, mm — a sixteenth of the grid’s cell to start. Made beside the mesh, not an edit — a preview: mesh.apply_wrap makes it the edited copy, or preview: false applies it at once, one undo step. Returns the wrap: shells, triangles (and fromTriangles), dropped (input triangles inside it), bridgedArea (mm², where it bridges rather than lies on the part), volumeBefore (null when the mesh is open) and volume (mm³), cell (the grid, mm; coarsened when the part’s size made it coarser than a sixth of the gap, and fullGap the smallest gap it closes as exactly then), and stages (ms each).',
+  input: obj(
+    {
+      gap: sizeIn('Openings narrower than this are bridged, mm.'),
+      grow: num('How far the wrap stands off the part, mm: 0 to start, at most gap.', { minimum: 0 }),
+      edges: enumOf(['sharp', 'smooth'] as WrapEdges[], 'sharp (to start) or smooth.'),
+      tolerance: sizeIn('How far the wrap’s reduction may stray from it, mm.'),
+      preview: bool('false applies the wrap at once as the edited copy; true (to start) leaves it a preview for mesh.apply_wrap.'),
+    },
+    ['gap'],
+  ),
+  history: false,
+  run: async ({ gap, grow, edges, tolerance, preview }) => {
+    requireScan()
+    await step('wrap the mesh', 'The wrap', async () => {
+      inHand('wrap')
+      m().setWrapView('wrap')
+      m().setWrapGap(gap)
+      if (grow !== undefined) m().setWrapGrow(grow)
+      if (edges !== undefined) m().setWrapEdges(edges)
+      const report = await session().wrap('mm', tolerance)
+      if (!report) useStore.setState({ errorText: m().wrapMessage ?? useStore.getState().errorText })
+      return report
+    }, false)
+    if (preview === false) {
+      const applied = await editAnswer(await step('apply the wrap', 'Applying the wrap', () => session().applyWrap({ inStep: true }), true))
+      return { wrap: wrapOut(), ...applied }
+    }
+    return { wrap: wrapOut(), status: useStore.getState().statusText }
+  },
+}
+
+const applyWrap: Command = {
+  name: 'apply_wrap',
+  title: 'Apply the wrap',
+  description:
+    'Make the wrap on hand the edited copy, the panel’s Apply: the tools work on it from here, and mesh.use_edited takes it into every workspace. None of the mesh’s vertices is kept, so the copy’s deviation reads nothing of the scan and a marking made before it goes. One undo step, which puts the mesh it was made of back. Returns the edit and the mesh.',
+  input: noInput,
+  history: false,
+  run: async () => {
+    requireScan()
+    if (!m().wrapMade) throw new CommandError('invalid_state', 'There is no wrap — mesh.wrap makes one.')
+    inHand('wrap')
+    return editAnswer(await step('apply the wrap', 'Applying the wrap', () => session().applyWrap({ inStep: true }), true))
+  },
+}
+
 // ---- beside the scan ------------------------------------------------------------------------
 
 const reduce: Command<{ tolerance?: number; maxTriangles?: number }> = {
   name: 'reduce',
   title: 'Reduce the mesh',
   description:
-    'Reduce the mesh the workspace works on to a light one for CAD, held within tolerance of it — 99.9 % of each side within it, measured both ways, not trusted — and never more than maxTriangles (when the tolerance needs more, it is reduced to the limit and says how far it then strays). Made where the part stands: align it first if it should land in CAD on its datums, and take islands off first. Defaults are the panel’s: a tolerance sized to the part (0.05 mm a hand’s width across), 50,000 triangles. The reduced mesh is made beside the scan, not an edit of it; mesh.export { part: "reduced" } writes it. Returns its figures.',
+    'Reduce the mesh the workspace works on to a light one for CAD, held within tolerance of it — 99.9 % of each side within it, measured both ways, not trusted — and never more than maxTriangles (when the tolerance needs more, it is reduced to the limit and says how far it then strays). Made where the part stands: align it first if it should land in CAD on its datums, and take islands off first. Defaults are the panel’s: a tolerance sized to the part (0.05 mm a hand’s width across), 50,000 triangles. The reduced mesh is made beside the scan, not an edit of it — a preview: reduce again with other figures and it starts over from the mesh as it stands. mesh.export { part: "reduced" } writes it; mesh.apply_reduced makes it the edited copy. Returns its figures.',
   input: obj({
     tolerance: sizeIn('How far the reduced mesh may stray from the scan, either side, mm.'),
     maxTriangles: int('Never more triangles than this — what the CAD system takes.', { minimum: 4 }),
@@ -643,6 +742,21 @@ const reduce: Command<{ tolerance?: number; maxTriangles?: number }> = {
       return report
     }, false)
     return { reduced: reductionOut(), status: useStore.getState().statusText }
+  },
+}
+
+const applyReduced: Command = {
+  name: 'apply_reduced',
+  title: 'Apply the reduced mesh',
+  description:
+    'Make the reduced mesh on hand the edited copy, the panel’s Apply: the tools work on it from here, mesh.use_edited takes it into every workspace, and mesh.inspect { deviation: true } measures it against the scan in use, at its own vertices only — the triangles between them can stray further, as the figures of mesh.reduce say. Fitted elements have only the vertices the reduction left to go on once it is in use. One undo step, which puts the mesh it was made of back; reduce again from there if it came out too coarse. Returns the edit and the mesh.',
+  input: noInput,
+  history: false,
+  run: async () => {
+    requireScan()
+    if (!m().report) throw new CommandError('invalid_state', 'There is no reduced mesh — mesh.reduce makes one.')
+    inHand('reduce')
+    return editAnswer(await step('apply the reduction', 'Applying the reduction', () => session().applyReduction({ inStep: true }), true))
   },
 }
 
@@ -750,9 +864,9 @@ const exportPart: Command<{ part: 'edited' | 'reduced' | 'piece'; format?: MeshF
 }
 
 /** The workspace's commands, in the order a cleanup goes: what is there,
- *  islands and marked surface off, the normals the right way, the cut, the
- *  holes, smoothing, a shrink
- *  or an expansion, a boolean, the shell, and the reduction last. */
+ *  islands and marked surface off, the normals the right way, the cut, a
+ *  mirror, the holes, smoothing, a shrink
+ *  or an expansion, a boolean, the shell, a wrap, and the reduction last. */
 export const meshCommands = [
   parts,
   show,
@@ -763,12 +877,16 @@ export const meshCommands = [
   deleteMarked,
   flipNormals,
   cut,
+  mirror,
   fillHoles,
   smooth,
   offset,
   boolean,
   shell,
+  wrapCommand,
+  applyWrap,
   reduce,
+  applyReduced,
   trim,
   useEdited,
   discardEdited,
@@ -781,6 +899,13 @@ export function meshBusy(): string | null {
   if (s.editing) return 'the mesh is being edited'
   if (s.status === 'running') return 'the mesh is being reduced'
   if (s.trimStatus === 'running') return 'a body is being trimmed to the scan'
+  if (s.wrapStatus === 'running') return 'the mesh is being wrapped'
   return null
+}
+
+/** Before a change that throws the session's work away: a wrap being worked
+ *  out is stopped — the other work runs to its end. */
+export async function stopMeshWork(): Promise<void> {
+  meshToolsSession()?.cancelWrap()
 }
 

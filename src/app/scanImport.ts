@@ -24,7 +24,8 @@ import type { SourceFiles } from './project'
 import { scanLoaded } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { usePrefs } from '../state/prefsStore'
-import { lengthInputText, unitWord } from '../core/units'
+import { fmtLen, lengthInputText, unitWord } from '../core/units'
+import { noTrueSize } from '../core/scanScale'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
 
@@ -155,11 +156,18 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
         const mesh = prepared.mesh
         const creaseWord = mesh.crease.skipped === 'budget' ? ` ${creaseNote(mesh.crease, crease)}` : ''
         const unitsWord = read !== 'mm' ? `Read in ${unitsLabel(read).toLowerCase()} and converted to millimetres. ` : ''
+        // A photogrammetry scan has no true size: said at once, since
+        // everything measured before it is scaled is measured in no unit.
+        const across = 2 * useStore.getState().modelSize
+        const none = noTrueSize(useStore.getState().fileName, across, false)
+        const sizeWord = none
+          ? ` ${none.why === 'meshroom' ? 'Photogrammetry gives a part no true size' : `It is ${fmtLen(across, usePrefs.getState().units, 3)} across — its units look off`}: Scale part, under Alignment, sets it from a length measured on the real part.`
+          : ''
         useStore.getState().setStatus(
           unitsWord + scanFileNote(mesh) +
           (mesh.triangleCount > LARGE_TRIANGLE_WARNING
             ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
-            : 'Pick an element type in the panel to start measuring.') + creaseWord)
+            : 'Pick an element type in the panel to start measuring.') + creaseWord + sizeWord)
       } finally {
         prepared.view.dispose()
         await client.discardImport([prepared.id])

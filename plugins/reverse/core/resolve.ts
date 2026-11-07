@@ -9,7 +9,7 @@ import { radialFrame, type SectionFrame, sketchFrameOn, WORLD_AXES, type WorldAx
 import type { FitData, Vec3 } from '../../../src/core/types'
 import { addScaled, cross, dot, normalize, scale } from '../../../src/core/vec'
 import { type BuildStep, type PlaneGeometry, type ResolveContext, type SketchOnFace, SURFACE_MIN_REGION } from './buildSteps'
-import { type AxisRef, constrainRefs, type EdgeRef, type RegionPick, type ExtrudeUntil, type FaceRef, type Feature, FULL_TURN_DEG, type HoleAxis, MIN_SWEEP_RAD, movableFace, type PatternFeature, type PlaneRef, type Primitive, revolveMaxDeg, type SketchFeature, type SurfaceFeature, type TrimPrimitive } from './features'
+import { type AxisRef, constrainRefs, type EdgeRef, type RegionPick, type ExtrudeUntil, type FaceRef, type Feature, FULL_TURN_DEG, type HoleAxis, MIN_SWEEP_RAD, movableFace, type PatternFeature, type PlaneRef, type Primitive, revolveMaxDeg, type SketchFeature, type SurfaceFeature, toolsOf, type TrimPrimitive } from './features'
 import type { Profile } from './kernel'
 import { moveMatrix } from './move'
 import { shadowPrimitive } from './shadowPieces'
@@ -362,7 +362,7 @@ export function resolveFeatures(
       continue
     }
     if (f.kind === 'boolean') {
-      if (f.body === f.tool) failed(f, 'A body cannot be combined with itself.')
+      if (toolsOf(f).includes(f.body)) failed(f, 'A body cannot be combined with itself.')
       else steps.push({ kind: 'boolean', id: f.id, name: f.name, op: f.op, body: f.body, tool: f.tool, ...(f.keep ? { keep: true } : {}) })
       continue
     }

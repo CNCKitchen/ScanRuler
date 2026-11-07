@@ -204,13 +204,13 @@ test('a scan path that is not there is answered with the names near it', async (
   assert.equal(many.near.length, 5)
 })
 
-test('a guide answers up to 90 k characters before it spills, and its spill says to read it by section; other answers keep the cap', async () => {
-  const both = await call('guide_read', { topic: 'model', chars: 75_000 })
+test('a guide answers up to 70 k characters before it spills, and its spill says to read it by section; other answers keep the cap', async () => {
+  const both = await call('guide_read', { topic: 'model', chars: 62_000 })
   assert.equal(both.json.truncated, undefined, 'two guides read together arrive whole')
-  assert.equal(both.json.guides[0].text.length, 75_000)
-  const huge = await call('guide_read', { topic: 'model', chars: 95_000 })
+  assert.equal(both.json.guides[0].text.length, 62_000)
+  const huge = await call('guide_read', { topic: 'model', chars: 75_000 })
   assert.equal(huge.json.truncated, true)
-  assert.match(huge.json.note, /past the 90 k an answer carries.*one section at a time \(section, by its heading/)
+  assert.match(huge.json.note, /past the 70 k an answer carries.*one section at a time \(section, by its heading/)
   // Anything else spills past the cap, and says fields and limit.
   const points = await call('demo_points', { n: 1600 })
   assert.equal(points.json.truncated, true)

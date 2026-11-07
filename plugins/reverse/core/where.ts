@@ -66,6 +66,9 @@ export interface Where {
   /** Only edges whose two faces meet at an angle — not tangent, as a
    *  round's seams meet the faces either side. */
   sharp?: boolean
+  /** With sharp: the angle the faces must meet at, degrees — SHARP_DEG
+   *  by default. Given alone it asks sharp too. */
+  sharpDeg?: number
   /** Edges between a face one feature made and a face another made —
    *  the roots where a pattern's blades meet the dish. */
   sides?: { madeBy: FeatureRef[] }
@@ -78,10 +81,17 @@ export interface Where {
 export interface WhereAsk {
   /** The id of the feature a madeBy names — refused where none is. */
   featureId: (ref: FeatureRef) => number
-  /** Whether an edge, by its index, runs between faces that meet at an
-   *  angle — what sharp keeps; null where that cannot be read here. */
-  sharp: () => ((i: number) => boolean) | null
+  /** Whether an edge, by its index, runs between faces that meet at more
+   *  than `deg` degrees — what sharp keeps; null where that cannot be read
+   *  here. */
+  sharp: (deg: number) => ((i: number) => boolean) | null
 }
+
+/** The angle, degrees, two faces meet at for sharp to keep their edge by
+ *  default: a profile fitted to a drawing's points or a scan meets the
+ *  faces either side a few tenths of a degree off tangent, and is no edge
+ *  to round. The viewport draws an edge from a quarter of a degree. */
+export const SHARP_DEG = 1
 
 /** A pick that is a query — every face or edge that answers it — rather
  *  than an index or a fingerprint: an object with no fingerprint's place
@@ -245,8 +255,8 @@ export function whereIndices(given: Where, t: WhereTopology, body: { name: strin
     if (w.sides) hits = hits.filter(sidesMadeBy(w.sides, t, ask))
     // Sharp: only the edges whose faces meet at an angle — not a round's
     // seams, which match a radius as the edge it rounded did.
-    if (w.sharp) {
-      const sharp = ask.sharp()
+    if (w.sharp || w.sharpDeg !== undefined) {
+      const sharp = ask.sharp(w.sharpDeg ?? SHARP_DEG)
       if (!sharp) invalid(`sharp reads how the faces meet off ${body.name}’s mesh, and there is none for it here — pick without sharp, by through or near.`)
       hits = hits.filter((i) => sharp!(i))
     }
@@ -381,20 +391,16 @@ export function edgePasses(e: EdgeInfo, w: Where, madeBy: number | null, sides: 
 
 // ---- sharp, read off the surfaces ---------------------------------------------------
 
-/** Two faces whose normals agree this closely all along an edge meet
- *  tangent there — the angle the viewport's edge lines tell a tangent
- *  edge by (edgeLines.ts). */
-const TANGENT_COS = Math.cos((0.25 * Math.PI) / 180)
-
-/** Whether an edge runs between faces that meet at an angle, read off the
- *  faces' own surfaces at its middle and a quarter of the way from each
- *  end, rather than off a mesh — where the build runs a query, there is
- *  none. `normals` gives a face's unit normals, by its hash, at the points
+/** Whether an edge runs between faces that meet at more than `deg`
+ *  degrees, read off the faces' own surfaces at its middle and a quarter of
+ *  the way from each end, rather than off a mesh — where the build runs a
+ *  query, there is none. `normals` gives a face's unit normals, by its hash, at the points
  *  of it nearest those asked (the kernel's faceNormals); their sign does
  *  not count, the kernel leaving a reversed face's unturned. An edge with
  *  one face, or more than two, is sharp, as the viewport draws it; a seam,
  *  one face meeting itself, is not. */
-export function sharpBySurfaces(e: EdgeInfo, normals: (faceHash: number, points: readonly Vec3[]) => readonly Vec3[]): boolean {
+export function sharpBySurfaces(e: EdgeInfo, normals: (faceHash: number, points: readonly Vec3[]) => readonly Vec3[], deg = SHARP_DEG): boolean {
+  const tangentCos = Math.cos((deg * Math.PI) / 180)
   const faces = [...new Set(e.faces)]
   if (e.faces.length < 2 || faces.length > 2) return true
   if (faces.length === 1) return false
@@ -407,7 +413,7 @@ export function sharpBySurfaces(e: EdgeInfo, normals: (faceHash: number, points:
     }
   const a = normals(faces[0], points)
   const b = normals(faces[1], points)
-  return points.some((_, i) => !a[i] || !b[i] || Math.abs(a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2]) < TANGENT_COS)
+  return points.some((_, i) => !a[i] || !b[i] || Math.abs(a[i][0] * b[i][0] + a[i][1] * b[i][1] + a[i][2] * b[i][2]) < tangentCos)
 }
 
 // ---- queries a feature keeps -----------------------------------------------------------

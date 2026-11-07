@@ -3,9 +3,9 @@
 // what the reduction is asked for, and whether the scan had been reduced —
 // the reduced mesh itself is not saved, it is made again on load from the
 // same settings, the way a map is measured again — the other tools'
-// settings (Trim to scan's piece is not saved either: it is made again with
-// a click), the edits made, and the copy of the scan being edited beside it
-// in files of its own. Absent in projects saved before the workspace
+// settings (Trim to scan's piece is not saved either, nor the wrap on hand:
+// each is made again with a click), the edits made, and the copy of the scan
+// being edited beside it in files of its own. Absent in projects saved before the workspace
 // existed: the settings stay as the scan's size suggested them.
 
 import { editedCopy } from '../state/editedCopy'
@@ -41,6 +41,15 @@ export interface MeshPart {
     keep: 'plus' | 'minus'
     cap: boolean
   }
+  /** Mirror's plane, kept as Cut's is, and what it mirrors. Absent before
+   *  the tool existed. */
+  mirror?: {
+    ref: 'x' | 'y' | 'z' | number
+    offset: number
+    offsetAuto: boolean
+    keep: 'plus' | 'minus'
+    mode: 'whole' | 'symmetric'
+  }
   fill?: { size: number; sizeAuto: boolean; mode: 'curved' | 'flat' }
   smooth?: { size: number; sizeAuto: boolean; limit: number; limitAuto: boolean; keepEdges: boolean; scope?: 'all' | 'marked' }
   /** What Boolean does with the solid. Absent before the tool existed. */
@@ -52,6 +61,10 @@ export interface MeshPart {
   /** Trim to scan's settings: the offset from the break, the depth the break
    *  is found at, and which side is kept. Absent before the tool existed. */
   trim?: { offset: number; depth: number; flip: boolean }
+  /** Wrap's settings: the gap closed, the growth, the edges. Absent before
+   *  the tool existed. The wrap on hand is not saved: a click makes it
+   *  again. */
+  wrap?: { gap: number; gapAuto: boolean; grow: number; edges: 'sharp' | 'smooth' }
   /** What the workspace did to the scan, oldest first. The scan's member
    *  holds the result, as a PLY — see core/plyWriter — so this is the
    *  account of it, not a recipe to run again. Absent: nothing. */
@@ -68,10 +81,13 @@ export type ScanEditJson =
   | { kind: 'delete'; triangles: number }
   | { kind: 'flip'; triangles: number; region?: number }
   | { kind: 'cut'; plane: string; removed: number; capped: number; open: number }
+  | { kind: 'mirror'; mode: 'whole' | 'symmetric'; plane: string; triangles: number }
   | { kind: 'fill'; maxSize: number; mode: 'curved' | 'flat'; holes: number; triangles: number }
   | { kind: 'smooth'; size: number; limit: number; maxMove: number; region?: number }
   | { kind: 'boolean'; op: 'subtract' | 'add' | 'intersect'; solid: string; removed: number; added: number; volume: number }
   | { kind: 'offset'; distance: number; maxMove: number; region?: number }
+  | { kind: 'reduce'; tolerance: number; held: boolean; p999: number; triangles: number }
+  | { kind: 'wrap'; gap: number; grow: number; edges: 'sharp' | 'smooth'; shells: number; triangles: number; dropped: number; bridged: number }
   | {
       kind: 'shell'
       mode: 'hollow' | 'thicken'
@@ -97,6 +113,8 @@ function mapBytes(map: Int32Array): Uint8Array {
 
 const BOOLEAN_OPS: readonly string[] = ['subtract', 'add', 'intersect']
 const SIDES: readonly string[] = ['in', 'out', 'both']
+const MIRROR_MODES: readonly string[] = ['whole', 'symmetric']
+const WRAP_EDGES: readonly string[] = ['sharp', 'smooth']
 
 /** Check a part as read from a file. */
 function validateMeshPart(raw: unknown): MeshPart {
@@ -112,6 +130,14 @@ function validateMeshPart(raw: unknown): MeshPart {
     fields(c, 'offset', 'number', 'mesh.cut')
     fields(c, 'offsetAuto cap', 'boolean', 'mesh.cut')
     if (c.keep !== 'plus' && c.keep !== 'minus') invalid('mesh.cut.keep')
+  }
+  if (x.mirror !== undefined) {
+    const r = object(x.mirror, 'mesh.mirror')
+    if (!(r.ref === 'x' || r.ref === 'y' || r.ref === 'z' || (Number.isSafeInteger(r.ref) && (r.ref as number) >= 0))) invalid('mesh.mirror.ref')
+    fields(r, 'offset', 'number', 'mesh.mirror')
+    fields(r, 'offsetAuto', 'boolean', 'mesh.mirror')
+    if (r.keep !== 'plus' && r.keep !== 'minus') invalid('mesh.mirror.keep')
+    if (!MIRROR_MODES.includes(r.mode as string)) invalid('mesh.mirror.mode')
   }
   if (x.fill !== undefined) {
     const f = object(x.fill, 'mesh.fill')
@@ -151,6 +177,13 @@ function validateMeshPart(raw: unknown): MeshPart {
     fields(t, 'flip', 'boolean', 'mesh.trim')
     if (!((t.offset as number) >= 0) || !((t.depth as number) > 0)) invalid('mesh.trim')
   }
+  if (x.wrap !== undefined) {
+    const w = object(x.wrap, 'mesh.wrap')
+    fields(w, 'gap grow', 'number', 'mesh.wrap')
+    fields(w, 'gapAuto', 'boolean', 'mesh.wrap')
+    if (!((w.gap as number) > 0) || !((w.grow as number) >= 0)) invalid('mesh.wrap')
+    if (!WRAP_EDGES.includes(w.edges as string)) invalid('mesh.wrap.edges')
+  }
   // What was done to the scan: a list to show, the file itself holding the
   // result.
   const scanEdits = (list: unknown, where: string) => {
@@ -164,6 +197,10 @@ function validateMeshPart(raw: unknown): MeshPart {
       } else if (edit.kind === 'cut') {
         fields(edit, 'plane', 'string', where)
         fields(edit, 'removed capped open', 'number', where)
+      } else if (edit.kind === 'mirror') {
+        fields(edit, 'plane', 'string', where)
+        fields(edit, 'triangles', 'number', where)
+        if (!MIRROR_MODES.includes(edit.mode as string)) invalid(`${where}.mode`)
       } else if (edit.kind === 'fill') {
         fields(edit, 'maxSize holes triangles', 'number', where)
         if (edit.mode !== 'curved' && edit.mode !== 'flat') invalid(`${where}.mode`)
@@ -177,6 +214,12 @@ function validateMeshPart(raw: unknown): MeshPart {
       } else if (edit.kind === 'offset') {
         fields(edit, 'distance maxMove', 'number', where)
         if (edit.region !== undefined && typeof edit.region !== 'number') invalid(`${where}.region`)
+      } else if (edit.kind === 'reduce') {
+        fields(edit, 'tolerance p999 triangles', 'number', where)
+        fields(edit, 'held', 'boolean', where)
+      } else if (edit.kind === 'wrap') {
+        fields(edit, 'gap grow shells triangles dropped bridged', 'number', where)
+        if (!WRAP_EDGES.includes(edit.edges as string)) invalid(`${where}.edges`)
       } else if (edit.kind === 'shell') {
         fields(edit, 'thickness triangles', 'number', where)
         if (edit.mode !== 'hollow' && edit.mode !== 'thicken') invalid(`${where}.mode`)
@@ -208,6 +251,8 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
       return { kind: e.kind, triangles: e.triangles, ...(e.region !== undefined ? { region: e.region } : {}) }
     case 'cut':
       return { kind: e.kind, plane: e.plane, removed: e.removed, capped: e.capped, open: e.open }
+    case 'mirror':
+      return { kind: e.kind, mode: e.mode, plane: e.plane, triangles: e.triangles }
     case 'fill':
       return { kind: e.kind, maxSize: e.maxSize, mode: e.mode, holes: e.holes, triangles: e.triangles }
     case 'smooth':
@@ -216,6 +261,10 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
       return { kind: e.kind, op: e.op, solid: e.solid, removed: e.removed, added: e.added, volume: e.volume }
     case 'offset':
       return { kind: e.kind, distance: e.distance, maxMove: e.maxMove, ...(e.region !== undefined ? { region: e.region } : {}) }
+    case 'reduce':
+      return { kind: e.kind, tolerance: e.tolerance, held: e.held, p999: e.p999, triangles: e.triangles }
+    case 'wrap':
+      return { kind: e.kind, gap: e.gap, grow: e.grow, edges: e.edges, shells: e.shells, triangles: e.triangles, dropped: e.dropped, bridged: e.bridged }
     case 'shell':
       return {
         kind: e.kind,
@@ -239,6 +288,15 @@ function meshPartState(p: MeshPart): Partial<ReturnType<typeof useMeshTools.getS
     ...(p.cut
       ? { cutRef: p.cut.ref, cutOffset: p.cut.offset, cutOffsetAuto: p.cut.offsetAuto, cutKeep: p.cut.keep, cutCap: p.cut.cap }
       : {}),
+    ...(p.mirror
+      ? {
+          mirrorRef: p.mirror.ref,
+          mirrorOffset: p.mirror.offset,
+          mirrorOffsetAuto: p.mirror.offsetAuto,
+          mirrorKeep: p.mirror.keep,
+          mirrorMode: p.mirror.mode,
+        }
+      : {}),
     ...(p.fill ? { holeSize: p.fill.size, holeSizeAuto: p.fill.sizeAuto, fillMode: p.fill.mode } : {}),
     ...(p.smooth
       ? {
@@ -254,6 +312,7 @@ function meshPartState(p: MeshPart): Partial<ReturnType<typeof useMeshTools.getS
     ...(p.offset ? { offsetDistance: p.offset.distance, offsetDirection: p.offset.direction, offsetScope: p.offset.scope } : {}),
     ...(p.shell ? { shellThickness: p.shell.thickness, shellThicknessAuto: p.shell.thicknessAuto, shellSide: p.shell.side } : {}),
     ...(p.trim ? { trimOffset: p.trim.offset, trimDepth: p.trim.depth, trimFlip: p.trim.flip } : {}),
+    ...(p.wrap ? { wrapGap: p.wrap.gap, wrapGapAuto: p.wrap.gapAuto, wrapGrow: p.wrap.grow, wrapEdges: p.wrap.edges } : {}),
     edits: (p.edits ?? []).map(scanEditOf),
     pending: (p.copy?.pending ?? []).map(scanEditOf),
   }
@@ -273,6 +332,7 @@ export const meshSection: ProjectSection<MeshPart> = {
       pieceSize: x.pieceSize,
       pieceSizeAuto: x.pieceSizeAuto,
       cut: { ref: x.cutRef, offset: x.cutOffset, offsetAuto: x.cutOffsetAuto, keep: x.cutKeep, cap: x.cutCap },
+      mirror: { ref: x.mirrorRef, offset: x.mirrorOffset, offsetAuto: x.mirrorOffsetAuto, keep: x.mirrorKeep, mode: x.mirrorMode },
       fill: { size: x.holeSize, sizeAuto: x.holeSizeAuto, mode: x.fillMode },
       smooth: {
         size: x.smoothSize,
@@ -286,6 +346,7 @@ export const meshSection: ProjectSection<MeshPart> = {
       offset: { distance: x.offsetDistance, direction: x.offsetDirection, scope: x.offsetScope },
       shell: { thickness: x.shellThickness, thicknessAuto: x.shellThicknessAuto, side: x.shellSide },
       trim: { offset: x.trimOffset, depth: x.trimDepth, flip: x.trimFlip },
+      wrap: { gap: x.wrapGap, gapAuto: x.wrapGapAuto, grow: x.wrapGrow, edges: x.wrapEdges },
       ...(x.edits.length > 0 ? { edits: x.edits } : {}),
     }
     // The copy being edited, beside the scan: the file and the numbering that
@@ -333,6 +394,15 @@ export const meshSection: ProjectSection<MeshPart> = {
   hasContent: () => false,
   holdsWork: () => useMeshTools.getState().edits.length > 0,
   holds: () => ({ scanEdits: useMeshTools.getState().edits.length }),
+  // The edits taken into use are in the scan's file and scale with it; a
+  // copy still being edited is a mesh of its own at the old size, and goes
+  // when the scan is read again.
+  scaleHolds: () => {
+    const n = useMeshTools.getState().pending.length
+    return useMeshTools.getState().copyTriangles !== null || n > 0
+      ? [`an edited copy of the scan${n > 0 ? ` (${n} edit${n === 1 ? '' : 's'} not taken into use)` : ''} — use it for analysis or drop it first`]
+      : []
+  },
   watch(changed) {
     // The edits come with the scan's file changing under them — the file is
     // not in any store, so the list of them is what is watched.

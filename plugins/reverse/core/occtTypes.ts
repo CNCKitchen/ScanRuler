@@ -3,6 +3,10 @@
 // the one place the package's own shape is written down, so the kernel
 // loads it on demand and type-checks against this.
 
+/** A round's radius on an edge: one, or running evenly from `start` at the
+ *  edge's curve's start to `end`. */
+export type FilletRadius = number | { readonly start: number; readonly end: number }
+
 /** The slice of the occt-wasm kernel this adapter calls, as a structural
  *  type: the package's own class type is not imported here so a version
  *  bump that reshapes something unused cannot break the build. */
@@ -38,7 +42,13 @@ export interface OcctLike {
   makeVertex(x: number, y: number, z: number): number
   makeCompound(shapes: number[]): number
   unifySameDomain(shape: number): number
-  getSubShapes(shape: number, type: 'solid' | 'shell' | 'face' | 'edge'): number[]
+  getSubShapes(shape: number, type: 'solid' | 'shell' | 'face' | 'edge' | 'vertex'): number[]
+  vertexPosition(vertex: number): XYZ
+  /** The point of the face's surface nearest `point` — its foot, which may
+   *  lie past the face's edges. */
+  projectPointOnFace(face: number, point: XYZ): XYZ
+  /** The point of an edge nearest `point`. */
+  projectPointOnEdge(edge: number, point: XYZ): { point: XYZ; tangent: XYZ; parameter: number }
   /** A solid closed by a shell. */
   makeSolid(shell: number): number
   subShapeCount(shape: number, type: 'solid' | 'shell' | 'face' | 'edge'): number
@@ -89,7 +99,9 @@ export interface OcctLike {
   intersectWithHistory(a: number, b: number, faces: number[], upper: number): { result: number; modified: number[] }
   /** op 0 fuse, 1 cut, 2 common. */
   booleanOp(op: 0 | 1 | 2, args: number[], tools: number[], options: { fuzzyValue?: number; inputFaceHashes?: number[]; hashUpperBound?: number }): { result: number; modified: number[] }
-  filletWithHistory(solid: number, edges: number[], radius: number, faces: number[], upper: number): { result: number; modified: number[] }
+  /** `radius` one for every edge, or one per edge: a number or a radius
+   *  running from `start` at the edge's curve's start to `end`. */
+  filletWithHistory(solid: number, edges: number[], radius: FilletRadius | readonly FilletRadius[], faces: number[], upper: number): { result: number; modified: number[] }
   chamferWithHistory(solid: number, edges: number[], distance: number, faces: number[], upper: number): { result: number; modified: number[] }
   shellWithHistory(solid: number, removed: number[], thickness: number, tolerance: number, faces: number[], upper: number): { result: number; modified: number[] }
   mirrorWithHistory(shape: number, point: XYZ, normal: XYZ, faces: number[], upper: number): { result: number; modified: number[] }
@@ -99,7 +111,9 @@ export interface OcctLike {
   isNull(shape: number): boolean
   getVolume(shape: number): number
   getCenterOfMass(shape: number): XYZ
-  getBoundingBox(shape: number, useTriangulation?: boolean): {
+  /** `precise: false` bounds a curved face by its control net, not its
+   *  true extremes: larger, and far quicker on freeform faces. */
+  getBoundingBox(shape: number, options?: { precise?: boolean; useTriangulation?: boolean }): {
     xmin: number
     ymin: number
     zmin: number

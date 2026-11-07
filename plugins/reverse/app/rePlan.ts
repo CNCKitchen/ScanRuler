@@ -379,9 +379,10 @@ const warned = new WeakSet<ReverseSession>()
 let warnedBare = false
 
 /** What a change that added a feature answers while no plan is set — once
- *  a session; null otherwise. */
+ *  a session; null otherwise, and with no scan open: the plan's regions and
+ *  target are read off a scan, and a part drawn from a drawing has none. */
 export function planGate(s: ReverseSession | null): string | null {
-  if (usePlan.getState().plan) return null
+  if (usePlan.getState().plan || !useStore.getState().fileName) return null
   if (s ? warned.has(s) : warnedBare) return null
   if (s) warned.add(s)
   else warnedBare = true

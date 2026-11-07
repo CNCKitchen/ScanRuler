@@ -45,8 +45,10 @@ import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 export interface SourceFiles {
   /** `units` is what the bytes' coordinates are in — the mesh was read in
    *  millimetres from them, and is read the same way again from a project or
-   *  after a worker restart. Absent means millimetres. */
-  scan: { name: string; bytes: Uint8Array; units?: MeshUnits; companions?: ScanCompanion[] } | null
+   *  after a worker restart. Absent means millimetres. `scale` is the
+   *  factor the scan was scaled by to its true size (core/scanScale), read
+   *  into it on top of the units the same way; absent means 1. */
+  scan: { name: string; bytes: Uint8Array; units?: MeshUnits; scale?: number; companions?: ScanCompanion[] } | null
   reference: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
   image: { name: string; bytes: Uint8Array } | null
 }
@@ -219,6 +221,8 @@ function coreProject(
       member,
       ...(companions.length > 0 ? { companions } : {}),
       ...(sources.scan.units && sources.scan.units !== 'mm' ? { units: sources.scan.units } : {}),
+      ...(sources.scan.scale !== undefined && sources.scan.scale !== 1 ? { scale: sources.scan.scale } : {}),
+      ...(s.scanScale ? { scaled: s.scanScale } : {}),
       appliedAlignment: s.appliedAlignment ? rigidToJson(s.appliedAlignment) : null,
       elements: s.elements.map(elementToJson),
       dimensions: s.dimensions,
@@ -369,6 +373,8 @@ function scanPartState(p: ScanPart): Partial<ReturnType<typeof useStore.getState
     // see sectionCuts.
     sections: (p.sections ?? []).map(sectionFromJson),
     sectionDraft: null,
+    scaleDraft: null,
+    scanScale: p.scaled ?? null,
     nextSectionNumber: p.nextSectionNumber ?? 1,
   }
 }

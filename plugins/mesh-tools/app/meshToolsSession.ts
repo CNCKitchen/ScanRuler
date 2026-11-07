@@ -5,9 +5,12 @@
 // Reduce mesh makes something beside the scan: the scan reduced for CAD, which
 // lives in the scene where it moves with the scan through every alignment,
 // its deviation field in refs kept here because the hover reading reads it
-// too. So does Trim to scan: a body cut to fit the scan's break, the break
-// found and marked on the part to be put right by hand first. Remove islands,
-// Delete marked, Flip normals, Cut, Fill holes, Smooth, Shrink / expand,
+// too. It is a preview until applied, which makes it the edited copy. So is
+// Wrap's skin round the part, worked out in a worker of its own that Cancel
+// stops. Trim to
+// scan makes something beside the scan too: a body cut to fit the scan's break,
+// the break found and marked on the part to be put right by hand first. Remove islands,
+// Delete marked, Flip normals, Cut, Mirror, Fill holes, Smooth, Shrink / expand,
 // Boolean and Shell edit a copy of the scan: the first edit makes it, the worker hands back the
 // copy as it is to be, it is kept as a file and loaded beside the scan — the
 // worker's and the viewport's, which shows it in the scan's place while Mesh
@@ -49,6 +52,8 @@ import type { OfferedSolid, SolidMesh } from '../../../src/app/solids'
 import { booleanSolids, namesOf } from './booleanSolids'
 import { creaseSetting } from '../../../src/core/geometry/crease'
 import type { ReduceReport } from '../core/reduce'
+import { WrapCancelled, WrapClient } from '../core/wrapClient'
+import type { WrapReport } from '../core/wrap'
 import { boundLength } from '../../../src/app/useUnits'
 import type { DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
@@ -92,7 +97,11 @@ const lengthsOf = (units: DisplayUnits = 'mm') => boundLength(units)
 export interface EditLanded {
   edit: ScanEdit
   status: string
-  report: ScanEdited['report'] | { kind: 'pieces'; survey: { pieces: number; islands: number; islandTriangles: number } }
+  report:
+    | ScanEdited['report']
+    | { kind: 'pieces'; survey: { pieces: number; islands: number; islandTriangles: number } }
+    | { kind: 'reduce'; report: ReduceReport }
+    | { kind: 'wrap'; report: WrapReport }
 }
 
 /** A piece Trim to scan made: its report, and the body it was cut of. */
@@ -127,8 +136,17 @@ export function createMeshToolsSession({
   // with the scan.
   const reduceField: { current: Float32Array | null } = { current: null }
   const reduceRgb: { current: Uint8Array | null } = { current: null }
+  // The reduced mesh as Apply takes it, in the frame the scan was opened in:
+  // the scene's own moves with every alignment, and there is none without a
+  // viewport.
+  const reducedMesh: { current: { positions: Float32Array; indices: Uint32Array; vertexMap: Int32Array } | null } = { current: null }
   const copyField: { current: Float32Array | null } = { current: null }
   const copyRgb: { current: Uint8Array | null } = { current: null }
+  // The wrap on hand as Apply takes it — in the frame the scan was opened
+  // in, as the reduced mesh is kept — with the vertex count of the mesh it
+  // was made of, whose vertices it keeps none of.
+  const wrapped: { current: { positions: Float32Array; indices: Uint32Array; from: number } | null } = { current: null }
+  const wrapClient = new WrapClient()
 
   const tools = () => meshToolsOf(clientRef.current!)
 
@@ -142,6 +160,9 @@ export function createMeshToolsSession({
     const scanVersion = client.scanVersion
     const editedVersion = client.editedVersion
     const m = useMeshTools.getState()
+    // The frame the worker reduces in: an alignment applied after this waits
+    // behind the reduction there.
+    const alignment = useStore.getState().appliedAlignment
     m.begin()
     useStore.getState().setStatus('Reducing the scan…')
     try {
@@ -151,6 +172,9 @@ export function createMeshToolsSession({
       // reduced mesh through the scene like it reaches the scan.
       const result = await client.reduce(reduceSettingsOf(m))
       if (scanVersion !== client.scanVersion || editedVersion !== client.editedVersion) return null
+      const positions = result.positions.slice()
+      if (alignment) rigidApplyToPoints(rigidInvert(alignment), positions)
+      reducedMesh.current = { positions, indices: result.indices, vertexMap: result.vertexMap }
       meshSceneOf(sceneRef.current)?.setReducedMesh(result)
       reduceField.current = result.deviation
       reduceRgb.current = null
@@ -174,6 +198,123 @@ export function createMeshToolsSession({
 
   /** Reduce the scan as the panel says. True when a result landed. */
   const runReduce = async (units: DisplayUnits = 'mm'): Promise<boolean> => (await reduce(units)) !== null
+
+  /** Put the reduction on hand away: the mesh it was made of is shown again,
+   *  as it always stood. */
+  const discardReduction = () => {
+    meshSceneOf(sceneRef.current)?.setReducedMesh(null)
+    reducedMesh.current = null
+    reduceField.current = null
+    reduceRgb.current = null
+    useMeshTools.getState().dropResult()
+  }
+
+  // ---- Wrap ---------------------------------------------------------------------
+
+  /** Wrap the mesh as the panel says: a preview beside it, shown over it,
+   *  until it is applied. The report when one landed; null when it failed —
+   *  the store says why — was cancelled, or the mesh changed under it.
+   *  `tolerance` is how far the wrap's reduction may stray, mm — a command's;
+   *  the panel's is a sixteenth of the grid's cell. */
+  const wrap = async (units: DisplayUnits = 'mm', tolerance?: number): Promise<WrapReport | null> => {
+    const client = tools()
+    const scanVersion = client.scanVersion
+    const editedVersion = client.editedVersion
+    const m = useMeshTools.getState()
+    const settings = { gap: m.wrapGap, grow: m.wrapGrow, edges: m.wrapEdges, ...(tolerance !== undefined ? { tolerance } : {}) }
+    const alignment = useStore.getState().appliedAlignment
+    const changed = () => scanVersion !== client.scanVersion || editedVersion !== client.editedVersion
+    m.wrapBegin()
+    useStore.getState().setStatus('Wrapping…')
+    // The triangles first — the mesh worker answers in turn — then the
+    // volume before, measured there while the wrap is worked out in its own.
+    const triangles = client.triangles()
+    const before = client.describe().catch(() => null)
+    try {
+      const { positions, indices } = await triangles
+      const from = positions.length / 3
+      const result = await wrapClient.run(positions, indices, settings, (text) => {
+        useMeshTools.getState().wrapProgress(text)
+        useStore.getState().setStatus(text)
+      })
+      if (changed()) return null
+      const kept = result.positions.slice()
+      if (alignment) rigidApplyToPoints(rigidInvert(alignment), kept)
+      wrapped.current = { positions: kept, indices: result.indices, from }
+      meshSceneOf(sceneRef.current)?.setWrapMesh(result)
+      const figures = await before
+      useMeshTools.getState().wrapResolve({ report: result.report, volumeBefore: figures?.volume ?? null })
+      const r = result.report
+      const len = boundLength(units)
+      useStore.getState().setStatus(
+        `Wrapped — ${count(r.shells)} shell${r.shells === 1 ? '' : 's'}, ${count(r.triangles)} triangles, ` +
+          `${count(r.dropped)} of the ${count(r.inputTriangles)} triangles inside dropped` +
+          `${r.bridgedArea > 0 ? `, ${len.area(r.bridgedArea, 1)} bridging openings` : ''}. ${r.warning ? `${r.warning} ` : ''}A preview: Apply makes it the edited copy.`,
+      )
+      return r
+    } catch (e) {
+      if (changed()) return null
+      useMeshTools.getState().wrapFail(e instanceof WrapCancelled ? null : message(e))
+      useStore.getState().setStatus(e instanceof WrapCancelled ? 'Wrap cancelled.' : '')
+      return null
+    }
+  }
+
+  /** Stop the wrap being worked out; the one on hand, if any, stays. */
+  const cancelWrap = () => {
+    if (useMeshTools.getState().wrapStatus === 'running') wrapClient.cancel()
+  }
+
+  /** Put the wrap on hand away: the mesh it was made of is shown again. */
+  const discardWrap = () => {
+    meshSceneOf(sceneRef.current)?.setWrapMesh(null)
+    wrapped.current = null
+    useMeshTools.getState().dropWrap()
+  }
+
+  /** Make the wrap on hand the edited copy, as one step of the undo history:
+   *  Ctrl+Z puts the mesh it was made of back. */
+  const applyWrap = (run?: EditRun) => {
+    const made = wrapped.current
+    const w = useMeshTools.getState().wrapMade
+    if (!made || !w) {
+      useStore.getState().setError('There is no wrap to apply — wrap the mesh first.')
+      return Promise.resolve(null)
+    }
+    const r = w.report
+    const len = lengthsOf(run?.units)
+    return editCopy(
+      'Mesh Tools: apply the wrap',
+      'Applying the wrap…',
+      async () => {
+        // In the frame the scan now stands in, as an edit is handed over.
+        const positions = made.positions.slice()
+        const alignment = useStore.getState().appliedAlignment
+        if (alignment) rigidApplyToPoints(alignment, positions)
+        return {
+          positions,
+          indices: made.indices,
+          // None of the vertices before it is kept.
+          vertexMap: new Int32Array(made.from).fill(-1),
+          edit: {
+            kind: 'wrap',
+            gap: r.settings.gap,
+            grow: r.settings.grow,
+            edges: r.settings.edges,
+            shells: r.shells,
+            triangles: r.triangles,
+            dropped: r.dropped,
+            bridged: r.bridgedArea,
+          },
+          status:
+            `Applied the wrap — ${count(r.shells)} shell${r.shells === 1 ? '' : 's'}, ${count(r.triangles)} triangles, gaps under ${typedLen(r.settings.gap, len.units)} closed. ` +
+            'Use for analysis takes it into every workspace. Ctrl+Z puts the mesh back.',
+          report: { kind: 'wrap', report: r },
+        }
+      },
+      run,
+    )
+  }
 
   // ---- The edited copy --------------------------------------------------------
 
@@ -209,12 +350,10 @@ export function createMeshToolsSession({
     copyRgb.current = null
     // A marking was on the mesh that has gone.
     useMark.getState().reset()
-    if (useMeshTools.getState().report) {
-      meshSceneOf(scene)?.setReducedMesh(null)
-      reduceField.current = null
-      reduceRgb.current = null
-      useMeshTools.getState().dropResult()
-    }
+    if (useMeshTools.getState().report) discardReduction()
+    // So was a wrap made of it, or being made.
+    cancelWrap()
+    if (useMeshTools.getState().wrapMade) discardWrap()
     // So was the break a piece was cut to.
     if (useMeshTools.getState().trimMade) {
       meshSceneOf(scene)?.setTrimmedPiece(null)
@@ -342,6 +481,42 @@ export function createMeshToolsSession({
     return gone
   }
 
+  // ---- A reduction applied ----------------------------------------------------------
+
+  /** Make the reduced mesh on hand the edited copy, as one step of the undo
+   *  history: from there it goes for analysis like any other edit, and Ctrl+Z
+   *  puts the mesh it was made of back. */
+  const applyReduction = (run?: EditRun) => {
+    const reduced = reducedMesh.current
+    const r = useMeshTools.getState().report
+    if (!reduced || !r) {
+      useStore.getState().setError('There is no reduced mesh to apply — reduce the mesh first.')
+      return Promise.resolve(null)
+    }
+    const len = lengthsOf(run?.units)
+    return editCopy(
+      'Mesh Tools: apply the reduction',
+      'Applying the reduction…',
+      async () => {
+        // In the frame the scan now stands in, as an edit is handed over.
+        const positions = reduced.positions.slice()
+        const alignment = useStore.getState().appliedAlignment
+        if (alignment) rigidApplyToPoints(alignment, positions)
+        return {
+          positions,
+          indices: reduced.indices,
+          vertexMap: reduced.vertexMap,
+          edit: { kind: 'reduce', tolerance: r.settings.tolerance, held: r.held, p999: r.p999, triangles: r.inputTriangles - r.triangles },
+          status:
+            `Applied the reduction — ${count(r.triangles)} triangles from ${count(r.inputTriangles)}, 99.9 % within ±${r.held ? typedLen(r.settings.tolerance, len.units) : len.fmt(r.p999, 3)}. ` +
+            'Use for analysis takes it into every workspace. Ctrl+Z puts the mesh back.',
+          report: { kind: 'reduce', report: r },
+        }
+      },
+      run,
+    )
+  }
+
   // ---- Remove islands ---------------------------------------------------------------
 
   /** Delete the islands smaller than the panel's size — called once the
@@ -443,10 +618,10 @@ export function createMeshToolsSession({
   const cutScan = async (run?: EditRun): Promise<EditLanded | null> => {
     const m = useMeshTools.getState()
     const s = useStore.getState()
-    const plane = cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, s.elements, s.modelCenter)
+    const plane = cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, s.elements, s.modelCenter, undefined, 2 * s.modelSize)
     // The list keeps the plane as it was named in mm; the status names it in
     // the units the run asked for.
-    const shown = run?.units ? cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, s.elements, s.modelCenter, run.units) : plane
+    const shown = run?.units ? cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, s.elements, s.modelCenter, run.units, 2 * s.modelSize) : plane
     if (!plane || !shown) {
       s.setError('Choose what to cut across — a coordinate plane, or an element with a direction.')
       return null
@@ -470,6 +645,41 @@ export function createMeshToolsSession({
         return {
           edit: { kind: 'cut', plane: plane.label, removed: c.removed, capped: c.capped, open: c.open },
           status: `Cut at ${shown.label} — ${count(c.removed)} triangles off${closed}${bridged}${open}. Ctrl+Z puts them back.`,
+        }
+      },
+      run,
+    )
+  }
+
+  /** Mirror the scan across the plane the panel shows — the whole of it, or
+   *  the side kept reflected onto the other. */
+  const mirrorScan = async (run?: EditRun): Promise<EditLanded | null> => {
+    const m = useMeshTools.getState()
+    const s = useStore.getState()
+    const { mirrorMode: mode } = m
+    const planeIn = (units?: EditRun['units']) =>
+      cutPlaneOf(m.mirrorRef, m.mirrorOffset, m.mirrorOffsetAuto, m.mirrorKeep, s.elements, s.modelCenter, units, 2 * s.modelSize)
+    // The list keeps the plane as it was named in mm; the status names it in
+    // the units the run asked for.
+    const plane = planeIn()
+    const shown = run?.units ? planeIn(run.units) : plane
+    if (!plane || !shown) {
+      s.setError('Choose what to mirror across — a coordinate plane, or an element with a direction.')
+      return null
+    }
+    return workerEdit(
+      mode === 'whole' ? 'Mesh Tools: mirror' : 'Mesh Tools: make symmetric',
+      mode === 'whole' ? 'Mirroring the scan…' : 'Making the scan symmetric…',
+      () => ({ type: 'mirror', origin: plane.frame.origin, normal: plane.frame.normal, mode }),
+      (r) => {
+        const x = r.kind === 'mirror' ? r.report : { mode, mirrored: 0, removed: 0, split: 0, inPlane: 0 }
+        const flat = x.inPlane > 0 ? `, dropping ${count(x.inPlane)} triangle${x.inPlane === 1 ? '' : 's'} that lay in the plane` : ''
+        return {
+          edit: { kind: 'mirror', mode, plane: plane.label, triangles: x.mirrored },
+          status:
+            mode === 'whole'
+              ? `Mirrored the part across ${shown.label} — ${count(x.mirrored)} triangles. Ctrl+Z puts it back.`
+              : `Made the part symmetric about ${shown.label} — the side kept mirrored onto the other, ${count(x.mirrored)} triangles each side${flat}. Ctrl+Z puts it back.`,
         }
       },
       run,
@@ -757,8 +967,11 @@ export function createMeshToolsSession({
       // again, or lets it go when it cannot be.
       onScan({
         loaded: (scan) => {
+          reducedMesh.current = null
           reduceField.current = null
           reduceRgb.current = null
+          wrapped.current = null
+          cancelWrap()
           useMeshTools.getState().clear()
           // The worker and the viewport let a copy of the last scan go with it.
           editedCopy.current = null
@@ -771,9 +984,14 @@ export function createMeshToolsSession({
           copyField.current = null
           copyRgb.current = null
           useMeshTools.getState().setCopy(null)
+          reducedMesh.current = null
           reduceField.current = null
           reduceRgb.current = null
           useMeshTools.getState().setSurvey(null)
+          // The scene let a wrap of it go with it.
+          wrapped.current = null
+          cancelWrap()
+          if (useMeshTools.getState().wrapMade) useMeshTools.getState().dropWrap()
           // The scene let a piece cut to it go with it.
           if (useMeshTools.getState().trimMade) useMeshTools.getState().dropTrim()
         },
@@ -805,7 +1023,10 @@ export function createMeshToolsSession({
         },
       }),
     ]
-    return () => stops.forEach((stop) => stop())
+    return () => {
+      stops.forEach((stop) => stop())
+      wrapClient.dispose()
+    }
   }
 
   return {
@@ -817,6 +1038,12 @@ export function createMeshToolsSession({
     copyRgb,
     reduce,
     runReduce,
+    discardReduction,
+    applyReduction,
+    wrap,
+    cancelWrap,
+    discardWrap,
+    applyWrap,
     setEditedCopy,
     adoptEditedCopy,
     discardEditedCopy,
@@ -824,6 +1051,7 @@ export function createMeshToolsSession({
     deleteMarked,
     flipScan,
     cutScan,
+    mirrorScan,
     fillScanHoles,
     smoothScan,
     offsetScan,

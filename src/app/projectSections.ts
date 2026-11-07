@@ -63,6 +63,12 @@ export interface ProjectSection<J = unknown> {
    *  readout and a refusal to replace it to name; a count of none is left
    *  out. */
   holds?(): Record<string, number>
+  /** What of the section's work a scale of the scan would leave behind at
+   *  the old size, each in words ("3 features") — empty when everything it
+   *  holds scales with the scan, or rides on the scan's file. Left out,
+   *  everything `holds` counts (or `holdsWork` says) is taken to stay
+   *  behind, and Scale part refuses while it is there (app/partScale). */
+  scaleHolds?(): string[]
   /** Unfinished work in the section's editors, which is not saved but is
    *  worth a warning before the page is left. */
   hasDraft?(): boolean

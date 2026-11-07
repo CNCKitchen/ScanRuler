@@ -1,7 +1,7 @@
 {
   "name": "scanruler",
   "private": true,
-  "version": "0.9.4",
+  "version": "0.9.6",
   "type": "module",
   "license": "AGPL-3.0-only",
   "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
@@ -78,7 +78,7 @@
     "manifold-3d": "3.2.1",
     "meshoptimizer": "1.2.0",
     "meshstep": "0.1.1",
-    "occt-wasm": "5.7.1",
+    "occt-wasm": "5.15.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "three": "^0.180.0",

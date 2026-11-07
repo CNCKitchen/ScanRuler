@@ -71,6 +71,7 @@ describe('a stroke laid while the tree is out', () => {
       invalidate: () => {},
       wake: () => {},
       claimDrag: () => {},
+      navigates: () => false,
       requestHover: () => {},
       onPaintChange: (count) => reports.push(count),
     })

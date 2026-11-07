@@ -15,6 +15,8 @@
 // over one, it is the viewport that opened last, which is the one about to be
 // worked in. A viewport that is paused, hidden or closed lets go, and the next
 // one in view that asks takes it.
+// Only the focused, visible page reads motion; other app windows and CAD
+// applications must not move this page's camera in the background.
 //
 // Nothing is read until the browser reports a matching device, which it only
 // does once the puck or a button has been touched on this page. For everyone
@@ -144,11 +146,21 @@ const changed = (): void => {
   for (const fn of watchers) fn()
 }
 
+const resetMotionClock = (): void => {
+  lastRead = performance.now()
+  lastActive = -Infinity
+}
+
+const pageActive = (): boolean => document.visibilityState === 'visible' && document.hasFocus()
+
 /** Start watching for a puck. Called by every viewport; only the first call
  *  does anything. */
 export function listenForSpaceMouse(): void {
   if (listening || typeof window === 'undefined' || !('getGamepads' in navigator)) return
   listening = true
+  window.addEventListener('blur', resetMotionClock)
+  window.addEventListener('focus', resetMotionClock)
+  document.addEventListener('visibilitychange', resetMotionClock)
   const attach = (gp: Gamepad | null): void => {
     if (index !== -1 || !gp?.connected || !isSpaceMouse(gp.id)) return
     index = gp.index
@@ -193,6 +205,10 @@ export function releaseSpaceMouse(owner: object): void {
  * cannot keep it.
  */
 export function readSpaceMouse(owner: object, showing: boolean): SpaceMouseMotion | null {
+  if (!pageActive()) {
+    resetMotionClock()
+    return null
+  }
   if (!showing) {
     releaseSpaceMouse(owner)
     return null
@@ -225,5 +241,5 @@ export function readSpaceMouse(owner: object, showing: boolean): SpaceMouseMotio
  *  cursor on top of the puck's own makes the view jump, so the wheel is
  *  ignored meanwhile. Never true without a puck. */
 export function spaceMouseBusy(): boolean {
-  return performance.now() - lastActive < 100
+  return pageActive() && performance.now() - lastActive < 100
 }

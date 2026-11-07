@@ -270,6 +270,23 @@ describe('the boxes at the store', () => {
     expect([d.mode, d.variable?.length]).toEqual(['variable', 1])
   })
 
+  it('starts an edge picked where a listed one ends at that one’s radius there', () => {
+    const re = useReverse.getState
+    const at = (hash: number, a: [number, number, number], b: [number, number, number]): EdgeInfo => ({ ...edge(hash), ends: [a, b] })
+    re().startFeature('fillet', { body: 2, edges: [at(11, [0, 0, 10], [10, 0, 10])], radius: 2 })
+    let d = re().featureDraft as Extract<NonNullable<ReturnType<typeof re>['featureDraft']>, { kind: 'fillet' }>
+    re().setFeatureDraft(filletModeSwitch(d, 'variable'))
+    d = re().featureDraft as typeof d
+    re().setFeatureDraft({ variable: [{ ...d.variable![0], radius: [1, 3] }] })
+    // On from its end, back to its start, and one apart: the radius where
+    // each meets a listed edge, at both its ends; the last's apart.
+    re().toggleDraftEdge(2, at(12, [10, 0, 10], [10, 10, 10]))
+    re().toggleDraftEdge(2, at(13, [0, 10, 10], [0, 0, 10]))
+    re().toggleDraftEdge(2, at(14, [50, 0, 0], [60, 0, 0]))
+    d = re().featureDraft as typeof d
+    expect(d.variable?.map((v) => [v.edge.hash, v.radius])).toEqual([[11, [1, 3]], [12, [3, 3]], [13, [1, 1]], [14, [1, 1]]])
+  })
+
   it('keeps a chamfer’s second number for its mode alone, and flips it only with one', () => {
     const re = useReverse.getState
     re().startFeature('chamfer', { body: 2, edges: [edge(11)] })

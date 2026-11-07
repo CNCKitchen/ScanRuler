@@ -209,6 +209,13 @@ describe('warned of what was likely meant otherwise', () => {
     expect(curveMoved({ kind: 'line', id: 1, a: [0, 0], b: [10, 0] } as never, { kind: 'line', id: 1, a: [0, 3], b: [10, 0] } as never)).toBeCloseTo(3)
     expect(curveMoved({ kind: 'arc', id: 1, c: [0, 0], r: 5, start: 0, sweep: 1 } as never, { kind: 'arc', id: 1, c: [0, 0], r: 5, start: 0.3, sweep: 0.5 } as never)).toBeCloseTo(0)
     expect(curveMoved({ kind: 'arc', id: 1, c: [0, 0], r: 5, start: 0, sweep: 1 } as never, { kind: 'arc', id: 1, c: [3, 0], r: 6, start: 0, sweep: 1 } as never)).toBeCloseTo(4)
+    // A near-flat arc opened up from R115.6 to R119.9 through the same ends:
+    // the centre travels 4.3 mm, the curve under 0.05.
+    const flat = (r: number) => {
+      const half = Math.asin(10 / r)
+      return { kind: 'arc', id: 1, c: [0, -Math.sqrt(r * r - 100)], r, start: Math.PI / 2 - half, sweep: 2 * half } as never
+    }
+    expect(curveMoved(flat(115.6), flat(119.9))).toBeLessThan(0.05)
   })
 
   it('a piece moved far by what an edit added', async () => {

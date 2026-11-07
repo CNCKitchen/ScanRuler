@@ -18,7 +18,7 @@ import { ReKernel } from '../core/kernel'
 import { addEntity, addRectangle, arcThrough, emptySketch, type Sketch } from '../core/sketch'
 import { nearMissFix, sketchNearMisses } from '../core/sketchNearMiss'
 import { stepPairs } from '../core/stepsBetween'
-import { stepsAnswer, stepsWarning, withStepsSaid } from '../core/stepWords'
+import { stepLines, stepsAnswer, stepsWarning, withStepsSaid } from '../core/stepWords'
 import { build, extrudeAll, XY } from './reKit'
 
 const kernelPromise = ReKernel.load()
@@ -42,6 +42,10 @@ function onXZ(id: number, name: string, draw: (s: Sketch) => void): SketchFeatur
 const named = (f: ExtrudeFeature, name: string): ExtrudeFeature => ({ ...f, name })
 
 const resultOf = (results: readonly FeatureResult[], id: number) => results.find((r) => r.id === id)!
+
+/** Lengths as the page shows them in millimetres, for stepLines. */
+const places = (mm: number, p: number) => String(Math.round(mm * 10 ** p) / 10 ** p)
+const SHOW = { len: (mm: number, p: number) => `${places(mm, p)} mm`, bare: places }
 
 /** Two plans 0.07 mm apart: Upper's x 10.91 wall from z 0 to 4.35, Wing's
  *  x 10.98 wall from there to z 5.2 — the same wall, fitted twice. */
@@ -70,7 +74,10 @@ describe('steps between features, said at the join', () => {
     // On the row, after what the build warned of; and in the answer.
     const said = withStepsSaid(r.results, features)
     expect(resultOf(said, 4).warning).toBe(words)
+    expect(resultOf(said, 4).ownWarning).toBeUndefined()
     expect(resultOf(r.results, 4).warning).toBeUndefined()
+    // In the join's box, short, the agent's sentence on hover.
+    expect(stepLines(steps, features, SHOW)).toEqual({ lines: [{ text: "Wing's wall stands 0.07 mm off Upper's (x 10.91) — one wall drawn twice.", full: words.replace(/^A step between features: /, '') }], more: 0, hairs: 0 })
     const answer = stepsAnswer(steps, features)
     expect(answer.stepsBetweenFound).toBeUndefined()
     expect(answer.stepsBetween).toEqual([
@@ -132,6 +139,12 @@ describe('steps between features, said at the join', () => {
     const foot = resultOf(r.results, 4).stepsBetween!.find((s) => s.form === 'foot')!
     expect(foot).toBeDefined()
     expect(foot.off).toBeCloseTo(0.1, 6)
+    // A round starting off the face at both its ends is one line in the
+    // box, with both places.
+    const otherEnd = { ...foot, faces: foot.faces.map((f) => (f.kind === 'plane' ? { ...f, centroid: [f.centroid[0], f.centroid[1], 7] as Vec3 } : f)) as typeof foot.faces }
+    const both = stepLines([foot, otherEnd], features, SHOW)
+    expect(both.lines.map((l) => l.text)).toEqual([expect.stringMatching(/^Ridge \(R[\d.]+\) starts 0\.1 mm off Deck \(z 5, z 7\) — end it on the face, or clearly off it\.$/)])
+    expect(both.lines[0].full.split('\n')).toHaveLength(2)
     expect(stepsWarning([foot], features)).toMatch(/^A step between features: Ridge's round \(R[\d.]+, arc \d+ of Ridge profile\) starts 0\.1 mm off Deck's face \(z 5\): a profile that nearly starts on that face — hold its end on the face \(project the face’s edge into Ridge profile and put the end on it\), or let it start clearly off it\.$/)
 
     // A rod lying on the deck, R2, its axis 1.95 above the top: it dips
@@ -164,6 +177,29 @@ describe('near misses between sketches, at the sketch', () => {
     // A plane that is not parallel is not compared.
     const side: SketchFeature = { ...wing, frame: XZ }
     expect(sketchNearMisses(side, [upper, side]).found).toBe(0)
+  })
+
+  it('compares only planes the extrudes can bring together', () => {
+    // Upper extruded 0 to 4.35 meets the wing's plane at 4.35.
+    const { upper, wing, features } = twoPlans()
+    expect(sketchNearMisses(wing, [upper, wing], features).found).toBe(1)
+    // A slot drawn the same on the far end of the part, 117 mm away, with
+    // the near one extruded 0.45 out and the far one not extruded yet.
+    const slot = (s: Sketch) => addRectangle(s, [0, 0], [10.88, 2.67])
+    const near = plan(1, 'Buttons', 0, slot)
+    const far = plan(3, 'USB-C', -117.3, (s) => addRectangle(s, [0, 0], [10.9, 2.67]))
+    const made: Feature[] = [near, named(extrudeAll(2, near, 0, 0.45, 'join'), 'Buttons out'), far]
+    expect(sketchNearMisses(far, [near, far]).found).toBe(1)
+    expect(sketchNearMisses(far, [near, far], made).found).toBe(0)
+    // With nothing built on it yet, a sketch is its plane alone: 15 mm
+    // off, it is not compared — a glass outline just drawn above a barrel
+    // extruded ±4.5. Its own extrude, once there, brings it near.
+    const close = plan(3, 'Close', -15, (s) => addRectangle(s, [0, 0], [10.9, 2.67]))
+    expect(sketchNearMisses(close, [near, close], [near, made[1], close]).found).toBe(0)
+    expect(sketchNearMisses(close, [near, close], [near, made[1], close, named(extrudeAll(4, close, 0, 15), 'Close out')]).found).toBe(1)
+    // Revolved, it is taken to reach 20 mm.
+    const revolve = { id: 4, kind: 'revolve', name: 'Turned', sketchId: 3, visible: true } as unknown as Feature
+    expect(sketchNearMisses(close, [near, close], [near, made[1], close, revolve]).found).toBe(1)
   })
 
   it('names a round drawn twice, and leaves a construction piece out', () => {

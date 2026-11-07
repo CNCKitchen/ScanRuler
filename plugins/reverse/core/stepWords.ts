@@ -4,7 +4,8 @@
 // in the words of the commands that make it — a level fitted into the
 // other sketch, or the other sketch's piece projected. The build finds the
 // steps; the page, which holds the features and their sketches, says them
-// on the join's row and in the answer of the change that made it.
+// in the join's warning and in the answer of the change that made it — and
+// for the person, a short line each in the join's box (stepLines).
 
 import type { Vec3 } from '../../../src/core/types'
 import { traceFace, type FaceTrace } from './audit'
@@ -112,6 +113,83 @@ export function stepsWarning(steps: readonly StepBetween[], features: readonly F
   return `${lead} ${said.join(' ')}${rest}`
 }
 
+/** A length as the page shows it, in the units shown, to `places` decimals
+ *  of a millimetre — with its unit (`len`) or without (`bare`). */
+export interface ShowLength {
+  len: (mm: number, places: number) => string
+  bare: (mm: number, places: number) => string
+}
+
+/** One line of a feature's box: what it says, and the sentences the agent
+ *  gets for the steps it stands for (stepSentence), for its hover. */
+export interface StepLine {
+  text: string
+  full: string
+}
+
+/** How many lines the feature's box lists — the rest counted. */
+const STEP_LINES = 5
+
+/** A join's steps as the feature's box lists them, for the person: a short
+ *  line each — who stands off whom, by how much, where, and the fix in a
+ *  few words. Steps alike but for where (a round starting off a face at
+ *  both its ends) are one line with every place; the sketch pieces and the
+ *  commands are the hover's. `more`: steps past the lines, and how many of
+ *  them are hairlines. */
+export function stepLines(steps: readonly StepBetween[], features: readonly Feature[], show: ShowLength): { lines: StepLine[]; more: number; hairs: number } {
+  const offOf = (x: number) => show.len(x, x >= 0.01 ? 3 : 5)
+  const radius = (r: number | undefined) => (r !== undefined ? ` (R${show.bare(r, 2)})` : '')
+  // A flat face square to an axis by its coordinate; any other by nothing.
+  const placeIn = (fp: FaceFingerprint) => {
+    if (fp.kind === 'plane') for (let k = 0; k < 3; k++) if (Math.abs(fp.dir[k]) > SQUARE) return `${AXES[k]} ${show.bare(fp.centroid[k], 2)}`
+    return null
+  }
+  const groups = new Map<string, { places: string[]; steps: StepBetween[] }>()
+  for (const s of steps) {
+    const [fa, fb] = s.faces
+    const ta = traceFace(features, fa), tb = traceFace(features, fb)
+    const off = offOf(s.off)
+    let line: string
+    let place: string | null = null
+    if (s.form === 'round') {
+      const [ra, rb] = s.radii ?? [fa.radius, fb.radius]
+      line = `${makerOf(ta, fa)}${radius(ra)} runs ${off} off ${makerOf(tb, fb)}${radius(rb)} — one round drawn twice`
+    } else if (s.form === 'foot' || s.form === 'tangent') {
+      const roundFirst = fa.kind === 'cylinder'
+      const [tr, fr, tp, fpl] = roundFirst ? [ta, fa, tb, fb] : [tb, fb, ta, fa]
+      const round = `${makerOf(tr, fr)}${radius(fr.radius)}`
+      place = placeIn(fpl)
+      const face = `${makerOf(tp, fpl)}{at}`
+      line =
+        s.form === 'foot'
+          ? `${round} starts ${off} off ${face} — end it on the face, or clearly off it`
+          : s.creaseDeg !== undefined
+            ? `${round} dips ${off} into ${face} at ${Math.round(s.creaseDeg * 10) / 10}° — make it tangent, or let it cross clearly`
+            : `${round} stops ${off} short of ${face} — make it tangent, or let it cross clearly`
+    } else {
+      place = placeIn(fb)
+      const a = makerOf(ta, fa), b = makerOf(tb, fb)
+      line =
+        ta?.role === 'wall' && tb?.role === 'wall'
+          ? `${a}'s wall stands ${off} off ${b}'s{at} — one wall drawn twice`
+          : ta?.role === 'cap' && tb?.role === 'cap'
+            ? `${a}'s end face lies ${off} off ${b}'s{at} — one height given twice`
+            : `${a}'s face lies ${off} off ${b}'s{at} — two faces meant as one`
+    }
+    const g = groups.get(line) ?? { places: [], steps: [] }
+    if (place && !g.places.includes(place)) g.places.push(place)
+    g.steps.push(s)
+    groups.set(line, g)
+  }
+  const all = [...groups]
+  const lines = all.slice(0, STEP_LINES).map(([line, g]) => ({
+    text: `${line.replace('{at}', g.places.length > 0 ? ` (${g.places.join(', ')})` : '')}.`,
+    full: g.steps.map((s) => `${stepSentence(s, features)}.`).join('\n'),
+  }))
+  const unlisted = all.slice(STEP_LINES).flatMap(([, g]) => g.steps)
+  return { lines, more: unlisted.length, hairs: unlisted.filter((s) => s.off < HAIR_MM).length }
+}
+
 /** A face of a step as an answer names it. */
 function faceOut(fp: FaceFingerprint, t: FaceTrace | null) {
   return {
@@ -140,8 +218,11 @@ export function stepsAnswer(steps: readonly StepBetween[] | undefined, features:
   return { stepsBetween: listed, ...(steps.length > STEPS_LISTED ? { stepsBetweenFound: steps.length } : {}) }
 }
 
-/** A build's results with each join's steps said on its row's warning,
- *  after what the build itself warned of. */
+/** A build's results with each join's steps said in its warning, after
+ *  what the build itself warned of — which is kept apart as well, for the
+ *  feature's box to list the steps its own way (stepLines). */
 export function withStepsSaid(results: readonly FeatureResult[], features: readonly Feature[]): FeatureResult[] {
-  return results.map((r) => (r.status === 'ok' && r.stepsBetween?.length ? { ...r, warning: [r.warning, stepsWarning(r.stepsBetween, features)].filter(Boolean).join(' ') } : r))
+  return results.map((r) =>
+    r.status === 'ok' && r.stepsBetween?.length ? { ...r, ...(r.warning ? { ownWarning: r.warning } : {}), warning: [r.warning, stepsWarning(r.stepsBetween, features)].filter(Boolean).join(' ') } : r,
+  )
 }
