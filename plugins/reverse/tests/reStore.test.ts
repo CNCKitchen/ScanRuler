@@ -112,6 +112,30 @@ describe('feature undo', () => {
     expect(s().features[0].visible).toBe(true)
   })
 
+  it('hides a sketch an edit takes on — a station added to a loft, an extrude moved onto another sketch — as a new feature’s', () => {
+    const a = finishSquare(), b = finishSquare(20)
+    s().startFeature('loft', { sketches: [a, b] })
+    const loft = s().commitFeature()!
+    expect(s().features.filter((f) => f.kind === 'sketch').map((f) => f.visible)).toEqual([false, false])
+    // A station drawn after, shown as it is drawn, taken into the loft.
+    const c = finishSquare(30)
+    s().toggleFeatureVisible(a)
+    s().editFeature(loft)
+    s().setFeatureDraft({ sketches: [a, b, c] })
+    s().commitFeature()
+    const shown = () => Object.fromEntries(s().features.filter((f) => f.kind === 'sketch').map((f) => [f.id, f.visible]))
+    // The one it had all along, shown by the person, stays shown.
+    expect(shown()).toEqual({ [a]: true, [b]: false, [c]: false })
+    // An extrude moved onto another sketch: that one is put away.
+    const d = finishSquare(40)
+    s().startExtrude(a)
+    const eid = s().commitExtrude()!
+    s().editExtrude(eid)
+    s().setExtrude({ sketchId: d })
+    s().commitExtrude()
+    expect(shown()[d]).toBe(false)
+  })
+
   it('closes an open feature editor rather than leaving it on a list that changed under it', () => {
     const id = finishSquare()
     s().startExtrude(id)

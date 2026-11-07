@@ -236,6 +236,12 @@ describe('notes on the part, read and answered by the agent', () => {
     const byPoint = await run<{ note: NoteOut }>('reverse.note.add', { text: 'A boss here?', at: [4, 4, 5.2] })
     expect(byPoint.note.on[0]).toMatchObject({ face: { index: top.index } })
     expect(byPoint.note.at[2]).toBeCloseTo(5, 6)
+    // No scan to pin it on: a point in the air near the top (a hole's mouth)
+    // goes on the face, saying how far.
+    const inMouth = await run<{ note: NoteOut; movedMm?: number }>('reverse.note.add', { text: 'Ø8 or Ø4?', at: [4, 4, 6.1] })
+    expect(inMouth.note.on[0]).toMatchObject({ face: { index: top.index } })
+    expect(inMouth.movedMm).toBeCloseTo(1.1, 3)
+    useNotes.getState().removeNote(inMouth.note.id)
     // Nowhere: no body near, and no scan.
     await expect(run('reverse.note.add', { text: 'Out here?', at: [100, 100, 100] })).rejects.toThrow(/invalid_input.*no scan/)
     await expect(run('reverse.note.add', { text: 'Which?', faces: [0] })).rejects.toThrow(/name it \(body\)/)

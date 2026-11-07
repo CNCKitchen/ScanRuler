@@ -24,6 +24,7 @@ import { MIN_LOCAL_POINTS } from '../core/deviation/align'
 import type { Vec3 } from '../core/types'
 import { FitButton } from './FitButton'
 import { BrushNumber, BrushSlider } from './MarkTools'
+import { modLabel } from './platform'
 import { useLength } from '../app/useUnits'
 
 /** Below this the picked points are effectively on one line. */
@@ -85,6 +86,7 @@ function Half({
   const markGesture = useMark((s) => s.gesture)
   const markErase = useMark((s) => s.erase)
   const markBackfaces = useMark((s) => s.backfaces)
+  const markStraight = useMark((s) => s.straight)
   const brushDiameter = useMark((s) => s.diameter)
   const marks = channel !== undefined
 
@@ -132,8 +134,9 @@ function Half({
       erase: markErase,
       gesture: markGesture,
       backfaces: markBackfaces,
+      straight: markStraight,
     })
-  }, [marks, brushDiameter, markErase, markGesture, markBackfaces])
+  }, [marks, brushDiameter, markErase, markGesture, markBackfaces, markStraight])
 
   // Inverting the selection is done through this half while the picker is
   // open — the main viewport stands aside, as it does for every gesture.
@@ -192,6 +195,17 @@ function PickTools({ onClear }: { onClear: () => void }) {
           <BrushSlider diameter={m.diameter} setDiameter={m.setDiameter} brush={brush} />
         </label>
       )}
+      {m.gesture === 'brush' && (
+        <button
+          className={m.straight ? 'on' : ''}
+          data-test="pick-straight"
+          aria-pressed={m.straight}
+          title={`Each drag is a straight line from press to release — ${modLabel}-drag inverts this for one drag`}
+          onClick={() => m.setStraight(!m.straight)}
+        >
+          Straight
+        </button>
+      )}
       {m.gesture !== null && (
         <>
           <button
@@ -208,7 +222,7 @@ function PickTools({ onClear }: { onClear: () => void }) {
             className={m.backfaces ? 'on' : ''}
             data-test="pick-backfaces"
             aria-pressed={m.backfaces}
-            title="Take surface facing away from you as well — off, a window cannot quietly select the far wall of a closed part"
+            title="Go through the part: take surface facing away from you and surface hidden behind nearer surface as well — off, a window or lasso takes only what you can see"
             onClick={() => m.setBackfaces(!m.backfaces)}
           >
             ⧉ Through

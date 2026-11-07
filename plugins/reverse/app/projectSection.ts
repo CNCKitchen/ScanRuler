@@ -165,7 +165,7 @@ export function validateReversePart(raw: unknown): ReversePart {
   const r = object(raw, 'reverse')
   fields(r, 'nextFeatureId', 'number', 'reverse')
   if (r.version !== undefined && (typeof r.version !== 'number' || !Number.isFinite(r.version))) invalid('reverse.version')
-  object(r.nextOfKind, 'reverse.nextOfKind')
+  for (const n of Object.values(object(r.nextOfKind, 'reverse.nextOfKind'))) if (!Number.isSafeInteger(n)) invalid('reverse.nextOfKind')
   entries(r.features, 'reverse.features', validateFeatureJson)
   if (r.rolledTo !== undefined && (!Number.isSafeInteger(r.rolledTo) || (r.rolledTo as number) < 0 || (r.rolledTo as number) > (r.features as unknown[]).length)) invalid('reverse.rolledTo')
   if (r.parameters !== undefined) {
@@ -209,6 +209,12 @@ function importedKeys(features: readonly Feature[]): string[] {
   return [...new Set(features.flatMap((f) => (f.kind === 'import' ? [f.file.key] : [])))]
 }
 
+/** The STEP member's bytes as last encoded, by their text. The snapshot that
+ *  tells a saved project from a changed one keys members by the identity of
+ *  their bytes, so the same texts must come back the same bytes, or the
+ *  project never reads as saved and every checkpoint writes them again. */
+let stepBytes: { json: string; bytes: Uint8Array } | null = null
+
 /** The workspace as the file is to hold it, or undefined with no feature —
  *  with `ctx`, the STEP files its Imports name put into the archive
  *  beside it. */
@@ -217,9 +223,13 @@ export function collectReversePart(ctx?: Pick<CollectContext, 'addMember'>): Rev
   const all = [...re.features, ...re.rolledBack]
   if (all.length === 0) return undefined
   const keys = importedKeys(all)
-  const texts = Object.fromEntries(keys.flatMap((k) => (re.stepFiles[k] !== undefined ? [[k, re.stepFiles[k]]] : [])))
+  const texts = Object.fromEntries(keys.flatMap((k) => (Object.hasOwn(re.stepFiles, k) ? [[k, re.stepFiles[k]]] : [])))
   const steps = ctx && Object.keys(texts).length > 0
-  if (steps) ctx.addMember(STEP_MEMBER, strToU8(JSON.stringify(texts)))
+  if (steps) {
+    const json = JSON.stringify(texts)
+    if (stepBytes?.json !== json) stepBytes = { json, bytes: strToU8(json) }
+    ctx.addMember(STEP_MEMBER, stepBytes.bytes)
+  }
   // A playback moves the bar for the camera: the file has it where it stood.
   const rolledTo = re.playback?.origin ?? re.features.length
   // The lasting set: bodies a failed build or a rollback lacks now too.
@@ -294,7 +304,7 @@ function renameBody<T>(value: T, from: number, to: number): T {
     Object.entries(value).map(([k, v]) => {
       if (k === 'sketch') return [k, v]
       if (BODY_KEYS.has(k) && v === from) return [k, to]
-      if (k === 'bodies' && Array.isArray(v)) return [k, v.map((b) => (b === from ? to : b))]
+      if ((k === 'bodies' || k === 'tool') && Array.isArray(v)) return [k, v.map((b) => (b === from ? to : b))]
       return [k, renameBody(v, from, to)]
     }),
   ) as T
@@ -316,6 +326,14 @@ export function migrateFeatures(features: readonly Feature[], version: number): 
   return out
 }
 
+/** The next id to give, from the one a file holds: past every id already
+ *  taken whatever the file says, so a hand-edited or hostile counter cannot
+ *  hand out an id twice and make one removal take two features. */
+function nextIdPast(given: number | undefined, taken: readonly number[]): number {
+  const past = taken.reduce((m, id) => (Number.isFinite(id) ? Math.max(m, Math.floor(id) + 1) : m), 1)
+  return given !== undefined && Number.isSafeInteger(given) && given > past ? given : past
+}
+
 /** The features as the store holds them, split at the rollback bar. */
 function reversePartState(p: ReversePart | undefined, ctx?: RestoreContext) {
   if (!p) return null
@@ -326,10 +344,10 @@ function reversePartState(p: ReversePart | undefined, ctx?: RestoreContext) {
   return {
     features: all.slice(0, at),
     rolledBack: all.slice(at),
-    nextFeatureId: p.nextFeatureId,
+    nextFeatureId: nextIdPast(p.nextFeatureId, all.map((f) => f.id)),
     nextOfKind: p.nextOfKind,
     parameters,
-    nextParameterId: p.nextParameterId ?? parameters.reduce((m, q) => Math.max(m, q.id + 1), 1),
+    nextParameterId: nextIdPast(p.nextParameterId, parameters.map((q) => q.id)),
     parameterTable: evaluateParameters(parameters),
     bodyStyles: Object.fromEntries(Object.entries(p.bodyStyles ?? {}).map(([id, st]) => [Number(id), st])) as BodyStyles,
     hiddenBodies: p.hiddenBodies ?? [],

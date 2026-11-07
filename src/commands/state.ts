@@ -13,6 +13,8 @@ import { MAX_SAMPLE_SPACING, MAX_SAMPLE_TRIANGLES, MIN_SAMPLE_SPACING, reference
 import { thicknessStats, type ThicknessStats } from '../core/thickness/thickness'
 import { describeRigid } from '../core/alignment'
 import type { Rigid } from '../core/deviation/rigid'
+import { noTrueSize, noTrueSizeText } from '../core/scanScale'
+import { roundTo } from '../core/round'
 import type { Vec3 } from '../core/types'
 import { isWorldAxis, worldPlaneName } from '../core/section/frame'
 import { cutoffLabel } from '../core/summary'
@@ -45,6 +47,21 @@ import { pageStale, STALE_PAGE } from './stalePage'
 /** The workspaces by the names a caller uses: the app's 3D Measure is
  *  `measure` (it is `elements` inside the app), the others as they are, and
  *  a plugin's by its id. */
+/** How the scan got its true size, or that it looks like it has none yet. */
+function scanSizeOut(s: ReturnType<typeof useStore.getState>): Record<string, unknown> {
+  if (s.scanScale) {
+    return {
+      scaled: {
+        factor: roundTo(s.scanScale.factor, 6),
+        references: s.scanScale.references.map((r) => ({ label: r.label, measured: roundTo(r.measured, 4), true: roundTo(r.true, 4) })),
+      },
+    }
+  }
+  const diagonal = 2 * s.modelSize
+  const none = noTrueSize(s.fileName, diagonal, false)
+  return none ? { noTrueSize: noTrueSizeText(none, diagonal) } : {}
+}
+
 export const publicWorkspace = (w: Workspace): string => (w === 'elements' ? 'measure' : w)
 export const internalWorkspace = (name: string): Workspace => (name === 'measure' ? 'elements' : name)
 
@@ -466,6 +483,7 @@ export async function sessionState() {
           center: s.modelCenter,
           size: 2 * s.modelSize,
           appliedAlignment: rigidJson(s.appliedAlignment),
+          ...scanSizeOut(s),
         }
       : null,
     elements: s.elements.map(describeElement),

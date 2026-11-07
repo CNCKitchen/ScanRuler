@@ -18,6 +18,7 @@ import type { FitOptions } from '../core/fitOptions'
 import { symmetricPairs } from '../core/mirrorRelation'
 import { findRegions } from '../core/regions'
 import { arcsOfChain, chainStatistics, detailLevels, type PlacedSegment, placeSegments, segmentChain } from '../core/segment'
+import { pointsInterpolant, type PointsRefit, pointsTolerance, refitOnPoints } from '../core/pointsFit'
 import { landEnd, type ShareCarrier, shareChain, type ShareReport, takeShared } from '../core/shareFit'
 import { fitPointsAlong } from '../core/sketchSpline'
 import { addConstraint, addEntity, type Anchor, type AnchorAt, anchorPoint, anchorsOf, cloneSketch, endsOf, type ConstraintInput, emptySketch, type EntityInput, entityOf, isDimension, nearestOnEntity, removeConstraint, type Sketch, type SketchEntity, splineAnchor } from '../core/sketch'
@@ -321,6 +322,28 @@ export function fitChainShared(
   fitted[index] = { order: [], closed: false, runs, share }
   report.chains[index] = out
   return error
+}
+
+/** A chain of points typed in — read off a drawing, not a slice — fitted
+ *  as fitChain fits a slice's chain, then fitted again to the points
+ *  themselves (core/pointsFit.ts): the cut made on a smooth run through
+ *  them — at `tolerance`, or pointsTolerance — the pieces settled on the
+ *  points alone, an end landing on a piece
+ *  of `landOn` within `share` mm joined to it. Returns the chain's pieces in
+ *  order and what the refit did, or why it could not be fitted. */
+export function fitPointsChain(
+  sketch: Sketch,
+  points: readonly Vec2[],
+  closed: boolean,
+  tolerance: number | null,
+  options: FitOptions,
+  land: { landOn: readonly number[]; share: number },
+): (PointsRefit & { closed: boolean }) | string {
+  const one: SketchDraft['fitted'] = {}
+  const why = fitChain(sketch, one, 0, pointsInterpolant(points, closed), tolerance ?? pointsTolerance(points), options)
+  const f = one[0]
+  if (!f || f.order.length === 0) return why ?? 'It did not fit.'
+  return { ...refitOnPoints(sketch, f.order, closed, points, land), closed }
 }
 
 /** A stored edge pick before it is found again on the body: the

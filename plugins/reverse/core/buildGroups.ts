@@ -11,7 +11,7 @@
 // out wrong costs time, never the result: a step whose reads do not stand
 // is played again where the whole list is built.
 
-import { bodyMaker, type BuildStep } from './features'
+import { bodyMaker, type BuildStep, toolsOf } from './features'
 import type { Sketch } from './sketch'
 
 export interface StepGroup {
@@ -116,7 +116,7 @@ function touches(step: BuildStep, sketchOf: (id: number) => Sketch | undefined):
       else makes = true
       break
     case 'boolean':
-      reads.push(step.body, step.tool)
+      reads.push(step.body, ...toolsOf(step))
       changes.push(step.body)
       break
     case 'split':
@@ -188,11 +188,13 @@ export function groupSteps(steps: readonly BuildStep[], sketchOf: (id: number) =
       live.add(step.id)
     }
     if (step.kind === 'boolean' && !step.keep) {
-      const tool = resolve(step.tool)
       const body = resolve(step.body)
-      if (tool !== body) {
-        into.set(tool, body)
-        live.delete(tool)
+      for (const t of toolsOf(step)) {
+        const tool = resolve(t)
+        if (tool !== body) {
+          into.set(tool, body)
+          live.delete(tool)
+        }
       }
     }
   })

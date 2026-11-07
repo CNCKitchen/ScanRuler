@@ -14,6 +14,7 @@ import { openEnds } from '../core/corners'
 import type { Feature, PlaneRef, SketchFeature } from '../core/features'
 import { sketchBounds } from '../core/sketch'
 import { collinearPieces, kinkedJoins, kinkFix, nearMissFix, sketchNearMisses } from '../core/sketchNearMiss'
+import { splineOvershoots } from '../core/sketchSpline'
 import { stepsAnswer } from '../core/stepWords'
 import { allFeatures, type Json, re } from './reCommandCore'
 import { bodiesOut, featureBrief, featureOut, lineMiddle, regionsOut, resultOut } from './reReadout'
@@ -111,7 +112,7 @@ export function barOut() {
  *  given in place of those asked for — a note on what it left standing,
  *  and the op it took when none was given, with what it joined. Asked for,
  *  they are the answer. */
-const KEPT = ['ids', 'set', 'fitted', 'picked', 'rounds', 'accept', 'moved', 'movedFar', 'draftBothWays', 'nearSketches', 'nearSketchesFound', 'nearSketchesFix', 'collinearPieces', 'collinearFix', 'kinks', 'kinksFound', 'kinkFix', 'inset', 'draftOffset', 'ellipses', 'solids', 'note', 'renumbered', 'op', 'joined', 'element', 'farFromElement'] as const
+const KEPT = ['ids', 'set', 'fitted', 'picked', 'rounds', 'accept', 'moved', 'movedFar', 'draftBothWays', 'nearSketches', 'nearSketchesFound', 'nearSketchesFix', 'collinearPieces', 'collinearFix', 'kinks', 'kinksFound', 'kinkFix', 'inset', 'draftOffset', 'ellipses', 'solids', 'note', 'renumbered', 'op', 'joined', 'element', 'farFromElement', 'largestInside'] as const
 
 /** A change's answer with detail none: the feature's id and status, the
  *  bar, what failed, and from `extra` what every detail keeps (KEPT). */
@@ -130,8 +131,9 @@ export function noneAnswer(id: number, extra: Json = {}) {
  *  detail: a join's steps against the faces it found (stepsBetween, the
  *  thinnest few — stepWords.ts), a sketch's pieces lying a hair off another
  *  sketch's on a parallel plane (nearSketches, with the fix —
- *  sketchNearMiss.ts), two lines end to end (collinearPieces) or a join that
- *  turns a few degrees (kinks), and a taper
+ *  sketchNearMiss.ts), two lines end to end (collinearPieces), a join that
+ *  turns a few degrees (kinks), a spline swinging past its points
+ *  (splineOvershoot — sketchSpline.ts), and a taper
  *  through the sketch plane (draftBothWays). What only a sketch's or an
  *  extrude's shape could change is said once for that shape: a deliberate
  *  0.25 mm between two sketches warned on every edit of the last fan. */
@@ -139,14 +141,17 @@ function warnedOut(f: Feature | undefined): Json {
   if (!f) return {}
   if (f.kind !== 'sketch') return { ...stepsAnswer(re().results[f.id]?.stepsBetween, allFeatures()), ...(f.kind === 'extrude' ? draftBothWays(f) : {}) }
   const others = re().features.filter((x): x is SketchFeature => x.kind === 'sketch')
-  const { misses, found } = sketchNearMisses(f, others)
+  const { misses, found } = sketchNearMisses(f, others, re().features)
   const fresh = misses.filter((m) => firstTime(`near|${f.id}|${m.sketch}|${m.offMm}`))
   const lines = collinearPieces(f.sketch).filter((c) => firstTime(`line|${f.id}|${c.pieces.join()}`))
   const kinks = kinkedJoins(f.sketch).filter((k) => firstTime(`kink|${f.id}|${k.pieces.join()}`))
+  const overshoots = f.sketch.entities.flatMap((e) => (e.kind === 'spline' && !e.construction ? splineOvershoots(e).map((o) => ({ piece: e.id, ...o })) : [])).filter((o) => firstTime(`overshoot|${f.id}|${o.piece}|${o.axis}|${o.mm}`))
   return {
     ...(fresh.length > 0 ? { nearSketches: fresh, ...(found > fresh.length ? { nearSketchesFound: found } : {}), nearSketchesFix: nearMissFix(f, fresh, others) } : {}),
     ...(lines.length > 0 ? { collinearPieces: lines, collinearFix: 'Two lines end to end on one line are two faces where the viewer draws one: a split a round or a later cut can stop at. Draw one line in their place, unless the join is there for something else.' } : {}),
     ...(kinks.length > 0 ? { kinks: kinks.slice(0, KINKS_SHOWN), ...(kinks.length > KINKS_SHOWN ? { kinksFound: kinks.length } : {}), kinkFix: kinkFix(f, kinks) } : {}),
+    // units-ok: the answer's warning, for the agent — in millimetres always.
+    ...(overshoots.length > 0 ? { splineOvershoot: overshoots, splineOvershootFix: 'The spline swings past its own points where they run one way (mm past, at, stretch k between fit points k and k + 1): a smooth curve through few points bulges between them, most at a held end direction. Add a point where it bulges, set startDir/endDir the way the points run, or fit the stretch as lines and arcs (sketch fit: { points, arcs }).' } : {}),
   }
 }
 

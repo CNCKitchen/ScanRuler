@@ -1,6 +1,6 @@
 {
-  "app": "0.9.4",
-  "saved": "2026-11-01T11:15:10.614Z",
+  "app": "0.9.6",
+  "saved": "2026-11-07T18:56:12.064Z",
   "commands": [
     {
       "name": "align.auto",
@@ -57,7 +57,7 @@
     {
       "name": "align.datum",
       "title": "Align the part to datums",
-      "description": "A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points) whose outward normal becomes primaryAxis (default z-); secondary turns it — a line or axis (or 2 points) laid along secondaryAxis (default x+), or a plane; origin is the zero point — a point, sphere or circle (or 1 point). Elements by id or name, or points in mm used as given, not snapped. Trap: a plane as secondary puts its outward NORMAL on secondaryAxis, not its face along it. Each datum zeroes the coordinates it owns, the origin only those left open; an origin alone moves without turning. On a first alignment the coordinates nothing sets are centred on the scan’s box (keepFree: true leaves them). Returns the transform applied, how many elements moved, centred, origin { set, at, note } and parallelFace when a face parallel to the levelling plane within 5 mm holds more of the scan. One undo step.",
+      "description": "A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points, or plane { origin, normal }: a level’s plane from scan.heightmap { levels: true }) whose outward normal becomes primaryAxis (default z-); secondary turns it — a line or axis (or 2 points) laid along secondaryAxis (default x+), or a plane; origin is the zero point — a point, sphere or circle (or 1 point). Elements by id or name, or points in mm used as given, not snapped. Trap: a plane as secondary puts its outward NORMAL on secondaryAxis, not its face along it. Each datum zeroes the coordinates it owns, the origin only those left open; an origin alone moves without turning. On a first alignment the coordinates nothing sets are centred on the scan’s box (keepFree: true leaves them). Returns the transform applied, how many elements moved, centred, origin { set, at, note } and parallelFace when a face parallel to the levelling plane, 0.3 to 5 mm off it (further on a noisy scan), holds more of the scan. Trap: on an embossed or warped sheet a plane fitted to the outermost faces lies on the bead crowns or the high spots, not the sheet — level on the largest level’s plane instead. One undo step.",
       "input": {
         "type": "object",
         "properties": {
@@ -110,9 +110,47 @@
                   "points"
                 ],
                 "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "plane": {
+                    "type": "object",
+                    "properties": {
+                      "origin": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "A point on the plane, mm; it lands on 0 along primaryAxis.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "normal": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "Its outward normal: out of the face, away from the material.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "normal"
+                    ],
+                    "additionalProperties": false,
+                    "description": "A plane as given — a level’s plane from scan.heightmap { levels: true }."
+                  }
+                },
+                "required": [
+                  "plane"
+                ],
+                "additionalProperties": false
               }
             ],
-            "description": "Levelling: an element, or 3 points on the scan."
+            "description": "Levelling: an element, 3 points on the scan, or a plane { origin, normal }."
           },
           "primaryAxis": {
             "type": "string",
@@ -2685,7 +2723,7 @@
     {
       "name": "guide.read",
       "title": "Read a guide",
-      "description": "How to do a task with ScanRuler: the workflow, the judgement and the traps the tools’ own descriptions do not carry, written for this build — read the guide for your task, whole, before its first step, and a section again when you need it. The guides: measure — measuring a 3D scan: fitting elements, dimensions and GD&T-like checks, sections and the 2D sheet, deviation against a reference part, wall thickness, the report — by hand or as an automatic run over many scans; measure-reference — the measuring tools’ shapes with examples, what each answer costs, what each refusal means — a section at a time, as the measure guide sends you. topic: a guide, or several read in order (a guide and the ones it is read with, in one call) — as many as fit in about 80 k characters, the rest named in next, to read in the next call. A guide longer than that by itself answers its sections in order while they fit, and names the rest in sectionsLeft, each to read by section. A guide’s sections for one moment of the task — measuring, building — are not in the whole read: later names each with when to read it, and the note says how; read it by section when that moment comes, before the step it is for. section: one section of one guide, by its heading — the index lists them, with when to read those a whole read leaves for later. A long section with ### parts under it — a reference’s list of command shapes — is best read by those parts: section takes a ### heading too, the one part you need. With no topic, the index: each guide with its sections and what each costs in tokens. Changes nothing.",
+      "description": "How to do a task with ScanRuler: the workflow, the judgement and the traps the tools’ own descriptions do not carry, written for this build — read the guide for your task, whole, before its first step, and a section again when you need it. The guides: measure — measuring a 3D scan: fitting elements, dimensions and GD&T-like checks, sections and the 2D sheet, deviation against a reference part, wall thickness, the report — by hand or as an automatic run over many scans; measure-reference — the measuring tools’ shapes with examples, what each answer costs, what each refusal means — a section at a time, as the measure guide sends you. topic: a guide, or several read in order (a guide and the ones it is read with, in one call) — as many as fit in about 60 k characters, the rest named in next, to read in the next call. A guide longer than that by itself answers its sections in order while they fit, and names the rest in sectionsLeft, each to read by section. A guide’s sections for one moment of the task — measuring, building — are not in the whole read: later names each with when to read it, and the note says how; read it by section when that moment comes, before the step it is for. section: one section of one guide, by its heading — the index lists them, with when to read those a whole read leaves for later. A long section with ### parts under it — a reference’s list of command shapes — is best read by those parts: section takes a ### heading too, the one part you need. With no topic, the index: each guide with its sections and what each costs in tokens. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -3112,7 +3150,7 @@
     {
       "name": "scan.heightmap",
       "title": "Map the scan’s heights",
-      "description": "Where the scan is first met looking along an axis (axis, -z by default: the top surface from above) or square onto a plane (plane: an element, \"XY\", \"YZ\", \"XZ\", or { origin, normal, u? }), over a grid of cells: pocket floors, ledges, a step's height, a face's tilt, a pad's tiers, an icon on a key in one call. of: height (the default), deviation (the map's reading where each ray lands) or relief (the height less the surface round it, for icons, grooves and lettering). Returns cell, origin [u0, v0], cols, rows, grid (rows of mm from the low v up, null where nothing; grid[r][c] stands at u0 + (c + ½)·cell, v0 + (r + ½)·cell), min, max, hit, valued; with plane also its frame (a cell's point is origin + u·U + v·V + height·normal). levels: true gives the values gathered into levels in place of the grid; picture: true adds the map coloured. Trap: with plane, box is [u, v, height] in the plane's frame (or { world }), and scanLies says where the scan lies when few cells meet it. Changes nothing.",
+      "description": "Where the scan is first met looking along an axis (axis, -z by default: the top surface from above) or square onto a plane (plane: an element, \"XY\", \"YZ\", \"XZ\", or { origin, normal, u? }), over a grid of cells: pocket floors, ledges, a step's height, a face's tilt, a pad's tiers, an icon on a key in one call. of: height (the default), deviation (the map's reading where each ray lands) or relief (the height less the surface round it, for icons, grooves and lettering). Returns cell, origin [u0, v0], cols, rows, grid (rows of mm from the low v up, null where nothing; grid[r][c] stands at u0 + (c + ½)·cell, v0 + (r + ½)·cell), min, max, hit, valued; with plane also its frame (a cell's point is origin + u·U + v·V + height·normal). levels: true gives the values gathered into levels in place of the grid, largest first — of a height, each holding 5 % of the map or more with its plane { origin, normal } (fitted to its cells, normal towards the viewer), which align.datum { primary: { plane } } levels on: the sheet itself, not its bead crowns; a gentle warp that ran levels together is taken out first and said (warp { rise, bow, note }); picture: true adds the map coloured. Trap: with plane, box is [u, v, height] in the plane's frame (or { world }), and scanLies says where the scan lies when few cells meet it. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -3268,7 +3306,7 @@
           },
           "levels": {
             "type": "boolean",
-            "description": "Gather the values into levels, largest first, in place of the grid."
+            "description": "Gather the values into levels, largest first, in place of the grid; of a height, a warp taken out first when it ran two together, and each level of 5 % or more with its plane."
           },
           "gap": {
             "type": "number",
@@ -3423,7 +3461,7 @@
     {
       "name": "scan.outline",
       "title": "Read the scan’s outline",
-      "description": "The scan’s outline seen along an axis, or square onto a plane, read as a sketch would draw it: a flange’s plan, a bezel’s opening, a gasket’s shape — each loop as the fewest lines and arcs that follow it within tolerance (mm, 0.2 by default), a round loop as one circle. axis, plane, flip and box as scan.heightmap takes them, u, v as it lays them. Returns loops, the largest first (4 by default): hole, area (mm²), box, points ([u, v] corners), rounds { at, radius, center }, arcs { from, radius, center } or circle { center, radius, rms }, and worst (mm the trace strays from what is drawn, worstAt when past the tolerance). Changes nothing.",
+      "description": "The scan’s outline seen along an axis, or square onto a plane, read as a sketch would draw it: a flange’s plan, a bezel’s opening, a gasket’s shape — each loop as the fewest lines and arcs that follow it within tolerance (mm, 0.2 by default), a round loop as one circle. axis, plane, flip and box as scan.heightmap takes them, u, v as it lays them. Returns loops, the largest first (4 by default): hole, area (mm²), box, points ([u, v] corners), rounds { at, radius, center }, arcs { from, radius, center, mid } (from points[from] through mid to the next point: mid says which way it bulges, a slot’s half-round end too) or circle { center, radius, rms }, and worst (mm the trace strays from what is drawn, worstAt when past the tolerance). Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -3690,7 +3728,7 @@
     {
       "name": "scan.qa",
       "title": "Check the scan before modelling",
-      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.",
+      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }), sheet where most of the area has a second skin facing back within reach mm (gauge { p5, p50, p95 }, twoSkins: that share), apart on such a part with flat walls (regions standing over reach mm off every main wall — tabs bent in, ribs, bosses: center, box, area mm², largest first) and notes, what looks wrong, plainly. Traps: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through; on a sheet, thickness reads the box across the part — the gauge is sheet.gauge. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -3833,6 +3871,126 @@
         "additionalProperties": false
       },
       "readOnly": true,
+      "returnsFile": false,
+      "returnsImage": false
+    },
+    {
+      "name": "scan.scale",
+      "title": "Scale the scan",
+      "description": "Scale the scan to its true size — a photogrammetry scan (Meshroom, say) has no size of its own, and session.state says noTrueSize when one looks like it. Give references: lengths measured on the scan with their true lengths from the real part — a length dimension already made (distance or diameter), an element’s diameter (sphere, cylinder, circle), or two points — or a factor outright. Several references are averaged by length; each one’s own factor and how far it is off the average (offPct) come back, so a bad one shows. Best references: long, and between centres (hole to hole, ball to ball) — a centre does not move when the surface sits proud or sunk. The scale is about the frame’s zero point: every coordinate times the factor. Elements, dimensions, sections and the alignment scale with it; the fit to a reference part goes. Refuses while a model, notes or other work is built on the scan at the old size (scale first). dryRun: true returns the factor and the size it would give without scaling. Returns factor, the references, size before and after, and the scan. One undo step.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "factor": {
+            "type": "number",
+            "description": "Scale by this factor outright, instead of from references — 25.4 for a file in inches read as mm.",
+            "exclusiveMinimum": 0
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "dimension": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "description": "Its id.",
+                          "minimum": 1
+                        },
+                        {
+                          "type": "string",
+                          "description": "Its name — \"Distance 1\".",
+                          "minLength": 1
+                        }
+                      ],
+                      "description": "A length dimension already measured — a distance or a diameter."
+                    },
+                    "true": {
+                      "type": "number",
+                      "description": "Its length on the real part, mm."
+                    }
+                  },
+                  "required": [
+                    "dimension",
+                    "true"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "element": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "description": "Its id.",
+                          "minimum": 1
+                        },
+                        {
+                          "type": "string",
+                          "description": "Its name — \"Sphere 1\".",
+                          "minLength": 1
+                        }
+                      ],
+                      "description": "A sphere, cylinder or circle; its diameter is the length."
+                    },
+                    "true": {
+                      "type": "number",
+                      "description": "Its diameter on the real part, mm."
+                    }
+                  },
+                  "required": [
+                    "element",
+                    "true"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "A point on the scan, mm.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "description": "The two ends of the length.",
+                      "minItems": 2,
+                      "maxItems": 2
+                    },
+                    "true": {
+                      "type": "number",
+                      "description": "The distance between them on the real part, mm."
+                    }
+                  },
+                  "required": [
+                    "points",
+                    "true"
+                  ],
+                  "additionalProperties": false
+                }
+              ],
+              "description": "A length known two ways: measured on the scan, and true — from calipers on the real part."
+            },
+            "description": "Lengths to scale from — one or more.",
+            "minItems": 1
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "Work out the factor and the size it gives, and scale nothing."
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnly": false,
       "returnsFile": false,
       "returnsImage": false
     },
@@ -4284,10 +4442,28 @@
                 ],
                 "additionalProperties": false,
                 "description": "A world box, in place of at and size."
+              },
+              "min": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "With max: the world box written as view.render’s frame takes one — the same as world: { min, max }.",
+                "minItems": 3,
+                "maxItems": 3
+              },
+              "max": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "description": "With min.",
+                "minItems": 3,
+                "maxItems": 3
               }
             },
             "additionalProperties": false,
-            "description": "Look at a square of the sheet: { at, size }, or { world: { min, max } }."
+            "description": "Look at a square of the sheet: { at, size }, or { world: { min, max } } (or { min, max })."
           },
           "tolerance": {
             "type": "number",
@@ -4512,7 +4688,7 @@
     {
       "name": "view.render",
       "title": "Picture the view",
-      "description": "A picture of the 3D view as a PNG — what the viewport shows, without the HTML labels (dimension values, names). view and/or fit turn the view first, as view.set does; frame frames a box or a place (mmAcross says what the picture spans). Trap: only fit: true fits — a view alone keeps the zoom, and a frame stays for the pictures after it (fitted and framedEarlier say so). show puts keys on screen or away for the picture alone ({ scan: false } pictures what was built on the scan); a key that has to be read, a workspace’s map, is waited for up to 35 s, and the answer says how far it got if not; section cuts it open for the picture alone. 800 px on the long side by default, up to 2048; views: two to six standard views in one picture. In the Deviation workspace the answer says which map is painted (map) or why none (mapWhy; mapNote when the reference ghost dulls the colours). Waits for the session to settle. Needs the viewport.",
+      "description": "A picture of the 3D view as a PNG — what the viewport shows, without the HTML labels (dimension values, names). view and/or fit turn the view first, as view.set does; frame frames a box or a place (mmAcross says what the picture spans). Trap: only fit: true fits — a view alone keeps the zoom, and a frame stays for the pictures after it (fitted and framedEarlier say so). show puts keys on screen or away for the picture alone ({ scan: false } pictures what was built on the scan); a key that has to be read, a workspace’s map, is waited for up to 35 s, and the answer says how far it got if not; section cuts it open for the picture alone. 800 px on the long side by default, up to 2048; views: two to six standard views in one picture. In the Deviation workspace the answer says which map is painted (map) or why none (mapWhy; mapNote when the reference ghost dulls the colours); empty says why a picture has nothing in it. Waits for the session to settle. Needs the viewport.",
       "input": {
         "type": "object",
         "properties": {
@@ -4646,6 +4822,44 @@
                 ],
                 "additionalProperties": false,
                 "description": "A place, a square size mm on a side fitted round it."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "world": {
+                    "type": "object",
+                    "properties": {
+                      "min": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "Lowest corner, mm.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "max": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "Highest corner, mm.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "world"
+                ],
+                "additionalProperties": false,
+                "description": "The box as { min, max } gives it, written as section.render’s frame and the scan reads’ box take one."
               }
             ],
             "description": "Frame a box or a place instead of everything shown; the direction stays, fit is left alone."
@@ -4801,6 +5015,44 @@
                 ],
                 "additionalProperties": false,
                 "description": "A place, a square size mm on a side fitted round it."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "world": {
+                    "type": "object",
+                    "properties": {
+                      "min": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "Lowest corner, mm.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      },
+                      "max": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        },
+                        "description": "Highest corner, mm.",
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    },
+                    "required": [
+                      "min",
+                      "max"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "world"
+                ],
+                "additionalProperties": false,
+                "description": "The box as { min, max } gives it, written as section.render’s frame and the scan reads’ box take one."
               }
             ],
             "description": "Frame a box or a place instead of everything shown; the direction stays, fit is left alone."

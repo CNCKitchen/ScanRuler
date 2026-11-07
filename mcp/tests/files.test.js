@@ -228,6 +228,26 @@ test('scan_open and project_load with a folder, the folders kept for a copy star
   const bad = await second.call('demo_echo', { value: { $file: 'nope.json' } })
   assert.equal(bad.error, true)
   assert.match(bad.text, /^invalid_input: \$file: /)
+
+  // A call's answer written to a file by to, and a later call fed the part
+  // of it $at names — the reading never passes through the conversation.
+  const loops = { loops: [{ hole: true, points: [[0, 0], [4, 0], [4, 2]] }], note: 'n'.repeat(120) }
+  const out = await second.call('scanruler_batch', {
+    calls: [
+      { tool: 'demo_echo', arguments: loops, to: 'readings/outline.json' },
+      { tool: 'demo_echo', arguments: { points: { $file: 'readings/outline.json', $at: 'loops.0.points' } } },
+    ],
+  })
+  assert.equal(out.error, false, out.text)
+  const [kept, fed] = out.json.results
+  assert.deepEqual(kept.result.written, { path: join(folder, 'readings', 'outline.json'), bytes: Buffer.byteLength(JSON.stringify(loops)) })
+  assert.deepEqual(kept.result.keys, { loops: 1, note: '120 characters' })
+  assert.deepEqual(JSON.parse(await readFile(join(folder, 'readings', 'outline.json'), 'utf8')), loops)
+  assert.deepEqual(fed.result, { points: [[0, 0], [4, 0], [4, 2]] })
+  const missed = await second.call('demo_echo', { value: { $file: 'readings/outline.json', $at: 'loops.3' } })
+  assert.match(missed.text, /^invalid_input: \$at: .* has nothing at "loops\.3" — "loops" holds a list of 1\.$/)
+  const notJson = await second.call('scanruler_batch', { calls: [{ tool: 'demo_echo', arguments: {}, to: 'out.txt' }] })
+  assert.match(notJson.json.failed.error.message, /^calls\[0\]\.to: "out\.txt" is no \.json file/)
   await second.close()
 })
 

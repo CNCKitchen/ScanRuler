@@ -70,6 +70,8 @@ describe('SpaceMouse routing', () => {
   let pads: (Gamepad | null)[]
   let puck: { id: string; index: number; connected: boolean; axes: number[] }
   let sm: typeof import('../src/viewer/spaceMouse')
+  let focused: boolean
+  let visibility: DocumentVisibilityState
 
   const fire = (type: string, gamepad: object) => {
     for (const l of listeners[type] ?? []) l({ gamepad: gamepad as Gamepad })
@@ -84,6 +86,8 @@ describe('SpaceMouse routing', () => {
 
   beforeEach(async () => {
     now = 1000
+    focused = true
+    visibility = 'visible'
     listeners = {}
     pads = [null, null]
     puck = { id: 'SpaceMouse Compact (Vendor: 256f Product: c635)', index: 1, connected: true, axes: [0, 0, 0, 0, 0, 0] }
@@ -93,6 +97,13 @@ describe('SpaceMouse routing', () => {
       },
     })
     vi.stubGlobal('navigator', { getGamepads: () => pads })
+    vi.stubGlobal('document', {
+      hasFocus: () => focused,
+      get visibilityState() { return visibility },
+      addEventListener: (type: string, l: () => void) => {
+        ;(listeners[type] ??= []).push(l)
+      },
+    })
     vi.spyOn(performance, 'now').mockImplementation(() => now)
     vi.spyOn(console, 'info').mockImplementation(() => {})
     vi.resetModules()
@@ -158,6 +169,44 @@ describe('SpaceMouse routing', () => {
     tick()
     expect(sm.readSpaceMouse(other, true)).toBeNull()
     expect(sm.readSpaceMouse(main, true)).not.toBeNull()
+  })
+
+  it('ignores a deflected puck in an unfocused window without polling the device', () => {
+    sm.listenForSpaceMouse()
+    plugIn()
+    const poll = vi.spyOn(navigator, 'getGamepads')
+    puck.axes = [1, 0, 0, 0, 0, 0]
+    const view = {}
+    tick()
+    expect(sm.readSpaceMouse(view, true)).not.toBeNull()
+    focused = false
+    fire('blur', {})
+    poll.mockClear()
+    tick()
+    expect(sm.readSpaceMouse(view, true)).toBeNull()
+    expect(sm.spaceMouseBusy()).toBe(false)
+    expect(poll).not.toHaveBeenCalled()
+    tick(5000)
+    focused = true
+    fire('focus', {})
+    tick()
+    expect(sm.readSpaceMouse(view, true)?.dt).toBeCloseTo(0.016)
+  })
+
+  it('ignores a hidden page even if it reports focus and resets elapsed time on return', () => {
+    sm.listenForSpaceMouse()
+    plugIn()
+    puck.axes = [1, 0, 0, 0, 0, 0]
+    const view = {}
+    visibility = 'hidden'
+    fire('visibilitychange', {})
+    tick()
+    expect(sm.readSpaceMouse(view, true)).toBeNull()
+    tick(5000)
+    visibility = 'visible'
+    fire('visibilitychange', {})
+    tick()
+    expect(sm.readSpaceMouse(view, true)?.dt).toBeCloseTo(0.016)
   })
 
   it('passes from a hidden or closed viewport to the next one in view', () => {

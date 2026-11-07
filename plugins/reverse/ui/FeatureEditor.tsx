@@ -23,7 +23,7 @@ import { chamferRadius, faceAgainstThread, maxThreadOffset, minorDiameter, sizeF
 import { describeEdgeIn, describeFaceIn } from '../core/topo'
 import { DEFAULT_SPLIT_TOLERANCE_MM } from '../state/reDrafts'
 import { DEFAULT_WALL_MM, type FeatureDraft, type FeatureDraftKind, featureDraftReady, filletModeSwitch, historyEditOf, snapDraftOf, snapPlanOf, trimToleranceFor, useReverse } from '../state/reStore'
-import { AnalysisRow, ClearPicks, Num, OpFields, PreviewLine, StepFileKey, XyzField } from './featureFields'
+import { AnalysisRow, BuildSays, ClearPicks, Num, OpFields, PreviewLine, StepFileKey, XyzField } from './featureFields'
 import { fileSize } from './featureReading'
 import { lenBare, lenShort } from './reLength'
 import { PlaneSelect } from './PlaneSelect'
@@ -145,7 +145,7 @@ export function FeatureEditor() {
                 Radius
                 <InfoDot title="Constant or variable radius">
                   <p>
-                    <b>Constant</b> rounds every edge picked at the one radius, read off the scan across the first. <b>Variable</b> rounds each edge from a start radius at one end to an end radius at the other, evenly along it — a round that swells along a casting's edge. The part names each edge's Start and End by its ends; ⇄ swaps its two radii.
+                    <b>Constant</b> rounds every edge picked at the one radius, read off the scan across the first. <b>Variable</b> rounds each edge from a start radius at one end to an end radius at the other, evenly along it — a round that swells along a casting's edge. Edges of one tangent chain round as one: give several of them radii of their own — R1.1 along the sides, R1.5 across the ends — the radii equal where two meet; an edge of the chain not listed runs between the radii about it. The part names each edge's Start and End by its ends; ⇄ swaps its two radii.
                   </p>
                 </InfoDot>
               </span>
@@ -196,7 +196,7 @@ export function FeatureEditor() {
                 </div>
               ))}
               <p className="hint" data-test="fillet-varying-hint">
-                {rows.length === 0 ? 'Each edge clicked starts at the radius the last one has; type its two radii over.' : `The part names each edge's Start and End, with the radius there${rows.length > 1 ? ' — numbered as listed here' : ''}. Each edge is rounded on its own, after the others.`}
+                {rows.length === 0 ? 'Each edge clicked starts at the radius the last one has; type its two radii over.' : `The part names each edge's Start and End, with the radius there${rows.length > 1 ? ' — numbered as listed here' : ''}. An edge picked where a listed one ends starts at its radius there: along one tangent chain the radius cannot jump, and an edge of the chain not listed runs between the radii about it.`}
                 {d.edges.length > 0 && ` And ${d.edges.length === 1 ? 'an edge' : `${d.edges.length} edges`} at R ${mm(d.radius)}, kept — Constant shows ${d.edges.length === 1 ? 'it' : 'them'}.`}
               </p>
             </>
@@ -1001,7 +1001,31 @@ export function FeatureEditor() {
               <option value="intersect">Intersect with</option>
             </select>
           </label>
-          {bodySelect(d.tool, (tool) => set({ tool }), 'Tool', 'boolean-tool')}
+          {bodySelect(d.tool, (tool) => set({ tool, moreTools: (d.moreTools ?? []).filter((t) => t !== tool) }), 'Tool', 'boolean-tool')}
+          {/* More tools: joined all, or cut or intersected by in turn. */}
+          {d.tool !== null && (
+            <div className="field">
+              <span>More tools</span>
+              <span className="picked" data-test="boolean-more-tools">
+                {(d.moreTools ?? []).map((id) => (
+                  <label key={id} className="checkrow">
+                    <input type="checkbox" data-test="boolean-more-tool" checked onChange={() => set({ moreTools: (d.moreTools ?? []).filter((t) => t !== id) })} />
+                    <span>{bodies.find((b) => b.id === id)?.name ?? `Body ${id}`}</span>
+                  </label>
+                ))}
+                <select data-test="boolean-add-tool" value="" onChange={(e) => e.target.value !== '' && set({ moreTools: [...(d.moreTools ?? []), Number(e.target.value)] })}>
+                  <option value="">Add a tool…</option>
+                  {bodies
+                    .filter((b) => b.id !== d.body && b.id !== d.tool && !(d.moreTools ?? []).includes(b.id))
+                    .map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                </select>
+              </span>
+            </div>
+          )}
           <label className="checkrow" title="Keep the tool as a body of its own after the combine, as it was — the body is joined, cut or intersected with a copy of it">
             <input type="checkbox" data-test="boolean-keep" checked={d.keep} onChange={(e) => set({ keep: e.target.checked })} />
             <span>Keep the tool body</span>
@@ -1187,6 +1211,7 @@ export function FeatureEditor() {
     <div className="draftbox" data-test={`${testKind}-editor`}>
       <div className="sec-head">{d.featureId !== undefined ? `Edit ${d.name ?? title[d.kind]}` : d.kind === 'import' || d.kind === 'moveBody' ? title[d.kind] : `New ${title[d.kind].toLowerCase()}`}</div>
       {d.featureId !== undefined && <NameField value={d.name ?? ''} testId={`${testKind}-name`} onChange={(name) => set({ name })} />}
+      <BuildSays featureId={d.featureId} />
       {fields}
       {!planned && !leaning && <PreviewLine preview={ready ? preview : { status: 'idle' }} testPrefix={testKind} />}
       {!planned && !leaning && <AnalysisRow testPrefix={testKind} />}

@@ -15,6 +15,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import type { Vec3 } from '../../../src/core/types'
 import type { RefObject } from 'react'
 import { exportStem } from '../../../src/app/exports'
+import { onScan } from '../../../src/app/scanEvents'
 import { commandHost } from '../../../src/commands/host'
 import { useStore } from '../../../src/state/store'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
@@ -35,6 +36,16 @@ import { withStepsSaid } from '../core/stepWords'
 import { kernelUnavailableReason } from '../core/wasmSupport'
 import { bodyColor, featuresToBuild, useReverse } from '../state/reStore'
 import { regionOf } from './reSurfaceRegion'
+
+/** How many times a scan has been loaded or swapped for another version of
+ *  itself. A smoothed or offset copy keeps the file's name and its triangle
+ *  count, so the kernel's copy of the scan is told stale by this, not by
+ *  what the store says of the scan. */
+let scanChanges = 0
+onScan({
+  loaded: () => void scanChanges++,
+  swapped: () => void scanChanges++,
+})
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
@@ -83,7 +94,9 @@ export function meshDiagonal(mesh: KernelMesh): number {
 export function stepFilesFor(steps: readonly { kind: string; file?: unknown }[]): Map<string, string> {
   const stored = useReverse.getState().stepFiles
   const out = new Map<string, string>()
-  for (const s of steps) if (s.kind === 'import' && typeof s.file === 'string' && stored[s.file] !== undefined) out.set(s.file, stored[s.file])
+  // Own keys only: a key a project file gives may be `constructor` or the
+  // like, which a plain object answers from its prototype.
+  for (const s of steps) if (s.kind === 'import' && typeof s.file === 'string' && Object.hasOwn(stored, s.file)) out.set(s.file, stored[s.file])
   return out
 }
 
@@ -269,13 +282,22 @@ export function createReverseSession({
     // A build of a kernel a stop let go answers nothing: the stop took it
     // off the count.
     const c = client
+    // Taken off the count once only: a throw while the answer is written
+    // into the store lands in the catch below, which must not count it off
+    // a second time.
+    let counted = true
+    const uncount = () => {
+      if (!counted) return
+      counted = false
+      running--
+      kernelBuilds--
+    }
     c.build(steps, sketches, stepFilesFor(steps))
       .then((answer) => {
         if (c !== client) return
         // Not running any more before the store says what landed, so that
         // what waits on the store finds the session idle when it looks.
-        running--
-        kernelBuilds--
+        uncount()
         if (!answer) return
         // A body the build left as it was comes back the very object it
         // was, so what the viewport made of its mesh stays.
@@ -283,7 +305,32 @@ export function createReverseSession({
         topologies.clear()
         for (const b of answer.bodies) {
           meshes.set(b.id, b.mesh)
-          topologies.set(b.id, b.topology)
+          if (b.topology) topologies.set(b.id, b.topology)
+        }
+        // A body handed over before its faces were read is drawn now and
+        // can be picked once they are, read straight after — counted as a
+        // build running from before the store hears of this one, so what
+        // waits for the build waits for them too.
+        const unread = answer.bodies.filter((b) => !b.topology)
+        if (unread.length > 0) {
+          running++
+          kernelBuilds++
+          const read = c.topologies(unread.map((b) => b.id)).then(
+            () => true,
+            // The bodies stay drawn, without picks; a kernel that failed
+            // says so through onFailure.
+            () => false,
+          )
+          void read.then((ok) => {
+            if (c !== client) return
+            running--
+            kernelBuilds--
+            if (!ok) return
+            // The client gave each body held its topology: the ones still
+            // drawn take it, a build landed since having handed over its own.
+            for (const b of unread) if (b.topology && meshes.get(b.id) === b.mesh) topologies.set(b.id, b.topology)
+            useReverse.setState((s) => ({ bodiesVersion: s.bodiesVersion + 1 }))
+          })
         }
         landed = version
         useReverse.getState().finishBuild(
@@ -304,8 +351,7 @@ export function createReverseSession({
       })
       .catch((e) => {
         if (c !== client) return
-        running--
-        kernelBuilds--
+        uncount()
         landed = version
         useReverse.getState().failBuild(message(e))
       })
@@ -339,8 +385,11 @@ export function createReverseSession({
         }
         return { features: s.features.map(patch), rolledBack: s.rolledBack.map(patch), buildVersion: s.buildVersion + 1 }
       })
-      running--
     })
+      // Off the count whatever happened, or a wait for the build would wait
+      // out its whole limit for a read that is over.
+      .catch((e) => useReverse.getState().failBuild(message(e)))
+      .finally(() => running--)
   }
 
   const schedule = () => {
@@ -589,7 +638,7 @@ export function createReverseSession({
   // The viewport's vertices, every datum alignment baked in — the frame the
   // bodies are built in — handed over once per file and once more per
   // alignment.
-  let scanSent: { fileName: string | null; triangles: number; alignment: unknown } | null = null
+  let scanSent: { fileName: string | null; triangles: number; alignment: unknown; changes: number } | null = null
   let scanSending: Promise<void> | null = null
 
   /** The scan's vertices without a viewport to read them off — every one
@@ -618,8 +667,8 @@ export function createReverseSession({
     if (!client || useReverse.getState().kernelStatus !== 'ready') return 'none'
     const s = useStore.getState()
     if (!scene && !s.fileName) return 'none'
-    const now = { fileName: s.fileName, triangles: s.triangleCount, alignment: s.appliedAlignment }
-    if (scanSent && scanSent.fileName === now.fileName && scanSent.triangles === now.triangles && scanSent.alignment === now.alignment) {
+    const now = { fileName: s.fileName, triangles: s.triangleCount, alignment: s.appliedAlignment, changes: scanChanges }
+    if (scanSent && scanSent.fileName === now.fileName && scanSent.triangles === now.triangles && scanSent.alignment === now.alignment && scanSent.changes === now.changes) {
       if (scanSending) await scanSending
       return 'same'
     }

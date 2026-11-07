@@ -49,7 +49,12 @@ export function createHelperService(loadKernel: () => Promise<ReKernel>, tell?: 
   return {
     async handle(msg: HelperRequest): Promise<{ response: HelperResponse; transfer: Transferable[] }> {
       try {
-        const k = await (kernel ??= loadKernel())
+        // A load that failed is not kept: the next request tries again, or
+        // this helper's share of every build would be lost until a reload.
+        const k = await (kernel ??= loadKernel().catch((e) => {
+          kernel = null
+          throw e
+        }))
         if (msg.type === 'init') return { response: { type: 'init-ok', requestId: msg.requestId }, transfer: [] }
         for (const [group, b] of builders) {
           if (msg.keep.includes(group)) continue

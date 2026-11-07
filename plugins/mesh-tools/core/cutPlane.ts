@@ -4,7 +4,8 @@
 // face the part was set on — or across an element with a direction, the way
 // a section is taken (see section/frame). Until an offset is typed, the plane
 // goes through the middle of the part, where the preview shows it cutting
-// something.
+// something — rounded to a step a person would have typed, so a part centred
+// on the origin starts at 0 and not at the −0.001 its bounding box gives.
 
 import {
   cutAxisOf,
@@ -19,6 +20,7 @@ import {
 import type { FitData, Vec3 } from '../../../src/core/types'
 import { dot, normalize, scale, sub } from '../../../src/core/vec'
 import { round3 } from '../../../src/core/round'
+import { round125 } from './round125'
 import { lengthInputText, unitWord, type DisplayUnits } from '../../../src/core/units'
 
 export interface CutPlane {
@@ -33,6 +35,22 @@ export interface CutPlane {
   label: string
 }
 
+/**
+ * The offset through the part's middle, `raw` mm along the reference, as the
+ * plane starts: on a 1-2-5 step of about a hundredth of the part's size
+ * (`size`, its bounding-box diagonal) — near enough the middle to cut it, and
+ * a number a person would have typed. With no size, to the thousandth.
+ */
+export function middleOffset(raw: number, size = 0): number {
+  if (!(size > 0)) return round3(raw) || 0
+  const step = round125(size / 100)
+  const places = Math.max(0, -Math.floor(Math.log10(step)))
+  // `|| 0`: a middle just below zero rounds to 0, not −0.
+  return Number((Math.round(raw / step) * step).toFixed(places)) || 0
+}
+
+/** `size` is the part's bounding-box diagonal, which the plane through its
+ *  middle is rounded by (see middleOffset). */
 export function cutPlaneOf(
   ref: SectionRef,
   offset: number,
@@ -41,6 +59,7 @@ export function cutPlaneOf(
   elements: readonly { id: number; name: string; fit?: FitData | null }[],
   centre: Vec3,
   units: DisplayUnits = 'mm',
+  size = 0,
 ): CutPlane | null {
   let axis: CutAxis | null = null
   let name: string
@@ -55,7 +74,7 @@ export function cutPlaneOf(
   }
   const dir = axis && normalize(axis.dir)
   if (!axis || !dir) return null
-  const off = offsetAuto ? round3(dot(sub(centre, axis.origin), dir)) : offset
+  const off = offsetAuto ? middleOffset(dot(sub(centre, axis.origin), dir), size) : offset
   const frame = sectionFrameAlong(axis, off)
   if (!frame) return null
   // The figure as the offset's field shows it.

@@ -10,16 +10,19 @@ import { useStore } from '../../../src/state/store'
 import { InfoDot } from '../../../src/ui/InfoDot'
 import { NumberField } from '../../../src/ui/NumberField'
 import { relationWords } from '../core/autoConstrain'
+import type { FeatureResult } from '../core/buildTypes'
 import type { ParameterKind } from '../core/expression'
 import type { SketchFeature, StepFileRef } from '../core/features'
 import { LIVE_MAP_MIN_RANGE_MM } from '../core/liveMap'
 import { type NominalKind, nominalOf, nominalText } from '../core/nominal'
 import { MOVE_AXIS_COLORS } from '../core/preview'
 import { findRegions } from '../core/regions'
+import { HAIR_MM } from '../core/stepsBetween'
+import { stepLines } from '../core/stepWords'
 import { useRePrefs } from '../state/rePrefs'
 import { type PreviewInfo, useReverse } from '../state/reStore'
 import { ExprInput } from './ExprInput'
-import { lenShort } from './reLength'
+import { lenBare, lenShort } from './reLength'
 import { type ReactNode, useMemo, useRef } from 'react'
 
 /** The key beside a picker's count that lets every pick go, to pick
@@ -182,6 +185,56 @@ export function PreviewLine({ preview, testPrefix }: { preview: PreviewInfo; tes
       {preview.status === 'ok' && !preview.surface && !preview.trim && !preview.network && preview.sheetFaces === undefined && (testPrefix === 'import' ? `The file holds ${vol} of solid${preview.closed ? '' : ', and faces without an inside — a surface body'}.` : `Preview: ${vol}${preview.closed ? '' : ` · ⚠ not a closed solid${preview.failure ? `. ${preview.failure.message}` : ''}`} — drag the grips in the viewport, or type below.`)}
       {preview.status === 'failed' && `⚠ ${preview.message}`}
     </p>
+  )
+}
+
+/** What the last build said was wrong with the feature in the box — why it
+ *  failed, or what it built with a warning, the steps a join left a short
+ *  line each (their full sentence on hover). Its row only marks it. Held
+ *  from when the box opened: the part is built without the feature while
+ *  it is open, and its result goes with that build. */
+export function BuildSays({ featureId }: { featureId: number | undefined }) {
+  const live = useReverse((s) => (featureId !== undefined ? s.results[featureId] : undefined))
+  const features = useReverse((s) => s.features)
+  const len = useLength()
+  const held = useRef<{ id: number | undefined; result: FeatureResult | undefined }>({ id: undefined, result: undefined })
+  if (held.current.id !== featureId) held.current = { id: featureId, result: live }
+  else if (live) held.current.result = live
+  const r = held.current.result
+  const steps = useMemo(
+    () => (r?.status === 'ok' && r.stepsBetween?.length ? stepLines(r.stepsBetween, features, { len: (mm, places) => lenShort(mm, len.units, places), bare: (mm, places) => lenBare(mm, len.units, places) }) : null),
+    [r, features, len.units],
+  )
+  if (!r) return null
+  if (r.status === 'failed')
+    return (
+      <p className="hint warn says" data-test="feature-error">
+        ⚠ {r.message ?? 'Failed to build.'}
+      </p>
+    )
+  const own = steps ? r.ownWarning : r.warning
+  if (!own && !steps) return null
+  return (
+    <div className="says" data-test="feature-says">
+      {own && (
+        <p className="hint warn" data-test="feature-warning">
+          ⚠ {own}
+        </p>
+      )}
+      {steps && (
+        <div className="hint warn" data-test="feature-steps">
+          ⚠ Steps between features:
+          <ul>
+            {steps.lines.map((l) => (
+              <li key={l.text} title={l.full}>
+                {l.text}
+              </li>
+            ))}
+          </ul>
+          {steps.more > 0 && <span>And {steps.more} more{steps.hairs > 0 ? `, ${steps.hairs === steps.more ? 'all' : steps.hairs} under ${lenShort(HAIR_MM, len.units, 3)}` : ''}.</span>}
+        </div>
+      )}
+    </div>
   )
 }
 

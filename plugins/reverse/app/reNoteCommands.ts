@@ -237,7 +237,7 @@ export const noteAdd: Command<{ text: string; at?: Vec3; body?: Ref; faces?: Fac
   name: 'add',
   title: 'Pin a question on the part',
   description:
-    'Pin a note of your own on the part for the person, where you are unsure of something that has a place — through or blind, which face is the datum, wear or design — rather than describing the place in the chat; say it as a question with your working assumption: "Through or blind? Assuming through." On faces or edges of a body (body, with faces and/or edges as reverse.body.describe gives them; the pin goes on the first, or at at) or at a point (at, mm: on a body face within reach the face is named, elsewhere it is pinned on the scan). The person answers in its box; the answer comes back as the note’s reply (session.state notes.answered, reverse.note.list) — close it with reverse.note.resolve once you have acted on it. No step of the undo history. Returns the note.',
+    'Pin a note of your own on the part for the person, where you are unsure of something that has a place — through or blind, which face is the datum, wear or design — rather than describing the place in the chat; say it as a question with your working assumption: "Through or blind? Assuming through." On faces or edges of a body (body, with faces and/or edges as reverse.body.describe gives them; the pin goes on the first, or at at) or at a point (at, mm: on a body face within reach the face is named, elsewhere it is pinned on the scan; with no scan open, on the nearest body face within 5 % of the body’s size — a hole’s mouth — movedMm saying how far). The person answers in its box; the answer comes back as the note’s reply (session.state notes.answered, reverse.note.list) — close it with reverse.note.resolve once you have acted on it. No step of the undo history. Returns the note, and movedMm where the point was moved onto a face.',
   input: obj(
     {
       text: str('The question, with the assumption you work on meanwhile.', { minLength: 1 }),
@@ -253,6 +253,8 @@ export const noteAdd: Command<{ text: string; at?: Vec3; body?: Ref; faces?: Fac
     const words = text.trim()
     if (!words) invalid('A note needs words.')
     let note: Omit<Note, 'id' | 'by'>
+    // How far a point given with no scan open was moved onto a body face.
+    let movedMm: number | undefined
     if (faces || edges) {
       if (body === undefined) invalid('Faces and edges are picked on a body — name it (body).')
       const s = await ready()
@@ -272,17 +274,23 @@ export const noteAdd: Command<{ text: string; at?: Vec3; body?: Ref; faces?: Fac
       // else the scan.
       const s = allFeatures().length > 0 ? await ready() : null
       const near = s ? nearestOnBodies(s.meshes, at) : null
-      const reach = Math.max(0.5, useStore.getState().modelSize * 0.01)
+      let scanOpen = true
+      try {
+        requireScan()
+      } catch {
+        scanOpen = false
+      }
+      // With no scan to pin it on, the nearest face further off: a point in
+      // a hole's mouth or on a bore's axis is air, a few mm from its wall.
+      const nearReach = Math.max(0.5, useStore.getState().modelSize * 0.01)
+      const reach = near && !scanOpen ? Math.max(nearReach, 0.05 * meshDiagonal(s!.meshes.get(near.body)!)) : nearReach
       const face = near && near.distance <= reach ? s!.topologies.get(near.body)?.faces.find((f) => f.hash === near.faceHash) : undefined
       if (near && face) {
         const normal = meshNormalAt(s!.meshes.get(near.body)!, near.point, [face.hash])
         note = { text: words, at: near.point, ...(normal ? { normal } : {}), on: [{ kind: 'face', body: near.body, face: face.fingerprint }] }
+        if (near.distance > nearReach) movedMm = Number(near.distance.toFixed(3))
       } else {
-        try {
-          requireScan()
-        } catch {
-          invalid(`Nothing is there to pin it on — no body within ${reach.toFixed(2)} mm of [${at.join(', ')}], and no scan.`)
-        }
+        if (!scanOpen) invalid(`Nothing is there to pin it on — no body within ${reach.toFixed(2)} mm of [${at.join(', ')}], and no scan. Pin it on a body's faces or edges instead (body, with faces or edges).`)
         const spot = await resolveLocation({ point: at })
         note = { text: words, at: spot.point, normal: spot.normal, on: [{ kind: 'scan' }] }
       }
@@ -290,6 +298,6 @@ export const noteAdd: Command<{ text: string; at?: Vec3; body?: Ref; faces?: Fac
     const id = useNotes.getState().addAgentNote(note!)
     if (useShell.getState().workspace !== 'reverse') useShell.getState().setWorkspace('reverse')
     useStore.getState().setStatus(`The agent pinned a question on the part — note ${id}: “${words}” Click its blue pin or its row to answer.`)
-    return { note: noteOut(useNotes.getState().notes.find((x) => x.id === id)!) }
+    return { note: noteOut(useNotes.getState().notes.find((x) => x.id === id)!), ...(movedMm !== undefined ? { movedMm } : {}) }
   },
 }

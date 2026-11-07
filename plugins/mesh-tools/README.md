@@ -13,21 +13,23 @@ tool's key again, puts it away — and they are of the two kinds the
 workspace has:
 
 - **Remove islands**, **Delete marked**, **Flip normals**, **Cut**,
-  **Fill holes**, **Smooth**, **Shrink/expand**, **Boolean** and
+  **Mirror**, **Fill holes**, **Smooth**, **Shrink/expand**, **Boolean** and
   **Shell/hollow** edit a copy of the scan — the specks floating off it,
   what is not the part, a surface facing the wrong way, the
-  base it stood on, the holes the scanner left, the scatter on it, the
+  base it stood on, the other hand of the part or the side it lost, the holes the scanner left, the scatter on it, the
   spray it was scanned under, a bore it could not see to the bottom of, the
   inside a print does not need — which every workspace measures once it is
   taken into use.
-- **Reduce mesh** and **Trim to scan** make something beside the scan: a
-  light mesh to model over in CAD, held within a tolerance of it, and a body
+- **Reduce mesh**, **Wrap** and **Trim to scan** make something beside the
+  scan: a light mesh to model over in CAD, held within a tolerance of it; one
+  closed skin round the part, everything inside it dropped; and a body
   modelled to mend a broken part cut to fit its break — of the edited copy,
-  when there is one. The scan stays as it is.
+  when there is one. The scan stays as it is; **Apply** makes the reduced
+  mesh or the wrap the edited copy.
 
 A good order is the one the keys suggest: islands and marked surface off
-first, the normals turned the right way out, then the cut, then the holes,
-smoothing, a shrink or an expansion, a boolean, the shell, and the
+first, the normals turned the right way out, then the cut and a mirror, then the holes,
+smoothing, a shrink or an expansion, a boolean, the shell or a wrap, and the
 reduction last.
 
 ### The parts list
@@ -209,6 +211,41 @@ are kept, and a new one is made wherever an edge crosses — once per edge,
 shared by both triangles on it, so the rim is joined up and the cap meets it
 exactly. A corner that lies on the plane to the float's own precision is put
 on it rather than a sliver's width to one side.
+
+### Mirror
+
+The scan reflected across a plane, in one of two ways:
+
+- **Whole part** reflects all of it: the left-hand version of a right-hand
+  bracket, or a part scanned from its mirror image.
+- **Symmetric** keeps one side of the part and reflects it onto the other,
+  which it replaces: a symmetric part scanned well on one side only, or
+  damaged on one side.
+
+1. Pick **Mirror**, then **Whole part** or **Symmetric**, and what to
+   mirror **Across**. The plane is taken as [Cut](#cut) takes it: the
+   **XY**, **YZ** (to start) or **XZ** plane, or an element with a
+   direction, starting through the middle of the part. Type where it should
+   be. For **Symmetric**, also pick which side to **Keep**.
+2. While the tool is in hand the plane is outlined in violet. For **Whole
+   part** the mirror image is drawn see-through over the part. For
+   **Symmetric** the side to be replaced is cut away and the mirror image of
+   the side kept is drawn in its place.
+3. **Mirror** or **Make symmetric** (or **Enter**) makes it. It is one step
+   of the undo history.
+
+A reflection turns a surface inside out, so the triangles are turned over
+with it and the part still faces out. **Whole part** keeps every vertex
+under its own number. **Symmetric** clips the part at the plane as Cut does
+and joins the mirror image to it along the cut, a point on the plane being
+its own mirror image, so a closed part stays closed with no seam. Faces
+lying in the plane, such as the cap of a part already cut there, are
+dropped, since the two halves would put two of them back to back. A part
+lying wholly on the side kept gets its mirror image beside it, joined where
+it touches the plane.
+
+Agents run it as `mesh.mirror`, with `plane`, `offset` (left out: through
+the middle of the part), `mode` (`whole` or `symmetric`) and `keep`.
 
 ### Fill holes
 
@@ -504,6 +541,86 @@ hand, shows the part cut open without cutting it. The inner wall has no scan
 under it and is grey in the **Deviation** view. The edit is one step of the
 undo history.
 
+### Wrap
+
+One closed skin round a part that is a mess inside: an assembly exported as
+one file, a casting with channels and bosses inside it, shells that overlap
+or face the wrong way, a scan with cracks. Everything inside goes, and what
+is left is easy to print or slice.
+
+1. Pick **Wrap** and set **Close gaps under**: every opening narrower than
+   this — a slot, a hole, a crack, the seam between two parts — is bridged.
+   It starts at a two-hundredth of the part's size, 1 mm for a part a
+   hand's width across.
+2. **Wrap** (or **Enter**). The steps it is at show under the button, and
+   **Cancel** (or **Escape**) stops it, the mesh untouched.
+3. Look at it: the **Wrap** key in the view bar shows the wrap, amber
+   wherever it bridges an opening rather than lying on the part; **Inside**
+   shows it see-through over the part, so what goes with it can be seen;
+   **Scan** the part alone. The panel gives its shells and triangles, how
+   many of the part's triangles lie inside it and go, the area it bridges,
+   and the volume before and after.
+4. **Apply** makes it the edited copy, one step of the undo history.
+   **Discard** puts it away; until it is applied, nothing has changed.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Close gaps under** | mm | Openings narrower than this are bridged, wider ones the wrap follows down. Keep it small: a groove narrower than it is closed over too. |
+| **Grow by** | mm | How far the wrap stands off the part all round. 0, to start, lays it on the part. An open sheet has no inside and wraps to nothing at 0: grow it by half the thickness it should have, and it comes out a solid that thick. At most the gap. |
+| **Edges** | | **Sharp** rebuilds the part's sharp edges and corners on the wrap, for a machined or moulded part; **Smooth** leaves them rounded by the grid's cell, a sixth of the gap, for an organic shape or a scan. A wrap grown has round edges either way. |
+
+#### How it wraps
+
+Think of a ball as wide as the gap rolled all over the part from outside,
+everywhere it can reach without touching it: the wrap is where it stopped.
+Only the distance to the part's triangles is ever used — never which way
+they face, nor whether they close — so any mesh is input enough: free space
+is every point further than half the gap from the part, the outside is the
+free space joined to infinity, and the wrap is the surface half the gap in
+from the outside. Where the ball touched the part the wrap lies on it; across
+every opening it could not pass the wrap spans it, rounded as the ball was.
+A part with real walls keeps them however thin: the ball rolls round the
+outside of a wall, not through it. Parts that do not come within the gap of
+each other get a shell each.
+
+It is worked out on a grid a sixth of the gap across — the grid only has to
+see the gap — and then every vertex of the wrap where the ball touched is
+moved onto the nearest of the part's triangles that lies along it, so the
+wrap lies on the part as exactly as the part is meshed, whatever the grid.
+Grown, it is moved onto the part grown instead: a face's plane moved out, an
+edge's round. The vertices left where the grid put them are the bridges.
+
+That leaves every edge of the part cut off by a cell, as a chamfer: where the
+wrap goes round one, its vertices lie on one face or the other. **Sharp**
+splits each triangle edge running from one face to another at an angle
+where the two faces meet, and gives a triangle touching three faces their
+corner, so the wrap of a box is the box, twelve triangles. Each point put
+back has to lie on the part: where two facets of a round, or of a scan's
+curved surface, meet at an angle, the point where their planes cross is off
+the part, and the round stays round. Inside corners are not the part's —
+the ball rounds them, by design.
+
+The grid is cut into tiles of 64 points a side. The outside is followed in
+from the grid's edge tile by tile, and only the tiles it reaches are
+measured — a part's inside, however much of it there is, costs no more than
+sorting its triangles — and in those only the band round the surface. The
+tiles are shared out among workers, one for each core the computer has to
+spare (at most eight), and the wrap is reduced on them as well, a tile at a
+time and then on larger tiles shifted against the first, to within a
+sixteenth of a cell.
+
+Wrap again with another **Grow by** and the gap unchanged starts from what
+was measured the time before, so it takes about half as long; a new gap, or
+an edit to the mesh, measures again. On a large part a fine gap would take
+too many grid points: the grid is made coarser to fit, and the panel says
+so, with the smallest gap closed as exactly at that size. A mesh that wraps
+to almost nothing is open, and an opening wider than the gap let the ball
+behind its surface; the panel says that too. The wrap runs in a worker of its
+own, so a large one leaves the rest of the app free, and the wrap on hand is
+not saved with a project: a click makes it again. Once applied, none of the
+part's vertices is kept, so the **Deviation** view has nothing of the scan to
+measure and is grey.
+
 ### Trim to scan: a piece to mend a broken part
 
 A part with a piece broken off — a chip off a mug's rim, a handle, a tab off
@@ -587,6 +704,16 @@ and exported in the pose you aligned the part to.
    on the scan.
 4. **Export mesh**, then STL or 3MF. The file is `name-reduced.stl` or
    `.3mf` (`name-reduced-aligned` when the part was moved), in millimetres.
+5. Or **Apply** it, to go on working with it here. Until then the result is a
+   preview and the mesh it was made of is untouched: **Reduce again** starts
+   over from that mesh, so a result that came out too coarse costs nothing, and
+   **Discard** puts it away. Apply makes it the edited copy, one step of the
+   undo history, listed under Edited copy like any other edit, from where
+   **Use for analysis** takes it into every workspace. Once in use, the
+   elements are fitted again on the vertices the reduction left, and those are
+   few on a flat face. Judge the result by **Accuracy** before you apply it: the
+   copy's **Deviation** reads only at the copy's own points, which lie on the
+   surface, so it shows less than the triangles between them stray.
 
 #### How it reduces
 
@@ -670,6 +797,9 @@ tools `mesh_cut` and so on, registered from the plugin's `install()`
 | `mesh.mark` | a region marked on the part as the window, brush and lasso mark it, for Delete marked, Flip normals, Smooth or Shrink / expand — to look at before the edit, or for the person to put right |
 | `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.offset`, `mesh.boolean`, `mesh.shell` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Shell hollows a closed part or thickens an open one, as the panel's does |
 | `mesh.reduce`, `mesh.trim` | the reduced mesh and Trim to scan's piece, made beside the scan |
+| `mesh.apply_reduced` | the reduced mesh made the edited copy, one step of the undo history |
+| `mesh.wrap` | the wrap, made beside the scan — `gap`, and `grow`, `edges`, `tolerance` (how far its reduction may stray) — answering with its shells, triangles, what went inside it, the area bridged, the volume before and after and the time each step took; `preview: false` applies it at once |
+| `mesh.apply_wrap` | the wrap made the edited copy, one step of the undo history |
 | `mesh.use_edited`, `mesh.discard_edited` | the Edited copy section's two buttons |
 | `mesh.export` | the edited copy, the reduced mesh or the piece as STL or 3MF (`format`), as the panel's buttons write them |
 

@@ -9,6 +9,7 @@
 // the stores themselves — drafts, busy flags and readouts never enter it.
 
 import type { MeshUnits } from '../meshUnits'
+import type { ScanScale } from '../scanScale'
 import type { Element, Section, SelectMode } from '../../state/store'
 import type { Dimension } from '../dimensions'
 import type { AlignResult, PointPair } from '../deviation/align'
@@ -131,6 +132,15 @@ export interface ScanPart {
    *  was read in millimetres from it, and is again on load. Absent in
    *  projects saved before the STL import asked, and for a file in mm. */
   units?: MeshUnits
+  /** The factor the member's coordinates are scaled by on top of `units` —
+   *  the scan was scaled to its true size (core/scanScale) and is read at it
+   *  again. Absent means 1, and so for an edit of a scaled scan taken into
+   *  use: its file is written at the size it was edited at. */
+  scale?: number
+  /** How the scan got its true size, for the record: the factor all its
+   *  scales came to and the references of the last one. Absent when it was
+   *  never scaled. */
+  scaled?: ScanScale
   /** The datum alignment baked into the scan. Elements are saved in the
    *  aligned frame, so the same transform goes onto the raw scan first. */
   appliedAlignment: RigidJson | null

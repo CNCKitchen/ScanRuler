@@ -211,6 +211,14 @@ export function useGlobalShortcuts({
         } else if (e.key === 'Enter' && store.draft.status === 'ready') confirmDraft()
         return
       }
+      if (store.scaleDraft) {
+        // First Escape leaves point picking, the second closes the box.
+        if (e.key === 'Escape') {
+          if (store.scaleDraft.pickRow !== null) store.setScaleDraft({ pickRow: null })
+          else store.cancelScale()
+        } else if (e.key === 'Enter') confirmButton()?.click()
+        return
+      }
       if (store.alignDraft) {
         // First Escape leaves point picking, the second closes the editor.
         if (e.key === 'Escape') {

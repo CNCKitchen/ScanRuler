@@ -119,7 +119,7 @@ export class MeshWorkerClient {
   private rpc: WorkerRpc
   private recovering: Promise<void> | null = null
   restoreState: (() => {
-    scan: { name: string; bytes: Uint8Array; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits } | null
+    scan: { name: string; bytes: Uint8Array; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number } | null
     nominal: { name: string; bytes: Uint8Array; units?: MeshUnits } | null
   }) | null = null
   /** What the plugins put back after a restart, once the scan and the
@@ -151,9 +151,9 @@ export class MeshWorkerClient {
       this.rpc.restart()
       const state = this.restoreState?.()
       if (state?.scan) {
-        const { name, bytes, crease, transform, units } = state.scan
+        const { name, bytes, crease, transform, units, scale } = state.scan
         const buffer = bytes.slice().buffer
-        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
+        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') * (scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
       }
       if (state?.nominal) {
         const { name, bytes, units } = state.nominal
@@ -190,10 +190,12 @@ export class MeshWorkerClient {
 
   /** `companions` are the files that came with a textured OBJ, its images
    *  decoded (see app/scanFiles); they are handed over, not copied. */
-  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions): Promise<{ id: number; mesh: LoadedScan }> {
+  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions, scale = 1): Promise<{ id: number; mesh: LoadedScan }> {
     const id = this.nextId++
     const transfer: Transferable[] = [buffer, ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
-    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: mmPerUnit(units), ...(companions ? { companions } : {}) }, transfer)
+    // `scale` on top of the units: the factor the scan was scaled by to its
+    // true size (core/scanScale), read into it as the units are.
+    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: mmPerUnit(units) * scale, ...(companions ? { companions } : {}) }, transfer)
     return { id, mesh }
   }
 
@@ -520,11 +522,11 @@ export class MeshWorkerClient {
   }
 
   /** The scan's open rims (the `rims` longest) and its noise over `sample`
-   *  vertices. */
-  async scanQa(sample: number, rims: number): Promise<Omit<Extract<WorkerResponse, { type: 'scan-qa-ok' }>, 'type' | 'requestId'>> {
+   *  vertices; with `sheet`, whether it is a sheet — see geometry/sheet. */
+  async scanQa(sample: number, rims: number, sheet?: { sample: number; apartSample: number }): Promise<Omit<Extract<WorkerResponse, { type: 'scan-qa-ok' }>, 'type' | 'requestId'>> {
     const requestId = this.nextId++
-    const { rims: r, noise } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims })
-    return { rims: r, noise }
+    const { rims: r, noise, sheet: s } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims, ...(sheet ? { sheet } : {}) })
+    return { rims: r, noise, ...(s ? { sheet: s } : {}) }
   }
 
   /** One open rim by its number among the scan's rims, longest first, as

@@ -178,7 +178,7 @@ one clean band rather than on everything the tool can reach.
 Set **Surface** to *Marked by hand* in the element being created and the fit
 takes what you mark, and nothing else. The tools are the same ones the
 [local fine fit](#local-fine-fit) is marked with — **Navigate**, **Window**,
-**Brush**, **Lasso**, the **Erase** switch, *Mark faces pointing away too*,
+**Brush**, **Lasso**, the **Erase** switch, *Mark through the part*,
 **Invert** and *Clear marking* — and they behave identically here: nothing is
 armed until you pick a gesture, **left-drag marks and right-drag rubs out**
 while one is, Shift-drag still orbits, and **Navigate** or `Esc` hands the
@@ -191,7 +191,15 @@ than the marking. (A held key does not repeat through both steps.)
 The **brush Ø** in millimetres sets how wide a brush stroke is — it starts sized
 to the part. A ring on the surface under the cursor shows the footprint before
 you commit to it, in the element's colour while marking and dark while rubbing
-out. The marked surface wears the colour the element will get, the fit re-runs
+out. To follow a straight edge, tick **Straight lines** under the brush, or hold
+Ctrl (⌘ on a Mac) as you press: the drag then draws one straight line from press
+to release, with an outline showing what it will take, and marks when you let go.
+With the switch on, Ctrl-drag draws freehand. Shift stays with the orbit, and a
+control scheme that drives the camera with Ctrl and that button keeps the chord,
+which leaves the switch. The line is straight on the screen and lies on whatever
+surface is under it.
+
+The marked surface wears the colour the element will get, the fit re-runs
 each time you lift the button, and *Clear marking* starts over. **Invert**
 marks everything that was bare and clears everything that was marked. To take
 everything but a small piece, mark the piece and invert. The one row of
@@ -201,7 +209,7 @@ had.
 
 A gesture takes whole triangles — the ones it actually covers — so what lights
 up is exactly what the fit is given. It never reaches through a thin wall or
-around an edge either, unless you ask it to with *Mark faces pointing away too*.
+around an edge either, unless you ask it to with *Mark through the part*.
 
 Everything else is unchanged — the same Gaussian best fit, the same outlier
 cut-off, the same reported sigma — so a hand-marked element and an automatic
@@ -948,6 +956,64 @@ scanner delivered it. (A scan-to-reference best fit from the Deviation
 workspace was measured in the old frame and is cleared — realigning there
 takes one click.)
 
+### Scaling the part to its true size
+
+A photogrammetry scan — from Meshroom, RealityCapture or any other
+structure-from-motion program — is right in shape but has no size of its
+own: the program picks whatever units it likes, and the scan opens as a part
+a few millimetres across, or a few metres. ScanRuler says so when a scan
+looks like that (Meshroom's `texturedMesh.obj`, or anything under 5 mm or
+over 5 m across), on the status line and under **Alignment**.
+
+**Scale part**, under Alignment, makes it true size:
+
+1. Measure a length on the scan as you would anyway — two planes and the
+   distance between them, a bore's diameter, the distance between two balls'
+   centres. Or skip this and click two points in the box.
+2. Measure the same length on the real part, with calipers.
+3. In the Scale part box, pick the length and type its true value. The box
+   says what the length reads on the scan and the factor it asks for, and
+   what size the part will be.
+4. Press **Scale part**.
+
+More lengths make it surer: **+ Another length** adds one. They are averaged,
+the longer ones counting more, and each says how far it is off the average —
+one more than a percent or so off is a bad fit, a typo, or a length taken
+across a different feature than the one on the scan.
+
+Which lengths to choose:
+
+- **Long** ones. The same half-tenth of picking or fitting error is a smaller
+  share of 100 mm than of 10 mm.
+- **Between centres** — hole to hole, ball to ball. A photogrammetry surface
+  often sits a little proud or sunk (soft or textureless surfaces bulge,
+  edges round off), which makes an outside width read too big and a hole too
+  small, but leaves a centre where it is.
+- **Fitted elements** over clicked points: a fit averages thousands of scan
+  points, a click is one spot of noise.
+- A **known object** placed beside the part when the photos were taken works
+  well: a steel ruler, a gauge block, a ball bearing.
+
+**From: A factor** scales by a number you already know instead — ×25.4 for a
+file in inches that was read as millimetres. For a scan that came out far too
+small the box offers the usual units mix-ups as buttons.
+
+The part is scaled about its zero point — the datum origin once it is
+aligned — so every coordinate is multiplied by the factor. Elements,
+dimensions, sections and typed-in positions scale with it; the limits typed
+on a dimension and a known or assumed diameter stay as typed, since those
+were real sizes all along. A best fit to a reference part was made at the old
+size and is cleared. The scan is read again from its file at the new size, so
+everything measured afterwards is measured on the true-size part, and a
+project saves the factor and the lengths it was found from. It is one step
+of the undo history.
+
+Scale **before** building on the scan: Scale part refuses while a Reverse
+engineer model or notes, an edited copy in Mesh Tools that is not taken into
+use, or items measured on a section's 2D sheet are there — they were made at
+the old size and would not scale with it. Edits taken into use scale with the
+scan.
+
 ### Projects
 
 **Save Project** in the top bar writes the whole session to one `.scanruler`
@@ -1293,7 +1359,7 @@ Four modes, one of which is always live:
 |---|---|
 | **Navigate** | Marking off. Orbit, pan and zoom exactly as everywhere else. This is what the tools open in and return to after a fit — what is already marked stays marked. |
 | **Window** | Drag a rectangle. Everything inside it is marked — the fastest way to drop a riser or a whole scanned-in fixture. |
-| **Brush** | Drag over the surface with a round brush of a set diameter, as in the 3D Measure workspace. For working along an edge. |
+| **Brush** | Drag over the surface with a round brush of a set diameter, as in the 3D Measure workspace. For working along an edge. **Straight**, or Ctrl-drag (⌘ on a Mac), makes each drag one straight line. |
 | **Lasso** | Draw a free outline; everything it encloses is marked. For a patch of spray that follows no straight line. |
 
 The three gestures are additive and all undone by the same gesture with the
@@ -1314,13 +1380,15 @@ the global fit and reading the map all belong to another step. It is a fade,
 not a lock — anything there still works, and comes back to full strength under
 the pointer.
 
-**Mark faces pointing away too** decides whether a gesture reaches through the
-part. Off — the default — only surface turned towards you is taken, so a window
-over a closed part cannot quietly mark the far wall along with the near one.
-On, the gesture goes straight through, which takes a whole rib or boss in one
-sweep and is also the escape hatch for a scan whose normals are inverted. There
-is no depth test behind this, only the facing test: that is how CAD selection
-works everywhere, and it is why the switch exists.
+**Mark through the part** decides whether a gesture reaches through the
+part. Off — the default — only surface you can see is taken. It has to be
+turned towards you, so a window over a closed part cannot quietly mark the far
+wall along with the near one; and a window or lasso takes only the surface in
+front, so the face behind a rib, the inner wall of a fold or the far side of a
+bore stays bare where something nearer hides it. On, the gesture goes straight
+through and takes everything it encloses, which takes a whole rib or boss in
+one sweep and is also the escape hatch for a scan whose normals are inverted.
+Either way, what a section has cut away is not marked.
 
 A marked point is only ever paired with reference surface **facing the same way
 it does** — within 60°, which the fit can insist on because it starts from a

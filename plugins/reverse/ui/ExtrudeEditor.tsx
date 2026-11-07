@@ -12,7 +12,7 @@ import { MAX_TAPER_DEG } from '../core/preview'
 import { describeFaceIn } from '../core/topo'
 import { extrudeDraftReady, useReverse } from '../state/reStore'
 import { DirectionField } from './DirectionField'
-import { AnalysisRow, Num, OpFields, PreviewLine, ProfilesField, useRegionCount } from './featureFields'
+import { AnalysisRow, BuildSays, Num, OpFields, PreviewLine, ProfilesField, useRegionCount } from './featureFields'
 import { PlaneSelect } from './PlaneSelect'
 import { useEffect, useRef } from 'react'
 
@@ -58,6 +58,7 @@ export function ExtrudeEditor() {
     <div className="draftbox" data-test="extrude-editor" ref={box}>
       <div className="sec-head">{draft.featureId !== undefined ? `Edit ${draft.name}` : 'New extrude'}</div>
       {draft.featureId !== undefined && <NameField value={draft.name ?? ''} testId="extrude-name" onChange={(name) => set({ name })} />}
+      <BuildSays featureId={draft.featureId} />
       {draft.face ? (
         <div className="field">
           <span>

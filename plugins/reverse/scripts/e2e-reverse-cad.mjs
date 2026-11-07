@@ -126,14 +126,19 @@ console.log('fillet ghost:', JSON.stringify(ghost))
 check(ghost.solid && !ghost.bodyShown, 'the fillet’s preview is drawn solid in the body’s place')
 check(ghost.previewEdges > 12, 'with the edges the round will have')
 await page.screenshot({ path: shotPath('reverse-cad-fillet.png') })
-// A radius the block cannot take fails, and says why under its row.
+// A radius the block cannot take fails: its row is marked, and its box says
+// why once it is opened again.
 await re(() => window.__re.store.getState().setFeatureDraft({ radius: 30, radiusTyped: true }))
-await re(() => window.__re.store.getState().commitFeature())
-await page.waitForSelector('[data-test=feature-error]', { timeout: 30_000 })
+const failedId = await re(() => window.__re.store.getState().commitFeature())
+await page.waitForSelector('[data-test=feature-failed]', { timeout: 30_000 })
+check((await page.$$('[data-test=feature-error]')).length === 0, 'the row marks the failure without its sentence')
+await re((id) => window.__re.store.getState().editFeature(id), failedId)
+await page.waitForSelector('[data-test=feature-error]', { timeout: 10_000 })
 const overflow = await page.$eval('[data-test=feature-error]', (el) => ({ wide: el.scrollWidth > el.clientWidth + 1, inPanel: el.getBoundingClientRect().right <= el.closest('.panel').getBoundingClientRect().right + 1, text: el.textContent }))
 console.log('failed fillet:', overflow.text)
 check(!overflow.wide && overflow.inPanel, 'a failed feature’s reason wraps inside the panel')
 await page.screenshot({ path: shotPath('reverse-cad-error.png') })
+await re(() => window.__re.store.getState().cancelFeature())
 await re(() => window.__re.store.getState().undoFeatures())
 await built()
 

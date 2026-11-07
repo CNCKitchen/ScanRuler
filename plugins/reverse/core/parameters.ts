@@ -147,6 +147,26 @@ export function evaluateParameters(parameters: readonly Parameter[]): ParameterT
     readings.set(p.id, reading)
     return reading
   }
+  // Read first those whose parameters are read already, the ones they read
+  // found without recursion: a long chain of parameters each reading the
+  // next is then read one link at a time, not as deep as it is long. One
+  // in a loop is left for the reading below, which says where it goes round.
+  const ordered = new Set<Parameter>()
+  for (const root of parameters) {
+    const stack: [Parameter, boolean][] = [[root, false]]
+    while (stack.length > 0) {
+      const [p, expanded] = stack.pop()!
+      const reads = references(p.expression).flatMap((name) => byName.get(name) ?? [])
+      if (expanded) {
+        if (reads.every((q) => readings.has(q.id))) read(p)
+        continue
+      }
+      if (ordered.has(p)) continue
+      ordered.add(p)
+      stack.push([p, true])
+      for (const q of reads) if (!ordered.has(q)) stack.push([q, false])
+    }
+  }
   const list = parameters.map(read)
   const byReadName = new Map<string, ParameterReading>()
   for (const r of list) if (!byReadName.has(r.name)) byReadName.set(r.name, r)

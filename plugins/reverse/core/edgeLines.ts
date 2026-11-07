@@ -124,7 +124,7 @@ interface Sides {
  * Without the triangles' faces a seam is not told from a tangent side, and
  * without normals every side but a seam is sharp.
  */
-function readSides(positions: ArrayLike<number>, normals: ArrayLike<number> | null, indices: ArrayLike<number>, faceHash: ArrayLike<number> | null, oneSurface?: OneSurface): Sides {
+function readSides(positions: ArrayLike<number>, normals: ArrayLike<number> | null, indices: ArrayLike<number>, faceHash: ArrayLike<number> | null, oneSurface?: OneSurface, tangentCos = TANGENT_COS): Sides {
   const sides = outlineSides(positions, indices)
   const count = sides.length / 3
   const keys = new Array<string>(count)
@@ -151,7 +151,7 @@ function readSides(positions: ArrayLike<number>, normals: ArrayLike<number> | nu
       let ta = sides[t * 3]
       let tb = sides[t * 3 + 1]
       if (distance2(positions, a, ta) > distance2(positions, a, tb)) [ta, tb] = [tb, ta]
-      if (normalsCos(normals, a, ta) >= TANGENT_COS && normalsCos(normals, b, tb) >= TANGENT_COS) join = oneSurface && fs !== null && ft !== null && oneSurface(fs, ft) ? SPLIT : TANGENT
+      if (normalsCos(normals, a, ta) >= tangentCos && normalsCos(normals, b, tb) >= tangentCos) join = oneSurface && fs !== null && ft !== null && oneSurface(fs, ft) ? SPLIT : TANGENT
     }
     joins[s] = join
     joins[t] = join
@@ -228,8 +228,10 @@ export interface EdgeShares {
  * outline side goes to the edge of its face — by the triangle's face hash
  * — whose sampled polyline passes nearest the side's middle. An edge given
  * no side keeps its polyline, cut into segments, and is taken for sharp.
+ * `tangentCos`: how closely the normals agree for a tangent join — a
+ * quarter of a degree, as the viewport draws, by default.
  */
-export function edgeShares(positions: ArrayLike<number>, normals: ArrayLike<number> | null, indices: ArrayLike<number>, faceHash: ArrayLike<number>, edges: readonly OutlinedEdge[], oneSurface?: OneSurface): EdgeShares {
+export function edgeShares(positions: ArrayLike<number>, normals: ArrayLike<number> | null, indices: ArrayLike<number>, faceHash: ArrayLike<number>, edges: readonly OutlinedEdge[], oneSurface?: OneSurface, tangentCos = TANGENT_COS): EdgeShares {
   // The edges round each face, each with the box round its polyline — a
   // face with many edges passes over most of them on the box alone.
   interface Candidate { hash: number; p: Float32Array; lo: [number, number, number]; hi: [number, number, number] }
@@ -252,7 +254,7 @@ export function edgeShares(positions: ArrayLike<number>, normals: ArrayLike<numb
       else round.set(f, [c])
     }
   }
-  const { sides, keys, joins } = readSides(positions, normals, indices, faceHash, oneSurface)
+  const { sides, keys, joins } = readSides(positions, normals, indices, faceHash, oneSurface, tangentCos)
   const taken = new Map<number, number[]>()
   // Each edge's sides counted by join.
   const votes = new Map<number, number[]>()

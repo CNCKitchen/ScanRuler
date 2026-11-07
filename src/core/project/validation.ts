@@ -5,6 +5,7 @@
 // itself when a project is opened (see app/projectSections.ts).
 
 import { meshUnitsOf } from '../meshUnits'
+import { SCALE_MAX, SCALE_MIN } from '../scanScale'
 
 export type RecordValue = Record<string, unknown>
 export function invalid(path: string): never { throw new Error(`Malformed project: ${path}.`) }
@@ -119,6 +120,16 @@ export function validateProjectParts(raw: unknown): void {
     fields(settings, 'method', 'string', 'scan.settings')
     fields(settings, 'sigma', 'number', 'scan.settings')
     rigid(s.appliedAlignment, 'scan.appliedAlignment')
+    if (s.scale !== undefined && !(typeof s.scale === 'number' && s.scale >= SCALE_MIN && s.scale <= SCALE_MAX)) invalid('scan.scale')
+    if (s.scaled !== undefined) {
+      const scaled = object(s.scaled, 'scan.scaled')
+      if (!(typeof scaled.factor === 'number' && scaled.factor > 0 && Number.isFinite(scaled.factor))) invalid('scan.scaled.factor')
+      for (const r of array(scaled.references, 'scan.scaled.references')) {
+        const ref = object(r, 'scan.scaled.references')
+        fields(ref, 'label', 'string', 'scan.scaled.references')
+        fields(ref, 'measured true', 'number', 'scan.scaled.references')
+      }
+    }
     entries(s.elements, 'scan.elements', (e) => {
       fields(e, 'kind name color status', 'string', 'element')
       fields(e, 'visible', 'boolean', 'element')

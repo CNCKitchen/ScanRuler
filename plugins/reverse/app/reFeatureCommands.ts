@@ -24,7 +24,7 @@ import { bodiesOut, featureBrief, featureOut, regionsOut, resultOut } from './re
 import { EXAMPLE_NOTES, FEATURE_EXAMPLES, FEATURE_IN, FEATURE_KINDS, featureInBrief, featureOf, featureRef, handOut, partialOf, SHARED_NAMES, sharedPart, sketchAddIn, sketchFieldsNamed } from './reSchemas'
 import { reverseSession } from './reSession'
 import { failedWith, recordRemoved, REMOVED_SAY, usePlan } from './rePlan'
-import { acceptOnDraft, draftOffsetDraft, fitDraftShared, type FitIn, type FittedOut, madeOut, movedFar, movedPieces, offPieceOut, piecesSetOut, setPieces, type PreparedFit, prepareFit, projectDraft, type ProjectIn, putLanded, putSketch, renumberClashes, sketchOf } from './reSketchInput'
+import { acceptOnDraft, draftOffsetDraft, fitDraftShared, type FitIn, type FittedOut, givenOut, madeOut, movedFar, movedPieces, offPieceOut, piecesSetOut, setPieces, type PreparedFit, prepareFit, projectDraft, type ProjectIn, putLanded, putSketch, renumberClashes, sketchOf } from './reSketchInput'
 
 export const list: Command<{ feature?: Ref; detail?: 'brief' | 'full' }> = {
   name: 'list',
@@ -978,7 +978,7 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
   name: 'edit',
   title: 'Edit a sketch piece by piece',
   description:
-    'Change a sketch without handing all of it back, as reopening it in the panel and drawing does: add takes what a sketch takes — fit, project, entities, shapes, constraints, patterns, infer — naming the sketch’s pieces by their ids, and rounds: [{ a, b, radius? }], an arc tangent to pieces a and b where they meet, the pieces cut back to it and held with tangencies, at the radius given or the scan’s. remove takes pieces out by id, with every relation on them, and relations by id. set moves pieces in place, by id, each keeping its id and every relation on it: { "12": { b: [u, v] } } — a line’s a, b; an arc’s c, r, start, sweep, or its ends a, b (r too if you like), keeping its sweep or its bulge; a circle’s c, r; a spline’s pts, or a fit point by name (a, b, p1, …); a point’s p. The solve follows as a drag’s does: what you put a piece at holds, the rest gives way, and relations win over it (set.short says how far one fell short). A fitted piece lets go of its slice points (set.detached), as one dragged does; a projected piece is refused. Prefer it over remove and add: ids and relations stay. Order: removals, set, project, fit (with fit.level the walls the sketch already has are not fitted again — their points join those pieces, shared, and the new runs’ ends land on them, junctions), the rest, then the rounds; ends that meet are joined (infer), and a new end within 0.05 mm of one place other ends lie is moved onto it first (snapped). The sketch is solved and the features on it rebuilt, keeping their picks where the regions can still be told apart. Returns what was made (ids; a fit’s in fitted, each chain’s pieces), set (pieces, detached, short), each round (arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held, warning), moved, offPiece (a T-junction come apart), the solve, the regions and the bodies changed — ids, fittedPieces, set, rounds, accept and moved even with detail "none".',
+    'Change a sketch without handing all of it back, as reopening it in the panel and drawing does: add takes what a sketch takes — fit, project, entities, shapes, constraints, patterns, infer — naming the sketch’s pieces by their ids, and rounds: [{ a, b, radius? }], an arc tangent to pieces a and b where they meet, the pieces cut back to it and held with tangencies, at the radius given or the scan’s. remove takes pieces out by id, with every relation on them, and relations by id. set moves pieces in place, by id, each keeping its id and every relation on it: { "12": { b: [u, v] } } — a line’s a, b; an arc’s c, r, start, sweep, or its ends a, b (r too if you like), keeping its sweep or its bulge; a circle’s c, r; a spline’s pts, or a fit point by name (a, b, p1, …); a point’s p. The solve follows as a drag’s does: what you put a piece at holds, the rest gives way, and relations win over it (set.short says how far one fell short). A fitted piece lets go of its slice points (set.detached), as one dragged does; a projected piece is refused. Prefer it over remove and add: ids and relations stay. Order: removals, set, project, fit (with fit.level the walls the sketch already has are not fitted again — their points join those pieces, shared, and the new runs’ ends land on them, junctions), the rest, then the rounds; ends that meet are joined (infer), and a new end within 0.05 mm of one place other ends lie is moved onto it first (snapped). The sketch is solved and the features on it rebuilt, keeping their picks where the regions can still be told apart. Returns what was made (ids; a fit’s in fitted, each chain’s pieces), set (pieces, detached, short), each round (arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held, warning), moved (with radii: each arc or circle whose radius changed, was and now), offPiece (a T-junction come apart), the solve, the regions and the bodies changed — ids, fittedPieces, set, rounds, accept and moved even with detail "none".',
   input: obj(
     {
       sketch: featureRef('sketch'),
@@ -1091,6 +1091,8 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
       if (re().commitSketch() === null) throw new CommandError('failed', 'That leaves the sketch with nothing in it — remove the sketch instead.')
       void s
       const after = (allFeatures().find((x) => x.id === f.id) as SketchFeature | undefined)?.sketch
+      // Typed points read again on the sketch as it was made.
+      givenOut(fit, after)
       const moved = after ? movedPieces(beforeSet, after, asFitted) : { count: 0 }
       const far = after ? movedFar(base, after, asFitted, usePlan.getState().plan?.target.tolerance ?? MOVED_FAR_MM) : null
       extra = {
@@ -1105,6 +1107,7 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
         ...(fit?.shared ? { shared: fit.shared } : {}),
         ...(fit?.junctions ? { junctions: fit.junctions } : {}),
         ...(fit?.corners ? { corners: fit.corners } : {}),
+        ...(fit?.through ? { through: fit.through } : {}),
         ...(projected ? { projected: projected.projected, ...(projected.skipped > 0 ? { skipped: projected.skipped } : {}) } : {}),
         moved,
         ...(far ? { movedFar: far } : {}),

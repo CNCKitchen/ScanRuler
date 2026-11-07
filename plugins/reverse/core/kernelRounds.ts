@@ -6,7 +6,7 @@
 import { addScaled, dot, scale, sub } from '../../../src/core/vec'
 import type { ReKernel } from './kernel'
 import { composeHistory, sameSurface } from './kernelMath'
-import { isTrap, readFace } from './kernelOps'
+import { HASH_BOUND, isTrap, readFace, unifiedSolid, unifyHistory } from './kernelOps'
 import type { FaceHistory, RawFace, Shape, Tracked } from './kernelTypes'
 import type { OcctLike } from './occtTypes'
 
@@ -59,11 +59,15 @@ export function fullWidth(occt: OcctLike, kernel: ReKernel, solid: Shape, size: 
   if (exact) kernel.release(exact.shape)
   const width = 8 * size * slack
   if (!hasSlivers(occt, near.shape, width)) return near
-  // The sliver taken off and its neighbours closed over it; or, where the
-  // kernel will not, each pair of rounds on one axis filled out to the
-  // one round of the asked radius they stand for. Failing both, the
-  // sliver stays: a face far thinner than any tolerance, the body right.
-  for (const close of [() => defeatureSlivers(occt, near.shape, width), () => fillFullRounds(occt, kernel, near.shape, solid, size, width)]) {
+  // The sliver left out and the faces either side sewn shut across it;
+  // or, where that does not close, each pair of rounds on one axis
+  // filled out to the one round of the asked radius they stand for; or
+  // the sliver taken off by the kernel's defeaturing, its neighbours
+  // closed over it — the slowest by far, a minute on a slab's outline.
+  // Failing all, the sliver stays: a face far thinner than any
+  // tolerance, the body right.
+  const closers = [() => sewOverSlivers(occt, near.shape, width), () => fillFullRounds(occt, kernel, near.shape, solid, size, width), () => defeatureSlivers(occt, near.shape, width)]
+  for (const close of closers) {
     let closed: Shape | null = null
     try {
       closed = close()
@@ -73,7 +77,7 @@ export function fullWidth(occt: OcctLike, kernel: ReKernel, solid: Shape, size: 
     }
     if (!closed) continue
     if (kernel.isClosedSolid(closed) && !hasSlivers(occt, closed, width)) {
-      const history = composeHistory(near.history, surfaceHistory(kernel, near.shape, closed))
+      const history = composeHistory(near.history, closingHistory(occt, kernel, near.shape, closed))
       kernel.release(near.shape)
       return { shape: closed, history }
     }
@@ -100,6 +104,39 @@ function hasSlivers(occt: OcctLike, shape: Shape, width: number): boolean {
   const thin = slivers(occt, shape, width)
   for (const h of thin) occt.release(h)
   return thin.length > 0
+}
+
+/** The shape's faces less its slivers, sewn into a solid: each sliver's
+ *  two long sides lie a hair apart — far closer than `width` — so the
+ *  faces either side of it are sewn edge to edge across where it was.
+ *  Whatever those faces are — the two halves of a round on a line, a
+ *  torus at an arc of the outline, the kernel's swept surface along a
+ *  spline, a round and the face it runs into at a single round of the
+ *  whole wall — they already meet as the round does, tangent, on the
+ *  asked radius but for the hair: nothing is made, only closed. The
+ *  halves on one surface are then made one face. Null when the faces do
+ *  not close into one solid. */
+function sewOverSlivers(occt: OcctLike, shape: Shape, width: number): Shape | null {
+  const o = occt
+  const thin = new Set<number>()
+  for (const h of slivers(occt, shape, width)) {
+    thin.add(o.hashCode(h, HASH_BOUND))
+    o.release(h)
+  }
+  if (thin.size === 0) return null
+  const all = o.getSubShapes(shape, 'face')
+  let sewn: Shape | null = null
+  try {
+    const kept = all.filter((h) => !thin.has(o.hashCode(h, HASH_BOUND)))
+    sewn = o.sewAndSolidify(kept, width) as Shape
+  } finally {
+    for (const h of all) o.release(h)
+  }
+  if (o.isNull(sewn) || o.getShapeType(sewn) !== 'solid') {
+    if (!o.isNull(sewn)) o.release(sewn)
+    return null
+  }
+  return unifiedSolid(occt, sewn)
 }
 
 /** The slivers of a shape taken off by the kernel's defeaturing, their
@@ -169,8 +206,18 @@ function fillFullRounds(occt: OcctLike, kernel: ReKernel, shape: Shape, solid: S
 }
 
 /** What became of each face of `before` that is not on `after` under the
- *  same hash: the face of `after` on the same surface — a round's two
- *  halves the one round, a wall the wall it was. */
+ *  same hash: the face of `after` a point inside it lies on (kernelOps
+ *  unifyHistory) — a round's two halves the one round, a wall sewn to its
+ *  neighbours the wall it was — and, for a face no point was found on,
+ *  the face of `after` on the same surface. */
+function closingHistory(occt: OcctLike, kernel: ReKernel, before: Shape, after: Shape): FaceHistory {
+  const history = unifyHistory(occt, before, after)
+  for (const [was, now] of surfaceHistory(kernel, before, after)) if (!history.has(was)) history.set(was, now)
+  return history
+}
+
+/** The same by surface alone: the face of `after` on the same surface as
+ *  the face of `before` that is gone. */
 function surfaceHistory(kernel: ReKernel, before: Shape, after: Shape): FaceHistory {
   const was = kernel.faces(before)
   const now = kernel.faces(after)

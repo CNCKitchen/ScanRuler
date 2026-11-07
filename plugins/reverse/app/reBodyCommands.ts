@@ -501,7 +501,7 @@ async function planOn(stats: ReturnType<typeof describeDeviation>['stats']): Pro
 /** Names for the bodies and faces a comparison's answer points at: a body
  *  by its id, a face by its hash — its index, its kind and the feature that
  *  made it. */
-function faceLookup(s: ReverseSession) {
+export function faceLookup(s: ReverseSession) {
   const bodyName = (id: number) => re().bodies.find((b) => b.id === id)?.name ?? `Body ${id}`
   const faceOf = (body: number, hash: number) => {
     const t = s.topologies.get(body)

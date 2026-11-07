@@ -55,11 +55,11 @@ const limitSchema: JsonSchema = oneOf(
   'What the value is checked against, for a pass or fail verdict.',
 )
 
-const dimensionRefSchema = (description: string): JsonSchema =>
+export const dimensionRefSchema = (description: string): JsonSchema =>
   oneOf([int('Its id.', { minimum: 1 }), str('Its name — "Distance 1".', { minLength: 1 })], description)
 
 /** The dimension an id or a name stands for. */
-function findDimension(given: number | string): Dimension {
+export function findDimension(given: number | string): Dimension {
   const { dimensions } = useStore.getState()
   const ref = refOf(dimensions, given)
   const hits =

@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Everything the Mesh Tools workspace knows. Its tools come in two kinds.
 // Some edit the scan itself — Remove islands, Delete marked, Flip normals,
-// Cut, Fill holes, Smooth, Shrink / expand, Boolean, Shell — and every
+// Cut, Mirror, Fill holes, Smooth, Shrink / expand, Boolean, Shell — and every
 // workspace measures the scan as they leave it; each edit
 // is one step of the undo history, and the list of them says what has been
 // done to the file that was opened. Others make something beside the scan and
 // leave it alone — Reduce mesh, the scan as a light mesh for CAD, measured
-// against the scan; Trim to scan, a body cut to fit the scan's break.
+// against the scan, until Apply makes it an edit like the rest; Wrap, one
+// closed skin round the part with everything inside dropped, a preview until
+// it is applied the same way; Trim to scan, a body cut to fit the scan's
+// break.
 //
 // The reduction's settings split the way the thickness workspace's do: what
 // shapes the reduction, which only takes effect when the scan is reduced
@@ -23,15 +26,17 @@ import { defaultWallThickness } from '../core/hollow'
 import type { ThickenSide } from '../core/offset'
 import { DEFAULT_BREAK_DEPTH, type BreakReport } from '../core/breakSurface'
 import type { TrimReport } from '../core/trimToScan'
+import type { MirrorMode } from '../core/mirror'
+import { defaultWrapGap, type WrapEdges, type WrapReport } from '../core/wrap'
 
-export type { CopyDeviationStats }
+export type { CopyDeviationStats, MirrorMode }
 import type { SectionRef } from '../../../src/core/section/frame'
 import type { PieceCount } from '../core/protocol'
 import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
 
 /** The tool in hand. */
-export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell'
+export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'mirror' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell' | 'wrap'
 
 /** What the viewport shows of a reduction: the reduced mesh with its
  *  triangles drawn, the scan painted with how far the reduced mesh strays
@@ -46,8 +51,9 @@ export type CutKeep = 'plus' | 'minus'
 
 /** A change made to the scan, as the list of them tells it. The kinds are
  *  the names a saved project knows them by: `pieces` is Remove islands,
- *  `delete` Delete marked, `flip` Flip normals, `cut`, `fill` Fill holes,
- *  `smooth`, `offset` Shrink / expand, `boolean`, `shell`. */
+ *  `delete` Delete marked, `flip` Flip normals, `cut`, `mirror`, `fill` Fill holes,
+ *  `smooth`, `offset` Shrink / expand, `boolean`, `shell`, `reduce` a
+ *  reduction applied, `wrap` a wrap applied. */
 export type ScanEdit =
   | {
       kind: 'pieces'
@@ -75,6 +81,15 @@ export type ScanEdit =
       removed: number
       capped: number
       open: number
+    }
+  | {
+      kind: 'mirror'
+      /** The whole part reflected, or one side reflected onto the other. */
+      mode: MirrorMode
+      /** Where, as the list says it: "XY plane, Z 1.5 mm". */
+      plane: string
+      /** The triangles the mirror image brought — for whole, every one. */
+      triangles: number
     }
   | { kind: 'fill'; maxSize: number; mode: FillMode; holes: number; triangles: number }
   | {
@@ -124,15 +139,39 @@ export type ScanEdit =
       cavities?: number
       volume?: number
     }
+  | {
+      kind: 'reduce'
+      /** The tolerance asked for, and whether it held; how far 99.9 % of the
+       *  mesh then lay from the result either way, mm. */
+      tolerance: number
+      held: boolean
+      p999: number
+      /** The triangles collapsed away. */
+      triangles: number
+    }
+  | {
+      kind: 'wrap'
+      /** Openings narrower than this bridged, and how far the wrap stands off
+       *  the part, mm; its edges. */
+      gap: number
+      grow: number
+      edges: WrapEdges
+      /** Its skins and triangles, the triangles of the mesh before it that
+       *  lay inside it, and the area bridging openings, mm². */
+      shells: number
+      triangles: number
+      dropped: number
+      bridged: number
+    }
 
 /** Every tool's settings: what a command sets and puts back when it
  *  fails, and what an undo step keeps — a setting added to the store goes
  *  here, or the two part ways. */
 export const MESH_SETTINGS = [
   'tolerance', 'toleranceAuto', 'maxTriangles', 'pieceSize', 'pieceSizeAuto', 'cutRef', 'cutOffset', 'cutOffsetAuto', 'cutKeep',
-  'cutCap', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
+  'cutCap', 'mirrorRef', 'mirrorOffset', 'mirrorOffsetAuto', 'mirrorKeep', 'mirrorMode', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
   'smoothEdges', 'offsetScope', 'offsetDirection', 'offsetDistance', 'boolOp', 'boolSolids', 'trimSolid', 'trimOffset', 'trimDepth',
-  'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide',
+  'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide', 'wrapGap', 'wrapGapAuto', 'wrapGrow', 'wrapEdges',
 ] as const
 
 /** The triangle limit a reduction starts with: a mesh CAD takes in without
@@ -211,6 +250,19 @@ export function shellModeOf(s: Pick<ShellSurvey, 'open' | 'rims' | 'holes'>): Sh
   return s.rims > 0 && s.holes === s.rims ? 'holes' : 'thicken'
 }
 
+/** What the viewport shows while Wrap is in hand: the wrap, its bridges
+ *  tinted; the wrap see-through over the part, to see what of it is inside
+ *  and dropped; or the part as it is. */
+export type WrapView = 'wrap' | 'inside' | 'scan'
+
+/** The wrap on hand, as it was made: the worker's report, and the volume of
+ *  the mesh it was made of where that is closed. The wrap itself lives in
+ *  the scene and the session. */
+export interface WrapMade {
+  report: WrapReport
+  volumeBefore: number | null
+}
+
 /** What a cut would do, before it is made: whether the plane has scan on
  *  both sides of it, the faces it would close flat, the holes in the scan at
  *  the plane it would bridge, and the stretches of it left open. */
@@ -271,6 +323,18 @@ interface MeshState {
   cutPreview: CutOutcome | null
   /** Close the part flat where the plane crosses it. */
   cutCap: boolean
+
+  // ---- Mirror ----------------------------------------------------------------
+  /** The plane mirrored across, taken as Cut's is: across a coordinate axis
+   *  or an element with a direction, through the part's middle while
+   *  `mirrorOffsetAuto`. */
+  mirrorRef: SectionRef
+  mirrorOffset: number
+  mirrorOffsetAuto: boolean
+  /** The whole part reflected, or one side made the mirror image of the
+   *  other — `mirrorKeep` the side kept, as Cut's keep says it. */
+  mirrorMode: MirrorMode
+  mirrorKeep: CutKeep
 
   // ---- Fill holes -------------------------------------------------------------
   /** Rims smaller than this across are holes to fill, mm. */
@@ -354,6 +418,25 @@ interface MeshState {
    *  at. */
   shellSurvey: ShellSurvey | null
 
+  // ---- Wrap ------------------------------------------------------------------------
+  /** Openings narrower than this are bridged, mm. */
+  wrapGap: number
+  wrapGapAuto: boolean
+  /** How far the wrap stands off the part, mm. */
+  wrapGrow: number
+  wrapEdges: WrapEdges
+  wrapStatus: MeshStatus
+  /** The step the wrap is at while it runs. */
+  wrapStage: string | null
+  wrapMessage: string | null
+  wrapMade: WrapMade | null
+  /** Bumped whenever a wrap lands or goes. */
+  wrapVersion: number
+  wrapView: WrapView
+  /** The open edges of the mesh the wrap is made of — null while being
+   *  looked at: a hint that it needs growing. */
+  wrapOpen: number | null
+
   /** What has been done to the scan in use since it was opened, oldest
    *  first — edits taken into use with Use for analysis. */
   edits: ScanEdit[]
@@ -403,6 +486,12 @@ interface MeshState {
   setCutKeep: (keep: CutKeep) => void
   setCutCap: (on: boolean) => void
   setCutPreview: (preview: CutOutcome | null) => void
+  /** Another plane to mirror across; its offset starts through the part's
+   *  middle again. */
+  setMirrorRef: (ref: SectionRef) => void
+  setMirrorOffset: (v: number) => void
+  setMirrorKeep: (keep: CutKeep) => void
+  setMirrorMode: (mode: MirrorMode) => void
   setHoleSize: (v: number) => void
   setFillMode: (mode: FillMode) => void
   setHoleSurvey: (survey: (HoleSurvey & { maxSize: number }) | null) => void
@@ -441,6 +530,18 @@ interface MeshState {
   setShellThickness: (v: number) => void
   setShellSide: (side: ThickenSide) => void
   setShellSurvey: (survey: ShellSurvey | null) => void
+  setWrapGap: (v: number) => void
+  setWrapGrow: (v: number) => void
+  setWrapEdges: (edges: WrapEdges) => void
+  setWrapView: (view: WrapView) => void
+  wrapBegin: () => void
+  wrapProgress: (text: string) => void
+  wrapResolve: (made: WrapMade) => void
+  wrapFail: (message: string | null) => void
+  /** The wrap on hand was made of a mesh that has just changed, or put
+   *  away. */
+  dropWrap: () => void
+  setWrapOpen: (open: number | null) => void
   /** Size the settings to a part just loaded, where the user has not said
    *  what they should be — by its size, and how fine its mesh is. */
   suggestForPart: (bboxDiagonal: number, edgeLength?: number) => void
@@ -458,6 +559,11 @@ const CLEARED = {
   cutPreview: null,
   boolClosed: null,
   shellSurvey: null,
+  wrapStatus: 'idle' as MeshStatus,
+  wrapStage: null,
+  wrapMessage: null,
+  wrapMade: null,
+  wrapOpen: null,
   trimBreak: null,
   trimBreakError: null,
   trimStatus: 'idle' as MeshStatus,
@@ -475,6 +581,7 @@ const CLEARED = {
   copyDeviationStats: null,
   // A plane through the middle of whatever comes next.
   cutOffsetAuto: true,
+  mirrorOffsetAuto: true,
 }
 
 export const useMeshTools = create<MeshState>()((set) => ({
@@ -500,6 +607,11 @@ export const useMeshTools = create<MeshState>()((set) => ({
   cutKeep: 'plus',
   cutCap: true,
 
+  mirrorRef: 'x',
+  mirrorOffset: 0,
+  mirrorMode: 'whole',
+  mirrorKeep: 'plus',
+
   holeSize: 5,
   holeSizeAuto: true,
   fillMode: 'curved',
@@ -518,6 +630,13 @@ export const useMeshTools = create<MeshState>()((set) => ({
   shellThickness: 2,
   shellThicknessAuto: true,
   shellSide: 'in',
+
+  wrapGap: 1,
+  wrapGapAuto: true,
+  wrapGrow: 0,
+  wrapEdges: 'sharp',
+  wrapVersion: 0,
+  wrapView: 'wrap',
 
   boolOp: 'subtract',
   boolSolids: [],
@@ -588,6 +707,14 @@ export const useMeshTools = create<MeshState>()((set) => ({
   setCutCap: (cutCap) => set({ cutCap }),
 
   setCutPreview: (cutPreview) => set({ cutPreview }),
+
+  setMirrorRef: (mirrorRef) => set({ mirrorRef, mirrorOffset: 0, mirrorOffsetAuto: true }),
+
+  setMirrorOffset: (v) => set({ mirrorOffset: Number.isFinite(v) ? v : 0, mirrorOffsetAuto: false }),
+
+  setMirrorKeep: (mirrorKeep) => set({ mirrorKeep }),
+
+  setMirrorMode: (mirrorMode) => set({ mirrorMode }),
 
   setHoleSize: (v) => set({ holeSize: Math.max(1e-3, v), holeSizeAuto: false }),
 
@@ -664,6 +791,28 @@ export const useMeshTools = create<MeshState>()((set) => ({
 
   setShellSurvey: (shellSurvey) => set({ shellSurvey }),
 
+  setWrapGap: (v) => set({ wrapGap: Math.max(1e-3, v), wrapGapAuto: false }),
+
+  setWrapGrow: (v) => set({ wrapGrow: Number.isFinite(v) ? Math.max(0, v) : 0 }),
+
+  setWrapEdges: (wrapEdges) => set({ wrapEdges }),
+
+  setWrapView: (wrapView) => set({ wrapView }),
+
+  wrapBegin: () => set({ wrapStatus: 'running', wrapStage: null, wrapMessage: null }),
+
+  wrapProgress: (wrapStage) => set({ wrapStage }),
+
+  // A fresh wrap is shown as it lands.
+  wrapResolve: (wrapMade) => set((s) => ({ wrapStatus: 'ready', wrapStage: null, wrapMessage: null, wrapMade, wrapView: 'wrap', wrapVersion: s.wrapVersion + 1 })),
+
+  // A wrap that failed, or was cancelled, leaves the one before it standing.
+  wrapFail: (wrapMessage) => set((s) => ({ wrapStatus: s.wrapMade ? 'ready' : 'idle', wrapStage: null, wrapMessage })),
+
+  dropWrap: () => set((s) => ({ wrapStatus: 'idle', wrapStage: null, wrapMade: null, wrapVersion: s.wrapVersion + 1 })),
+
+  setWrapOpen: (wrapOpen) => set({ wrapOpen }),
+
   suggestForPart: (bboxDiagonal, edgeLength) =>
     set((s) => ({
       ...(s.toleranceAuto ? { tolerance: defaultTolerance(bboxDiagonal) } : {}),
@@ -672,6 +821,7 @@ export const useMeshTools = create<MeshState>()((set) => ({
       ...(s.smoothSizeAuto ? { smoothSize: defaultSmoothSize(bboxDiagonal, edgeLength) } : {}),
       ...(s.smoothLimitAuto ? { smoothLimit: defaultSmoothLimit(bboxDiagonal) } : {}),
       ...(s.shellThicknessAuto ? { shellThickness: defaultWallThickness(bboxDiagonal) } : {}),
+      ...(s.wrapGapAuto ? { wrapGap: defaultWrapGap(bboxDiagonal) } : {}),
     })),
 
   clear: () =>
@@ -679,12 +829,14 @@ export const useMeshTools = create<MeshState>()((set) => ({
       ...CLEARED,
       trimView: 'break' as TrimView,
       trimVersion: s.trimVersion + 1,
+      wrapVersion: s.wrapVersion + 1,
       surveyVersion: s.surveyVersion + 1,
       holeSurveyVersion: s.holeSurveyVersion + 1,
       copyVersion: s.copyVersion + 1,
       copyDeviationVersion: s.copyDeviationVersion + 1,
       // An element the plane was taken across belonged to the last scan.
       ...(typeof s.cutRef === 'number' ? { cutRef: 'z' as const } : {}),
+      ...(typeof s.mirrorRef === 'number' ? { mirrorRef: 'x' as const } : {}),
     })),
 }))
 
@@ -702,6 +854,20 @@ export function reductionStale(s: SettingsFields & Pick<MeshState, 'report'>): b
   if (!s.report) return false
   const made = s.report.settings
   return made.tolerance !== s.tolerance || made.maxTriangles !== s.maxTriangles
+}
+
+/** A reduction has been applied, to the copy or to the scan in use: Reduce
+ *  mesh has done its job, and no hint asks for it. */
+export function reductionApplied(s: Pick<MeshState, 'pending' | 'edits'>): boolean {
+  return s.pending.some((e) => e.kind === 'reduce') || s.edits.some((e) => e.kind === 'reduce')
+}
+
+/** The wrap on hand was made with other settings than the panel shows — it
+ *  still stands, and is still what Apply takes. */
+export function wrapStale(s: Pick<MeshState, 'wrapMade' | 'wrapGap' | 'wrapGrow' | 'wrapEdges'>): boolean {
+  const made = s.wrapMade?.report.settings
+  if (!made) return false
+  return made.gap !== s.wrapGap || made.grow !== s.wrapGrow || made.edges !== s.wrapEdges
 }
 
 /** The piece on hand was made with other settings, or of another body, than
@@ -735,6 +901,8 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return e.region ? 'Flipped the normals of a marked region' : 'Flipped the normals'
     case 'cut':
       return `Cut at ${cutPlaneText(e.plane, units)}${e.capped > 0 ? `, closed flat` : ''}`
+    case 'mirror':
+      return e.mode === 'whole' ? `Mirrored across ${cutPlaneText(e.plane, units)}` : `Made symmetric about ${cutPlaneText(e.plane, units)}`
     case 'fill':
       return `Filled ${count(e.holes)} hole${e.holes === 1 ? '' : 's'} under ${len(e.maxSize)}${e.mode === 'flat' ? ', flat' : ''}`
     case 'smooth':
@@ -747,6 +915,10 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return e.mode === 'hollow'
         ? `Hollowed with a ${len(e.thickness)} wall`
         : `Thickened ${len(e.thickness)} ${e.side === 'out' ? 'outward' : e.side === 'both' ? 'to both sides' : 'inward'}`
+    case 'reduce':
+      return `Reduced to within ${e.held ? len(e.tolerance) : fmtLen(e.p999, units, 3)}`
+    case 'wrap':
+      return `Wrapped, gaps under ${len(e.gap)} closed${e.grow > 0 ? `, grown ${len(e.grow)}` : ''}`
   }
 }
 
@@ -761,6 +933,8 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
       return `⇅ ${count(e.triangles)} △`
     case 'cut':
       return `−${count(e.removed)} △`
+    case 'mirror':
+      return `⇋ ${count(e.triangles)} △`
     case 'fill':
       return `+${count(e.triangles)} △`
     case 'smooth':
@@ -771,5 +945,9 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
       return `${e.distance > 0 ? '+' : '−'}${fmtLen(Math.abs(e.distance), units, 3)}`
     case 'shell':
       return e.mode === 'hollow' && e.volume !== undefined ? `−${fmtVol(e.volume, units, 1)}` : `+${count(e.triangles)} △`
+    case 'reduce':
+      return `−${count(e.triangles)} △`
+    case 'wrap':
+      return `${count(e.triangles)} △`
   }
 }

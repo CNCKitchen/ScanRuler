@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Reduce mesh: a light copy of the scan to model over in CAD, held within a
-// tolerance, its sharp edges kept.
+// tolerance, its sharp edges kept — a preview until it is applied.
 
 import { usePulse } from '../../../../src/app/useHints'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -15,11 +15,15 @@ export function ReduceTool({
   ready,
   busy,
   onReduce,
+  onApply,
+  onDiscard,
   onExport,
 }: {
   ready: boolean
   busy: boolean
   onReduce: () => void
+  onApply: () => void
+  onDiscard: () => void
   onExport: (format: MeshFormat) => void
 }) {
   const m = useMeshTools()
@@ -41,6 +45,12 @@ export function ReduceTool({
               over instead: edges collapsed wherever the surface lets them go, so a flat face ends as
               a few large triangles and a fillet keeps the ones it needs. The scan itself stays as it
               is.
+            </p>
+            <p>
+              The result is a preview. <b>Reduce again</b> starts over from the mesh as it stands, not
+              from the result, so a result that came out too coarse costs nothing. <b>Apply</b> makes
+              it the edited copy, one step of the undo history, from where <b>Use for analysis</b>{' '}
+              takes it into every workspace.
             </p>
             <p>
               The <b>tolerance</b> decides how far it may stray. The result is not trusted but
@@ -192,19 +202,35 @@ export function ReduceTool({
           )}
           {stale && (
             <p className="hint" data-test="reduce-stale">
-              The settings have changed since this was reduced — reduce again to apply them. The
-              export writes the mesh on screen.
+              The settings have changed since this was reduced — reduce again to use them. Apply and
+              the export take the mesh on screen.
             </p>
           )}
 
           <div className="divider" />
-          <ExportMeshButton
-            block
-            testId="export-reduced-mesh"
-            disabled={busy}
-            onExport={onExport}
-            title="Save the reduced mesh as an STL or a 3MF where the part now stands — any alignment or move you applied comes with it"
-          />
+          <p className="hint" data-test="reduce-preview">
+            A preview: nothing has changed yet. Too coarse? Tighten the tolerance and reduce again.
+          </p>
+          <div className="toolrow">
+            <button data-test="reduce-discard" disabled={busy} onClick={onDiscard} title="Put the reduced mesh away — the mesh it was made of is as it was">
+              Discard
+            </button>
+            <ExportMeshButton
+              testId="export-reduced-mesh"
+              disabled={busy}
+              onExport={onExport}
+              title="Save the reduced mesh as an STL or a 3MF where the part now stands — any alignment or move you applied comes with it"
+            />
+            <button
+              className="primary"
+              data-test="reduce-apply"
+              disabled={busy}
+              onClick={onApply}
+              title="Make the reduced mesh the edited copy, ready for Use for analysis — Ctrl+Z puts the mesh back"
+            >
+              Apply
+            </button>
+          </div>
         </div>
       )}
     </>

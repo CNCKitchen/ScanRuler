@@ -18,7 +18,7 @@ import { useLength } from '../../../src/app/useUnits'
 import { lengthInputText } from '../../../src/core/units'
 import { Icon, type IconName } from '../../../src/ui/icons'
 import type { PickHit } from '../../../src/viewer/SceneManager'
-import { DELETE_MARK_COLOR, FLIP_MARK_COLOR, OFFSET_MARK_COLOR, SMOOTH_MARK_COLOR, TRIM_MARK_COLOR, useMeshTools, type MeshView, type TrimView } from '../state/meshStore'
+import { DELETE_MARK_COLOR, FLIP_MARK_COLOR, OFFSET_MARK_COLOR, reductionApplied, SMOOTH_MARK_COLOR, TRIM_MARK_COLOR, useMeshTools, type MeshView, type TrimView, type WrapView } from '../state/meshStore'
 import { reductionScale } from '../core/reduce'
 import { MeshPanel } from '../ui/MeshPanel'
 import { exportReducedMesh } from './exportReduced'
@@ -69,6 +69,27 @@ const TRIM_VIEWS: { id: TrimView; icon: IconName; label: string; title: string }
   },
 ]
 
+const WRAP_VIEWS: { id: WrapView; icon: IconName; label: string; title: string }[] = [
+  {
+    id: 'wrap',
+    icon: 'wsMesh',
+    label: 'Wrap',
+    title: 'The wrap, amber where it bridges an opening rather than lying on the part',
+  },
+  {
+    id: 'inside',
+    icon: 'compare',
+    label: 'Inside',
+    title: 'The wrap see-through over the part — what is inside it goes with it',
+  },
+  {
+    id: 'scan',
+    icon: 'scan',
+    label: 'Scan',
+    title: 'The part as it is',
+  },
+]
+
 export function useMeshPlugin(host: PluginHost): PluginRuntime {
   const { sceneRef } = host
   // The workspace's verbs, which its commands run too — see
@@ -90,8 +111,8 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => tools.watch(), [tools])
   const { reduceField, reduceRgb, copyField, copyRgb } = tools
   const {
-    runReduce, removeIslands, deleteMarked, flipScan, cutScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
-    adoptEditedCopy, discardEditedCopy,
+    runReduce, applyReduction, discardReduction, removeIslands, deleteMarked, flipScan, cutScan, mirrorScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
+    wrap, cancelWrap, applyWrap, discardWrap, adoptEditedCopy, discardEditedCopy,
   } = useMeshWorkspace(tools)
   // The units on screen: the maps' figures and the status lines of the
   // panel's runs are in them. A command's run leaves them out, and is in mm.
@@ -102,6 +123,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   const onMesh = useShell((s) => s.workspace === 'mesh')
   const fileName = useStore((s) => s.fileName)
   const report = useMeshTools((s) => s.report)
+  const applied = useMeshTools(reductionApplied)
   const tool = useMeshTools((s) => s.tool)
   const meshView = useMeshTools((s) => s.view)
   const setMeshView = useMeshTools((s) => s.setView)
@@ -134,6 +156,17 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => {
     meshSceneOf(sceneRef.current)?.setReducedVisible(showReduced)
   }, [showReduced, resultVersion, sceneRef])
+
+  // The wrap on hand, while Wrap is in hand: in the scan's place, or
+  // see-through over it.
+  const wrapMade = useMeshTools((s) => s.wrapMade !== null)
+  const wrapView = useMeshTools((s) => s.wrapView)
+  const setWrapView = useMeshTools((s) => s.setWrapView)
+  const wrapVersion = useMeshTools((s) => s.wrapVersion)
+  const wrapShown = onMesh && tool === 'wrap' && wrapMade && wrapView !== 'scan' ? wrapView : null
+  useEffect(() => {
+    meshSceneOf(sceneRef.current)?.setWrapView(wrapShown)
+  }, [wrapShown, wrapVersion, sceneRef])
 
   // The surface Delete marked is to take, the region Flip normals is to turn
   // over, the one Smooth is to smooth alone, the one Shrink / expand is to
@@ -199,13 +232,13 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
     // The maps are read by hovering; they have no pins to set.
     pick: () => {},
     hoverReadout: reduceMapShown || copyMapShown,
-    hideScan: showReduced || (listing && !scanListed),
+    hideScan: showReduced || wrapShown === 'wrap' || (listing && !scanListed),
     // The view bar's Scan key: with no tool in hand, the same switch as the
     // scan's eye in the parts list; with one, what is on the stage is the
     // tool's to say.
     scanKey: {
       shown: {
-        on: !showReduced && (!listing || scanListed),
+        on: !showReduced && wrapShown !== 'wrap' && (!listing || scanListed),
         set: (on) => useMeshTools.getState().setPartShown('scan', on),
         disabled: !fileName
           ? 'Load a scan first'
@@ -213,7 +246,9 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
             ? undefined
             : tool === 'reduce'
               ? 'The view keys say what is shown of the reduction'
-              : 'The scan is what the tool works on — close the tool to put it away',
+              : tool === 'wrap'
+                ? 'The view keys say what is shown of the wrap'
+                : 'The scan is what the tool works on — close the tool to put it away',
       },
     },
     marking: session
@@ -247,12 +282,14 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
     startPane: {
       title: 'Cleaning up and reducing a scan',
       blurb:
-        'Load a scan and clean it up — clear the stray islands, delete what is not the part, turn it the right way out, cut off the base it stood on, fill its holes, smooth out the scatter, expand or shrink it, hollow it — and reduce it to a light mesh to model over in CAD, held within a tolerance you set, measured against the scan to prove it, and exported where you aligned it. STL, PLY, OBJ or 3MF, in millimetres — everything stays in this browser.',
+        'Load a scan and clean it up — clear the stray islands, delete what is not the part, turn it the right way out, cut off the base it stood on, mirror it, fill its holes, smooth out the scatter, expand or shrink it, hollow it, wrap it in one closed skin — and reduce it to a light mesh to model over in CAD, held within a tolerance you set, measured against the scan to prove it, and exported where you aligned it. STL, PLY, OBJ or 3MF, in millimetres — everything stays in this browser.',
     },
     panel: (
       <MeshPanel
         onOpenScan={(f) => void host.openScan(f)}
         onReduce={() => void runReduce(units)}
+        onApplyReduction={() => void applyReduction({ units })}
+        onDiscardReduction={discardReduction}
         onExport={(format) => exportReducedMesh(sceneRef, format, units)}
         onRemoveIslands={() => void removeIslands({ units })}
         onDeleteMarked={() => void deleteMarked(undefined, { units })}
@@ -263,10 +300,15 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
           useMeshTools.getState().setConfirming(false)
         }}
         onCut={() => void cutScan({ units })}
+        onMirror={() => void mirrorScan({ units })}
         onFillHoles={() => void fillScanHoles(undefined, { units })}
         onSmooth={() => void smoothScan(undefined, { units })}
         onOffset={() => void offsetScan(undefined, { units })}
         onShell={(mode) => void shellScan(mode, { units })}
+        onWrap={() => void wrap(units)}
+        onCancelWrap={cancelWrap}
+        onApplyWrap={() => void applyWrap({ units })}
+        onDiscardWrap={discardWrap}
         onBoolean={() => void booleanScan({ units })}
         onTrim={() => void trimScan(undefined, units)}
         onExportTrimmed={(format) => exportTrimmedMesh(sceneRef, format, units)}
@@ -342,7 +384,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
             ends={{ high: 'further off the part', low: 'nearer the part' }}
           />
         )}
-        {tool === 'reduce' && !report && fileName && (
+        {tool === 'reduce' && !report && !applied && fileName && (
           <div className="hintchip" data-test="mesh-ready-chip">
             Part loaded — reduce the mesh in the panel
           </div>
@@ -363,6 +405,25 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
                 disabled={report === null}
                 onClick={() => setMeshView(v.id)}
                 title={report !== null ? v.title : 'Reduce the scan first — the view keys show the result'}
+              >
+                <Icon name={v.icon} size={16} />
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
+        {tool === 'wrap' && (
+          <div className="keys" role="radiogroup" aria-label="What to show of the wrap">
+            {WRAP_VIEWS.map((v) => (
+              <button
+                key={v.id}
+                role="radio"
+                aria-checked={wrapMade && wrapView === v.id}
+                className={wrapMade && wrapView === v.id ? 'on' : undefined}
+                data-test={`wrap-view-${v.id}`}
+                disabled={!wrapMade}
+                onClick={() => setWrapView(v.id)}
+                title={wrapMade ? v.title : 'Wrap the part first — the view keys show the wrap'}
               >
                 <Icon name={v.icon} size={16} />
                 {v.label}

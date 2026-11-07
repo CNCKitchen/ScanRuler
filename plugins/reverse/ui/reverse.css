@@ -584,6 +584,17 @@
   overflow-wrap: anywhere;
 }
 
+/* What the last build said was wrong, at the head of a feature's box: a
+   short line a step, its full sentence on hover. */
+.says ul {
+  margin: 2px 0 2px;
+  padding-left: 16px;
+}
+
+.says li {
+  margin: 2px 0;
+}
+
 /* A window beside the panel, not over the page: no backdrop, because the
    sketch behind it is what its slider is watched on. Dragged by its head. */
 .modal.fitoptions {

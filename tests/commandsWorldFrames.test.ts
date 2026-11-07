@@ -92,6 +92,9 @@ describe('a section picture framed by a place in the world', () => {
     expect(boxed.frame.at[0]).toBeCloseTo(10, 6)
     expect(boxed.frame.at[1]).toBeCloseTo(0, 6)
     expect(boxed.frame.size).toBeCloseTo(11, 6)
+    // The same box written as view.render's frame takes one.
+    expect(frameOnSheet({ min: [35, -65, -50], max: [45, -55, -40] }, frameOf(cut.section.id))).toEqual(boxed)
+    expect(() => frameOnSheet({ min: [35, -65, -50] }, frameOf(cut.section.id))).toThrow(/min and max both/)
     expect(() => frameOnSheet({ at: wall }, frameOf(cut.section.id))).toThrow(/give at/)
     expect(() => frameOnSheet({ at: wall, size: 3, world: { min: [0, 0, 0], max: [1, 1, 1] } }, frameOf(cut.section.id))).toThrow(/not both/)
   })

@@ -71,6 +71,12 @@ class MeshToolsClient {
     return this.call('describe', {})
   }
 
+  /** A copy of its triangles, as it stands — for Wrap's own worker.
+   *  Nothing changes. */
+  triangles() {
+    return this.call('triangles', {})
+  }
+
   /** The vertices of it a region holds — surface named without a mouse.
    *  Nothing changes. */
   select(region: MeshRegion) {

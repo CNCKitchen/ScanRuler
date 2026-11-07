@@ -9,6 +9,7 @@ import { addScaled, cross, dot, len, normalize, scale, sub } from '../../../src/
 import type { ReKernel } from './kernel'
 import { composeHistory, faceKindOf, parseHistory, vec } from './kernelMath'
 import type { FaceHistory, RawFace, Shape, Tracked } from './kernelTypes'
+import type { FaceKind } from './topo'
 import type { OcctLike, XYZ } from './occtTypes'
 import { canonicalDir } from './topo'
 
@@ -148,6 +149,22 @@ export function asSolid(occt: OcctLike, shape: number): Shape {
   return unified as Shape
 }
 
+/** A solid's faces on one surface made one face, as asSolid makes a
+ *  boolean's — unless the faces are being kept as they were cut
+ *  (keepingSplits), when the solid comes back as it was. A new solid is
+ *  the caller's and the old one released; one that does not come out a
+ *  solid leaves the old as it was. */
+export function unifiedSolid(occt: OcctLike, solid: Shape): Shape {
+  if (!unifying) return solid
+  const unified = occt.unifySameDomain(solid) as Shape
+  if (occt.isNull(unified) || occt.getShapeType(unified) !== 'solid') {
+    occt.release(unified)
+    return solid
+  }
+  occt.release(solid)
+  return unified
+}
+
 /** The one solid in a boolean's compound, as asSolid takes it out, but
  *  with its faces as the boolean left them. */
 export function loneSolid(occt: OcctLike, shape: number): Shape {
@@ -186,7 +203,7 @@ const ON_SURFACE = 1e-4
  *  inside it — the new face holding that point is the one it became. Only
  *  a face with a new hash can have taken one in: a face that kept its
  *  hash is the face it was. */
-function unifyHistory(occt: OcctLike, before: number, after: number): FaceHistory {
+export function unifyHistory(occt: OcctLike, before: number, after: number): FaceHistory {
   const history: FaceHistory = new Map()
   const was = occt.getSubShapes(before, 'face')
   const now = occt.getSubShapes(after, 'face')
@@ -315,13 +332,17 @@ export function withSubShapes<T>(occt: OcctLike, shape: Shape, type: 'face' | 'e
   }
 }
 
-export function readFace(occt: OcctLike, f: number): RawFace {
+type UvBounds = ReturnType<OcctLike['uvBounds']>
+
+/** A face read for its fingerprint. `measured`, where given, may give its
+ *  area and centroid from an earlier reading (ReKernel.faces): the two
+ *  figures a freeform face is integrated for, where the rest is quick. */
+export function readFace(occt: OcctLike, f: number, measured?: (hash: number, kind: FaceKind, uv: UvBounds) => { area: number; centroid: Vec3 }): RawFace {
   const o = occt
   const hash = o.hashCode(f, HASH_BOUND)
   const kind = faceKindOf(o.surfaceType(f))
-  const centroid = vec(o.getSurfaceCenterOfMass(f))
-  const area = o.getSurfaceArea(f)
   const uv = o.uvBounds(f)
+  const { area, centroid } = measured?.(hash, kind, uv) ?? { area: o.getSurfaceArea(f), centroid: vec(o.getSurfaceCenterOfMass(f)) }
   const um = (uv.uMin + uv.uMax) / 2
   const vm = (uv.vMin + uv.vMax) / 2
   // The kernel's surfaceNormal is the face's outward normal — it reads

@@ -396,7 +396,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
                 <p>
                   The part is built from the top down. The <b>rollback bar</b> under the list is dragged up to go back in its history: the features below it are set aside, the part stands as it stood there, and whatever is made next goes in at the bar — a fillet before the shell, a cut before the pattern. Drag it back down, or press <b>To end</b>, and the rest is built again on top of what was added.
                 </p>
-                <p>A feature below the bar that loses what it stood on says so by name in its row, as any feature does.</p>
+                <p>A feature below the bar that loses what it stood on is marked in its row, as any feature that fails or builds with a warning is: the name red or amber, a ⚠. Open it to read what went wrong.</p>
                 <p>
                   <b>Play</b> builds the part up again step by step for the camera: the bar goes to the top and moves down one feature at a time, each held a moment once it is built, and returns where it was at the end. <b>Space</b> holds it or carries it on, the <b>arrow keys</b> step it, <b>Escape</b> ends it. The caption in the viewport names each step.
                 </p>
@@ -426,7 +426,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
             // The row is an icon and a name, as a CAD tree's rows are; what
             // the feature stands on and reads — the plane, the body
             // operation, the distance, the counts — is the tooltip's, and
-            // a failure shows as a mark with its sentence underneath.
+            // a failure or a warning shows as a mark, its words in the box.
             const about =
               f.kind === 'sketch'
                 ? `${describeSketch(f.sketch)} on ${describePlaneRef(f.plane, { sections, elements }, len.units)}`
@@ -439,14 +439,21 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
                     })()
             // A number an agent had fitted to the scan: said so, with how well.
             const fitted = fittedOf(f.id, f)
+            // What went wrong is only marked here — the row tinted, a ⚠ —
+            // and said in full in the feature's box (BuildSays).
+            const warned = r?.status === 'ok' && Boolean(r.warning)
             const reading =
               r?.status === 'failed' ? (
-                <b className="warn" data-test="feature-failed" title={r.message}>
+                <b className="error" data-test="feature-failed" title="Failed to build — open it (✎) to see why">
                   ⚠
                 </b>
               ) : r?.trim && !r.trim.closed ? (
                 <b className="warn" title={about}>
                   ⚠ open
+                </b>
+              ) : warned ? (
+                <b className="warn" data-test="feature-warned" title={`Built, with ${r.stepsBetween?.length ? `${r.stepsBetween.length} step${r.stepsBetween.length === 1 ? '' : 's'} between features` : 'a warning'} — open it (✎) to see ${r.stepsBetween?.length === 1 || !r.stepsBetween?.length ? 'it' : 'them'}`}>
+                  ⚠
                 </b>
               ) : fitted ? (
                 <b
@@ -484,6 +491,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
                 visible={f.kind !== 'sketch' || f.visible}
                 eyeKey={f.kind === 'sketch' ? undefined : <SuppressKey feature={f} locked={editorOpen || playback !== null} />}
                 reading={reading}
+                tone={r?.status === 'failed' ? 'error' : warned ? 'warn' : undefined}
                 selected={editingId === f.id || playedId === f.id}
                 muted={editingAt >= 0 && features.indexOf(f) > editingAt}
                 editorOpen={editorOpen || playback !== null}
@@ -494,19 +502,9 @@ export function ReversePanel({ onOpenScan, onExportStep, onCompare, chainsOf }: 
                   else re.getState().removeFeature(f.id)
                 }}
               />
-              {r?.status === 'failed' && (
-                <p className="hint warn rowerror" data-test="feature-error">
-                  {r.message}
-                </p>
-              )}
               {r?.status === 'ok' && r.note && (
                 <p className="hint rowerror" data-test="feature-note">
                   {r.note}
-                </p>
-              )}
-              {r?.status === 'ok' && r.warning && (
-                <p className="hint warn rowerror" data-test="feature-warning">
-                  {r.warning}
                 </p>
               )}
               {(() => {

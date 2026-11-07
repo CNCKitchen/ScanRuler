@@ -121,15 +121,17 @@ export const parameterAdd: Command<Partial<NewParameter> & { parameters?: NewPar
   },
 }
 
-export const parameterSet: Command<{ parameter: Ref; expression?: string; kind?: ParameterKindIn; comment?: string }> = {
+export const parameterSet: Command<{ parameter?: Ref; name?: string; expression?: string; kind?: ParameterKindIn; comment?: string }> = {
   name: 'set',
   title: 'Set a parameter',
   description:
-    'Give a parameter a new expression (or kind, or comment), as typing it into its row does: every sketch dimension and feature field that reads it follows, the sketches are solved again, and the part is rebuilt. Refused, with why, when the expression does not evaluate or would leave another parameter without a value. Returns the parameter, the other parameters whose value followed it, the features it changed and the bodies the rebuild changed.',
-  input: obj({ parameter: featureRef('parameter'), expression: str('The new expression.', { minLength: 1 }), kind: parameterKind, comment: str() }, ['parameter']),
-  label: ({ parameter, expression }) => `set ${typeof parameter === 'string' ? parameter : `parameter ${parameter}`}${expression !== undefined ? ` = ${expression}` : ''}`,
-  run: async ({ parameter, expression, kind, comment }) => {
-    const p = parameterNamed(parameter)
+    'Give a parameter a new expression (or kind, or comment), as typing it into its row does: every sketch dimension and feature field that reads it follows, the sketches are solved again, and the part is rebuilt. The parameter by parameter (its name or id), or by name as reverse.parameter.add names it. Refused, with why, when the expression does not evaluate or would leave another parameter without a value. Returns the parameter, the other parameters whose value followed it, the features it changed and the bodies the rebuild changed.',
+  input: obj({ parameter: featureRef('parameter'), name: str('The parameter’s name, in place of parameter.', { minLength: 1 }), expression: str('The new expression.', { minLength: 1 }), kind: parameterKind, comment: str() }),
+  label: ({ parameter, name, expression }) => `set ${typeof (parameter ?? name) === 'string' ? (parameter ?? name) : `parameter ${parameter}`}${expression !== undefined ? ` = ${expression}` : ''}`,
+  run: async ({ parameter, name, expression, kind, comment }) => {
+    if (parameter !== undefined && name !== undefined) invalid('Give the parameter by parameter or by name, not both — reverse.parameter.rename renames it.')
+    if (parameter === undefined && name === undefined) invalid('parameter: required — the parameter to set, by its name or id (name: takes it too).')
+    const p = parameterNamed((parameter ?? name)!)
     const before = re().features
     const bodiesBefore = bodyRows(reverseSession())
     const valuesBefore = parameterValues()

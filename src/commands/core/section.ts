@@ -424,7 +424,7 @@ type PlaneIn = { origin: Vec3; normal: Vec3 } | number | string | { sketch: numb
 /** What section.render's frame is given as: a square of the sheet by its
  *  middle — [u, v] on the sheet, or [x, y, z] in the world — and its side,
  *  or a box of the world. */
-type FrameIn = { at?: number[]; size?: number; world?: { min: Vec3; max: Vec3 } }
+type FrameIn = { at?: number[]; size?: number; world?: { min: Vec3; max: Vec3 }; min?: Vec3; max?: Vec3 }
 
 /** How much wider than a world box laid on a sheet the square framed
  *  round it is. */
@@ -439,7 +439,11 @@ const BOX_ROOM = 1.1
  * the world, where it came out on the sheet, and how far off the plane a
  * point lay.
  */
-export function frameOnSheet(given: FrameIn, sheet: SectionFrame): { frame: { at: [number, number]; size: number }; framed?: Record<string, unknown> } {
+export function frameOnSheet(asked: FrameIn, sheet: SectionFrame): { frame: { at: [number, number]; size: number }; framed?: Record<string, unknown> } {
+  // { min, max } as view.render's frame takes a box: the world's.
+  const bare = asked.min !== undefined || asked.max !== undefined
+  if (bare && (asked.world || !asked.min || !asked.max)) throw new CommandError('invalid_input', 'frame: give min and max both, or world: { min, max } — not both.')
+  const given: FrameIn = bare ? { at: asked.at, size: asked.size, world: { min: asked.min!, max: asked.max! } } : asked
   if (given.world) {
     if (given.at !== undefined || given.size !== undefined) throw new CommandError('invalid_input', 'frame: give at and size, or world: { min, max } — not both.')
     const { min, max } = given.world
@@ -520,9 +524,11 @@ const render: Command<{ section?: number | string; plane?: PlaneIn; offsets?: nu
         at: arr(num(), 'The middle: [u, v] mm on the sheet, or [x, y, z] mm in the world.', { minItems: 2, maxItems: 3 }),
         size: num('The side of the square looked at, mm.', { exclusiveMinimum: 0 }),
         world: obj({ min: vec3('Lowest corner, [x, y, z] mm.'), max: vec3('Highest corner, [x, y, z] mm.') }, ['min', 'max'], 'A world box, in place of at and size.'),
+        min: vec3('With max: the world box written as view.render’s frame takes one — the same as world: { min, max }.'),
+        max: vec3('With min.'),
       },
       [],
-      'Look at a square of the sheet: { at, size }, or { world: { min, max } }.',
+      'Look at a square of the sheet: { at, size }, or { world: { min, max } } (or { min, max }).',
     ),
     tolerance: num('± mm a scan point may lie off an outline and still be on it; the Deviation workspace’s by default.', { exclusiveMinimum: 0 }),
     layers: arr(str(undefined, { minLength: 1 }), 'The layers to draw, by key; every one by default, [] for the scan alone.'),

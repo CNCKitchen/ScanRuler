@@ -145,6 +145,18 @@ describe('reducing a scan', () => {
     expect(report.held).toBe(true)
   })
 
+  it('says where each scan vertex went, in order, for the result to become the edited copy', () => {
+    const graph = ball()
+    const { report, positions, indices, vertexMap } = reduce(graph, { tolerance: 0.05 })
+    expect(vertexMap.length).toBe(graph.vertexCount)
+    const kept = Array.from(vertexMap).filter((w) => w >= 0)
+    // Every vertex of the result is a scan vertex, once, and ascending lists
+    // stay ascending through the map.
+    expect(kept).toEqual(Array.from({ length: report.vertices }, (_, i) => i))
+    expect(positions.length / 3).toBe(report.vertices)
+    expect(Math.max(...indices)).toBe(report.vertices - 1)
+  })
+
   it('refuses a tolerance of nothing, and a limit of no triangles', () => {
     const graph = ball()
     expect(() => reduce(graph, { tolerance: 0 })).toThrow(/more than zero/)

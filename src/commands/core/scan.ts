@@ -8,14 +8,16 @@ import { useDeviation } from '../../state/deviationStore'
 import { commandHost } from '../host'
 import { locationSchema, requireScan, resolveLocation, type Location } from '../refs'
 import { arr, bool, bytes, enumOf, int, num, obj, oneOf, str, vec3 } from '../schema'
-import { acrossAxes, dominantFacing, type RimCircle, robustPlane } from '../../core/geometry/scanQa'
+import { dominantFacing, type RimCircle, robustPlane } from '../../core/geometry/scanQa'
+import { SHEET_SHARE } from '../../core/geometry/sheet'
 import { orthoBasis } from '../../core/fit/linalg'
 import { niceCeil } from '../../core/field/stats'
+import { gridOver } from '../../core/geometry/rayGrid'
 import { scanBounds } from '../state'
 import { CommandError, type Command } from '../types'
 import { discardSchema, fileNameSchema, fileOf, lastError, requireDiscardable } from './common'
 import { roundTo } from '../../core/round'
-import { cellNoise, heightLevels, rampsOf, reliefGrid, slopedCells } from '../../core/geometry/heightGrid'
+import { cellNoise, heightLevels, levelsThroughWarp, rampsOf, reliefGrid, slopedCells, type HeightLevel, type LevelsResult, type Warp } from '../../core/geometry/heightGrid'
 import { basePlaneOf } from '../../core/basePlanes'
 import { axisLineOf, boxOnSheet, pointOnSheet, RADIAL_AXIS_KINDS, radialFrame, sketchFrameOn, worldAxisDir, type WorldAxis } from '../../core/section/frame'
 import { projectCut } from '../../core/section/slice'
@@ -24,6 +26,7 @@ import type { PlaneFit } from '../../core/types'
 import { usePrefs } from '../../state/prefsStore'
 import { elementRefSchema, findElement, planeRef, type ElementRef } from '../refs'
 import { setMarked } from '../marked'
+import { scale } from './scanScale'
 
 export const unitsSchema = enumOf(
   MESH_UNITS.map((u) => u.id),
@@ -31,7 +34,7 @@ export const unitsSchema = enumOf(
 )
 
 /** The scan as the readout names it. */
-async function scanSummary() {
+export async function scanSummary() {
   const bounds = await scanBounds()
   const s = useStore.getState()
   const units = commandHost().session.sources.current.scan?.units ?? 'mm'
@@ -43,6 +46,7 @@ async function scanSummary() {
     bounds,
     center: s.modelCenter,
     size: 2 * s.modelSize,
+    ...(s.scanScale ? { scaled: roundTo(s.scanScale.factor, 6) } : {}),
   }
 }
 
@@ -371,6 +375,9 @@ const LEVEL_GAP_MIN = 0.02
 /** How steep a cell of a height map may be and still count towards its
  *  levels, degrees, unless told otherwise. */
 const LEVEL_SLOPE_DEG = 10
+/** The share of the map a level of a height must hold for the answer to
+ *  give its plane. */
+const LEVEL_PLANE_SHARE = 0.05
 /** The share of the map's cells on a slope past which levels say where
  *  the ramps are, and how many they name, the largest first. */
 const RAMP_SHARE = 0.2
@@ -412,26 +419,6 @@ function boxOf(box: BoxIn | undefined): { min: Vec3; max: Vec3; world: boolean }
 /** Under this share of a map's cells meeting the scan, the answer says
  *  where the scan lies in the map's frame. */
 const SPARSE_SHARE = 0.2
-
-/** A grid of cells over the box across axis `k`, centred on it: the cell
- *  asked for, or the round size that makes the longer side `side` cells —
- *  widened until there are no more than `most` cells. */
-function gridOver(min: Vec3, max: Vec3, k: 0 | 1 | 2, cell: number | undefined, side: number, most: number) {
-  const [ua, va] = acrossAxes(k)
-  const du = Math.max(max[ua] - min[ua], 1e-6)
-  const dv = Math.max(max[va] - min[va], 1e-6)
-  let c = cell ?? niceCeil(Math.max(du, dv) / side)
-  let widened = false
-  while (Math.ceil(du / c) * Math.ceil(dv / c) > most) {
-    c = niceCeil(c * 1.01)
-    widened = true
-  }
-  const cols = Math.max(1, Math.ceil(du / c))
-  const rows = Math.max(1, Math.ceil(dv / c))
-  const u0 = (min[ua] + max[ua]) / 2 - (cols * c) / 2
-  const v0 = (min[va] + max[va]) / 2 - (rows * c) / 2
-  return { ua, va, cell: c, cols, rows, u0, v0, widened }
-}
 
 const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 const unit = (i: number, s = 1): Vec3 => [i === 0 ? s : 0, i === 1 ? s : 0, i === 2 ? s : 0]
@@ -626,6 +613,22 @@ function sparseWords(hit: number, g: ReturnType<typeof gridOver>, scanIn: { min:
   }
 }
 
+/** A level's plane in the world, as align.datum { primary: { plane } } and
+ *  a map's plane take it: the point over the middle of its cells, and the
+ *  normal out of the face the map sees — towards where it looks from. */
+function levelPlaneOut(p: HeightLevel['plane'], frame: ReturnType<typeof planeFrame> | null, g: { ua: number; va: number }, k: number, sign: number) {
+  const U = frame ? frame.u : unit(g.ua)
+  const V = frame ? frame.v : unit(g.va)
+  const H = frame ? frame.normal : unit(k)
+  const O: Vec3 = frame ? frame.origin : [0, 0, 0]
+  const [u, v, h] = p.at
+  const [b, c] = p.slope
+  const origin = [0, 1, 2].map((j) => O[j] + u * U[j] + v * V[j] + h * H[j])
+  const n = [0, 1, 2].map((j) => -sign * (H[j] - b * U[j] - c * V[j]))
+  const len = Math.hypot(n[0], n[1], n[2])
+  return { origin: origin.map((x) => roundTo(x, 4)), normal: n.map((x) => roundTo(x / len, 6)) }
+}
+
 const heightmap: Command<{
   box?: BoxIn
   axis?: AxisName
@@ -643,7 +646,7 @@ const heightmap: Command<{
   name: 'heightmap',
   title: 'Map the scan’s heights',
   description:
-    `Where the scan is first met looking along an axis (axis, -z by default: the top surface from above) or square onto a plane (plane: an element, "XY", "YZ", "XZ", or { origin, normal, u? }), over a grid of cells: pocket floors, ledges, a step's height, a face's tilt, a pad's tiers, an icon on a key in one call. of: height (the default), deviation (the map's reading where each ray lands) or relief (the height less the surface round it, for icons, grooves and lettering). Returns cell, origin [u0, v0], cols, rows, grid (rows of mm from the low v up, null where nothing; grid[r][c] stands at u0 + (c + ½)·cell, v0 + (r + ½)·cell), min, max, hit, valued; with plane also its frame (a cell's point is origin + u·U + v·V + height·normal). levels: true gives the values gathered into levels in place of the grid; picture: true adds the map coloured. Trap: with plane, box is [u, v, height] in the plane's frame (or { world }), and scanLies says where the scan lies when few cells meet it. Changes nothing.`,
+    `Where the scan is first met looking along an axis (axis, -z by default: the top surface from above) or square onto a plane (plane: an element, "XY", "YZ", "XZ", or { origin, normal, u? }), over a grid of cells: pocket floors, ledges, a step's height, a face's tilt, a pad's tiers, an icon on a key in one call. of: height (the default), deviation (the map's reading where each ray lands) or relief (the height less the surface round it, for icons, grooves and lettering). Returns cell, origin [u0, v0], cols, rows, grid (rows of mm from the low v up, null where nothing; grid[r][c] stands at u0 + (c + ½)·cell, v0 + (r + ½)·cell), min, max, hit, valued; with plane also its frame (a cell's point is origin + u·U + v·V + height·normal). levels: true gives the values gathered into levels in place of the grid, largest first — of a height, each holding 5 % of the map or more with its plane { origin, normal } (fitted to its cells, normal towards the viewer), which align.datum { primary: { plane } } levels on: the sheet itself, not its bead crowns; a gentle warp that ran levels together is taken out first and said (warp { rise, bow, note }); picture: true adds the map coloured. Trap: with plane, box is [u, v, height] in the plane's frame (or { world }), and scanLies says where the scan lies when few cells meet it. Changes nothing.`,
   input: obj({
     box: mapBoxSchema('The part looked at; the scan’s box by default. With plane: [u, v, height], or world: { min, max }.'),
     axis: enumOf(AXIS_NAMES, 'The way looked: -z (the default) from above, +z from below, ±x, ±y.'),
@@ -659,7 +662,7 @@ const heightmap: Command<{
     smooth: num('relief: the smoothing sigma, mm; three cells by default.', { exclusiveMinimum: 0 }),
     cell: num('The cell’s side, mm.', { exclusiveMinimum: 0 }),
     grid: bool('The grid of numbers (the default unless levels); false returns the picture alone.'),
-    levels: bool('Gather the values into levels, largest first, in place of the grid.'),
+    levels: bool('Gather the values into levels, largest first, in place of the grid; of a height, a warp taken out first when it ran two together, and each level of 5 % or more with its plane.'),
     gap: num('levels: the least gap between two levels, mm.', { exclusiveMinimum: 0 }),
     slopeDeg: num(`levels of a height: cells steeper are left out, degrees; ${LEVEL_SLOPE_DEG} by default, 90 keeps every one.`, { exclusiveMinimum: 0, maximum: 90 }),
     picture: bool('Add a picture of the map with a scale.'),
@@ -774,13 +777,27 @@ const heightmap: Command<{
         }
       }
       const noise = cellNoise(counted, g.cols, g.rows)
-      const found = heightLevels(counted, { cols: g.cols, cell: g.cell, u0: g.u0, v0: g.v0 }, gap ?? Math.max(3 * noise, LEVEL_GAP_MIN))
+      // A height may be warped — a stamped sheet, a plate bent in the
+      // making — and its levels run together across the warp: they are
+      // gathered again with a smooth surface taken out, and the answer
+      // says so when that reading is kept.
+      const levelGrid = { cols: g.cols, rows: g.rows, cell: g.cell, u0: g.u0, v0: g.v0 }
+      const levelGap = gap ?? Math.max(3 * noise, LEVEL_GAP_MIN)
+      const found: LevelsResult & { warp?: Warp } = of === 'height' ? levelsThroughWarp(counted, values, levelGrid, levelGap) : heightLevels(counted, levelGrid, levelGap)
       if (of === 'height') {
         out.slopeDeg = slopeDeg ?? LEVEL_SLOPE_DEG
         out.sloped = sloped
       }
       out.noise = roundTo(noise, 4)
       out.gap = roundTo(found.gap, 4)
+      if (found.warp) {
+        const { rise, bow, base } = found.warp
+        out.warp = {
+          rise: roundTo(rise, 3),
+          bow: roundTo(bow, 3),
+          note: `A warp was taken out before the levels were gathered: a smooth surface fitted to the largest level, rising ${roundTo(rise, 2)} mm over the map (${roundTo(bow, 2)} mm of it a bend past a plane). Heights, ranges and sigmas are read off it, put back at its median height ${roundTo(base, 3)} — the gaps between levels are the steps; each level's plane is fitted to the heights as read.`,
+        }
+      }
       out.levels = found.levels.slice(0, HEIGHT_LEVELS).map((l) => ({
         height: roundTo(l.height, 3),
         sigma: roundTo(l.sigma, 4),
@@ -789,6 +806,7 @@ const heightmap: Command<{
         area: roundTo(l.area, 2),
         sharePct: roundTo(100 * l.share, 1),
         box: { min: l.box.min.map((x) => roundTo(x, 3)), max: l.box.max.map((x) => roundTo(x, 3)) },
+        ...(of === 'height' && l.share >= LEVEL_PLANE_SHARE ? { plane: levelPlaneOut(l.plane, frame, g, k, sign) } : {}),
       }))
       if (found.levels.length > HEIGHT_LEVELS) out.moreLevels = found.levels.length - HEIGHT_LEVELS
       out.unassigned = found.unassigned
@@ -796,7 +814,7 @@ const heightmap: Command<{
       // the levels do not say: past a share of the map, or a ramp off one
       // tier that leads to none, the answer says where they are.
       if (steep) {
-        const r = rampsOf(values, steep, g, found.levels)
+        const r = rampsOf(found.warp?.flat ?? values, steep, g, found.levels)
         const share = r.sloped / Math.max(1, r.valued)
         if (share > RAMP_SHARE || r.ramps.some((x) => x.joins.length === 1)) {
           out.ramps = {
@@ -846,7 +864,7 @@ const OUTLINE_LOOPS = 4
 const outline: Command<{ axis?: AxisName; plane?: PlaneIn; flip?: boolean; box?: BoxIn; tolerance?: number; loops?: number }> = {
   name: 'outline',
   title: 'Read the scan’s outline',
-  description: `The scan’s outline seen along an axis, or square onto a plane, read as a sketch would draw it: a flange’s plan, a bezel’s opening, a gasket’s shape — each loop as the fewest lines and arcs that follow it within tolerance (mm, ${OUTLINE_TOLERANCE} by default), a round loop as one circle. axis, plane, flip and box as scan.heightmap takes them, u, v as it lays them. Returns loops, the largest first (${OUTLINE_LOOPS} by default): hole, area (mm²), box, points ([u, v] corners), rounds { at, radius, center }, arcs { from, radius, center } or circle { center, radius, rms }, and worst (mm the trace strays from what is drawn, worstAt when past the tolerance). Changes nothing.`,
+  description: `The scan’s outline seen along an axis, or square onto a plane, read as a sketch would draw it: a flange’s plan, a bezel’s opening, a gasket’s shape — each loop as the fewest lines and arcs that follow it within tolerance (mm, ${OUTLINE_TOLERANCE} by default), a round loop as one circle. axis, plane, flip and box as scan.heightmap takes them, u, v as it lays them. Returns loops, the largest first (${OUTLINE_LOOPS} by default): hole, area (mm²), box, points ([u, v] corners), rounds { at, radius, center }, arcs { from, radius, center, mid } (from points[from] through mid to the next point: mid says which way it bulges, a slot’s half-round end too) or circle { center, radius, rms }, and worst (mm the trace strays from what is drawn, worstAt when past the tolerance). Changes nothing.`,
   input: obj({
     axis: enumOf(AXIS_NAMES, 'The way looked: -z (the default) from above, and so on.'),
     plane: oneOf(
@@ -900,7 +918,7 @@ const outline: Command<{ axis?: AxisName; plane?: PlaneIn; flip?: boolean; box?:
             : {
                 points: shape.points.map(pt),
                 ...(shape.rounds.length > 0 ? { rounds: shape.rounds.map((r) => ({ at: r.at, radius: r3(r.radius), center: pt(r.center) })) } : {}),
-                ...(shape.arcs.length > 0 ? { arcs: shape.arcs.map((a) => ({ from: a.from, radius: r3(a.radius), center: pt(a.center) })) } : {}),
+                ...(shape.arcs.length > 0 ? { arcs: shape.arcs.map((a) => ({ from: a.from, radius: r3(a.radius), center: pt(a.center), mid: pt(a.mid) })) } : {}),
               }),
           worst: r3(shape.worst),
           ...(shape.worstAt && shape.worst > tol ? { worstAt: pt(shape.worstAt) } : {}),
@@ -1041,6 +1059,15 @@ const QA_PINHOLES = 0.02
 /** What a skin closed all round asks of whoever reads holes off it. */
 const QA_WRAP_ADVICE = 'a wrap bridges holes it did not see through — read each hole from both ends (scan.heightmap along its axis each way); element.fit on a bore answers closed where its axis runs into the skin.'
 
+/** How many points look for a sheet's other skin, and how many what stands
+ *  apart from its walls is gathered over — see geometry/sheet. */
+const QA_SHEET_SAMPLE = 6000
+const QA_APART_SAMPLE = 30_000
+/** A gauge this even, p95 against p5, and no thicker (mm), is sheet metal,
+ *  not a moulding or a plate. */
+const QA_SHEET_EVEN = 1.5
+const QA_SHEET_GAUGE = 3
+
 /** A rim's circle as an answer gives it. */
 const circleOut = (c: RimCircle) => ({ center: c.center.map((x) => roundTo(x, 3)), axis: c.axis.map((x) => roundTo(x, 4)), radius: roundTo(c.radius, 3), rms: roundTo(c.rms, 3) })
 
@@ -1048,14 +1075,14 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
   name: 'qa',
   title: 'Check the scan before modelling',
   description:
-    'One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: "circle", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }) and notes, what looks wrong, plainly. Trap: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through. Changes nothing.',
+    'One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: "circle", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }), sheet where most of the area has a second skin facing back within reach mm (gauge { p5, p50, p95 }, twoSkins: that share), apart on such a part with flat walls (regions standing over reach mm off every main wall — tabs bent in, ribs, bosses: center, box, area mm², largest first) and notes, what looks wrong, plainly. Traps: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through; on a sheet, thickness reads the box across the part — the gauge is sheet.gauge. Changes nothing.',
   input: obj({ axis: oneOf([enumOf(['x', 'y', 'z'], 'A world axis.'), vec3('A direction, any length.')], 'The thickness axis.') }),
   readOnly: true,
   run: async ({ axis }) => {
     requireScan()
     const client = commandHost().session.clientRef.current
     if (!client) throw new CommandError('unavailable', 'The mesh worker is not running.')
-    const { rims, noise } = await client.scanQa(QA_NOISE_SAMPLE, QA_RIMS)
+    const { rims, noise, sheet } = await client.scanQa(QA_NOISE_SAMPLE, QA_RIMS, { sample: QA_SHEET_SAMPLE, apartSample: QA_APART_SAMPLE })
     // The scan's points and normals, spread evenly: the box across the axis
     // and the way most of it faces come off them.
     const inf = Infinity
@@ -1147,11 +1174,39 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
       notes.push(`${rims.count} open rim${rims.count === 1 ? '' : 's'}, ${roundTo(rims.total, 1)} mm in all — the longest ${roundTo(l.length, 1)} mm round [${v3(l.at).join(', ')}]: the scan has holes there; fits and sections near them see less surface.`)
     }
     if (rims.count === 0 && scanned) notes.push(`Closed skin, no open rims: ${QA_WRAP_ADVICE}`)
+    // Two skins close together over most of it: a sheet, whose gauge no
+    // thickness through the part reads; and what stands apart from its walls.
+    const gauge = sheet?.gauge && sheet.twoSkins >= SHEET_SHARE ? sheet.gauge : null
+    const sheetNotes = (through?: number): string[] => {
+      if (!sheet || !gauge) return []
+      const even = gauge.p95 <= QA_SHEET_EVEN * gauge.p5 + 2 * noise.median && gauge.p50 <= QA_SHEET_GAUGE
+      const said = [
+        `${even ? 'Sheet metal' : 'Thin walls'}: two skins ${roundTo(gauge.p50, 2)} mm apart over ${Math.round(100 * sheet.twoSkins)} % of the area (p5–p95 ${roundTo(gauge.p5, 2)}–${roundTo(gauge.p95, 2)} mm)${
+          through !== undefined && through > 3 * gauge.p50 ? ` — thickness along ${axisName} (p50 ${roundTo(through, 1)} mm) reads the box across the part, not the ${even ? 'sheet' : 'wall'}` : ''
+        }.`,
+      ]
+      const regions = sheet.apart?.regions ?? []
+      if (regions.length > 0) {
+        const n = regions.length + (sheet.apart!.more ?? 0)
+        said.push(`${n} place${n === 1 ? '' : 's'} stand${n === 1 ? 's' : ''} over ${roundTo(sheet.apart!.reach, 1)} mm off every main wall — tabs bent in, ribs, bosses (apart): the largest ${Math.round(regions[0].area)} mm² round [${v3(regions[0].center).join(', ')}]. Model them too.`)
+      }
+      return said
+    }
+    if (gauge && sheet) {
+      out.sheet = { gauge: { p5: roundTo(gauge.p5, 3), p50: roundTo(gauge.p50, 3), p95: roundTo(gauge.p95, 3) }, twoSkins: roundTo(sheet.twoSkins, 3), reach: roundTo(sheet.reach, 2), sampled: sheet.sampled }
+      if (sheet.apart && sheet.apart.regions.length > 0) {
+        out.apart = {
+          reach: roundTo(sheet.apart.reach, 2),
+          regions: sheet.apart.regions.map((r) => ({ center: v3(r.center), box: { min: v3(r.min), max: v3(r.max) }, area: roundTo(r.area, 0) })),
+          ...(sheet.apart.more > 0 ? { more: sheet.apart.more } : {}),
+        }
+      }
+    }
     if (noise.median > 0.03) notes.push(`Noisy surface: ${roundTo(noise.median, 3)} mm median scatter — read sizes from fits over large patches, not single points.`)
     else if (noise.median < 1e-4) notes.push('The surface has no noise — a CAD tessellation, not a scan: read its numbers exactly.')
     if (ts.length < 12) {
       out.thickness = { axis: d.map((x) => roundTo(x, 4)), axisFrom, cells: ts.length }
-      notes.push(`Thickness along ${axisName}: too few rays went through the part to read it.`)
+      notes.push(`Thickness along ${axisName}: too few rays went through the part to read it.`, ...sheetNotes())
       return { ...out, notes }
     }
     const sorted = [...ts].sort((a, b) => a - b)
@@ -1198,10 +1253,11 @@ const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
         notes.push(`Faces across ${axisName} that should be parallel are ${roundTo(tiltDeg, 2)}° apart: the part thickens from ${roundTo(from, 2)} to ${roundTo(to, 2)} mm over ${roundTo(hi - lo, 0)} mm toward [${v3(dir).join(', ')}]. A scan merge or alignment error, or a real taper — decide before modelling to one thickness, which misses by up to ${roundTo(Math.abs(to - from) / 2, 2)} mm.`)
       }
     }
-    if (pct(0.95) - pct(0.05) > 0.3 * p50) notes.push(`Thickness along ${axisName} varies from ${roundTo(pct(0.05), 2)} to ${roundTo(pct(0.95), 2)} mm (p5–p95): steps, pockets or bosses — scan.heightmap shows where.`)
+    notes.push(...sheetNotes(p50))
+    if (!gauge && pct(0.95) - pct(0.05) > 0.3 * p50) notes.push(`Thickness along ${axisName} varies from ${roundTo(pct(0.05), 2)} to ${roundTo(pct(0.95), 2)} mm (p5–p95): steps, pockets or bosses — scan.heightmap shows where.`)
     out.thickness = thickness
     return { ...out, notes }
   },
 }
 
-export const scanCommands = [open, nearest, query, fitSurface, draft, heightmap, outline, pattern, qa]
+export const scanCommands = [open, nearest, query, fitSurface, draft, heightmap, outline, pattern, qa, scale]

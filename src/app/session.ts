@@ -14,6 +14,7 @@ import { deviationWorkspace } from './deviationWorkspace'
 import { ImportQueue } from './importQueue'
 import { measureWorkspace } from './measureWorkspace'
 import { partAlignment } from './partAlignment'
+import { partScale } from './partScale'
 import { emptySources, type SourceFiles } from './project'
 import { scanImport } from './scanImport'
 import { scanSwap } from './scanSwap'
@@ -99,6 +100,8 @@ export function createSession({
     runDeviation: deviation.runDeviation,
     runThickness: thickness.runThickness,
   })
+  // The scan scaled to its true size, read again as another version of it.
+  const scale = partScale({ sceneRef, sources, imports, swapScan: swap.swapScan, remeasureScan: swap.remeasureScan, runFit: measure.runFit })
 
   /** Start what keeps itself in step with the stores — a centroid measuring
    *  itself, the sections' cuts. The returned function stops it. */
@@ -107,5 +110,5 @@ export function createSession({
     return () => stops.forEach((stop) => stop())
   }
 
-  return { clientRef, sceneRef, imports, sources, maps, fieldDirections, measure, scan, alignment, deviation, thickness, sections, swap, watch }
+  return { clientRef, sceneRef, imports, sources, maps, fieldDirections, measure, scan, alignment, scale, deviation, thickness, sections, swap, watch }
 }

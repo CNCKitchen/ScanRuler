@@ -51,7 +51,7 @@ export function emptyHit(): ClosestHit {
  *  triangle it belongs to (Ericson, *Real-Time Collision Detection*, §5.1.5 —
  *  the branch that fires *is* the classification, so no epsilon-comparison of
  *  barycentric coordinates is needed and the seam is exact). */
-function closestOnTriangle(
+export function closestOnTriangle(
   px: number, py: number, pz: number,
   ax: number, ay: number, az: number,
   bx: number, by: number, bz: number,

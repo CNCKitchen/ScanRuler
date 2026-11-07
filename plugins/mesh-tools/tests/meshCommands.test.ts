@@ -14,10 +14,11 @@ import { buildMeshGraph } from '../../../src/core/geometry/buildGraph'
 import { offerSolids } from '../../../src/app/solids'
 import { useHistory } from '../../../src/state/historyStore'
 import { useShell } from '../../../src/state/shellStore'
+import { useStore } from '../../../src/state/store'
 import { boxMesh } from '../../../tests/helpers'
 import { refused, run, startHeadless, stlBytes, undoLabels, type Headless } from '../../../tests/commandKit'
 import { createMeshToolsSession, installMeshToolsSession } from '../app/meshToolsSession'
-import { useMeshTools } from '../state/meshStore'
+import { reductionApplied, useMeshTools } from '../state/meshStore'
 import plugin from '../plugin'
 
 // Kernel builds and real-scan fits run long, and longer on a slow machine.
@@ -116,7 +117,7 @@ describe('cleaning a scan up through the commands', () => {
     expect((await refused('mesh.inspect')).code).toBe('no_scan')
     const mesh = listCommands().filter((c) => c.name.startsWith('mesh.'))
     expect(mesh.map((c) => c.name)).toEqual(
-      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
+      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.wrap', 'mesh.apply_wrap', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
     )
     for (const c of mesh) {
       const w = schemaWeight(c.input)
@@ -235,6 +236,33 @@ describe('cleaning a scan up through the commands', () => {
     expect(back.volume).toBeCloseTo(8000, 0)
   })
 
+  it('mirrors a part across a plane, and makes one symmetric, a step each', async () => {
+    await open('block.stl', cuboid([0, -10, -10], [20, 10, 10], 4))
+    useHistory.setState({ past: [], future: [] })
+
+    const whole = await run<EditAnswer>('mesh.mirror', { plane: 'YZ', offset: 0 })
+    expect(whole.edit).toMatchObject({ kind: 'mirror', text: 'Mirrored across YZ plane, X 0 mm' })
+    expect(whole.mesh.bounds.min[0]).toBeCloseTo(-20, 3)
+    expect(whole.mesh.bounds.max[0]).toBeCloseTo(0, 3)
+    // Still facing out.
+    expect(whole.mesh.volume).toBeCloseTo(8000, 0)
+    expect(useMeshTools.getState().tool).toBe('mirror')
+
+    // The side from x −20 to −5 kept, and mirrored onto the rest: −20 to 10.
+    const sym = await run<EditAnswer>('mesh.mirror', { plane: 'YZ', offset: -5, mode: 'symmetric', keep: 'minus' })
+    expect(sym.edit).toMatchObject({ kind: 'mirror', text: 'Made symmetric about YZ plane, X -5 mm' })
+    expect(sym.mesh).toMatchObject({ open: 0, bad: 0 })
+    expect(sym.mesh.bounds.min[0]).toBeCloseTo(-20, 3)
+    expect(sym.mesh.bounds.max[0]).toBeCloseTo(10, 3)
+    expect(sym.mesh.volume).toBeCloseTo(30 * 20 * 20, 0)
+
+    expect(undoLabels()).toEqual(['Agent: mirror across YZ plane, X 0 mm', 'Agent: make symmetric about YZ plane, X -5 mm'])
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['mirror', 'mirror'])
+    await run('history.undo')
+    await run('history.undo')
+    expect((await run<Figures>('mesh.inspect')).working).toBe('scan')
+  })
+
   it('refuses what the panel would not do, and leaves the settings as they were when an edit fails', async () => {
     await open('box.stl', cuboid([-10, -10, -10], [10, 10, 10], 6))
     useHistory.setState({ past: [], future: [] })
@@ -347,4 +375,149 @@ describe('beside the scan, and with solids', () => {
     expect(reduced.reduced).toMatchObject({ tolerance: 0.02, held: true })
     expect(undoLabels()).toEqual(['Agent: trim Cap to the break', 'Agent: subtract Peg', 'Agent: reduce the mesh'])
   }, 120_000)
+})
+
+describe('a reduction applied', () => {
+  type Reduced = { reduced: { triangles: number; fromTriangles: number; held: boolean } }
+
+  it('is a preview until applied, then the edited copy: undone, and taken into use', async () => {
+    await open('block.stl', cuboid([-10, -10, -10], [10, 10, 10], 20))
+    useHistory.setState({ past: [], future: [] })
+    const triangles = 6 * 20 * 20 * 2
+    expect((await refused('mesh.apply_reduced')).code).toBe('invalid_state')
+    const face = await run<{ element: { id: number; fit: { center: Vec3 } | null } }>('element.fit', { kind: 'plane', at: { point: [0, 0, 10] } })
+    expect(face.element.fit!.center[2]).toBeCloseTo(10, 3)
+
+    // The preview leaves the mesh as it is.
+    const coarse = await run<Reduced>('mesh.reduce', { tolerance: 0.05 })
+    expect(coarse.reduced.triangles).toBeLessThan(triangles)
+    let seen = await run<Figures>('mesh.inspect')
+    expect(seen).toMatchObject({ working: 'scan', triangles })
+
+    // Applied, it is the copy; the reduction it was has gone from beside it.
+    const applied = await run<EditAnswer>('mesh.apply_reduced')
+    expect(applied.edit).toMatchObject({ kind: 'reduce', triangles: triangles - coarse.reduced.triangles })
+    expect(applied.edit.text).toMatch(/Reduced to within 0\.05 mm/)
+    expect(applied.mesh).toMatchObject({ working: 'edited copy', triangles: coarse.reduced.triangles, open: 0 })
+    expect(applied.mesh.volume).toBeCloseTo(8000, 0)
+    expect(useMeshTools.getState().report).toBeNull()
+    expect(undoLabels().at(-1)).toBe('Agent: apply the reduction')
+    expect((await refused('mesh.apply_reduced')).code).toBe('invalid_state')
+
+    // The copy's numbering lines up with the map: every point the map keeps
+    // is measured against the scan, none left grey.
+    const measured = await run<{ deviation: { added: number; max: number } }>('mesh.inspect', { deviation: true })
+    expect(measured.deviation.added).toBe(0)
+    expect(measured.deviation.max).toBeLessThan(0.05)
+
+    // Back to the whole mesh, and forward again.
+    await run('history.undo')
+    seen = await run<Figures>('mesh.inspect')
+    expect(seen).toMatchObject({ working: 'scan', triangles })
+    expect(useMeshTools.getState().pending).toEqual([])
+    await run('history.redo')
+    expect(useMeshTools.getState().copyTriangles).toBe(coarse.reduced.triangles)
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['reduce'])
+
+    // Taken into use: the scan every workspace measures, the face fitted on it.
+    const used = await run<{ scan: { triangles: number; edits: { kind: string }[] } }>('mesh.use_edited')
+    expect(used.scan.triangles).toBe(coarse.reduced.triangles)
+    expect(used.scan.edits.map((e) => e.kind)).toEqual(['reduce'])
+    const refit = useStore.getState().elements.find((e) => e.id === face.element.id)
+    expect((refit?.fit as { center: Vec3 } | null)?.center[2]).toBeCloseTo(10, 3)
+    expect(reductionApplied(useMeshTools.getState())).toBe(true)
+  }, 120_000)
+
+  it('lands where the part now stands when it was aligned after the reduction', async () => {
+    await open('block.stl', cuboid([-10, -10, -10], [10, 10, 10], 20))
+    useHistory.setState({ past: [], future: [] })
+    const top = await run<{ element: { id: number } }>('element.fit', { kind: 'plane', at: { point: [0, 0, 10] } })
+    await run<Reduced>('mesh.reduce', { tolerance: 0.05 })
+    await run('align.datum', { primary: { element: top.element.id } })
+    const moved = await run<Figures>('mesh.inspect')
+    expect(moved.working).toBe('scan')
+    const applied = await run<EditAnswer>('mesh.apply_reduced')
+    for (const k of [0, 1, 2]) {
+      expect(applied.mesh.bounds.min[k]).toBeCloseTo(moved.bounds.min[k], 3)
+      expect(applied.mesh.bounds.max[k]).toBeCloseTo(moved.bounds.max[k], 3)
+    }
+  }, 60_000)
+
+  it('builds on the copy there is, and carries the scan’s numbering through both', async () => {
+    await open('block.stl', joined(cuboid([-10, -10, -10], [10, 10, 10], 10), cuboid([30, 0, 0], [30.5, 0.5, 0.5], 1)))
+    useHistory.setState({ past: [], future: [] })
+    await run<EditAnswer>('mesh.remove_islands', { size: 2 })
+    const reduced = await run<Reduced>('mesh.reduce', { tolerance: 0.05 })
+    expect(reduced.reduced.fromTriangles).toBe(6 * 10 * 10 * 2)
+    const applied = await run<EditAnswer>('mesh.apply_reduced')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['pieces', 'reduce'])
+    expect(applied.mesh.triangles).toBe(reduced.reduced.triangles)
+    const measured = await run<{ deviation: { added: number } }>('mesh.inspect', { deviation: true })
+    expect(measured.deviation.added).toBe(0)
+    await run('history.undo')
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['pieces'])
+    expect(useMeshTools.getState().copyTriangles).toBe(6 * 10 * 10 * 2)
+  }, 60_000)
+})
+
+describe('a wrap', () => {
+  type Wrapped = { wrap: { shells: number; triangles: number; fromTriangles: number; dropped: number; volume: number; volumeBefore: number | null; cell: number; bridgedArea: number } }
+
+  it('is a preview until applied, then the edited copy: one closed shell, undone', async () => {
+    // A box with a second box inside it, and a third overlapping it.
+    const soup = joined(cuboid([-10, -10, -10], [10, 10, 10], 6), cuboid([-4, -4, -4], [4, 4, 4], 2), cuboid([5, 5, 5], [15, 15, 15], 4))
+    await open('assembly.stl', soup)
+    useHistory.setState({ past: [], future: [] })
+    const triangles = soup.length / 9
+    expect((await refused('mesh.apply_wrap')).code).toBe('invalid_state')
+
+    // The preview leaves the mesh as it is.
+    const made = await run<Wrapped>('mesh.wrap', { gap: 1 })
+    expect(made.wrap).toMatchObject({ shells: 1, fromTriangles: triangles })
+    // The inner box, and the faces of the overlapping two inside each other.
+    expect(made.wrap.dropped).toBeGreaterThan(2 * 6 * 2 * 2)
+    expect(made.wrap.volume).toBeGreaterThan((8000 + 1000 - 125) * 0.995)
+    expect(made.wrap.volume).toBeLessThan((8000 + 1000 - 125) * 1.001)
+    expect(made.wrap.cell).toBeCloseTo(1 / 6, 6)
+    // Before, each closed box counts on its own, the overlap twice and the
+    // box inside as well.
+    expect(made.wrap.volumeBefore).toBeCloseTo(8000 + 512 + 1000, 3)
+    const seen = await run<Figures>('mesh.inspect')
+    expect(seen).toMatchObject({ working: 'scan', triangles })
+    expect(undoLabels()).toEqual(['Agent: wrap the mesh'])
+
+    // Applied, it is the copy, closed.
+    const applied = await run<EditAnswer>('mesh.apply_wrap')
+    expect(applied.edit).toMatchObject({ kind: 'wrap', gap: 1, grow: 0, shells: 1, triangles: made.wrap.triangles })
+    expect(applied.edit.text).toMatch(/Wrapped, gaps under 1 mm closed/)
+    expect(applied.mesh).toMatchObject({ working: 'edited copy', triangles: made.wrap.triangles, open: 0, bad: 0 })
+    expect(applied.mesh.volume).toBeCloseTo(made.wrap.volume, 0)
+    expect(useMeshTools.getState().wrapMade).toBeNull()
+    expect(undoLabels().at(-1)).toBe('Agent: apply the wrap')
+
+    // Back to the mesh as it was.
+    await run('history.undo')
+    expect(await run<Figures>('mesh.inspect')).toMatchObject({ working: 'scan', triangles })
+
+    // Applied at once: one step.
+    const once = await run<Wrapped & EditAnswer>('mesh.wrap', { gap: 1, grow: 0.5, preview: false })
+    expect(once.edit).toMatchObject({ kind: 'wrap', grow: 0.5 })
+    expect(once.mesh).toMatchObject({ working: 'edited copy', open: 0, bad: 0 })
+    expect(once.mesh.volume!).toBeGreaterThan(made.wrap.volume)
+  }, 120_000)
+
+  it('refuses an open sheet unless grown, and grow past the gap, leaving no step', async () => {
+    const top: number[] = []
+    const box = cuboid([-10, -10, -1], [10, 10, 1], 4)
+    for (let t = 0; t < box.length; t += 9) if (box[t + 2] === 1 && box[t + 5] === 1 && box[t + 8] === 1) for (let k = 0; k < 9; k++) top.push(k % 3 === 2 ? 0 : box[t + k])
+    await open('sheet.stl', Float32Array.from(top))
+    useHistory.setState({ past: [], future: [] })
+    const sheet = await refused('mesh.wrap', { gap: 1, grow: 0 })
+    expect(sheet.code).toBe('failed')
+    expect(sheet.message).toMatch(/open surface .* Grow it/)
+    expect((await refused('mesh.wrap', { gap: 1, grow: 2 })).message).toMatch(/at most the gap/)
+    expect(undoLabels()).toEqual([])
+    const grown = await run<Wrapped>('mesh.wrap', { gap: 1, grow: 0.5 })
+    expect(grown.wrap.shells).toBe(1)
+  }, 60_000)
 })

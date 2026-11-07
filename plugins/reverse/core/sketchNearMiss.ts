@@ -7,12 +7,14 @@
 // fitted into the sketch that has the wall already.
 //
 // The other sketch's pieces are laid on this sheet: on parallel planes u
-// and v are the same, whatever the distance between them.
+// and v are the same. Only planes the two sketches' extrudes can bring
+// together are compared: a slot on one end of a part and a slot on the
+// other, 117 mm apart, never meet in a step.
 
 import type { Vec2 } from '../../../src/core/flat/types'
 import type { Vec3 } from '../../../src/core/types'
 import { cross, dot, len, sub } from '../../../src/core/vec'
-import type { SketchFeature } from './features'
+import type { Feature, SketchFeature } from './features'
 import { liftPoint } from './profiles'
 import type { Sketch, SketchArc, SketchEntity, SketchLine } from './sketch'
 
@@ -33,6 +35,10 @@ const NEAR_MM = 0.3
 const PLANE_DEG = 0.5
 /** How many near misses an answer lists. */
 const LISTED = 12
+/** How far a sketch a solid is built on otherwise than by an extrude of a
+ *  set length — to a face, revolved, swept, lofted — is taken to reach
+ *  either way from its plane, mm. */
+const REACH_MM = 20
 
 export interface NearMiss {
   /** This sketch's piece, by id. */
@@ -93,13 +99,20 @@ function parallel(a: SketchFeature['frame'], b: SketchFeature['frame']): boolean
  * degree of each other that run side by side for 30 % of the shorter or
  * more, 1e-4 < offset ≤ 0.3 mm; arcs and circles with centres within 0.3
  * mm and radii within 0.3 mm of each other, not one. Construction pieces
- * are left out on both sides. The nearest first, and how many in all.
+ * are left out on both sides. With the part's features given, only a
+ * sketch whose solids can reach this one's (along) is compared. The nearest
+ * first, and how many in all.
  */
-export function sketchNearMisses(sketch: SketchFeature, others: readonly SketchFeature[]): { misses: NearMiss[]; found: number } {
+export function sketchNearMisses(sketch: SketchFeature, others: readonly SketchFeature[], features?: readonly Feature[]): { misses: NearMiss[]; found: number } {
   const out: NearMiss[] = []
   const mine = sketch.sketch.entities.filter((e) => !e.construction)
+  const own = features ? along(sketch, sketch.frame.normal, features) : null
   for (const o of others) {
     if (o.id === sketch.id || !parallel(sketch.frame, o.frame)) continue
+    if (own) {
+      const theirs = along(o, sketch.frame.normal, features!)
+      if (theirs[0] > own[1] + NEAR_MM || own[0] > theirs[1] + NEAR_MM) continue
+    }
     for (const e of o.sketch.entities) {
       if (e.construction) continue
       if (e.kind === 'line') {
@@ -122,6 +135,43 @@ export function sketchNearMisses(sketch: SketchFeature, others: readonly SketchF
   }
   out.sort((a, b) => a.offMm - b.offMm)
   return { misses: out.slice(0, LISTED), found: out.length }
+}
+
+/** The stretch along `normal` the solids built on a sketch can fill:
+ *  from its plane, each extrude of a set length on it (distance,
+ *  symmetric) as far as it goes; an extrude to a plane or a face, a
+ *  revolve, a sweep or a loft on it are taken to reach REACH_MM either
+ *  way. A sketch nothing is built on yet is its plane alone: one just
+ *  drawn is compared with the sketches whose solids reach its plane, and
+ *  what its own extrude brings near later stepsBetween finds. */
+function along(f: SketchFeature, normal: Vec3, features: readonly Feature[]): [number, number] {
+  const at = dot(f.frame.origin, normal)
+  const way = dot(f.frame.normal, normal) < 0 ? -1 : 1
+  let lo = 0
+  let hi = 0
+  let set = false
+  for (const x of features) {
+    if (x.suppressed) continue
+    if (x.kind !== 'extrude' && x.kind !== 'sketch' && builtOn(x, f.id)) return [at - REACH_MM, at + REACH_MM]
+    if (x.kind === 'extrude' && x.sketchId === f.id) {
+      const e = x.extent
+      const span = e.kind === 'distance' ? [e.from, e.to] : e.kind === 'symmetric' ? [-e.total / 2, e.total / 2] : null
+      if (!span) return [at - REACH_MM, at + REACH_MM]
+      lo = Math.min(lo, ...span)
+      hi = Math.max(hi, ...span)
+      set = true
+    }
+  }
+  if (!set) return [at, at]
+  const ends = [at + way * lo, at + way * hi]
+  return [Math.min(...ends), Math.max(...ends)]
+}
+
+/** Whether `x` builds a solid on sketch `id`: its profile, its path, one
+ *  of its sections. */
+function builtOn(x: Feature, id: number): boolean {
+  const y = x as { sketchId?: number | null; profile?: number | null; path?: number | null; sketches?: readonly number[] }
+  return y.sketchId === id || y.profile === id || y.path === id || (y.sketches?.includes(id) ?? false)
 }
 
 /** The fix in one line: the other sketch's pieces projected into this

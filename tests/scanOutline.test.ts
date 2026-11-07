@@ -70,6 +70,30 @@ describe('maskLoops and loopShape', () => {
     }
   })
 
+  it('says which way a slot’s half-round ends bulge: each arc’s mid-point out at the end', () => {
+    // A slot standing alone, and the same slot as a hole in a plate: either
+    // way round, each end's mid lies on the slot's axis at its far end,
+    // never at the chord's other side, where its centre is.
+    const alone = maskOf(30, 0.1, (x, y) => inRounded(x, y, 20, 6, 6))
+    const plate = maskOf(30, 0.1, (x, y) => Math.abs(x) <= 28 && Math.abs(y) <= 12 && !inRounded(x, y, 20, 6, 6))
+    for (const [{ mask, g }, k] of [[alone, 0], [plate, 1]] as const) {
+      const loop = maskLoops(mask, g)[k]
+      expect(loop.hole).toBe(k === 1)
+      const shape = loopShape(loop.points, 0.2, g.cell)
+      expect(shape.arcs).toHaveLength(2)
+      for (const a of shape.arcs) {
+        expect(Math.abs(a.center[0])).toBeCloseTo(14, 1)
+        expect(Math.abs(a.mid[0])).toBeCloseTo(20, 1)
+        expect(Math.sign(a.mid[0])).toBe(Math.sign(a.center[0]))
+        expect(a.mid[1]).toBeCloseTo(0, 1)
+        // On the arc's circle, halfway between its ends.
+        const from = shape.points[a.from]
+        const to = shape.points[(a.from + 1) % shape.points.length]
+        expect(Math.hypot(a.mid[0] - from[0], a.mid[1] - from[1])).toBeCloseTo(Math.hypot(a.mid[0] - to[0], a.mid[1] - to[1]), 1)
+      }
+    }
+  })
+
   it('reads a disc as one circle, and a hole in a plate as a loop of its own', () => {
     const disc = maskOf(10, 0.05, (x, y) => Math.hypot(x - 1, y) <= 6)
     const round = loopShape(maskLoops(disc.mask, disc.g)[0].points, 0.1, disc.g.cell)
