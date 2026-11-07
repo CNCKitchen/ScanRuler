@@ -193,6 +193,21 @@ describe('levels in one sketch (fit.level), the walls drawn once (fit.share)', (
   })
 })
 
+describe('one profile picked twice on purpose', () => {
+  it('says nothing of a junction when two cuts ask for the region alike', async () => {
+    await run<Answer>('reverse.feature.add', { feature: { kind: 'sketch', name: 'Bar section', plane: { kind: 'world', axis: 'y' }, sketch: { shapes: [{ kind: 'rectangle', id: 1, center: [0, 0], size: [10, 10], fixed: true }] } } })
+    await run<Answer>('reverse.feature.add', { feature: { kind: 'extrude', name: 'Bar', sketchId: 'Bar section', extent: { kind: 'distance', from: 0, to: 40 }, op: 'new' } })
+    await run<Answer>('reverse.feature.add', { feature: { kind: 'sketch', name: 'Hole', plane: { kind: 'world', axis: 'y' }, sketch: { shapes: [{ kind: 'circle', center: [0, 0], radius: 1.5, fixed: true }] } } })
+    // The same hole at each end of the bar: one region, picked alike.
+    const near = await run<Answer>('reverse.feature.add', { feature: { kind: 'extrude', name: 'Hole near', sketchId: 'Hole', regions: 'all', op: 'cut', target: 'Bar', extent: { kind: 'distance', from: -1, to: 10 } } })
+    const far = await run<Answer>('reverse.feature.add', { feature: { kind: 'extrude', name: 'Hole far', sketchId: 'Hole', regions: 'all', op: 'cut', target: 'Bar', extent: { kind: 'distance', from: 30, to: 41 } } })
+    for (const made of [near, far]) {
+      expect(made.result?.status, made.result?.message).toBe('ok')
+      expect(useReverse.getState().results[made.feature.id]?.warning).toBeUndefined()
+    }
+  })
+})
+
 describe('stacked on a face: its outline projected, the fit landing on it', () => {
   it('starts a sketch on the deck’s top with the face’s outline, and the pad’s fit adds only its own wall, ending on the deck’s', async () => {
     await run<Answer>('reverse.feature.add', { feature: { kind: 'sketch', name: 'Deck plan', plane: { kind: 'world', axis: 'z', offset: 2 }, sketch: { fit: { chains: { at: [10, 25] } } } } })

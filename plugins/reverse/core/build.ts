@@ -1914,12 +1914,14 @@ export class Builder {
    *  pick names — an edit merged or took away what they picked: said on
    *  the feature's row, while the rest is built. So is a region another
    *  extrude or revolve on the sketch picks too — two regions that ran into
-   *  one (samePick). */
+   *  one (samePick). Not when the two asked for the region alike — the
+   *  same pick, given the same way: the same profile cut at each end of a
+   *  bar is one region on purpose, and no junction let go to make it. */
   private notePicksLost(step: SolidStep, sketchOf: (id: number) => Sketch | undefined): void {
     const sketch = this.placed.has(step.sketchId) ? null : sketchOf(step.sketchId)
     const regions = sketch ? findRegions(sketch) : this.placed.has(step.sketchId) ? this.placedRegions(step.sketchId) : null
     if (!regions) return
-    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
+    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) && !askedAlike(o, step) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
     const taken = (keys: readonly string[], pick: SolidStep['regionPick']) => (pick ? regionsByPick(pick, regions) : null) ?? matchRegions(keys, regions)
     const same = samePick(this.names.get(step.id) ?? `feature ${step.id}`, taken(step.regions, step.regionPick), others.map((o) => ({ name: o.name, regions: taken(o.keys, o.pick) })))
     if (same) this.stepWarnings.push(same)
@@ -4820,4 +4822,12 @@ function radiusJump(varying: readonly VariableEdge[], at: readonly number[], all
         }
     }
   }
+}
+
+/** Whether two extrudes or revolves on one sketch asked for their regions
+ *  the same way: the same pick as given ("all", "largest", a point), or the
+ *  same keys where they were given by key. */
+function askedAlike(a: { regions: readonly string[]; regionPick?: unknown }, b: { regions: readonly string[]; regionPick?: unknown }): boolean {
+  if (a.regionPick !== undefined || b.regionPick !== undefined) return JSON.stringify(a.regionPick) === JSON.stringify(b.regionPick)
+  return a.regions.length === b.regions.length && a.regions.every((k, i) => k === b.regions[i])
 }
