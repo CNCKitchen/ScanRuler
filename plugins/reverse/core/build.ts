@@ -2319,6 +2319,17 @@ export class Builder {
         }
       }
       case 'mirror': {
+        // A mirror turns a thread's hand: a right-handed one comes out
+        // left-handed in the copy, which no stock screw fits. Rarely meant,
+        // and nothing else shows it, so the row says so.
+        const before = this.stepsInPlay.findIndex((o) => o.id === step.id)
+        const threads = this.stepsInPlay.filter((o, i) => o.kind === 'thread' && o.body === step.body && (before < 0 || i < before))
+        if (threads.length > 0) {
+          const names = threads.map((t) => this.names.get(t.id) ?? `feature ${t.id}`)
+          const hands = new Set(threads.map((t) => (t.kind === 'thread' && t.leftHanded ? 'left' : 'right')))
+          const from = hands.size === 1 ? [...hands][0] : null
+          this.stepWarnings.push(`This mirrors ${names.join(', ')}: ${from ? `a ${from}-handed thread comes out ${from === 'right' ? 'left' : 'right'}-handed` : 'each thread comes out of the other hand'}${step.join ? ' on the mirrored half' : ' in the copy'}. To keep a thread's hand, copy the body with a 180° turn (moveBody) instead.`)
+        }
         let plane: PlaneGeometry
         if ('face' in step.plane) {
           const found = this.findFaces(step.body, [step.plane.face], step.id)

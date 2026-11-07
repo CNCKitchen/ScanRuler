@@ -330,7 +330,7 @@ Example: `{ note: 4, reply: "Opened the slot to 8 mm as asked." }`
 | revolve | `sketchId`, `axis` | axis `{ kind: "sketchLine", entity }`, `world`, `element`; `angleDeg`, `pitch`, `op`, `target` |
 | boolean | `op: "join" \| "cut" \| "intersect"`, `body`, `tool` (one or `[a, b]`: joined all, cut or intersected by each) | `keep`; a sheet as `body`: intersect or cut keeps it inside or outside a solid tool, which stays; join sews two sheets into one |
 | cutPlane | `body`, `plane` | `keep: 1 \| -1` (−1 keeps the side away from the normal) |
-| mirror | `body`, `plane` | `join` (false: the copy a new body beside the source); plane may be `{ kind: "face", face }` |
+| mirror | `body`, `plane` | `join` (false: the copy a new body beside the source); plane may be `{ kind: "face", face }`. A thread on the body comes out of the other hand, and the row warns: copy a threaded end with a 180° `moveBody` turn instead |
 | fillet | `body`, `edges` | `radius` (or `"fit"`, with `reach`); `{ edge, radius: [r1, r2] }` for a varying round, r1 at the edge's first end; several on a chain vary it along it, equal where they meet; an edge left out blends. `picked.adds` lists the edges the kernel's chain rounds too |
 | chamfer | `body`, `edges`, `distance` (or `"fit"`, even chamfers) | `mode: "equal" \| "twoDistances" \| "distanceAngle"`, `distance2`, `angleDeg`, `flip` |
 | shell | `body`, `thickness` | `faces` (opened) |
