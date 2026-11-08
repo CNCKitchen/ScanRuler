@@ -21,6 +21,7 @@ export class TriangleVisibility {
     height: number,
     planes: THREE.Plane[],
     contains: (x: number, y: number) => boolean,
+    progress?: (text: string, percent?: number) => void,
   ): void {
     const inverse = partMatrix.clone().invert()
     const project = camera.projectionMatrix.clone().multiply(camera.matrixWorldInverse).multiply(partMatrix)
@@ -31,6 +32,10 @@ export class TriangleVisibility {
     const index = this.geometry.getIndex()!
     const wanted = remove ? 0 : 1
     for (let t = 0; t < mask.length; t++) {
+      if (t % 16384 === 0) {
+        const percent = Math.floor(t * 100 / mask.length)
+        progress?.(`Checking visible triangles: ${percent}%`, percent)
+      }
       if (mask[t] === wanted) continue
       const at = t * 9, p = this.positions
       centre.set((p[at] + p[at + 3] + p[at + 6]) / 3,

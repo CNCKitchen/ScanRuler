@@ -21,6 +21,7 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
   const alignment = useStore((s) => s.appliedAlignment)
   const state = useDeleteSelection()
   const marked = useMark((s) => s.count)
+  const diameter = useMark((s) => s.diameter)
   const view = useRef<DeleteSelectionScene | null>(null)
   const selectedMesh = useRef<Uint32Array | null>(null)
   const clear = () => {
@@ -41,7 +42,7 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
         useStore.getState().setStatus('Selection only. Orange triangles would be deleted; yellow lines mark selection edges. Release each stroke to update.')
       },
       (message) => useStore.getState().setError(message),
-      () => useStore.getState().busy || useMeshTools.getState().editing || useDeleteSelection.getState().stage !== 0,
+      () => useStore.getState().busy || useMeshTools.getState().editing || useDeleteSelection.getState().stage !== 0 || useDeleteSelection.getState().selecting,
     )
     view.current = layer
     return () => {
@@ -55,7 +56,7 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
     const layer = view.current
     if (!layer) return
     layer.enabled = active && state.mode === 'visible'
-    layer.show(state.selection)
+    void layer.show(state.selection)
   }, [active, state.mode, state.selection, copyVersion])
   useEffect(() => {
     // Legacy vertex marking is also invalidated by any change after preview.
@@ -69,7 +70,7 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
   const total = mesh ? mesh.indices.length / 3 : 0
   const applyDelete = async () => {
     const current = useDeleteSelection.getState()
-    if (current.stage !== 2 || !active) return
+    if (current.stage !== 2 || !active || current.selecting) return
     if (current.mode === 'visible') {
       const mesh = sceneRef.current?.scanMesh()
       if (!current.selection || !mesh || selectedMesh.current !== mesh.indices || current.selection.length * 3 !== mesh.indices.length) {
@@ -87,10 +88,16 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
   }
   return {
     ...state,
+    diameter,
+    setDiameter: (mm: number) => {
+      useMark.getState().setDiameter(mm)
+      useDeleteSelection.getState().setStage(0)
+    },
     count,
     total,
     clear,
-    selectView: () => view.current?.selectView(),
+    selectView: () => { void view.current?.selectView() },
+    cancelSelection: () => view.current?.cancelWork(),
     invert: () => {
       const n = sceneRef.current?.scanMesh()?.indices.length
       if (!n) {
@@ -105,8 +112,7 @@ export function useDeleteTool(session: MeshToolsSession, sceneRef: RefObject<Sce
         return
       }
       for (let t = 0; t < mask.length; t++) mask[t] = mask[t] ? 0 : 1
-      selectedMesh.current = indices
-      state.setSelection(mask)
+      void view.current?.invertSelection(mask)
     },
     applyDelete,
   }

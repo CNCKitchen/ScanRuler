@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { InfoDot } from '../../../../src/ui/InfoDot'
-import { MarkTools } from '../../../../src/ui/MarkTools'
+import { BrushNumber, BrushSlider, MarkTools } from '../../../../src/ui/MarkTools'
+import { useStore } from '../../../../src/state/store'
+import { brushRange } from '../../../../src/state/markStore'
+import { useLength } from '../../../../src/app/useUnits'
 import type { DeleteToolState } from '../../app/useDeleteTool'
 import { count } from '../meshFormat'
 
@@ -9,7 +12,9 @@ export function DeleteTool({ ready, busy, deletion: d }: {
   busy: boolean
   deletion: DeleteToolState
 }) {
-  const locked = busy || d.stage !== 0
+  const modelSize = useStore((s) => s.modelSize)
+  const len = useLength()
+  const locked = busy || d.selecting || d.stage !== 0
   return (
     <div className="group" data-test="delete-tool">
       <div className="sec-head">
@@ -26,6 +31,8 @@ export function DeleteTool({ ready, busy, deletion: d }: {
             Clear explicitly starts over. Invert across the entire mesh if needed. Rotate the model
             and use Add or Remove to refine only visible triangles. Release a stroke to update
             the selection. Shift-drag navigates; Escape cancels a stroke or returns to navigation.
+            Brush diameter uses model units; the round cursor shows its projected view-plane
+            footprint and scales with zoom.
           </p>
           <p>
             Orange is selected for deletion; the normal surface color is kept. Yellow lines mark
@@ -48,6 +55,12 @@ export function DeleteTool({ ready, busy, deletion: d }: {
           <option value="through">Through (legacy)</option>
         </select>
       </label>
+      {d.selecting && (
+        <div data-test="delete-selection-progress" role="status" aria-live="polite">
+          <p>{d.progress} The mesh is unchanged until you confirm deletion.</p>
+          <button data-test="delete-selection-cancel" onClick={d.cancelSelection}>Cancel selection</button>
+        </div>
+      )}
       {d.mode === 'visible' ? (
         <>
           <div className="toolrow">
@@ -71,11 +84,19 @@ export function DeleteTool({ ready, busy, deletion: d }: {
           </div>
           {d.gesture === 'brush' && (
             <label className="field">
-              <span>Brush diameter: {d.diameter} px</span>
-              <input data-test="delete-brush-size" className="slider" aria-label="Visible brush diameter in pixels" type="range" min="2" max="200" value={d.diameter}
-                disabled={locked} onChange={(e) => d.setDiameter(Number(e.target.value))} />
+              <span>Brush diameter ({len.word()})</span>
+              <fieldset disabled={locked} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                <BrushNumber testId="delete-brush-size" diameter={d.diameter} setDiameter={d.setDiameter} />
+                <BrushSlider diameter={d.diameter} setDiameter={d.setDiameter} brush={brushRange(modelSize)} />
+              </fieldset>
             </label>
           )}
+          <p className="hint" data-test="delete-selection-shortcuts">
+            {d.gesture === null
+              ? 'Navigate: orbit and pan as usual. Choose Window, Brush or Lasso to select.'
+              : `Left-drag ${d.remove ? 'removes visible triangles from the selection' : 'adds visible triangles to the selection'}. Shift-drag navigates. Escape cancels a stroke or returns to navigation.`}
+            {' '}Visible-only selection does not use the legacy brush's Alt-invert or Ctrl/Command straight-line shortcuts.
+          </p>
           <p className="hint">Orange: selected. Normal surface color: kept. Yellow: selection boundary.</p>
         </>
       ) : d.stage === 0 ? (
@@ -102,7 +123,7 @@ export function DeleteTool({ ready, busy, deletion: d }: {
         </div>
       ) : (
         <button className="primary block" data-test="delete-marked"
-          disabled={!ready || busy || d.count === 0 || d.count === d.total} onClick={() => d.setStage(1)}>
+          disabled={!ready || busy || d.selecting || d.count === 0 || d.count === d.total} onClick={() => d.setStage(1)}>
           Preview deletion...
         </button>
       )}

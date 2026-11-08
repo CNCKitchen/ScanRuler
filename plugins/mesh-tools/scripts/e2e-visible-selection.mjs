@@ -51,12 +51,17 @@ end_header
 3 4 6 7
 `)
 const { browser, page, consoleErrors } = await launchApp({ width: 1400, height: 1000 })
-const selected = () => page.evaluate(async () => {
+const waitForSelection = () => page.waitForFunction(async () =>
+  !(await import('/plugins/mesh-tools/state/deleteStore.ts')).useDeleteSelection.getState().selecting, { timeout: 120_000 })
+const selected = async () => {
+  await waitForSelection()
+  return page.evaluate(async () => {
   const { useDeleteSelection } = await import('/plugins/mesh-tools/state/deleteStore.ts')
   const { sceneOf } = await import('/src/commands/host.ts')
   const s = useDeleteSelection.getState(), mesh = sceneOf().scanMesh()
   return { count: s.count, stage: s.stage, z: Array.from(s.selection ?? []).flatMap((v, t) => v ? [mesh.positions[mesh.indices[t * 3] * 3 + 2]] : []) }
-})
+  })
+}
 const orient = async (view) => {
   await page.evaluate(async (v) => {
     const { sceneOf } = await import('/src/commands/host.ts')
@@ -81,6 +86,15 @@ try {
   await loadScan(page, fixture, { inputSelector: '[data-test=start-scan] input[type=file]' })
   await page.click('[data-test=mesh-tool-delete]')
   await orient('top')
+  await page.evaluate(async () => {
+    const { useDeleteSelection } = await import('/plugins/mesh-tools/state/deleteStore.ts')
+    useDeleteSelection.getState().setProgress('Checking visible triangles: 42%', 42)
+  })
+  check(await page.$eval('[data-test=delete-selection-progress]', (el) => el.textContent.includes('42%')), 'selection panel displays numeric worker progress')
+  await page.evaluate(async () => {
+    const { useDeleteSelection } = await import('/plugins/mesh-tools/state/deleteStore.ts')
+    useDeleteSelection.getState().setProgress(null)
+  })
   check(await page.$eval('[data-test=delete-selection-mode]', (el) => el.value === 'visible'), 'visible-only is the default')
   await page.click('[data-test=delete-select-view]')
   check(JSON.stringify((await selected()).z) === '[1,1]', 'current view selects only the front sheet, not the hidden sheet')
@@ -96,7 +110,77 @@ try {
   await page.click('[data-test=delete-invert]')
   check(JSON.stringify((await selected()).z) === '[-1,-1]', 'invert selects the hidden sheet across the entire mesh')
   await page.click('[data-test=delete-brush]')
+  await page.mouse.move(...Object.values(await page.evaluate(async () => {
+    const { sceneOf } = await import('/src/commands/host.ts')
+    const r = sceneOf().layerHost().canvas.getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  })))
+  await page.waitForSelector('[data-test=delete-brush-cursor]', { visible: true })
+  check(await page.$eval('[data-test=delete-selection-shortcuts]', (el) =>
+    el.textContent.includes('Left-drag adds visible triangles') &&
+    el.textContent.includes('Shift-drag navigates') &&
+    el.textContent.includes('Escape cancels') &&
+    el.textContent.includes('does not use')),
+  'visible-only brush displays accurate shortcuts without opening help')
+  const cursorSize = await page.$eval('[data-test=delete-brush-cursor]', (el) => parseFloat(el.style.width))
+  check(cursorSize > 0, 'visible-only brush shows its round cursor footprint')
+  check(await page.$eval('[data-test=delete-brush-size]', (el) => el.type === 'number'), 'visible-only brush offers model-unit numeric size instead of pixels')
+  await page.screenshot({ path: shotPath('visible-brush-model-units.png') })
+  await page.evaluate(async () => {
+    const { useMark } = await import('/src/state/markStore.ts')
+    window.brushTestDiameter = useMark.getState().diameter
+    useMark.getState().setDiameter(window.brushTestDiameter * 2)
+  })
+  await page.waitForFunction((size) => Math.abs(parseFloat(document.querySelector('[data-test=delete-brush-cursor]').style.width) - size * 2) < 0.01, {}, cursorSize)
+  check(true, 'changing model-unit diameter updates the cursor while stationary')
+  await page.evaluate(async () => {
+    const { useMark } = await import('/src/state/markStore.ts')
+    useMark.getState().setDiameter(window.brushTestDiameter)
+    delete window.brushTestDiameter
+  })
+  await page.evaluate(async () => {
+    const { sceneOf } = await import('/src/commands/host.ts')
+    const camera = sceneOf().layerHost().camera()
+    window.brushTestZoom = camera.zoom
+    camera.zoom *= 2
+    camera.updateProjectionMatrix()
+    sceneOf().layerHost().invalidate()
+  })
+  await page.waitForFunction((size) => Math.abs(parseFloat(document.querySelector('[data-test=delete-brush-cursor]').style.width) - size * 2) < 0.01, {}, cursorSize)
+  check(true, 'zoom scales the cursor footprint instead of changing physical brush diameter')
+  await page.evaluate(async () => {
+    const { sceneOf } = await import('/src/commands/host.ts')
+    const camera = sceneOf().layerHost().camera()
+    camera.zoom = window.brushTestZoom
+    camera.updateProjectionMatrix()
+    sceneOf().layerHost().invalidate()
+    delete window.brushTestZoom
+    const { usePrefs } = await import('/src/state/prefsStore.ts')
+    const { useMark } = await import('/src/state/markStore.ts')
+    window.brushTestMm = useMark.getState().diameter
+    window.brushTestUnits = usePrefs.getState().units
+    usePrefs.setState({ units: 'in' })
+  })
+  await page.waitForFunction(() => document.querySelector('[data-test=delete-brush-size]')?.closest('label')?.textContent.includes('in'))
+  check(await page.evaluate(async () => {
+    const { useMark } = await import('/src/state/markStore.ts')
+    const expected = Number((window.brushTestMm / 25.4).toFixed(4))
+    return Number(document.querySelector('[data-test=delete-brush-size]').value) === expected &&
+      useMark.getState().diameter === window.brushTestMm
+  }), 'brush size follows display units without changing its stored millimetre diameter')
+  await page.evaluate(async () => {
+    const { usePrefs } = await import('/src/state/prefsStore.ts')
+    usePrefs.setState({ units: window.brushTestUnits })
+    delete window.brushTestUnits
+    delete window.brushTestMm
+  })
+  await page.mouse.move(1, 1)
+  await page.waitForSelector('[data-test=delete-brush-cursor]', { hidden: true })
+  check(true, 'brush cursor hides when the pointer leaves the viewport')
   await page.click('[data-test=delete-remove]')
+  check(await page.$eval('[data-test=delete-selection-shortcuts]', (el) =>
+    el.textContent.includes('Left-drag removes visible triangles')),
+  'visible instruction line follows Add/Remove selection mode')
   await brushAt()
   check((await selected()).count === 2, 'Remove from top cannot erase the selected sheet hidden underneath')
   await orient('bottom')
@@ -109,6 +193,7 @@ try {
   await page.click('[data-test=delete-clear]')
   await page.click('[data-test=delete-select-view]')
   check(JSON.stringify((await selected()).z) === '[-1,-1]', 'whole current view includes back-facing triangles')
+  await waitForSelection()
   await page.screenshot({ path: shotPath('visible-selection-underneath.png') })
   // The ID pass and worker must agree on triangle order, not just counts.
   const exact = await page.evaluate(async () => {
@@ -149,6 +234,7 @@ try {
   check((await selected()).count === 0, 'applying clears temporary selection')
   await orient('top')
   await page.click('[data-test=delete-select-view]')
+  await waitForSelection()
   check(JSON.stringify((await selected()).z) === '[1,1]', 'selection operates on the edited copy, not the original scan')
   check(await page.$eval('[data-test=delete-marked]', (el) => el.disabled), 'deletion refuses to remove the entire remaining mesh')
   await page.keyboard.down(MOD)
@@ -199,7 +285,7 @@ try {
       const layer = new DeleteSelectionScene(sceneOf(), (mask) => {
         window.__clippedMask = Array.from(mask)
       }, (error) => { throw new Error(error) }, () => false)
-      layer.selectView()
+      await layer.selectView()
       layer.dispose()
     } finally {
       sceneOf().layerHost = original
@@ -240,7 +326,22 @@ try {
     const cam = real.layerHost().camera(), originalZoom = cam.zoom
     const tests = []
     let rasterCount = 0
+    let heartbeats = 0, maxWorkerGap = 0, lastBeat = performance.now()
+    const heartbeat = setInterval(() => {
+      const now = performance.now()
+      if (useDeleteSelection.getState().progress?.startsWith('Checking visible triangles')) {
+        maxWorkerGap = Math.max(maxWorkerGap, now - lastBeat)
+        heartbeats++
+      }
+      lastBeat = now
+    }, 25)
+    let cancelledWithoutChange = false
     try {
+      const pending = layer.selectView()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      layer.cancelWork()
+      await pending
+      cancelledWithoutChange = result === undefined && !useDeleteSelection.getState().selecting
       for (const scale of [0.02, 1]) {
         cam.zoom = originalZoom * scale
         cam.updateProjectionMatrix()
@@ -251,7 +352,7 @@ try {
           const { visibleTriangles } = await import('/plugins/mesh-tools/core/triangleSelection.ts')
           rasterCount = visibleTriangles(image.pixels, image.triangles).reduce((n, v) => n + v, 0)
         }
-        layer.selectView()
+        await layer.selectView()
         tests.push({ ...result, scale })
       }
       // Exercise the same window pointer path on triangles far below pixel size.
@@ -266,9 +367,11 @@ try {
       try {
         layer.start(new PointerEvent('pointerdown', { pointerId: 1, button: 0, clientX: r.left + 1, clientY: r.top + 1 }))
         window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, button: 0, clientX: r.right - 1, clientY: r.bottom - 1 }))
+        while (useDeleteSelection.getState().selecting) await new Promise((resolve) => setTimeout(resolve, 10))
       } finally { canvas.setPointerCapture = capture }
       tests.push({ ...result, scale: 'window-subpixel' })
     } finally {
+      clearInterval(heartbeat)
       cam.zoom = originalZoom
       cam.updateProjectionMatrix()
       layer.dispose()
@@ -295,8 +398,11 @@ try {
         for (let axis = 0; axis < 3; axis++) if (positions[old * 3 + axis] !== kept.positions[v * 3 + axis]) exact = false
       }
     }
-    return { tests, rasterCount, trianglesPerSide, milliseconds: selectionMilliseconds, deletionMilliseconds: performance.now() - editStart, exact }
+    return { tests, rasterCount, trianglesPerSide, milliseconds: selectionMilliseconds, heartbeats, maxWorkerGap, cancelledWithoutChange, deletionMilliseconds: performance.now() - editStart, exact }
   })
+  check(dense.cancelledWithoutChange, 'cancelling dense selection preserves the previous selection and clears busy state')
+  check(dense.heartbeats >= 10 && dense.maxWorkerGap < 250, 'dense visibility checks keep the browser event loop responsive')
+  console.log(`Worker heartbeat: ${dense.heartbeats} ticks, maximum gap ${Math.round(dense.maxWorkerGap)} ms`)
   check(dense.rasterCount < dense.trianglesPerSide / 100, 'regression reproduces pixel-only coverage missing over 99% of the visible dense sheet')
   for (const result of dense.tests) check(result.front === 0 && result.back === dense.trianglesPerSide,
     `1,960,000-triangle overlap selects every near triangle and no rear triangle: ${result.scale}`)
@@ -343,6 +449,7 @@ try {
     return window.deletionSignature(sceneOf().scanMesh(), useDeleteSelection.getState().selection)
   })
   const confirm = async () => {
+    await waitForSelection()
     await page.click('[data-test=delete-marked]')
     await page.click('[data-test=delete-request]')
     await page.click('[data-test=delete-marked-confirm]')
@@ -380,6 +487,7 @@ try {
   await page.click('[data-test=delete-add]')
   await orient('top')
   await page.click('[data-test=delete-select-view]')
+  await waitForSelection()
   const secondExpected = await page.evaluate(async () => {
     const { sceneOf } = await import('/src/commands/host.ts')
     const { useDeleteSelection } = await import('/plugins/mesh-tools/state/deleteStore.ts')

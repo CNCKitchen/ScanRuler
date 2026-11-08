@@ -6,6 +6,13 @@ saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
 ## Unreleased
+
+- **Visible selection responsiveness and brush feedback**. Move exact visibility
+  checks and selection-boundary sorting into a cancellable worker, preserve
+  selection on cancellation, and reject stale view/mesh results. Restore the
+  visible-only cursor using shared model-unit brush controls and display accurate
+  gesture instructions. See [workflow and validation](docs/visible-selection-update.md).
+
 - **Local development: independent export Save As location**. Route all UI
   export formats through the standard Windows Save As dialog on localhost.
   Start in the project-save folder until an export succeeds, then remember

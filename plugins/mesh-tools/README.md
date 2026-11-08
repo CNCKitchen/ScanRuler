@@ -322,13 +322,25 @@ This customized local build defaults to **Visible only (current view)**:
    are selected when a visible pixel or their visible centre lies inside the
    selection region; no surface classification or hidden-triangle growth is
    inferred. Dense meshes can take several seconds on the first selection
-   while their visibility acceleration structure is built.
+   while their visibility acceleration structure is built. Exact visibility
+   checks and selection-boundary sorting run in a background worker, with
+   progress and **Cancel selection** controls. Cancel preserves the previous
+   selection and does not edit the mesh. Initial raster preparation and final
+   overlay upload still run on the main thread. Preview stays disabled until
+   calculation completes. Navigating during calculation invalidates its result;
+   repeat selection in the current view.
 2. **Invert entire mesh** exchanges selected and unselected triangles,
    including hidden ones. Rotate without losing the selection.
 3. Choose **Window**, **Brush**, or **Lasso**, then **Add visible** or
    **Remove visible** to refine only frontmost triangles. Brush diameter is
-   in screen pixels, independent of model units. Release a stroke to update
+   stored in millimetres and displayed in the chosen units using the app's
+   shared marking-brush controls. The orange Add / teal Remove cursor outlines
+   a projected view-plane circle and scales with zoom; unlike the legacy brush,
+   it does not bend onto sloping surfaces. Release a stroke to update
    selection. **Navigate**, **Esc**, or Shift-drag returns camera control.
+   The instruction line beside the controls explains left-drag, Shift-drag and
+   Escape. Visible-only mode does not implement legacy Alt-invert or
+   Ctrl/Command straight-line brush shortcuts.
    Escape during a stroke cancels it without changing the previous selection.
    Strokes are limited to 4,096 pointer samples; overly long strokes are
    cancelled explicitly, not truncated into a different selection.
