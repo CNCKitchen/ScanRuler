@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The scan surface each fitted element rests on, kept for whoever needs the
-// points and not just the fit — a tolerance on a plane's surface (see
-// core/tolerances). A fit result carries its region, the vertex indices it
+// points and not just the fit — a form tolerance's minimum zone, a tolerance
+// on a plane's surface (see core/tolerances). A fit result carries its region, the vertex indices it
 // was measured on; the scene takes them to tint the part, and this keeps
 // them so the coordinates can be read back off the viewport's own scan
 // buffer — the buffer the elements were fitted in, and the one a datum
@@ -14,7 +14,8 @@
 
 import { create } from 'zustand'
 import type { SurfaceSource } from '../core/dimensions'
-import { dot, sub } from '../core/vec'
+import type { FitData, Vec3 } from '../core/types'
+import { dot, len, scale, sub } from '../core/vec'
 import { useStore } from '../state/store'
 import type { SceneManager } from '../viewer/SceneManager'
 
@@ -64,12 +65,27 @@ export function hasSurface(elementId: number): boolean {
   return regions.has(elementId)
 }
 
+/** How far a point lies off a fit, the way the fit's cut-off measured it:
+ *  along a plane's normal, radially for a sphere or a cylinder. Null for a
+ *  kind whose points are all kept. */
+function residualOf(fit: FitData): ((p: Vec3) => number) | null {
+  if (fit.kind === 'plane') return (p) => dot(sub(p, fit.center), fit.normal)
+  if (fit.kind === 'sphere') return (p) => len(sub(p, fit.center)) - fit.radius
+  if (fit.kind === 'cylinder') {
+    return (p) => {
+      const d = sub(p, fit.center)
+      return len(sub(d, scale(fit.axis, dot(d, fit.axis)))) - fit.radius
+    }
+  }
+  return null
+}
+
 /** The points an element's fit rests on, packed x y z: its region, less the
  *  outliers the fit's cut-off left out — the same points its sigma and its
  *  form error were taken over, so a tolerance read off them agrees with the
- *  form error the element reports. Only a plane is ever asked; any other
- *  kind gets its whole region. Null for an element without a surface, or
- *  before the viewport is up. */
+ *  form error the element reports. A plane, a sphere and a cylinder are
+ *  cut off; any other kind gets its whole region. Null for an element
+ *  without a surface, or before the viewport is up. */
 export const surfaceSource: SurfaceSource = (elementId) => {
   const region = regions.get(elementId)
   const positions = sceneOf()?.scanGeometry()?.getAttribute('position')?.array as
@@ -82,17 +98,15 @@ export const surfaceSource: SurfaceSource = (elementId) => {
   // element's own — the one its fit was made with.
   const fit = el?.measured ?? el?.fit
   const sigma = el?.source.type === 'fitted' ? el.source.settings.sigma : 0
-  const cutoff = fit?.kind === 'plane' && sigma > 0 && fit.sigma > 0 ? sigma * fit.sigma : null
+  const residual = fit ? residualOf(fit) : null
+  const cutoff = residual && fit && sigma > 0 && fit.sigma > 0 ? sigma * fit.sigma : null
   const out = new Float32Array(region.length * 3)
   let n = 0
   for (const v of region) {
     const x = positions[v * 3]
     const y = positions[v * 3 + 1]
     const z = positions[v * 3 + 2]
-    if (cutoff !== null && fit?.kind === 'plane') {
-      const r = dot(sub([x, y, z], fit.center), fit.normal)
-      if (Math.abs(r) > cutoff) continue
-    }
+    if (cutoff !== null && residual && Math.abs(residual([x, y, z])) > cutoff) continue
     out[n++] = x
     out[n++] = y
     out[n++] = z

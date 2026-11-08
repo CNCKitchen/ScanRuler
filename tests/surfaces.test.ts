@@ -110,4 +110,25 @@ describe('surfaces', () => {
     forgetSurface(1)
     expect(useSurfaces.getState().version).toBe(v3)
   })
+
+  it('leaves a sphere’s and a cylinder’s outliers out too, radially', () => {
+    // Three points on a sphere of radius 10 about the origin, one 1 mm out.
+    const ball = Float32Array.from([10, 0, 0, 0, 10.005, 0, 0, 0, 9.995, 0, 11, 0])
+    // Three on a cylinder of radius 10 about z, one 1 mm in.
+    const bore = Float32Array.from([10, 0, 3, 0, 10.005, -2, -9.995, 0, 7, 0, -9, 1])
+    const fitted = { type: 'fitted' as const, seeds: [0], settings: { method: 'gaussian' as const, sigma: 3 as const } }
+    const stats = { sigma: 0.01, usedPoints: 3, regionSize: 4, formError: 0.01 }
+    for (const [soup, fit] of [
+      [ball, { kind: 'sphere' as const, center: [0, 0, 0] as [number, number, number], radius: 10, ...stats }],
+      [bore, { kind: 'cylinder' as const, center: [0, 0, 0] as [number, number, number], axis: [0, 0, 1] as [number, number, number], radius: 10, length: 10, coverage: 270, ...stats }],
+    ] as const) {
+      forgetAllSurfaces()
+      useStore.setState({
+        elements: [{ id: 1, name: 'E', kind: fit.kind, color: '#000', status: 'done', visible: true, source: fitted, fit }],
+      })
+      attachSurfaceScene(() => fakeScene(soup))
+      rememberSurface(1, Uint32Array.from([0, 1, 2, 3]))
+      expect(surfaceSource(1)!.length, fit.kind).toBe(9)
+    }
+  })
 })
