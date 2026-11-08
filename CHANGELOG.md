@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.9.10 — 2026-11-08
 
 - **A bore's cone point exports as a clean mesh** (2026-11-08, pull request
   109). A cone closing to a point, as a drill leaves the end of a bore,
