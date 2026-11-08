@@ -5,6 +5,55 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **A bore's cone point exports as a clean mesh** (2026-11-08, pull request
+  109). A cone closing to a point, as a drill leaves the end of a bore,
+  meshed with a triangle of no area at its apex, so an STL or 3MF of it had
+  an edge four triangles share, which slicers and mesh checkers call
+  non-manifold. The Reverse engineer's mesh export now leaves it out.
+  Thanks to martinfrancois.
+- **No "same region" warning for one profile picked twice on purpose**
+  (2026-11-08, pull request 110). Two cuts on one sketch that ask for its
+  region the same way, such as one hole at each end of a bar, no longer
+  warn that a junction came apart. Thanks to martinfrancois.
+- **Exports and the body check name the features that failed to build**
+  (2026-11-08, pull request 111). A failed feature leaves the bodies whole
+  without it, so they checked clean and exported as the part; the STL, 3MF
+  and STEP exports and the body check now say which features are missing.
+  Thanks to martinfrancois.
+- **A mirror warns that it turns a thread's hand** (2026-11-08, pull request
+  112). A right-handed thread mirrored comes out left-handed; the mirror's
+  row now says so and suggests copying the body with a 180° turn instead.
+  Thanks to martinfrancois.
+- **Huge scans turn smoothly** (2026-11-08, pull request 72). A scan of
+  more than 400,000 triangles is drawn from a coarser copy of itself while
+  the view turns, pans or zooms, and in full again once the view holds
+  still. Its colours, deviation map and paint stay on it, and picking and
+  measuring always use the full scan. Thanks to Jozkah.
+- **Deviation maps on the graphics card** (2026-11-08, pull request 73).
+  Where the browser offers WebGPU, a scan of 100,000 points or more finds
+  its nearest place on the reference on the graphics card, and the reading
+  itself is still taken on the processor, so the map is the same. Without
+  WebGPU it is measured as before. Thanks to Jozkah.
+- **Perspective view** (2026-11-08, pull request 43, issue 24). A button
+  beside Fit to view switches the 3D view between parallel (orthographic),
+  still the default and what measuring wants, and perspective. Picks,
+  marking and the readings follow whichever is on screen, the part keeps its
+  size at the orbit centre when you switch, and the choice is remembered in
+  the browser. Thanks to Jozkah.
+- **Development tools updated** (2026-11-08, pull request 30). The test
+  runner moves to Vitest 5 and the browser checks' puppeteer-core to 25.16,
+  which clears the security advisories npm reported against the
+  development dependencies. Nothing changes in the app. Thanks to Jozkah.
+- **One activity lamp for the whole app** (2026-11-08, pull request 113).
+  The status strip at the bottom left reads WORKING, with the step under
+  way beside it, whenever anything is busy: loading, fitting, aligning,
+  measuring, a Mesh Tools or Reverse engineer job, an export or an agent's
+  command. It shows a percentage only where the work measures one, and
+  goes back to READY when it is done. Errors still come first. Thanks to
+  Myuavbug66.
+
 ## 0.9.9 — 2026-11-08
 
 - **Horizontal and vertical dimensions in the sketch** (2026-11-08, issue

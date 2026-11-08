@@ -10,7 +10,7 @@
 
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
-import { OrthoViewport, STANDARD_VIEWS, viewAcross, type StandardView } from './orthoViewport'
+import { OrthoViewport, STANDARD_VIEWS, viewAcross, type Projection, type StandardView } from './orthoViewport'
 import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
@@ -68,6 +68,7 @@ import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { VolumeLayer } from './volumeLayer'
+import { clusterIndices, MotionLatch } from './lod'
 import type { VolumeDeviation } from '../core/deviation/volume'
 
 declare module 'three' {
@@ -404,6 +405,11 @@ export class SceneManager {
    *  A ghost until the workspace says otherwise, which is how it starts. */
   private nominalGhost = true
 
+  /** The scan's coarse stand-in while the camera moves — see lod.ts. */
+  private lodLatch = new MotionLatch()
+  private lodCache: { geometry: THREE.BufferGeometry; position: ArrayLike<number>; index: ArrayLike<number>; proxy: THREE.Mesh | null } | null = null
+  private lodShown: { proxy: THREE.Mesh; geometry: THREE.BufferGeometry } | null = null
+
   /** Scratch for picking, which runs every frame the cursor moves: the
    *  barycentric corners and difference vectors, and (in D) the hit point
    *  carried into the part's frame. */
@@ -469,6 +475,7 @@ export class SceneManager {
         this.grips.putAwayWhile(this.marking.gestureArmed())
         this.overlays.setPreviewBrushing(this.marking.gestureArmed())
         this.updateHover()
+        this.stepLod()
         // Anything held at a fixed size on screen — the picked-point markers —
         // has to be re-scaled when the zoom changes. A no-op on the frames it
         // has not.
@@ -514,7 +521,8 @@ export class SceneManager {
 
     this.marking = new SurfaceMarking({
       container,
-      camera: this.camera,
+      camera: () => this.viewport.view,
+      worldPerPixel: () => this.viewport.worldPerPixel(),
       partGroup: this.partGroup,
       raycaster: this.raycaster,
       regions: this.regions,
@@ -538,7 +546,7 @@ export class SceneManager {
       partGroup: this.partGroup,
       modelRadius: () => this.modelRadius,
       invalidate: this.invalidate,
-      camera: this.camera,
+      camera: () => this.viewport.view,
       raycaster: this.raycaster,
       // Only the scan stands between the camera and a pin: the pins are
       // readings on the scan, and the reference is a translucent ghost a pin
@@ -610,6 +618,11 @@ export class SceneManager {
   /** Swap the pointer-button control scheme (dropdown in the settings dialog). */
   setNavScheme(scheme: ControlScheme): void {
     this.viewport.setNavScheme(scheme)
+  }
+
+  /** Draw the view in parallel or in perspective — see Projection. */
+  setProjection(projection: Projection): void {
+    this.viewport.setProjection(projection)
   }
 
   /**
@@ -2970,7 +2983,73 @@ export class SceneManager {
     this.nominalMesh = null
   }
 
+  /** Swap the scan for its coarse proxy while the camera moves, and back
+   *  once it settles — see lod.ts. The full mesh is kept, only not drawn:
+   *  its draw range is emptied, so picks still go through it. */
+  private stepLod(): void {
+    const moving = this.lodLatch.update(this.camera.matrixWorld.elements, performance.now())
+    const want = moving && this.mesh ? this.lodProxyFor(this.mesh) : null
+    if (want === this.lodShown?.proxy) return
+    this.hideLod()
+    if (want && this.mesh) {
+      const geometry = this.mesh.geometry as THREE.BufferGeometry
+      this.mesh.add(want)
+      geometry.setDrawRange(0, 0)
+      this.lodShown = { proxy: want, geometry }
+    }
+    this.invalidate()
+  }
+
+  private hideLod(): void {
+    if (!this.lodShown) return
+    this.lodShown.geometry.setDrawRange(0, Infinity)
+    this.lodShown.proxy.removeFromParent()
+    this.lodShown = null
+  }
+
+  /** The proxy of the scan as it stands, made on first need and kept until
+   *  its arrays change hands; null for a scan small enough to draw whole. */
+  private lodProxyFor(mesh: THREE.Mesh): THREE.Mesh | null {
+    const geometry = mesh.geometry as THREE.BufferGeometry
+    const position = geometry.getAttribute('position')
+    const index = geometry.index
+    if (!index || !position) return null
+    const c = this.lodCache
+    if (c && c.geometry === geometry && c.position === position.array && c.index === index.array) return c.proxy
+    this.dropLod()
+    const cut = clusterIndices(position.array as Float32Array, index.array as Uint32Array)
+    let proxy: THREE.Mesh | null = null
+    if (cut) {
+      const shell = new THREE.BufferGeometry()
+      shell.setIndex(new THREE.BufferAttribute(cut, 1))
+      proxy = new THREE.Mesh(shell, mesh.material)
+      proxy.frustumCulled = false
+      proxy.raycast = () => {}
+      // The scan's attributes are borrowed as drawn, so colours, deviation
+      // and paint are whatever the full mesh carries this frame.
+      const p = proxy
+      p.onBeforeRender = (...args) => {
+        const full = mesh.geometry as THREE.BufferGeometry
+        for (const name of Object.keys(shell.attributes)) if (!full.getAttribute(name)) shell.deleteAttribute(name)
+        for (const [name, attr] of Object.entries(full.attributes)) {
+          if (shell.getAttribute(name) !== attr) shell.setAttribute(name, attr)
+        }
+        p.material = mesh.material
+        mesh.onBeforeRender(...args)
+      }
+    }
+    this.lodCache = { geometry, position: position.array, index: index.array, proxy }
+    return proxy
+  }
+
+  private dropLod(): void {
+    this.hideLod()
+    this.lodCache?.proxy?.geometry.dispose()
+    this.lodCache = null
+  }
+
   private disposeMesh(): void {
+    this.dropLod()
     this.setEditedMesh(null)
     this.regions.detach()
     this.marking.meshDisposed()
@@ -3032,7 +3111,8 @@ export class SceneManager {
       raycaster: this.raycaster,
       canvas: this.viewport.renderer.domElement,
       container: this.container,
-      camera: () => this.camera,
+      camera: () => this.viewport.view,
+      worldPerPixel: () => this.viewport.worldPerPixel(),
       setPickRay: (x, y) => this.setPickRay(x, y),
       invalidate: this.invalidate,
       requestHover: () => {

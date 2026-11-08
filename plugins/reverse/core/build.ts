@@ -1932,12 +1932,14 @@ export class Builder {
    *  pick names — an edit merged or took away what they picked: said on
    *  the feature's row, while the rest is built. So is a region another
    *  extrude or revolve on the sketch picks too — two regions that ran into
-   *  one (samePick). */
+   *  one (samePick). Not when the two asked for the region alike — the
+   *  same pick, given the same way: the same profile cut at each end of a
+   *  bar is one region on purpose, and no junction let go to make it. */
   private notePicksLost(step: SolidStep, sketchOf: (id: number) => Sketch | undefined): void {
     const sketch = this.placed.has(step.sketchId) ? null : sketchOf(step.sketchId)
     const regions = sketch ? findRegions(sketch) : this.placed.has(step.sketchId) ? this.placedRegions(step.sketchId) : null
     if (!regions) return
-    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
+    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) && !askedAlike(o, step) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
     const taken = (keys: readonly string[], pick: SolidStep['regionPick']) => (pick ? regionsByPick(pick, regions) : null) ?? matchRegions(keys, regions)
     const same = samePick(this.names.get(step.id) ?? `feature ${step.id}`, taken(step.regions, step.regionPick), others.map((o) => ({ name: o.name, regions: taken(o.keys, o.pick) })))
     if (same) this.stepWarnings.push(same)
@@ -2337,6 +2339,17 @@ export class Builder {
         }
       }
       case 'mirror': {
+        // A mirror turns a thread's hand: a right-handed one comes out
+        // left-handed in the copy, which no stock screw fits. Rarely meant,
+        // and nothing else shows it, so the row says so.
+        const before = this.stepsInPlay.findIndex((o) => o.id === step.id)
+        const threads = this.stepsInPlay.filter((o, i) => o.kind === 'thread' && o.body === step.body && (before < 0 || i < before))
+        if (threads.length > 0) {
+          const names = threads.map((t) => this.names.get(t.id) ?? `feature ${t.id}`)
+          const hands = new Set(threads.map((t) => (t.kind === 'thread' && t.leftHanded ? 'left' : 'right')))
+          const from = hands.size === 1 ? [...hands][0] : null
+          this.stepWarnings.push(`This mirrors ${names.join(', ')}: ${from ? `a ${from}-handed thread comes out ${from === 'right' ? 'left' : 'right'}-handed` : 'each thread comes out of the other hand'}${step.join ? ' on the mirrored half' : ' in the copy'}. To keep a thread's hand, copy the body with a 180° turn (moveBody) instead.`)
+        }
         let plane: PlaneGeometry
         if ('face' in step.plane) {
           const found = this.findFaces(step.body, [step.plane.face], step.id)
@@ -4839,4 +4852,12 @@ function radiusJump(varying: readonly VariableEdge[], at: readonly number[], all
         }
     }
   }
+}
+
+/** Whether two extrudes or revolves on one sketch asked for their regions
+ *  the same way: the same pick as given ("all", "largest", a point), or the
+ *  same keys where they were given by key. */
+function askedAlike(a: { regions: readonly string[]; regionPick?: unknown }, b: { regions: readonly string[]; regionPick?: unknown }): boolean {
+  if (a.regionPick !== undefined || b.regionPick !== undefined) return JSON.stringify(a.regionPick) === JSON.stringify(b.regionPick)
+  return a.regions.length === b.regions.length && a.regions.every((k, i) => k === b.regions[i])
 }

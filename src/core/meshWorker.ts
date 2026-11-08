@@ -30,6 +30,7 @@ import {
 } from './deviation/align'
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
+import { GPU_MIN_VERTICES, gpuNearestFaces } from './deviation/gpuNearest'
 import { rigidApplyToPoints, rigidInvert, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap } from './deviation/onReference'
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
@@ -903,37 +904,55 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       })
       return
     }
-    try {
-      let lastPercent = -1
-      const directions = new Int8Array(graph.positions.length)
-      const values = computeDeviation(nominal, graph.positions, msg.transform, {
-        onProgress: (f) => {
-          const percent = Math.round(f * 100)
-          if (percent === lastPercent) return
-          lastPercent = percent
-          progress(`Measuring the scan against the reference — ${percent}%…`)
-        },
-        directions,
-        // Rotated along with the positions whenever an alignment is baked in,
-        // so they stand in the same frame the transform starts from.
-        normals: graph.normals,
-        maxNormalDeviation: msg.facingDeg === null ? null : (msg.facingDeg * Math.PI) / 180,
-      })
-      const suggestedMaxDistance = defaultMaxDistance(graph.bboxDiag)
-      post(
-        {
-          type: 'deviation-ok',
-          requestId: msg.requestId,
-          values,
-          directions,
-          suggestedRange: suggestRange(values, suggestedMaxDistance),
-          suggestedMaxDistance,
-        },
-        [values.buffer, directions.buffer],
-      )
-    } catch (e) {
-      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    const scan = graph, reference = nominal, transform = msg.transform, requestId = msg.requestId
+    let lastPercent = -1
+    const report = (f: number) => {
+      const percent = Math.round(f * 100)
+      if (percent === lastPercent) return
+      lastPercent = percent
+      progress(`Measuring the scan against the reference — ${percent}%…`)
     }
+    const deviate = (nearestFaces: Int32Array | null) => {
+      try {
+        const directions = new Int8Array(scan.positions.length)
+        const values = computeDeviation(reference, scan.positions, transform, {
+          // With the faces in hand the GPU had the first half of the bar.
+          onProgress: (f) => report(nearestFaces ? 0.5 + f * 0.5 : f),
+          nearestFaces,
+          directions,
+          // Rotated along with the positions whenever an alignment is baked in,
+          // so they stand in the same frame the transform starts from.
+          normals: scan.normals,
+          maxNormalDeviation: msg.facingDeg === null ? null : (msg.facingDeg * Math.PI) / 180,
+        })
+        const suggestedMaxDistance = defaultMaxDistance(scan.bboxDiag)
+        post(
+          {
+            type: 'deviation-ok',
+            requestId,
+            values,
+            directions,
+            suggestedRange: suggestRange(values, suggestedMaxDistance),
+            suggestedMaxDistance,
+          },
+          [values.buffer, directions.buffer],
+        )
+      } catch (e) {
+        post({ type: 'error', requestId, message: errorText(e) })
+      }
+    }
+    // A big scan's nearest faces are looked up on the GPU first, where there
+    // is one, and the CPU tree searched as ever where there is not. The wait
+    // holds the queue, as an awaiting plugin's does.
+    if (scan.positions.length / 3 < GPU_MIN_VERTICES) return deviate(null)
+    holding = true
+    gpuNearestFaces(reference, scan.positions, transform, (f) => report(f * 0.5))
+      .then(deviate)
+      .finally(() => {
+        holding = false
+        drainQueue()
+      })
+    return
   }
 }
 

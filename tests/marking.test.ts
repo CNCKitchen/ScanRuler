@@ -25,7 +25,8 @@ function rig(brush: Partial<PaintBrush> = {}, navigates = false) {
       clientHeight: 100,
       getBoundingClientRect: () => ({ left: 10, top: 20 }),
     },
-    camera: { top: 50, bottom: -50, zoom: 1 },
+    camera: () => ({ top: 50, bottom: -50, zoom: 1 }),
+    worldPerPixel: () => 1,
     partGroup: new THREE.Group(),
     // Nothing under any of them: which surface a dab takes is not on trial.
     raycaster: { intersectObject: () => [] },
