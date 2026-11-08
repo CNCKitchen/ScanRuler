@@ -564,6 +564,23 @@ const smooth: Command<{ size?: number; limit?: number; keepEdges?: boolean; regi
   },
 }
 
+const densify: Command<{ maxEdge?: number }> = {
+  name: 'densify',
+  title: 'Densify the mesh',
+  description:
+    'Cut the triangles until no edge is longer than maxEdge, the surface unchanged: every new vertex is an edge’s middle, on the facet it was cut from, and the mesh stays as closed as it was. For an STL exported from CAD, whose vertices lie only on its edges and rims (scan.qa’s tessellation.sparse): a segmentation, a seeded fit or a section fit finds points inside its faces only after it — scan.qa’s densifyTo is the length to give. A scan needs none. maxEdge defaults to the panel’s, a hundredth of the part to start. Edits the copy. One undo step. Returns the edit (maxEdge, the vertices added, the triangles now) and the mesh after it.',
+  input: obj({ maxEdge: sizeIn('No edge longer than this, mm.') }),
+  history: false,
+  run: async ({ maxEdge }) =>
+    editAnswer(
+      await step('densify', 'Densifying', async () => {
+        inHand('densify')
+        if (maxEdge !== undefined) m().setDensifyEdge(maxEdge)
+        return session().densifyScan({ inStep: true })
+      }, true),
+    ),
+}
+
 const offset: Command<{ direction: OffsetDirection; distance: number; region?: RegionIn }> = {
   name: 'offset',
   title: 'Shrink or expand',
@@ -869,7 +886,7 @@ const exportPart: Command<{ part: 'edited' | 'reduced' | 'piece'; format?: MeshF
 
 /** The workspace's commands, in the order a cleanup goes: what is there,
  *  islands and marked surface off, the normals the right way, the cut, a
- *  mirror, the holes, smoothing, a shrink
+ *  mirror, the holes, smoothing, densifying, a shrink
  *  or an expansion, a boolean, the shell, a wrap, and the reduction last. */
 export const meshCommands = [
   parts,
@@ -884,6 +901,7 @@ export const meshCommands = [
   mirror,
   fillHoles,
   smooth,
+  densify,
   offset,
   boolean,
   shell,

@@ -117,7 +117,7 @@ describe('cleaning a scan up through the commands', () => {
     expect((await refused('mesh.inspect')).code).toBe('no_scan')
     const mesh = listCommands().filter((c) => c.name.startsWith('mesh.'))
     expect(mesh.map((c) => c.name)).toEqual(
-      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.wrap', 'mesh.apply_wrap', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
+      expect.arrayContaining(['mesh.parts', 'mesh.inspect', 'mesh.remove_islands', 'mesh.delete_marked', 'mesh.flip_normals', 'mesh.cut', 'mesh.fill_holes', 'mesh.smooth', 'mesh.densify', 'mesh.offset', 'mesh.boolean', 'mesh.shell', 'mesh.wrap', 'mesh.apply_wrap', 'mesh.reduce', 'mesh.trim', 'mesh.use_edited', 'mesh.discard_edited', 'mesh.export']),
     )
     for (const c of mesh) {
       const w = schemaWeight(c.input)
@@ -206,6 +206,24 @@ describe('cleaning a scan up through the commands', () => {
     expect(useMeshTools.getState().copyTriangles).toBeNull()
     expect(undoLabels().at(-1)).toBe('Agent: use the edited mesh for analysis')
   }, 120_000)
+
+  it('densifies a CAD box of long triangles to an edge length, its volume and closure kept, one step', async () => {
+    await open('cad.stl', cuboid([-10, -10, -10], [10, 10, 10], 1))
+    useHistory.setState({ past: [], future: [] })
+    const qa = await run<{ tessellation?: { sparse: boolean; densifyTo?: number } }>('scan.qa', { axis: 'z' })
+    expect(qa.tessellation?.sparse).toBe(true)
+    // A hundredth of the cube's 35 mm across, on a round number.
+    const to = qa.tessellation!.densifyTo!
+    expect(to).toBe(0.2)
+    const dense = await run<EditAnswer>('mesh.densify', { maxEdge: to })
+    expect(dense.edit).toMatchObject({ kind: 'densify', text: 'Densified to edges under 0.2 mm' })
+    expect(dense.report.longest).toBeLessThanOrEqual(to + 1e-9)
+    expect(dense.mesh).toMatchObject({ working: 'edited copy', open: 0, bad: 0 })
+    expect(dense.mesh.triangles).toBeGreaterThan(6 * 2 * 100 * 100)
+    expect(dense.mesh.volume).toBeCloseTo(8000, 3)
+    expect(useMeshTools.getState().tool).toBe('densify')
+    expect(undoLabels()).toEqual(['Agent: densify'])
+  })
 
   it('flips a part inside-out and back, the whole of it and a face, a step each', async () => {
     await open('cube.stl', cuboid([-10, -10, -10], [10, 10, 10], 4))

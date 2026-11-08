@@ -621,6 +621,7 @@ export function useReversePlugin(host: PluginHost): PluginRuntime {
       <ReversePanel
         onOpenScan={(f) => void host.openScan(f)}
         onExportStep={() => void reverse.exportStep()}
+        onExportMesh={(format) => void reverse.exportMesh(format)}
         onCompare={() => void compareInDeviation().catch(() => {})}
         chainsOf={reverse.chainsOf}
       />

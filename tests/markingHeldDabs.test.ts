@@ -57,9 +57,11 @@ describe('a stroke laid while the tree is out', () => {
     regions.attach(new Uint8Array(n * 3), paint, new Uint8Array(n), n)
     const raycaster = new THREE.Raycaster()
     const partGroup = new THREE.Group()
+    const camera = new THREE.OrthographicCamera()
     marking = new SurfaceMarking({
       container: { appendChild: () => {} } as unknown as HTMLDivElement,
-      camera: new THREE.OrthographicCamera(),
+      camera: () => camera,
+      worldPerPixel: () => 0.01,
       partGroup,
       raycaster,
       regions,

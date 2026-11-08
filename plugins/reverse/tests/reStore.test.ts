@@ -529,7 +529,7 @@ describe('Coincident in the sketch', () => {
     s().armRelation('coincident')
     s().sketchClick([5, 10], 0.5, false)
     expect(sk().relPicks).toEqual([{ kind: 'point', anchor: { entity: first, at: 'a' } }])
-    s().sketchClick([20, 30], 0.5, false)
+    s().sketchClick([12, 30], 0.5, false)
     expect(sk().relPicks).toEqual([])
     const on = sk().sketch.constraints.find((c) => c.kind === 'pointOn')
     expect(on && on.kind === 'pointOn' && on.on).toEqual({ line: second })
@@ -544,8 +544,10 @@ describe('Coincident in the sketch', () => {
     // The relation stays in hand: a line onto the YZ plane's line (x = 0),
     // the line clicked in its middle where it settled.
     expect(sk().tool).toBe('relation')
+    // Its very middle is picked as the middle, which beside a plane's line
+    // stands for the line (draw.ts paired).
     s().sketchClick([(other.a[0] + other.b[0]) / 2, (other.a[1] + other.b[1]) / 2], 0.5, false)
-    expect(sk().relPicks).toEqual([{ kind: 'piece', id: second }])
+    expect(sk().relPicks).toEqual([{ kind: 'point', anchor: { entity: second, at: 'center' }, of: second }])
     s().sketchClick([0, 50], 0.5, false)
     const along = sk().sketch.constraints.find((c) => c.kind === 'collinear')
     expect(along && along.kind === 'collinear' && along.on).toEqual({ datum: 'yz' })
@@ -654,17 +656,21 @@ describe('what the cursor lights in a sketch', () => {
     // Dimension: an end wins over its line, a plane's line where nothing is.
     s().setSketchTool('dimension')
     expect(at([10.1, 7.9])).toEqual({ pieces: [], point: [10, 8], datum: null })
-    expect(at([10, 4])).toEqual({ pieces: [side], point: null, datum: null })
+    expect(at([10, 3])).toEqual({ pieces: [side], point: null, datum: null })
+    // The side's very middle: the side, and its middle as a point.
+    expect(at([10, 4])).toEqual({ pieces: [side], point: [10, 4], datum: null })
     expect(at([-30, 0.1])?.datum).not.toBeNull()
     // With a length in hand, only what it would pair with: the side, for the
     // angle — not the line itself, nor the bare sheet, where a click puts
     // the number down.
-    s().sketchClick([5, 0], 0.2, false)
+    s().sketchClick([4, 0], 0.2, false)
+    expect(at([10, 3])).toEqual({ pieces: [side], point: null, datum: null })
+    // Its middle beside a line is the line too.
     expect(at([10, 4])).toEqual({ pieces: [side], point: null, datum: null })
-    expect(at([5, 0.1])).toBeNull()
+    expect(at([4, 0.1])).toBeNull()
     expect(at([30, 30])).toBeNull()
     // Paired, nothing: the next click puts it down wherever it lands.
-    s().sketchClick([10, 4], 0.2, false)
+    s().sketchClick([10, 3], 0.2, false)
     expect(at([3, 7])).toBeNull()
     // A round goes into a corner: both its lines and the corner.
     s().setSketchTool('fillet')

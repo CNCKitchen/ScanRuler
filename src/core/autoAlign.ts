@@ -100,8 +100,10 @@ export interface AutoAlignTilts {
     faces: { area: number; tiltDeg: number; center: Vec3 }[]
   }[]
   /** The largest face of all: which axis it is square to, its area and
-   *  its tilt. Null when the scan has no flat face square to an axis. */
-  largest: { axis: 'x' | 'y' | 'z'; area: number; tiltDeg: number } | null
+   *  its tilt — and its middle and outward normal in the scan's frame as it
+   *  stood (`at`, `normal`), to look in front of it. Null when the scan has
+   *  no flat face square to an axis. */
+  largest: { axis: 'x' | 'y' | 'z'; area: number; tiltDeg: number; at: Vec3; normal: Vec3 } | null
 }
 
 /** How the pose is levelled once the axes are read: settled on all the
@@ -1106,7 +1108,7 @@ export function autoAlignTilts(a: Pick<AutoAlignResult, 'axes' | 'origin' | 'fac
     row.area += f.area
     const rel: Vec3 = [f.center[0] - a.origin[0], f.center[1] - a.origin[1], f.center[2] - a.origin[2]]
     if (row.faces.length < perAxis) row.faces.push({ area: f.area, tiltDeg, center: [dot(rel, a.axes[0]), dot(rel, a.axes[1]), dot(rel, a.axes[2])] })
-    if (!largest || f.area > largest.area) largest = { axis: names[on.k], area: f.area, tiltDeg }
+    if (!largest || f.area > largest.area) largest = { axis: names[on.k], area: f.area, tiltDeg, at: f.center, normal: f.normal }
   }
   for (const r of rows) if (r.area > 0) r.tiltDeg /= r.area
   return { axes: rows.filter((r) => r.area > 0), largest }

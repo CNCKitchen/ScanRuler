@@ -267,6 +267,123 @@ export function localNoise(g: MeshGraph, sample: number): { median: number; p90:
   return { median: at(0.5), p90: at(0.9), sampled: rms.length }
 }
 
+/** What a mesh's triangles say it is: a CAD tessellation — flat facets,
+ *  neighbouring triangles lying exactly in one plane, which a scanner's
+ *  scatter never leaves — or a scan; and, for a CAD one, whether it is
+ *  sparse: vertices only on its edges and rims, too far apart for a fit or
+ *  a segmentation to find points inside its faces (issue 42). */
+export interface Tessellation {
+  cad: boolean
+  sparse: boolean
+  /** The share of the vertices looked at where two triangles sharing an
+   *  edge out of the vertex lie exactly in one plane. */
+  flat: number
+  /** The vertices' spacing, mm: the square root of the area each has. */
+  spacing: number
+  /** The triangles' edges, mm: median and 90th percentile. */
+  edgeP50: number
+  edgeP90: number
+  sampled: number
+}
+
+/** A CAD tessellation is one where at least this share of the vertices
+ *  looked at have two neighbouring triangles exactly in one plane. */
+const CAD_FLAT_SHARE = 0.5
+/** And it is sparse where its vertices lie further apart than this share
+ *  of the part's diagonal: 0.5 mm on a 75 mm part. */
+export const SPARSE_SPACING = 1 / 150
+
+/** The edge length a sparse tessellation is best densified to: about a
+ *  hundredth of the part's diagonal, on a round number (0.5, 1, 2 …). */
+export function densifyEdgeFor(diagonal: number): number {
+  const raw = Math.max(diagonal / 100, 0.05)
+  const p = 10 ** Math.floor(Math.log10(raw))
+  const m = raw / p
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * p
+}
+
+export function tessellationOf(g: MeshGraph, sample = 4000): Tessellation {
+  const p = g.positions
+  const n = g.vertexCount
+  const tri = g.triangleCount
+  // The area, and the edges of a spread of triangles.
+  let area = 0
+  const edges: number[] = []
+  const stepT = Math.max(1, Math.floor(tri / 20000))
+  let big = 0
+  for (let i = 0; i < n * 3; i++) big = Math.max(big, Math.abs(p[i]))
+  for (let t = 0; t < tri; t++) {
+    const a = g.indices[t * 3] * 3, b = g.indices[t * 3 + 1] * 3, c = g.indices[t * 3 + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    area += Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 2
+    if (t % stepT === 0) edges.push(Math.hypot(ux, uy, uz), Math.hypot(p[c] - p[b], p[c + 1] - p[b + 1], p[c + 2] - p[b + 2]), Math.hypot(vx, vy, vz))
+  }
+  edges.sort((x, y) => x - y)
+  const at = (q: number) => (edges.length ? edges[Math.min(edges.length - 1, Math.floor(q * edges.length))] : 0)
+  // Two triangles in one plane to within the rounding of the file's
+  // single-precision coordinates: a scan's scatter stands orders above it,
+  // a CAD facet's points lie on it to the last bit.
+  const tol = 2e-7 * (big + g.bboxDiag)
+  const step = Math.max(1, Math.floor(n / sample))
+  let looked = 0
+  let flat = 0
+  const ring: number[] = []
+  for (let v = 0; v < n; v += step) {
+    const vx = p[v * 3], vy = p[v * 3 + 1], vz = p[v * 3 + 2]
+    // The ring's distinct points: a neighbour listed twice, or lying where
+    // the vertex or another neighbour lies (a seam the file did not weld),
+    // would be in any plane through them.
+    ring.length = 0
+    for (let e = g.adjOffsets[v]; e < g.adjOffsets[v + 1] && ring.length < 12; e++) {
+      const u = g.adjList[e]
+      const same = (w: number) => Math.abs(p[w * 3] - p[u * 3]) + Math.abs(p[w * 3 + 1] - p[u * 3 + 1]) + Math.abs(p[w * 3 + 2] - p[u * 3 + 2]) <= tol
+      if (u === v || same(v) || ring.some(same)) continue
+      ring.push(u)
+    }
+    if (ring.length < 3) continue
+    // The triangles round the vertex: two of its neighbours joined by an
+    // edge. Two that share an edge out of the vertex lie in one plane on a
+    // CAD facet — the far corner of the one on the other's plane.
+    const tris: [number, number][] = []
+    for (let i = 0; i < ring.length; i++) {
+      for (let e = g.adjOffsets[ring[i]]; e < g.adjOffsets[ring[i] + 1]; e++) {
+        const j = ring.indexOf(g.adjList[e])
+        if (j > i) tris.push([i, j])
+      }
+    }
+    if (tris.length < 2) continue
+    looked++
+    let found = false
+    for (let a = 0; a < tris.length && !found; a++) {
+      const [i, j] = tris[a]
+      const ax = p[ring[i] * 3] - vx, ay = p[ring[i] * 3 + 1] - vy, az = p[ring[i] * 3 + 2] - vz
+      const bx = p[ring[j] * 3] - vx, by = p[ring[j] * 3 + 1] - vy, bz = p[ring[j] * 3 + 2] - vz
+      let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx
+      const l = Math.hypot(nx, ny, nz)
+      // A sliver makes no plane to measure against.
+      if (!(l > 1e-3 * Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz))) continue
+      nx /= l
+      ny /= l
+      nz /= l
+      for (let b = 0; b < tris.length && !found; b++) {
+        if (b === a) continue
+        const [k, m] = tris[b]
+        // The other triangle on the edge out to ring[i] or ring[j].
+        const far = k === i || k === j ? m : m === i || m === j ? k : -1
+        if (far < 0 || far === i || far === j) continue
+        const d = (p[ring[far] * 3] - vx) * nx + (p[ring[far] * 3 + 1] - vy) * ny + (p[ring[far] * 3 + 2] - vz) * nz
+        if (Math.abs(d) <= tol) found = true
+      }
+    }
+    if (found) flat++
+  }
+  const share = looked > 0 ? flat / looked : 0
+  const spacing = n > 0 ? Math.sqrt(area / n) : 0
+  const cad = looked >= 8 && share >= CAD_FLAT_SHARE
+  return { cad, sparse: cad && spacing > SPARSE_SPACING * g.bboxDiag, flat: share, spacing, edgeP50: at(0.5), edgeP90: at(0.9), sampled: looked }
+}
+
 /** A plane z = a + b·u + c·v through the points, the worst of them left out
  *  round by round (past 2.5 robust sigma) — the faces of a plate read past
  *  its holes and bosses. Null with too few points. */

@@ -33,7 +33,7 @@ export type KernelStatus = 'idle' | 'loading' | 'ready' | 'unavailable'
  *  on a body's edge or another sketch's piece brings it into this sketch —
  *  or put a dimension or a relation on the pieces clicked next, with
  *  nothing selected beforehand. */
-export type SketchTool = 'select' | 'line' | 'rectangle' | 'polygon' | 'circle' | 'arc' | 'spline' | 'project' | 'dimension' | 'relation' | 'fillet' | 'chamfer'
+export type SketchTool = 'select' | 'line' | 'rectangle' | 'polygon' | 'circle' | 'arc' | 'spline' | 'point' | 'project' | 'trim' | 'dimension' | 'relation' | 'fillet' | 'chamfer'
 
 /** What the viewport knows about the feature being set up: whether its
  *  ghost is building, and what the kernel made of it. */

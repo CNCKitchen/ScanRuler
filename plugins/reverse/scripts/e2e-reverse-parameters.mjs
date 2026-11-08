@@ -167,6 +167,28 @@ const extrude = s.features.find((f) => f.id === extrudeId)
 check(sketch.dims[0][1] === 60 && Math.abs(s.bottom - 60) < 1e-6 && extrude.extent.to === 35, `the sketch is solved again at 60 and the extrude reaches 35 (${JSON.stringify(sketch.dims)}, ${s.bottom}, ${extrude.extent.to})`)
 check((await re(() => window.__re.store.getState().buildVersion)) > built, 'the features were rebuilt')
 
+// ---- pointed at, a parameter lights what it drives; a star lists it first (issue 21) ----
+const litNow = () =>
+  re(() => ({
+    rows: [...document.querySelectorAll('[data-test=feature-row]')].filter((r) => r.classList.contains('sel')).map((r) => r.querySelector('.name')?.textContent),
+    faces: window.__re.reScene().bodyPicks.pickedFaces.size,
+  }))
+await page.hover('[data-param="1"] [data-test=parameter-value]')
+await sleep(300)
+let lit = await litNow()
+check(lit.rows.length === 2 && lit.faces === 6, `pointed at, height lights the sketch it sizes and the extrude it deepens, and the extrude's six faces (${JSON.stringify(lit)})`)
+await page.mouse.move(1200, 500)
+await sleep(300)
+lit = await litNow()
+check(lit.rows.length === 0 && lit.faces === 0, `and lets them go after (${JSON.stringify(lit)})`)
+await click(page, '[data-param="2"] [data-test=parameter-pin]')
+await sleep(200)
+const order = await re(() => [...document.querySelectorAll('[data-test=parameter-row]')].map((r) => r.getAttribute('data-param')))
+check(order[0] === '2' && (await re(() => window.__re.store.getState().parameters.find((p) => p.id === 2).pinned)) === true, `the star marks width important and lists it first (${order})`)
+await page.mouse.move(1200, 500)
+await click(page, '[data-param="2"] [data-test=parameter-pin]')
+await sleep(200)
+
 // ---- a remove refused, a rename written through --------------------------------------
 await click(page, '[data-param="1"] [data-test=parameter-remove]')
 await sleep(100)

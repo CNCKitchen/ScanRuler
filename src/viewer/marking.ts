@@ -169,10 +169,40 @@ function facesCamera(
   return rawFaceNormal(pos, a, b, c, facingScratch).dot(view) < 0
 }
 
+/**
+ * How many millimetres a pixel spans where the outline marks. A parallel
+ * camera spans the same everywhere. In perspective it grows with depth, so it
+ * is taken at the mean depth of what is drawn inside the outline's box.
+ */
+function pixelSpan(
+  camera: THREE.OrthographicCamera | THREE.PerspectiveCamera,
+  h: number,
+  sx: Float32Array,
+  sy: Float32Array,
+  sz: Float32Array,
+  clipped: Uint8Array,
+  box: { minX: number; minY: number; maxX: number; maxY: number },
+): number {
+  if (!(camera instanceof THREE.PerspectiveCamera)) return (camera.top - camera.bottom) / camera.zoom / h
+  let sum = 0
+  let n = 0
+  for (let v = 0; v < sz.length; v++) {
+    if (clipped[v] || sx[v] < box.minX || sx[v] > box.maxX || sy[v] < box.minY || sy[v] > box.maxY) continue
+    sum += sz[v]
+    n++
+  }
+  const depth = n > 0 ? sum / n : camera.position.length()
+  return (2 * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / camera.zoom / h
+}
+
 /** Everything the marking is allowed to touch outside itself. */
 export interface MarkingContext {
   container: HTMLDivElement
-  camera: THREE.OrthographicCamera
+  /** The camera the view is drawn through, parallel or in perspective. */
+  camera(): THREE.OrthographicCamera | THREE.PerspectiveCamera
+  /** How many millimetres a pixel spans: everywhere for a parallel camera,
+   *  at the orbit target's depth in perspective (OrthoViewport.worldPerPixel). */
+  worldPerPixel(): number
   partGroup: THREE.Group
   raycaster: THREE.Raycaster
   regions: RegionColors
@@ -664,12 +694,10 @@ export class SurfaceMarking {
     this.marqueeShape.setAttribute('points', outline.map((p) => `${p.x},${p.y}`).join(' '))
   }
 
-  /** The brush's width on the screen. The camera is parallel, so it is the same
-   *  anywhere on the part. */
+  /** The brush's width on the screen. A parallel camera keeps it the same
+   *  anywhere on the part; in perspective it holds at the orbit target. */
   private brushPixels(): number {
-    const { camera, container } = this.ctx
-    const worldPerPixel = (camera.top - camera.bottom) / camera.zoom / (container.clientHeight || 1)
-    return (this.paint?.diameter ?? 0) / worldPerPixel
+    return (this.paint?.diameter ?? 0) / this.ctx.worldPerPixel()
   }
 
   /** Lay a straight line down in one go, as a tap if the cursor never left.
@@ -724,41 +752,42 @@ export class SurfaceMarking {
     const idx = index.array as ArrayLike<number>
     const vertexCount = pos.length / 3
 
-    const { camera, container, partGroup } = this.ctx
+    const { container, partGroup } = this.ctx
+    const camera = this.ctx.camera()
     const w = container.clientWidth || 1
     const h = container.clientHeight || 1
     partGroup.updateWorldMatrix(true, false)
     camera.updateMatrixWorld()
-    const toClip = new THREE.Matrix4()
-      .multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
-      .multiply(partGroup.matrixWorld)
-    // Clip-space depth runs -1 to 1 from the near plane to the far one, and a
-    // parallel camera keeps it linear, so this is depth in world units.
-    const depthScale = (camera.far - camera.near) / 2
+    const toView = new THREE.Matrix4().multiplyMatrices(camera.matrixWorldInverse, partGroup.matrixWorld)
+    const toClip = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, toView)
     // A section's planes, in world space like the material holds them.
     const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as THREE.Material | undefined
     const planes = material?.clippingPlanes?.length ? material.clippingPlanes : []
 
     // Every vertex projected once, rather than three times per triangle: at a
     // million triangles that is the difference between a gesture that lands
-    // and one that stalls the frame. The projection is affine (parallel
-    // camera), so a triangle's centre on screen is the mean of its corners'.
+    // and one that stalls the frame. A parallel projection is affine, so a
+    // triangle's centre on screen is the mean of its corners'; in perspective
+    // that is near enough for triangles a few pixels across.
     const sx = new Float32Array(vertexCount)
     const sy = new Float32Array(vertexCount)
     const sz = new Float32Array(vertexCount)
     const clipped = new Uint8Array(vertexCount)
     const planeDistance = planes.map(() => new Float32Array(vertexCount))
     const p = new THREE.Vector3()
+    const inView = new THREE.Vector3()
     for (let v = 0; v < vertexCount; v++) {
       p.set(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
       if (planes.length > 0) {
         const world = this.scratchA.copy(p).applyMatrix4(partGroup.matrixWorld)
         for (let k = 0; k < planes.length; k++) planeDistance[k][v] = planes[k].distanceToPoint(world)
       }
+      // Depth away from the camera in world units, taken before the
+      // projection: clip-space depth is linear only for a parallel camera.
+      sz[v] = -inView.copy(p).applyMatrix4(toView).z
       p.applyMatrix4(toClip)
       sx[v] = ((p.x + 1) / 2) * w
       sy[v] = ((1 - p.y) / 2) * h
-      sz[v] = (p.z + 1) * depthScale
       // Outside the depth range is behind a clipping plane, so it is not on
       // screen and must not be marked from here.
       clipped[v] = p.z < -1 || p.z > 1 ? 1 : 0
@@ -789,10 +818,9 @@ export class SurfaceMarking {
     // is all the depth buffer has to cover.
     const box = { minX: Math.max(0, minX), minY: Math.max(0, minY), maxX: Math.min(w, maxX), maxY: Math.min(h, maxY) }
     if (box.minX > box.maxX || box.minY > box.maxY) return
-    const worldPerPixel = (camera.top - camera.bottom) / camera.zoom / h
     const inFront = anyFacing
       ? null
-      : frontSurface({ index: idx, sx, sy, sz, dropped }, box, worldPerPixel)
+      : frontSurface({ index: idx, sx, sy, sz, dropped }, box, pixelSpan(camera, h, sx, sy, sz, clipped, box))
 
     const test = polygonTester(outline)
     const regions = this.ctx.regions

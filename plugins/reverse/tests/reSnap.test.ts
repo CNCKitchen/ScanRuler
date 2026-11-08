@@ -40,7 +40,8 @@ describe('snapping a sketch point', () => {
     expect(body.kind).toBe('entity')
     expect(body.piece).toBe(line)
     expect(snapHold(body)).toEqual({ piece: line })
-    const rim = snapSketchPoint(sketch, [35.3, 30], 1)
+    // On the rim between two quadrants, which are points of their own.
+    const rim = snapSketchPoint(sketch, [33.7, 33.7], 1)
     expect(rim.kind).toBe('entity')
     expect(snapHold(rim)).toEqual({ piece: sketch.entities[1].id })
     expect(snapHold(snapSketchPoint(sketch, [17.1, 0.3], 1, { chains: [[[17, 0.4]]] }))).toBeNull()

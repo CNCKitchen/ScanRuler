@@ -13,6 +13,7 @@ import { findRegions, matchRegions, picksGrew, picksSeen } from '../core/regions
 import { readPieces, rounding } from '../core/intent'
 import { reassignCornerPoints, roundCorner, roundRadiusSigma, roundUnread } from '../core/roundCorner'
 import { cloneSketch, entityOf, removeEntities, type Sketch, type SketchArc, type SketchEntity } from '../core/sketch'
+import { trimAt } from '../core/trim'
 import { withoutTarget } from '../state/reFeatureHelpers'
 import { useReverse } from '../state/reStore'
 import { barOut, bodiesChanged, bodyRows, type Detail, detailIn, elementAnswer, failures, featureAnswer, noneAnswer, openOut } from './reCommandAnswers'
@@ -974,16 +975,21 @@ export const build: Command = {
   },
 }
 
-export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: number[]; constraints?: number[] }; set?: Record<string, Json>; name?: string; detail?: Detail }> = {
+export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: number[]; constraints?: number[] }; trim?: { piece: number; at: [number, number] }[]; set?: Record<string, Json>; name?: string; detail?: Detail }> = {
   name: 'edit',
   title: 'Edit a sketch piece by piece',
   description:
-    'Change a sketch without handing all of it back, as reopening it in the panel and drawing does: add takes what a sketch takes — fit, project, entities, shapes, constraints, patterns, infer — naming the sketch’s pieces by their ids, and rounds: [{ a, b, radius? }], an arc tangent to pieces a and b where they meet, the pieces cut back to it and held with tangencies, at the radius given or the scan’s. remove takes pieces out by id, with every relation on them, and relations by id. set moves pieces in place, by id, each keeping its id and every relation on it: { "12": { b: [u, v] } } — a line’s a, b; an arc’s c, r, start, sweep, or its ends a, b (r too if you like), keeping its sweep or its bulge; a circle’s c, r; a spline’s pts, or a fit point by name (a, b, p1, …); a point’s p. The solve follows as a drag’s does: what you put a piece at holds, the rest gives way, and relations win over it (set.short says how far one fell short). A fitted piece lets go of its slice points (set.detached), as one dragged does; a projected piece is refused. Prefer it over remove and add: ids and relations stay. Order: removals, set, project, fit (with fit.level the walls the sketch already has are not fitted again — their points join those pieces, shared, and the new runs’ ends land on them, junctions), the rest, then the rounds; ends that meet are joined (infer), and a new end within 0.05 mm of one place other ends lie is moved onto it first (snapped). The sketch is solved and the features on it rebuilt, keeping their picks where the regions can still be told apart. Returns what was made (ids; a fit’s in fitted, each chain’s pieces), set (pieces, detached, short), each round (arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held, warning), moved (with radii: each arc or circle whose radius changed, was and now), offPiece (a T-junction come apart), the solve, the regions and the bodies changed — ids, fittedPieces, set, rounds, accept and moved even with detail "none".',
+    'Change a sketch without handing all of it back, as reopening it in the panel and drawing does: add takes what a sketch takes — fit, project, entities, shapes, constraints, patterns, infer — naming the sketch’s pieces by their ids, and rounds: [{ a, b, radius? }], an arc tangent to pieces a and b where they meet, the pieces cut back to it and held with tangencies, at the radius given or the scan’s. remove takes pieces out by id, with every relation on them, and relations by id. set moves pieces in place, by id, each keeping its id and every relation on it: { "12": { b: [u, v] } } — a line’s a, b; an arc’s c, r, start, sweep, or its ends a, b (r too if you like), keeping its sweep or its bulge; a circle’s c, r; a spline’s pts, or a fit point by name (a, b, p1, …); a point’s p. The solve follows as a drag’s does: what you put a piece at holds, the rest gives way, and relations win over it (set.short says how far one fell short). A fitted piece lets go of its slice points (set.detached), as one dragged does; a projected piece is refused. Prefer it over remove and add: ids and relations stay. trim cuts pieces back as the panel’s Trim does: [{ piece, at: [u, v] }] takes away the stretch of a line, an arc or a circle around the point at, between the nearest two places other pieces cross it (or its own end) — a piece nothing crosses goes whole, a stretch from the middle leaves two pieces held in line (trimmed answers each: done start, end, split with made, opened for a circle made an arc, removed; and dropped, the relations that went with the moved ends). Order: removals, trim, set, project, fit (with fit.level the walls the sketch already has are not fitted again — their points join those pieces, shared, and the new runs’ ends land on them, junctions), the rest, then the rounds; ends that meet are joined (infer), and a new end within 0.05 mm of one place other ends lie is moved onto it first (snapped). The sketch is solved and the features on it rebuilt, keeping their picks where the regions can still be told apart. Returns what was made (ids; a fit’s in fitted, each chain’s pieces), set (pieces, detached, short), each round (arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held, warning), moved (with radii: each arc or circle whose radius changed, was and now), offPiece (a T-junction come apart), the solve, the regions and the bodies changed — ids, fittedPieces, set, rounds, accept and moved even with detail "none".',
   input: obj(
     {
       sketch: featureRef('sketch'),
       add: anyObject('What to add, as a sketch takes it ({ fit?, project?, entities?, shapes?, constraints?, patterns?, infer? }), and rounds: [{ a, b, radius? }]. Leave a new piece’s id out unless a relation here names it (ids answers those given).'),
       remove: obj({ pieces: arr(int(), 'Piece ids — every relation and dimension on them goes too.'), constraints: arr(int(), 'Relation or dimension ids.') }),
+      trim: arr(
+        obj({ piece: int('A line’s, an arc’s or a circle’s id.'), at: arr(num(), 'A point on the stretch to take away, [u, v] mm — the piece’s nearest point to it says which stretch.', { minItems: 2, maxItems: 2 }) }, ['piece', 'at']),
+        'Stretches taken away, in turn: each between the two nearest places other pieces cross the piece. The ends the cut moved are held on the piece that cut them; what held them where they were goes.',
+        { minItems: 1 },
+      ),
       set: anyObject('Pieces moved in place, by id: { "12": { a?, b? }, "13": { c?, r?, start?, sweep? } or { a?, b?, r? }, "14": { c?, r? }, "15": { pts } or { a?, b?, p1?, … }, "16": { p } }, [u, v] mm, angles in radians. Each keeps its id and its relations.'),
       name: str('A new name for the sketch.', { minLength: 1 }),
       detail: detailIn,
@@ -997,7 +1003,7 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
       return 'edit sketch'
     }
   },
-  run: async ({ sketch: ref, add, remove, set, name, detail = 'brief' }) => {
+  run: async ({ sketch: ref, add, remove, trim, set, name, detail = 'brief' }) => {
     const f = sketchNamed(ref)
     requireFreeName(name, f.id)
     const { rounds: roundsIn, ...addRest } = add ?? {}
@@ -1024,6 +1030,12 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
     const constraintsBefore = base.constraints.length
     removeEntities(base, gonePieces)
     base.constraints = base.constraints.filter((c) => !goneConstraints.includes(c.id))
+    const trimmed = (trim ?? []).map((t, i) => {
+      if (!base.entities.some((e) => e.id === t.piece)) throw new CommandError('not_found', `trim[${i}]: ${f.name} has no piece ${t.piece}.`)
+      const done = trimAt(base, t.piece, [t.at[0], t.at[1]])
+      if (typeof done === 'string') throw new CommandError('invalid_input', `trim[${i}]: ${done}`)
+      return done
+    })
     // What moved is told from the sketch before the set; what a piece set then
     // came off (movedFar), from where the set put it.
     const beforeSet = cloneSketch(base)
@@ -1035,7 +1047,7 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
     await change((s) => {
       re().editSketch(f.id)
       if (name !== undefined) re().setSketchName(name)
-      if (gonePieces.length + goneConstraints.length + (piecesSet?.pieces.length ?? 0) > 0) re().setSketch(base, piecesSet?.pull)
+      if (gonePieces.length + goneConstraints.length + trimmed.length + (piecesSet?.pieces.length ?? 0) > 0) re().setSketch(base, piecesSet?.pull)
       // The part's geometry projected first, so a fit lands on it too.
       const projected = project ? projectDraft(s, project as ProjectIn[], re().features.findIndex((x) => x.id === f.id), f.id) : undefined
       const fit = prepared ? fitDraftShared(prepared) : undefined
@@ -1097,6 +1109,7 @@ export const sketchEdit: Command<{ sketch: Ref; add?: Json; remove?: { pieces?: 
       const far = after ? movedFar(base, after, asFitted, usePlan.getState().plan?.target.tolerance ?? MOVED_FAR_MM) : null
       extra = {
         ...(gonePieces.length + goneConstraints.length > 0 ? { removed: { pieces: gonePieces.length, constraints: constraintsBefore - base.constraints.length } } : {}),
+        ...(trimmed.length > 0 ? { trimmed } : {}),
         ...(Object.keys(renumbered).length > 0 ? { renumbered } : {}),
         ...madeOut(made),
         ...(piecesSet ? { set: piecesSetOut(piecesSet, after) } : {}),

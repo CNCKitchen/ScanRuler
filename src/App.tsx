@@ -1663,6 +1663,7 @@ function Workbench() {
                 // opening it.
                 s.boundsTreeFrom = (positions, indices) => clientRef.current!.boundsTree(positions, indices)
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
+                s.setProjection(useStore.getState().projection)
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
                 s.setMarkSize(usePrefs.getState().markSize)

@@ -5,6 +5,123 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **A bore's cone point exports as a clean mesh** (2026-11-08, pull request
+  109). A cone closing to a point, as a drill leaves the end of a bore,
+  meshed with a triangle of no area at its apex, so an STL or 3MF of it had
+  an edge four triangles share, which slicers and mesh checkers call
+  non-manifold. The Reverse engineer's mesh export now leaves it out.
+  Thanks to martinfrancois.
+- **No "same region" warning for one profile picked twice on purpose**
+  (2026-11-08, pull request 110). Two cuts on one sketch that ask for its
+  region the same way, such as one hole at each end of a bar, no longer
+  warn that a junction came apart. Thanks to martinfrancois.
+- **Exports and the body check name the features that failed to build**
+  (2026-11-08, pull request 111). A failed feature leaves the bodies whole
+  without it, so they checked clean and exported as the part; the STL, 3MF
+  and STEP exports and the body check now say which features are missing.
+  Thanks to martinfrancois.
+- **A mirror warns that it turns a thread's hand** (2026-11-08, pull request
+  112). A right-handed thread mirrored comes out left-handed; the mirror's
+  row now says so and suggests copying the body with a 180° turn instead.
+  Thanks to martinfrancois.
+- **Huge scans turn smoothly** (2026-11-08, pull request 72). A scan of
+  more than 400,000 triangles is drawn from a coarser copy of itself while
+  the view turns, pans or zooms, and in full again once the view holds
+  still. Its colours, deviation map and paint stay on it, and picking and
+  measuring always use the full scan. Thanks to Jozkah.
+- **Deviation maps on the graphics card** (2026-11-08, pull request 73).
+  Where the browser offers WebGPU, a scan of 100,000 points or more finds
+  its nearest place on the reference on the graphics card, and the reading
+  itself is still taken on the processor, so the map is the same. Without
+  WebGPU it is measured as before. Thanks to Jozkah.
+- **Perspective view** (2026-11-08, pull request 43, issue 24). A button
+  beside Fit to view switches the 3D view between parallel (orthographic),
+  still the default and what measuring wants, and perspective. Picks,
+  marking and the readings follow whichever is on screen, the part keeps its
+  size at the orbit centre when you switch, and the choice is remembered in
+  the browser. Thanks to Jozkah.
+- **Development tools updated** (2026-11-08, pull request 30). The test
+  runner moves to Vitest 5 and the browser checks' puppeteer-core to 25.16,
+  which clears the security advisories npm reported against the
+  development dependencies. Nothing changes in the app. Thanks to Jozkah.
+- **One activity lamp for the whole app** (2026-11-08, pull request 113).
+  The status strip at the bottom left reads WORKING, with the step under
+  way beside it, whenever anything is busy: loading, fitting, aligning,
+  measuring, a Mesh Tools or Reverse engineer job, an export or an agent's
+  command. It shows a percentage only where the work measures one, and
+  goes back to READY when it is done. Errors still come first. Thanks to
+  Myuavbug66.
+
+## 0.9.9 — 2026-11-08
+
+- **Horizontal and vertical dimensions in the sketch** (2026-11-08, issue
+  106). A dimension between two points or two circles' centres can now
+  measure only their ΔX or ΔY, as a drawing gives a hole's pitch: pull its
+  number above or below the two points for the horizontal distance, beside
+  them for the vertical one, anywhere else for the distance straight across.
+  The chip on its row switches it later. Thanks to SphaeroX.
+- **A line's middle and a circle's quadrants as points to constrain and
+  dimension** (2026-11-08, issue 103). The middle of a line, the centre of
+  an arc and the top, bottom, left and right of a circle or an arc light up
+  under the cursor and can be picked for Coincident and for a dimension, and
+  a drawn end snaps to them. The sketch also has a Point tool now. Thanks to
+  Leafy1.
+- **Trim in the sketch** (2026-11-08, issue 102). The Trim tool (T) takes
+  away the stretch of a line, an arc or a circle between the two nearest
+  places other pieces cross it, lit red under the cursor first. A piece
+  nothing crosses goes whole, a stretch from the middle leaves two pieces in
+  line, and a circle becomes an arc. The ends the cut moved are held on the
+  piece that cut them. Thanks to Leafy1.
+- **Tracking lines while drawing** (2026-11-08, issue 107). After the cursor
+  passes over an end, a centre, a middle or the origin, a dashed line runs
+  from it along X or Y, and a new point snaps onto it, or onto the crossing
+  of two such lines, to stand level or upright with it. Thanks to SphaeroX.
+- **Planes through three points, through a point square to a direction, and
+  through a bore's axis** (2026-11-08, issue 104). An agent can give a
+  sketch plane, a Cut by plane, a mirror or a body section as the plane
+  through three points (its normal by the right-hand rule, with a flip), as
+  a point and a normal, or as the plane through a cylinder's or a cone's
+  axis and a point. A compound chamfer is then one flat cut instead of a
+  ruled loft. Three points on one line are refused, with the reason. Thanks
+  to Leafy1.
+- **STLs exported from CAD are recognised, and a Densify tool readies them
+  for measuring** (2026-11-08, issue 42). The scan check now tells an STL
+  exported from CAD from a scan by its exactly flat facets, reports its
+  noise as 0, and says when its triangles are too long to fit on, with the
+  edge length to subdivide it to. Mesh Tools has a Densify tool that cuts
+  the triangles down to that length without moving the surface; the agent
+  has it as `mesh_densify`. The scan-to-CAD guide says how to work from such
+  a file, and `view_render { show: { map } }` now works in the Deviation
+  workspace too. Thanks to lpkralv for the test part and the measurements.
+- **Auto-align says when the face it squared to is an inside wall**
+  (2026-11-08, issue 77). On a housing whose largest flat face is a rib's
+  wall, not the flange it mates on, `align_auto` now says so, with how far
+  the part stands in front of that face, and points to aligning on the
+  mating face. The scan-to-CAD guide also says how to model a bowl-shaped
+  part whose inside is scanned: fit the inner skin and keep the wall
+  between, rather than shelling the outside. Thanks to hummcustom.
+- **Export mesh in Reverse engineer, at a resolution you choose**
+  (2026-11-08, issue 89). Beside Export body STEP, Export mesh writes the
+  visible bodies as an STL or a 3MF, meshed Draft, Normal, Fine or Finest,
+  so a print of curved faces comes out as smooth as you ask rather than as
+  the slicer meshes a STEP. The agent's mesh export takes the same choice.
+  When the part is under 2 mm across, the export says its scan was most
+  likely in metres. That was what made the reported part print faceted.
+  Thanks to DRiNVAD3R.
+- **A hidden element shows while you point at its row** (2026-11-08, issue
+  75). In 3D Measure's list, moving the pointer over an element's or a
+  section's row draws it on the part and lights it, hidden or not, so you
+  can find it. Nothing about it changes, and it goes away again when the
+  pointer leaves. Thanks to SteemSucker.
+- **Parameters show what they drive, and the important ones stay on top**
+  (2026-11-08, issue 21). Pointing at a parameter in Reverse engineer, or
+  typing in it, lights the features it drives in the list and their faces
+  on the part. A star marks a parameter as important: it is listed first,
+  kept in the saved project, and the agent is told which ones they are.
+  Thanks to Vergilcd.
+
 ## 0.9.8 — 2026-11-08
 
 - **No spike in Fusion from a plane a hair off a cone's apex** (2026-11-08,

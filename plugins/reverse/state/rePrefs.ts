@@ -10,6 +10,7 @@ import { sanitizeFitOptions, type FitOptions } from '../core/fitOptions'
 import { LIVE_MAP_MIN_RANGE_MM, LIVE_MAP_RANGE_MM } from '../core/liveMap'
 import { DEFAULT_DRAW_MODES, type DrawModes } from '../core/draw'
 import { POLYGON_MAX_SIDES } from '../core/sketch'
+import { meshResolution, type MeshResolution } from '../core/meshResolution'
 
 const GRID_SNAP_KEY = 'scanruler.gridsnap'
 const SKETCH_RELATIONS_KEY = 'scanruler.sketchrelations'
@@ -21,6 +22,7 @@ const POLYGON_SIDES_KEY = 'scanruler.polygonsides'
 const PLAYBACK_STEP_KEY = 'scanruler.playbackstep'
 const PLAYBACK_CAPTION_KEY = 'scanruler.playbackcaption'
 const PLAYBACK_SKIP_SKETCHES_KEY = 'scanruler.playbackskipsketches'
+const MESH_RESOLUTION_KEY = 'scanruler.meshresolution'
 
 /** How long the playback holds each step, in milliseconds, once its build
  *  has landed — the choices the panel offers. */
@@ -115,6 +117,8 @@ interface RePrefsState {
   playbackStepMs: number
   playbackCaption: boolean
   playbackSkipSketches: boolean
+  /** How finely Export mesh meshes the bodies — see core/meshResolution. */
+  meshResolution: MeshResolution['id']
   setGridSnap: (on: boolean) => void
   setSketchRelations: (on: boolean) => void
   setFitOptions: (options: FitOptions) => void
@@ -125,6 +129,7 @@ interface RePrefsState {
   setPlaybackStepMs: (ms: number) => void
   setPlaybackCaption: (on: boolean) => void
   setPlaybackSkipSketches: (on: boolean) => void
+  setMeshResolution: (id: MeshResolution['id']) => void
 }
 
 export const useRePrefs = create<RePrefsState>()((set) => ({
@@ -138,6 +143,7 @@ export const useRePrefs = create<RePrefsState>()((set) => ({
   playbackStepMs: clampPlaybackStep(Number(read(PLAYBACK_STEP_KEY) ?? 1500)),
   playbackCaption: read(PLAYBACK_CAPTION_KEY) !== '0',
   playbackSkipSketches: read(PLAYBACK_SKIP_SKETCHES_KEY) === '1',
+  meshResolution: meshResolution(read(MESH_RESOLUTION_KEY) ?? undefined).id,
 
   setGridSnap: (gridSnap) => {
     write(GRID_SNAP_KEY, gridSnap ? '1' : '0')
@@ -184,5 +190,10 @@ export const useRePrefs = create<RePrefsState>()((set) => ({
   setPlaybackSkipSketches: (playbackSkipSketches) => {
     write(PLAYBACK_SKIP_SKETCHES_KEY, playbackSkipSketches ? '1' : '0')
     set({ playbackSkipSketches })
+  },
+  setMeshResolution: (id) => {
+    const res = meshResolution(id).id
+    write(MESH_RESOLUTION_KEY, res)
+    set({ meshResolution: res })
   },
 }))

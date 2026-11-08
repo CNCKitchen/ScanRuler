@@ -17,6 +17,7 @@ import { useStore, type Section } from '../state/store'
 import { useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useSupportAsk } from '../state/supportAskStore'
+import { useTaskActivity } from '../state/taskActivity'
 import type { SceneManager } from '../viewer/SceneManager'
 
 /** Hand a built file to the browser. The link goes into the document for the
@@ -48,11 +49,17 @@ export const exportStem = (fallback = 'scan'): string => {
 /** Lazy export modules can fail to load (for example after a deployment).
  *  Keep the session usable and report the failure through the normal UI. */
 export async function runExport(job: () => Promise<void>): Promise<void> {
+  const id = `export-${++nextExportId}`
+  useTaskActivity.getState().setTask(id, { text: 'Preparing or saving export...', percent: null })
   try { await job() }
   catch (error) {
     useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    useTaskActivity.getState().setTask(id, null)
   }
 }
+
+let nextExportId = 0
 
 /** Every section with something measured on its sheet, the elements stood
  *  up in the part under the section's name — what the STEP export writes

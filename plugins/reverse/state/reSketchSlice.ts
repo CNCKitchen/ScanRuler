@@ -16,7 +16,7 @@ import { piecesInBox } from '../core/boxSelect'
 import { letGo, type ShareReport, sharePieces } from '../core/shareFit'
 import { closeChain, CORNER_GAP_MM, inferCorners, joinEnds, sharpenCorner } from '../core/corners'
 import { datumTraces, traceNear } from '../core/datums'
-import { dimPlaceAt } from '../core/dimLayout'
+import { dimPlaceAt, distanceEnds } from '../core/dimLayout'
 import { detached, moveAnchor, rigidCluster, rotateSketch, translateEntity } from '../core/drag'
 import { arcAbout, circleFrom, coincidentFor, dimensionFor, dimensionIsImmediate, dimPickAt, drawClicks, rectangleCorners, relPickAt, tangentArc } from '../core/draw'
 import { planeOffset, type PlaneRef, planeTakesOffset, type SketchFeature, withPlaneOffset } from '../core/features'
@@ -26,7 +26,8 @@ import { nominalOf } from '../core/nominal'
 import { replaceSketch } from '../core/parameters'
 import { resolvePlaneFrame } from '../core/resolve'
 import { shadowPieceCount, shadowSketch } from '../core/shadowPieces'
-import { addConstraint, addEntity, addPolygon, addRectangle, addRectangleCentre, addTurnedRectangle, type Anchor, type AnchorAt, anchorPoint, anchorsOf, arcThrough, axisRelationOf, cloneSketch, type ConstraintInput, entityOf, fixedEntityOf, isDimension, lineDir, patternPieces, relationTakes, removeConstraint, removeEntities, type Sketch, sketchBounds, type SketchEntity, splineJoint, type SketchSpline } from '../core/sketch'
+import { trimAt } from '../core/trim'
+import { addConstraint, addEntity, addPolygon, addRectangle, addRectangleCentre, addTurnedRectangle, type Anchor, type AnchorAt, anchorPoint, anchorsOf, arcThrough, axisRelationOf, cloneSketch, distanceAlong, type ConstraintInput, entityOf, fixedEntityOf, isDimension, lineDir, patternPieces, relationTakes, removeConstraint, removeEntities, type Sketch, sketchBounds, type SketchEntity, splineJoint, type SketchSpline } from '../core/sketch'
 import { fitSplineToPoints, splineScatter } from '../core/sketchSpline'
 import { levelImage, moveImage, scaleImage } from '../core/sketchImage'
 import { snapHold, type SnapHold, snapSketchPoint } from '../core/snap'
@@ -61,7 +62,7 @@ function rememberFitted(snapshot: Sketch, fitted: SketchDraft['fitted']): Sketch
 /** The angle a plane through an axis is turned to; 0 for any other. */
 const planeAngle = (p: PlaneRef): number => (p.kind === 'radial' ? p.angleDeg : 0)
 
-export const sketchSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'startSketchOn' | 'startSketch' | 'editSketch' | 'projectInto' | 'setSketch' | 'discardSketch' | 'setSketchTool' | 'armRelation' | 'setSketchName' | 'setSketchImage' | 'startImagePick' | 'scaleSketchImage' | 'setSketchOffset' | 'setSketchLevel' | 'setSketchAngle' | 'setSketchTolerance' | 'sketchClick' | 'sketchTangentArc' | 'finishSpline' | 'moveSplinePoint' | 'fitSplinesToSlice' | 'sketchBoxSelect' | 'sketchDragStart' | 'sketchDrag' | 'sketchDragEnd' | 'alignToSelected' | 'autoFit' | 'refitChains' | 'inferAllCorners' | 'closeAll' | 'joinSelected' | 'addRelation' | 'addDimension' | 'dimensionSelection' | 'setDimensionValue' | 'setDimensionForm' | 'finishDimension' | 'removeSelectedConstraint' | 'selectConstraint' | 'deleteSelected' | 'sharpenSelected' | 'filletSelected' | 'chamferSelected' | 'moveDimension' | 'toggleFixedSelected' | 'toggleConstructionSelected' | 'clearSelection' | 'openSketchPattern' | 'setSketchPattern' | 'applySketchPattern' | 'cancelSketchPattern' | 'putDownDimension' | 'undoSketch' | 'redoSketch' | 'solveNow' | 'commitSketch' | 'finishAndExtrude' | 'finishAndRevolve'> => ({
+export const sketchSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'startSketchOn' | 'startSketch' | 'editSketch' | 'projectInto' | 'setSketch' | 'discardSketch' | 'setSketchTool' | 'armRelation' | 'setSketchName' | 'setSketchImage' | 'startImagePick' | 'scaleSketchImage' | 'setSketchOffset' | 'setSketchLevel' | 'setSketchAngle' | 'setSketchTolerance' | 'sketchClick' | 'sketchTangentArc' | 'finishSpline' | 'moveSplinePoint' | 'fitSplinesToSlice' | 'sketchBoxSelect' | 'sketchDragStart' | 'sketchDrag' | 'sketchDragEnd' | 'alignToSelected' | 'autoFit' | 'refitChains' | 'inferAllCorners' | 'closeAll' | 'joinSelected' | 'addRelation' | 'addDimension' | 'dimensionSelection' | 'setDimensionValue' | 'setDimensionForm' | 'setDistanceAxis' | 'finishDimension' | 'removeSelectedConstraint' | 'selectConstraint' | 'deleteSelected' | 'sharpenSelected' | 'filletSelected' | 'chamferSelected' | 'moveDimension' | 'toggleFixedSelected' | 'toggleConstructionSelected' | 'clearSelection' | 'openSketchPattern' | 'setSketchPattern' | 'applySketchPattern' | 'cancelSketchPattern' | 'putDownDimension' | 'undoSketch' | 'redoSketch' | 'solveNow' | 'commitSketch' | 'finishAndExtrude' | 'finishAndRevolve'> => ({
 
   startSketchOn: (plane) => {
     const store = useStore.getState()
@@ -385,12 +386,31 @@ export const sketchSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'startS
       // The Project tool's click is resolved against the part by the app,
       // which holds the bodies; it lands in projectInto.
       if (d.tool === 'project') return {}
+      if (d.tool === 'trim') {
+        // The stretch of the piece clicked between the nearest two places
+        // other pieces cross it goes (core/trim.ts); a piece nothing
+        // crosses goes whole. The tool stays in hand for the next.
+        const hit = pieceNear(d.sketch, spot, radius)
+        if (!hit) return { sketchDraft: { ...d, error: null } }
+        const before = cloneSketch(d.sketch)
+        const done = trimAt(d.sketch, hit.id, spot)
+        if (typeof done === 'string') return { sketchDraft: { ...d, error: done } }
+        return { sketchDraft: settle({ ...d, selection: [], selectedConstraint: null }, before) }
+      }
       // A drawing tool: the click snaps to a nearby end (which the new piece
       // is then held to), a slice point, a piece or the grid.
       const snap = snapSketchPoint(d.sketch, spot, radius, snapCtx)
       const at: Vec2 = snap.point
       const pending = [...d.pending, at]
       const snaps = [...(d.snaps ?? []), snapHold(snap)]
+      if (d.tool === 'point') {
+        // One click, one point — held where it snapped, as a drawn end is:
+        // on a middle, a quadrant, a piece, an axis.
+        const before = cloneSketch(d.sketch)
+        const id = addEntity(d.sketch, { kind: 'point', p: at })
+        if (snaps[0]) holdAt(d.sketch, { entity: id, at: 'center' }, snaps[0])
+        return { sketchDraft: settle({ ...d, ...toolIdle(), error: null }, before) }
+      }
       if (d.tool === 'spline') {
         // The points are collected until the hand ends the curve: a click
         // back on the first point closes it; one on the last point again —
@@ -965,6 +985,25 @@ export const sketchSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'startS
         return { ...rest, kind: form, value, ...(expr ? { expr } : {}) }
       })
       return { sketchDraft: settle({ ...d, ...(typed === undefined ? {} : dimensionDone(d, id)) }, before) }
+    }),
+
+  setDistanceAxis: (id, axis) =>
+    set((s) => {
+      const d = s.sketchDraft
+      if (!d) return {}
+      const held = d.sketch.constraints.find((c) => c.id === id)
+      if (!held || held.kind !== 'distance' || (held.axis ?? null) === axis) return {}
+      const ends = distanceEnds(held, d.sketch)
+      if (!ends) return { sketchDraft: { ...d, error: 'Only a distance between two points is measured along an axis.' } }
+      const before = cloneSketch(d.sketch)
+      const { axis: _was, place: _place, ...rest } = held
+      void _was
+      void _place
+      // At what the points measure that way now — nothing moves — unless an
+      // expression drives it, which then says the new way's size. The
+      // number goes back where the layout puts it.
+      d.sketch.constraints = d.sketch.constraints.map((c) => (c === held ? { ...rest, ...(axis ? { axis } : {}), value: held.expr ? held.value : distanceAlong(ends[0], ends[1], axis ?? undefined) } : c))
+      return { sketchDraft: { ...settle({ ...d }, before), selectedConstraint: id } }
     }),
 
   finishDimension: (id) =>

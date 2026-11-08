@@ -187,13 +187,20 @@ const planeBranches: JsonSchema[] = [
   obj({ kind: kind('plane'), id: int('A plane element of 3D Measure.'), name: str('Or its name.', { minLength: 1 }), offset: planeOffsetIn, up: upIn }, ['kind'], 'A measured plane, by id or name. Its sketch counts from the part’s origin projected onto it, not the element’s centre, and the element’s own basisU/V may point the other way: the answer’s element gives its centre in [u, v].'),
   obj({ kind: kind('bodyFace'), body: bodyRef, face: facePick, offset: planeOffsetIn, up: upIn }, ['kind', 'body', 'face'], 'A flat face of a body; a sketch on it follows the face when an earlier feature moves it, standing off it by the offset. Its u and v: the coordinate axes flattened onto the face, as on the coordinate plane it is nearest to.'),
   radialPlane,
+  obj(
+    { kind: kind('points'), points: arr(vec3('mm'), 'Not in a line.', { minItems: 3, maxItems: 3 }), flip: bool('Normal reversed.') },
+    ['kind', 'points'],
+    'Through three world points; normal (p2 − p1) × (p3 − p1).',
+  ),
+  obj({ kind: kind('oriented'), point: vec3('mm'), normal: vec3('') }, ['kind', 'point', 'normal'], 'Through a point, square to normal.'),
+  obj({ kind: kind('faceAxis'), body: bodyRef, face: facePick, through: vec3('A point off the axis.') }, ['kind', 'body', 'face', 'through'], 'Through a round face’s axis and a point.'),
 ]
 
-export const planeIn = byKind(planeBranches, 'A plane: a coordinate plane (by name, "XY", or as { kind: "world" }), a section, a measured plane, a flat face of a body, or a plane through an axis.')
+export const planeIn = byKind(planeBranches, 'A plane: a coordinate plane (by name, "XY", or as { kind: "world" }), a section, a measured plane, a flat face of a body, a plane through an axis, or by points.')
 
 const mirrorPlaneIn = byKind(
   [...planeBranches, obj({ kind: kind('face'), face: facePick }, ['kind', 'face'], 'A flat face of the body worked on.')],
-  'The plane: a coordinate plane (by name, "XY", or as { kind: "world" }), a section, a measured plane, a flat face of a body, a plane through an axis — or, as { kind: "face" }, a flat face of the body worked on.',
+  'The plane: a coordinate plane (by name, "XY", or as { kind: "world" }), a section, a measured plane, a flat face of a body, a plane through an axis, or by points — or, as { kind: "face" }, a flat face of the body worked on.',
 )
 
 const axisIn = byKind(
@@ -210,7 +217,7 @@ const axisIn = byKind(
 // One string rather than an enum and a pattern: a and b are a spline's
 // ends too, and the piece's own points are checked when the sketch is made.
 const anchorAt = str(
-  'Which point of the piece: a line’s, an arc’s or an open spline’s start (a) or end (b); an arc’s, a circle’s or a point’s centre (center); a spline’s fit point by its place among them, p1, p2, … (a closed spline’s run p0, p1, …).',
+  'Which point of the piece: a line’s, an arc’s or an open spline’s start (a) or end (b); a line’s middle (center); an arc’s, a circle’s or a point’s centre (center); an arc’s or a circle’s quadrant, the rim at 0°, 90°, 180° or 270° from +u (q0, q1, q2, q3); a spline’s fit point by its place among them, p1, p2, … (a closed spline’s run p0, p1, …).',
   { minLength: 1 },
 )
 const anchor = obj({ entity: int('The piece’s id.'), at: anchorAt }, ['entity', 'at'], 'A point of a piece.')
@@ -286,7 +293,14 @@ const constraintIn = byKind(
     ),
     obj({ ...constraintCommon, kind: kind('length'), entity: int('A line.'), ...dimension('mm') }, ['kind', 'entity'], 'A line’s length.'),
     obj(
-      { ...constraintCommon, kind: kind('distance'), p: anchor, q: oneOf([anchor, line, toDatum], 'To another point, square to a line, or square to a coordinate plane’s line.'), ...dimension('mm') },
+      {
+        ...constraintCommon,
+        kind: kind('distance'),
+        p: anchor,
+        q: oneOf([anchor, line, toDatum], 'To another point, square to a line, or square to a coordinate plane’s line.'),
+        axis: enumOf(['x', 'y'], 'Between two points only: measured along u (x — a horizontal dimension, the points’ ΔX) or along v (y — vertical, their ΔY) rather than straight across — a hole’s pitch or offset as a drawing gives it.'),
+        ...dimension('mm'),
+      },
       ['kind', 'p', 'q'],
       'A distance from a point.',
     ),

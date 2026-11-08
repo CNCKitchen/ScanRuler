@@ -173,6 +173,25 @@ describe('an M3 pin modelled through the commands', () => {
   })
 })
 
+describe('a parameter marked important (issue 21)', () => {
+  it('is added and set pinned, listed so, and saved in the project', async () => {
+    await run('reverse.parameter.add', { name: 'bore', expression: '8', pinned: true })
+    await run('reverse.parameter.add', { name: 'wall', expression: '2' })
+    type Row = { name: string; pinned?: boolean }
+    const listed = (await run<{ parameters: Row[] }>('reverse.parameter.list')).parameters
+    expect(listed.find((p) => p.name === 'bore')?.pinned).toBe(true)
+    expect(listed.find((p) => p.name === 'wall')?.pinned).toBeUndefined()
+    await run('reverse.parameter.set', { parameter: 'wall', pinned: true })
+    await run('reverse.parameter.set', { parameter: 'bore', pinned: false })
+    const now = (await run<{ parameters: Row[] }>('reverse.parameter.list')).parameters
+    expect(now.filter((p) => p.pinned).map((p) => p.name)).toEqual(['wall'])
+    // Saved with the features (a project with none saves no part).
+    await run('reverse.feature.add', { feature: { kind: 'sketch', name: 'Square', plane: 'XY', sketch: { shapes: [{ kind: 'rectangle', from: [0, 0], to: [10, 10], exprs: { width: 'bore' } }] } } })
+    const part = collectReversePart() as { parameters?: { name: string; pinned?: boolean }[] }
+    expect(part.parameters?.find((p) => p.name === 'wall')?.pinned).toBe(true)
+  })
+})
+
 describe('parameters, several at once', () => {
   it('adds them as one step, a later one reading an earlier, and answers with what changed, not the table', async () => {
     await run('reverse.parameter.add', { name: 'd', expression: '3' })
@@ -214,13 +233,14 @@ describe('the commands hold to the panel’s rules', () => {
     expect((await refused('reverse.parameter.set', { parameter: 'l1', expression: '10 deg' })).code).toBe('invalid_input')
 
     // A constraint naming a piece the sketch has not got, or a point a piece
-    // has not got — a line has its ends; an arc its ends and its centre.
+    // has not got — a line has its ends and its middle; an arc its ends, its
+    // centre and its quadrants.
     const bad = pinSketch('l1')
     bad.sketch.constraints.push({ kind: 'length', entity: 9, value: 3 })
     expect((await refused('reverse.feature.add', { feature: bad })).message).toMatch(/there is no piece 9/)
     const middle = pinSketch('l1')
-    middle.sketch.constraints.push({ kind: 'pointOn', p: { entity: 2, at: 'center' }, on: { datum: 'xy' } } as never)
-    expect((await refused('reverse.feature.add', { feature: middle })).message).toMatch(/a line has no point “center” — it has a, b/)
+    middle.sketch.constraints.push({ kind: 'pointOn', p: { entity: 2, at: 'q1' }, on: { datum: 'xy' } } as never)
+    expect((await refused('reverse.feature.add', { feature: middle })).message).toMatch(/a line has no point “q1” — it has a, b, center/)
     // Dimensions that contradict each other do not solve.
     const tight = pinSketch('l1')
     tight.sketch.constraints.push({ kind: 'length', entity: 4, value: 7 })
@@ -782,8 +802,10 @@ describe('what an agent’s client is shown', () => {
     // where query in that spelled out; a cutPlane 13.0 k.
     type Out = { schema: Record<string, unknown>; refs?: Record<string, { chars: number; what: string }> }
     const size = (o: Out) => JSON.stringify(o).length
+    // Issue 104 added the planes by points (through three, through a point
+    // square to a normal, through a round face's axis): 5.1 k → 6.2 k.
     const plane = await run<Out>('reverse.feature.schema', { kind: 'sketch', field: 'plane' })
-    expect(size(plane)).toBeLessThan(5_000)
+    expect(size(plane)).toBeLessThan(6_500)
     expect(plane.refs!.face.what).toBe('A face of the body')
     const cut = await run<Out>('reverse.feature.schema', { kind: 'cutPlane' })
     expect(size(cut)).toBeLessThan(5_000)

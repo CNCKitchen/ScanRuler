@@ -59,7 +59,7 @@ function makeOverlays() {
     partGroup,
     modelRadius: () => 10,
     invalidate: () => {},
-    camera,
+    camera: () => camera,
     raycaster: new THREE.Raycaster(),
     occluder: () => null,
   })

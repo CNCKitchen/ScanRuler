@@ -49,6 +49,8 @@ const TOOLS: { id: SketchTool; icon: KeyIconName; label: string; title: string }
   { id: 'spline', icon: 'spline', label: 'Spline (S)', title: 'A smooth curve through the points clicked: click each point in turn — the curve follows the cursor. Click the last point again (or double-click it), press Enter or Escape to end it open; click the first point to close it round. Drag a fit point to bend it. Joined to a line or an arc at an end, it can be held tangent there. With a spline selected, Fit to slice pulls it onto the slice it was drawn over' },
   { id: 'fillet', icon: 'filletCorner', label: 'Fillet (F)', title: 'Round a corner: click the corner point where two lines meet, or one line and then the other. With two lines selected, the key rounds those. The lines need not touch — a short piece bridging their ends is replaced by the round. The radius comes out as a dimension to type over; the next round starts with the last radius' },
   { id: 'chamfer', icon: 'chamferCorner', label: 'Chamfer', title: 'Cut a corner off straight: click the corner point where two lines meet, or one line and then the other. With two lines selected, the key chamfers those. The two distances come out as dimensions to type over — alike for an even chamfer, apart for an uneven one; the next chamfer starts with the last distance' },
+  { id: 'point', icon: 'sketchPoint', label: 'Point', title: 'A point at each click — held where it snaps: an end, a centre, the middle of a line, a quadrant of a circle or an arc, on a piece or an axis. A place to hang a relation or a dimension on, as CAD’s sketch point is; it takes no part in the regions' },
+  { id: 'trim', icon: 'trim', label: 'Trim (T)', title: 'Click a line, an arc or a circle: the stretch of it between the two nearest places other pieces cross it is taken away — it lights under the cursor first. A piece nothing crosses goes whole; a stretch from the middle leaves two pieces, held in line. Ends the cut moved are held where they now lie, on the piece that cut them' },
   { id: 'project', icon: 'project', label: 'Project', title: 'Click an edge of a body, or a piece of another sketch, on the part under the sheet: it comes into this sketch as a piece of its own, fixed where it lies — to close a profile with, or to hang relations and dimensions on. It lights under the cursor when it can be taken' },
 ]
 
@@ -183,7 +185,7 @@ function ShapeToolKey({ shape, label, title, inHand, onPress }: { shape: keyof D
 }
 
 const DIMENSION_TITLE =
-  'Dimension (D) — click a line for its length, an arc for its radius, a circle for its diameter (Ø — typed as R… it goes by the radius instead); click a second piece for what lies between the two: the distance between parallel lines, the angle between others, the distance from an end or a centre to a line or to another, or to one of the part’s coordinate planes (the amber lines named XY, YZ, ZX). The number then follows the cursor: click where it goes, and type the value; Escape takes it back. With pieces selected, the key dimensions those.'
+  'Dimension (D) — click a line for its length, an arc for its radius, a circle for its diameter (Ø — typed as R… it goes by the radius instead); click a second piece for what lies between the two: the distance between parallel lines, the angle between others, the distance from an end or a centre to a line or to another, or to one of the part’s coordinate planes (the amber lines named XY, YZ, ZX). A line’s middle and a circle’s or an arc’s quadrants are points to pick too. The number then follows the cursor: click where it goes, and type the value; Escape takes it back. Between two points, pull the number above or below them for the distance along X (ΔX), beside them for along Y (ΔY), anywhere else for straight across. With pieces selected, the key dimensions those.'
 
 function constraintLabel(c: Constraint, sketch: Sketch): string {
   const name = (id: number) => {
@@ -210,7 +212,7 @@ function constraintLabel(c: Constraint, sketch: Sketch): string {
     case 'diameter':
       return `${c.kind === 'length' ? 'L' : c.kind === 'radius' ? 'R' : 'Ø'} ${name(c.entity)}`
     case 'distance':
-      return `d ${name(c.p.entity)} · ${'datum' in c.q ? datumName(c.q.datum) : 'line' in c.q ? name(c.q.line) : name(c.q.entity)}`
+      return `${c.axis === 'x' ? 'ΔX' : c.axis === 'y' ? 'ΔY' : 'd'} ${name(c.p.entity)} · ${'datum' in c.q ? datumName(c.q.datum) : 'line' in c.q ? name(c.q.line) : name(c.q.entity)}`
     case 'pointOn':
       return `On ${name(c.p.entity)} · ${'datum' in c.on ? datumName(c.on.datum) : 'line' in c.on ? name(c.on.line) : name(c.on.curve)}`
     case 'collinear':
@@ -513,6 +515,10 @@ export function SketchEditor({ chainsOf }: { chainsOf: () => SketchChains | null
           ? draft.selection.length > 0
             ? 'Click the second line of the corner.'
             : 'Click a corner point, or the first of its two lines.'
+          : draft.tool === 'trim'
+            ? 'Click the stretch of a line, an arc or a circle to take away — up to where other pieces cross it.'
+          : draft.tool === 'point'
+            ? 'Click where the point goes — an end, a middle, a quadrant or a piece holds it.'
           : draft.tool === 'relation'
             ? draft.armedRelation === 'symmetric'
               ? draft.selection.length === 0
@@ -821,6 +827,17 @@ export function SketchEditor({ chainsOf }: { chainsOf: () => SketchChains | null
                   onClick={() => re.getState().setDimensionForm(c.id, c.kind === 'radius' ? 'diameter' : 'radius')}
                 >
                   {c.kind === 'radius' ? '→ Ø' : '→ R'}
+                </button>
+              )}
+              {c.kind === 'distance' && 'entity' in c.q && (
+                <button
+                  className="chip"
+                  data-test="sketch-distance-axis"
+                  tabIndex={-1}
+                  title={`Measured ${c.axis === 'x' ? 'along X (ΔX)' : c.axis === 'y' ? 'along Y (ΔY)' : 'straight across'} — click to measure it ${c.axis === 'x' ? 'along Y' : c.axis === 'y' ? 'straight across' : 'along X'} instead. Placing a new one does the same: pull its number above or below the two points for ΔX, beside them for ΔY`}
+                  onClick={() => re.getState().setDistanceAxis(c.id, c.axis === 'x' ? 'y' : c.axis === 'y' ? null : 'x')}
+                >
+                  {c.axis === 'x' ? '↔ ΔX' : c.axis === 'y' ? '↕ ΔY' : '⤢ d'}
                 </button>
               )}
               {!c.expr && <NominalChip value={c.value} kind={nominalKindOf(c.kind)} testId="sketch-nominal" onTake={(v) => re.getState().setDimensionValue(c.id, v)} />}

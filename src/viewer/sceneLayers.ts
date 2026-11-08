@@ -41,7 +41,12 @@ export interface SceneLayerHost {
   canvasRect(): DOMRect
   /** The viewport's element, for anything laid over the canvas. */
   readonly container: HTMLElement
-  camera(): THREE.OrthographicCamera
+  /** The camera the view is drawn through: parallel, or in perspective. */
+  camera(): THREE.Camera
+  /** How many millimetres a pixel of the canvas spans: everywhere in
+   *  parallel, at the orbit target's depth in perspective — what anything
+   *  held at a size on screen is scaled by (OrthoViewport.worldPerPixel). */
+  worldPerPixel(): number
   /** Aim the raycaster through a client point. */
   setPickRay(clientX: number, clientY: number): void
   /** A frame is wanted. */

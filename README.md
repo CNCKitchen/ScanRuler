@@ -162,6 +162,11 @@ files, projects and agent answers stay in millimetres.
 
 ## Good to know
 
+- **Activity status** (bottom left): **READY** means no tracked work is active;
+  **WORKING** names the active phase and shows a percentage only when measured.
+  **ERROR** retains priority. See [activity status](docs/activity-status.md) for
+  coverage, examples and limitations.
+
 - **Navigation**: left-drag rotates about the point under the cursor,
   right-drag pans, the wheel zooms. Number keys give the standard views
   (`0` iso, `1` top, `3` front …). The button above the axis gizmo fits the

@@ -829,14 +829,30 @@ export class Builder {
    *  skipped. With a `chord` the solids alone are meshed, to that chord
    *  and a tighter angle: the reference a report is measured against,
    *  where a sheet has no inside and the viewport's chord is too coarse. */
-  meshes(ids: readonly number[], chord?: number): KernelMesh[] {
+  /** A shape meshed to a chord and an angle as asked, coarser than the
+   *  viewport's too: OCCT keeps a shape's finer mesh when asked for a
+   *  coarser one, so a copy is meshed and let go (issue 89). The copy's
+   *  faces are not the body's: its triangles name none of them. */
+  private meshFresh(shape: Shape, chord: number, angle: number): KernelMesh {
+    const copy = this.kernel.copy(shape)
+    try {
+      return this.kernel.mesh(copy, chord, angle)
+    } finally {
+      this.kernel.release(copy)
+    }
+  }
+
+  /** The bodies meshed: to `chord` and `angle` when given — `fresh` for a
+   *  file, at that resolution whatever the viewport holds (meshFresh) — or
+   *  as the viewport has them. */
+  meshes(ids: readonly number[], chord?: number, angle = 0.1, fresh = false): KernelMesh[] {
     const k = this.kernel
     const out: KernelMesh[] = []
     for (const id of ids) {
       const b = this.bodyById(id)
       if (!b) continue
       if (chord !== undefined) {
-        if (!b.surface) out.push(k.mesh(b.shape, chord, 0.1))
+        if (!b.surface) out.push(fresh ? this.meshFresh(b.shape, chord, angle) : k.mesh(b.shape, chord, angle))
         continue
       }
       const bounds = k.extent(b.shape)
@@ -1916,12 +1932,14 @@ export class Builder {
    *  pick names — an edit merged or took away what they picked: said on
    *  the feature's row, while the rest is built. So is a region another
    *  extrude or revolve on the sketch picks too — two regions that ran into
-   *  one (samePick). */
+   *  one (samePick). Not when the two asked for the region alike — the
+   *  same pick, given the same way: the same profile cut at each end of a
+   *  bar is one region on purpose, and no junction let go to make it. */
   private notePicksLost(step: SolidStep, sketchOf: (id: number) => Sketch | undefined): void {
     const sketch = this.placed.has(step.sketchId) ? null : sketchOf(step.sketchId)
     const regions = sketch ? findRegions(sketch) : this.placed.has(step.sketchId) ? this.placedRegions(step.sketchId) : null
     if (!regions) return
-    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
+    const others = this.stepsInPlay.flatMap((o) => (o.id !== step.id && (o.kind === 'extrude' || o.kind === 'revolve') && o.sketchId === step.sketchId && !(o.kind === 'extrude' && o.faceProfile) && !askedAlike(o, step) ? [{ name: this.names.get(o.id) ?? `feature ${o.id}`, keys: o.regions, pick: o.regionPick }] : []))
     const taken = (keys: readonly string[], pick: SolidStep['regionPick']) => (pick ? regionsByPick(pick, regions) : null) ?? matchRegions(keys, regions)
     const same = samePick(this.names.get(step.id) ?? `feature ${step.id}`, taken(step.regions, step.regionPick), others.map((o) => ({ name: o.name, regions: taken(o.keys, o.pick) })))
     if (same) this.stepWarnings.push(same)
@@ -2321,6 +2339,17 @@ export class Builder {
         }
       }
       case 'mirror': {
+        // A mirror turns a thread's hand: a right-handed one comes out
+        // left-handed in the copy, which no stock screw fits. Rarely meant,
+        // and nothing else shows it, so the row says so.
+        const before = this.stepsInPlay.findIndex((o) => o.id === step.id)
+        const threads = this.stepsInPlay.filter((o, i) => o.kind === 'thread' && o.body === step.body && (before < 0 || i < before))
+        if (threads.length > 0) {
+          const names = threads.map((t) => this.names.get(t.id) ?? `feature ${t.id}`)
+          const hands = new Set(threads.map((t) => (t.kind === 'thread' && t.leftHanded ? 'left' : 'right')))
+          const from = hands.size === 1 ? [...hands][0] : null
+          this.stepWarnings.push(`This mirrors ${names.join(', ')}: ${from ? `a ${from}-handed thread comes out ${from === 'right' ? 'left' : 'right'}-handed` : 'each thread comes out of the other hand'}${step.join ? ' on the mirrored half' : ' in the copy'}. To keep a thread's hand, copy the body with a 180° turn (moveBody) instead.`)
+        }
         let plane: PlaneGeometry
         if ('face' in step.plane) {
           const found = this.findFaces(step.body, [step.plane.face], step.id)
@@ -3273,10 +3302,10 @@ export class Builder {
 
   /** A body of the last build by id with its mesh — to a chord, if one is
    *  given — or null for a body that is not there. */
-  meshById(id: number, chord?: number): { id: number; mesh: KernelMesh } | null {
+  meshById(id: number, chord?: number, angle = 0.1): { id: number; mesh: KernelMesh } | null {
     const b = this.bodyById(id)
     if (!b) return null
-    const mesh = chord !== undefined ? this.kernel.mesh(b.shape, chord, 0.1) : this.meshes([id])[0]
+    const mesh = chord !== undefined ? this.kernel.mesh(b.shape, chord, angle) : this.meshes([id])[0]
     return mesh ? { id: this.resolve(id), mesh } : null
   }
 
@@ -4823,4 +4852,12 @@ function radiusJump(varying: readonly VariableEdge[], at: readonly number[], all
         }
     }
   }
+}
+
+/** Whether two extrudes or revolves on one sketch asked for their regions
+ *  the same way: the same pick as given ("all", "largest", a point), or the
+ *  same keys where they were given by key. */
+function askedAlike(a: { regions: readonly string[]; regionPick?: unknown }, b: { regions: readonly string[]; regionPick?: unknown }): boolean {
+  if (a.regionPick !== undefined || b.regionPick !== undefined) return JSON.stringify(a.regionPick) === JSON.stringify(b.regionPick)
+  return a.regions.length === b.regions.length && a.regions.every((k, i) => k === b.regions[i])
 }

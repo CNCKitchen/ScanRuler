@@ -22,11 +22,14 @@ import { meshFaultOut } from '../core/kernelMesh'
 import type { KernelMesh } from '../core/kernelTypes'
 import type { StepCheck, StepEdge, StepFace, StepMend, StepShell } from '../core/kernel'
 import { meshDeflection, type RoundTrip } from '../core/buildTypes'
+import { MESH_RESOLUTIONS, meshResolution, type MeshResolution, tinyPartNote } from '../core/meshResolution'
+import { fmtLen } from '../../../src/core/units'
 import { DEFAULT_FACING_DEG, liveMapReach, type ScanSide, type SideCounts } from '../core/liveMap'
 import { roundFaceIsBoss } from '../core/thread'
 import { useRePrefs } from '../state/rePrefs'
 import { BODY_SWATCHES, bodyColorOf } from '../state/reStore'
 import { allFeatures, bodyAt, bodyNamed, change, featureNamed, knowMesh, nullable, re, ready, type Ref, session, type Topology, topologyOf, type Where, whereIndices } from './reCommandCore'
+import { failures } from './reCommandAnswers'
 import { bodiesOut, edgeOut, faceOut, idleParametersOut } from './reReadout'
 import { bodyRef, featureRef, whereIn } from './reSchemas'
 import { compareInDeviation, type ReverseSession } from './reSession'
@@ -625,6 +628,20 @@ function roundTripOut(trip: RoundTrip, face: FaceNamer) {
  *  limit says otherwise; counts says how many there are. */
 const BRIEF_PER_KIND = 3
 
+/** The features that failed to build. The bodies are without them and are
+ *  still whole, so a check passes and an export writes them: a thread whose
+ *  clearance left its teeth no thickness leaves a plain bore. The answer
+ *  names them, so a file missing a feature is not taken for the part. */
+function notBuilt(): { failed: { id: number; name: string; message: string }[]; words: string } | null {
+  const failed = failures()
+  if (failed.length === 0) return null
+  const names = failed.map((f) => f.name)
+  return {
+    failed: failed.map(({ id, name, message }) => ({ id, name, message })),
+    words: ` Not in the bodies: ${names.join(', ')} failed to build${failed.length === 1 ? '' : ', each'}, so ${failed.length === 1 ? 'it is' : 'they are'} missing from what this reads.`,
+  }
+}
+
 export const check: Command<{ body?: Ref; before?: Ref; tinyArea?: number; audit?: boolean | 'brief' | 'full'; kinkDeg?: number; stepMm?: number; parallelDeg?: number; shortEdge?: number; limit?: number; tolerance?: number; roundTrip?: boolean | 'find' }> = {
   name: 'check',
   title: 'Check a body',
@@ -774,9 +791,11 @@ export const check: Command<{ body?: Ref; before?: Ref; tinyArea?: number; audit
     // Bodies alike — a pattern's instances before they are joined — answered
     // once: fifteen rows saying one thing each in its own place were 22 kB on
     // the last fan, a limit no help. Named, a body answers for itself.
-    if (body !== undefined || at || roundTrip === 'find') return { bodies: out }
+    const missing = notBuilt()
+    const told = missing ? { failed: missing.failed, status: missing.words.trim() } : {}
+    if (body !== undefined || at || roundTrip === 'find') return { bodies: out, ...told }
     const rows = onePerAlike(out)
-    return { bodies: rows, ...(rows.length < out.length ? { checked: out.length } : {}) }
+    return { bodies: rows, ...(rows.length < out.length ? { checked: out.length } : {}), ...told }
   },
 }
 
@@ -962,6 +981,7 @@ export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
     // Patch network's sheet — a skin of the part, which the file holds as
     // any other sheet it leaves out; each odd edge's faces by index on its
     // body, with their makers.
+    const missing = notBuilt()
     const features = check ? allFeatures() : []
     const networks = new Set(allFeatures().filter((f) => f.kind === 'network').map((f) => f.id))
     const solids = picked.filter((b) => !b.surface || networks.has(bodyMaker(b.id)))
@@ -970,7 +990,8 @@ export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
     return {
       file: { name, mimeType: 'model/step', bytes: new TextEncoder().encode(text) },
       bodies: picked.map((b) => ({ id: b.id, name: b.name })),
-      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as STEP solids, each under its name.${mended ? ` Mended: ${mended.map(mendWords).join(' ')}` : ''}${check ? (check.ok ? ' Read back and checked: it holds.' : ` Read back: ${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}.`) : ''}`,
+      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as STEP solids, each under its name.${mended ? ` Mended: ${mended.map(mendWords).join(' ')}` : ''}${check ? (check.ok ? ' Read back and checked: it holds.' : ` Read back: ${check.problems.length} problem${check.problems.length === 1 ? '' : 's'}.`) : ''}${missing?.words ?? ''}`,
+      ...(missing ? { failed: missing.failed } : {}),
       ...(mended ? { mended: mended.map(mendOut) } : {}),
       ...(planOpenSaid() ? { plan: planOpenSaid() } : {}),
       ...(check
@@ -992,36 +1013,61 @@ export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
   },
 }
 
-/** How far a triangle may stand off a curved face in a mesh for printing,
- *  millimetres, unless told otherwise. */
-const STL_CHORD_MM = 0.02
+/** The bodies' box across, mm, and the note a part under 2 mm across
+ *  earns — a scan in metres read as millimetres (issue 89). */
+function noteOnSize(bodies: readonly { box?: { min: Vec3; max: Vec3 } }[]): { note?: string } {
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  for (const b of bodies) {
+    if (!b.box) continue
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], b.box.min[k])
+      hi[k] = Math.max(hi[k], b.box.max[k])
+    }
+  }
+  const note = tinyPartNote(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), (mm) => fmtLen(mm, 'mm', 4))
+  return note ? { note } : {}
+}
 
-export const stl: Command<{ bodies?: Ref[]; chord?: number; format?: MeshFormat }> = {
+export const stl: Command<{ bodies?: Ref[]; resolution?: MeshResolution['id']; chord?: number; angleDeg?: number; format?: MeshFormat }> = {
   name: 'stl',
   title: 'Export the bodies as a mesh',
   description:
-    'The bodies as one binary STL in millimetres — or, format 3mf, a 3MF with each body an object of its own — for printing or for a mesh tool — the visible solid ones by default, meshed to the chord: how far a triangle may stand off a curved face, 0.02 mm by default (finer is larger). A sheet or a fitted surface is left out. Returns the file’s bytes, the name the panel would save it under and how many triangles it holds.',
-  input: obj({ bodies: arr(bodyRef, 'The bodies; the visible solid ones by default.', { minItems: 1 }), chord: num('mm; 0.02 by default.', { exclusiveMinimum: 0, maximum: 1 }), format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.') }),
+    'The bodies as one binary STL in millimetres — or, format 3mf, a 3MF with each body an object of its own — for printing or for a mesh tool — the visible solid ones by default, meshed as the panel’s Export mesh resolution says: draft (chord 0.1 mm, 15°), normal (the default: 0.02 mm, 5.7°), fine (0.005 mm, 2.5°) or finest (0.001 mm, 1°) — the chord how far a triangle may stand off a curved face, the angle how far round a curve one may turn, which is what holds a small part; chord and angleDeg set either alone. Finer is larger. A sheet or a fitted surface is left out. Returns the file’s bytes, the name the panel would save it under, how many triangles it holds, and a note when the part is under 2 mm across — a scan in metres read as millimetres.',
+  input: obj({
+    bodies: arr(bodyRef, 'The bodies; the visible solid ones by default.', { minItems: 1 }),
+    resolution: enumOf(MESH_RESOLUTIONS.map((r) => r.id), 'draft, normal (the default), fine or finest.'),
+    chord: num('mm, over the resolution’s.', { exclusiveMinimum: 0, maximum: 1 }),
+    angleDeg: num('Degrees, over the resolution’s.', { exclusiveMinimum: 0, maximum: 45 }),
+    format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.'),
+  }),
   readOnly: true,
   long: true,
   returnsFile: true,
   timeoutMs: 600_000,
-  run: async ({ bodies, chord = STL_CHORD_MM, format = 'stl' }) => {
+  run: async ({ bodies, resolution, chord: chordIn, angleDeg: angleIn, format = 'stl' }) => {
+    const step = meshResolution(resolution)
+    const chord = chordIn ?? step.chord
+    const angleDeg = angleIn ?? step.angleDeg
     const s = await ready()
     const picked = bodies ? bodies.map(bodyNamed) : re().bodies.filter((b) => b.visible && !b.surface)
     const sheet = picked.find((b) => b.surface)
     if (sheet) invalid(`${sheet.name} is a surface — a mesh export is of solids.`)
     if (picked.length === 0) throw new CommandError('invalid_state', 'There is no visible solid body to export — build one first.')
-    const f = await s.meshFile(picked, chord, format).catch((e) => {
+    const f = await s.meshFile(picked, chord, format, angleDeg).catch((e) => {
       throw new CommandError('failed', `Mesh export failed: ${errorMessage(e)}`)
     })
     if (!f) throw new CommandError('failed', 'The bodies meshed to no triangle.')
+    const missing = notBuilt()
     return {
       file: { name: f.name, mimeType: f.mimeType, bytes: f.bytes },
       bodies: picked.map((b) => ({ id: b.id, name: b.name })),
       chord,
+      angleDeg: Math.round(angleDeg * 100) / 100,
       triangles: f.triangles,
-      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as one ${MESH_FORMAT_LABEL[format]} of ${f.triangles} triangles.`,
+      ...noteOnSize(picked),
+      status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as one ${MESH_FORMAT_LABEL[format]} of ${f.triangles} triangles.${missing?.words ?? ''}`,
+      ...(missing ? { failed: missing.failed } : {}),
     }
   },
 }

@@ -47,6 +47,7 @@ function stage(): { scene: SceneManager; part: THREE.Group } {
     canvasRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) as DOMRect,
     container: {} as HTMLElement,
     camera: () => camera,
+    worldPerPixel: () => 0.1,
     setPickRay: () => {},
     invalidate: () => {},
     requestHover: () => {},

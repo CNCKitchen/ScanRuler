@@ -14,7 +14,7 @@
 
 import { datumTraces } from './datums'
 import { dimOfKind, evaluateFor, references, renameIn, RESERVED_NAMES, validName, type ParameterKind, type Scope } from './expression'
-import { planeAtOffset, planeOffset, planeTakesOffset, revolveMaxDeg, withPlaneOffset, type Feature, type PlaneRef, type RegionBox, type RegionPick, type SketchFeature, type SketchInset } from './features'
+import { dependentsOf, planeAtOffset, planeOffset, planeTakesOffset, revolveMaxDeg, withPlaneOffset, type Feature, type PlaneRef, type RegionBox, type RegionPick, type SketchFeature, type SketchInset } from './features'
 import type { SectionFrame } from '../../../src/core/section/frame'
 import { findRegions, matchRegion, regionByPlace, regionsByPick, splitParts, type Region } from './regions'
 import { cloneSketch, isDimension, type Constraint, type Sketch } from './sketch'
@@ -32,6 +32,9 @@ export interface Parameter {
   /** As typed: "25", "25.4/12", "threadlength+10". */
   expression: string
   comment?: string
+  /** Marked important by the person: listed first, with a star, and named
+   *  so to the agent — the dimensions to iterate on (issue 21). */
+  pinned?: boolean
 }
 
 export const PARAMETER_KINDS: readonly { kind: ParameterKind; label: string; unit: string }[] = [
@@ -661,6 +664,26 @@ export function usersOf(name: string, parameters: readonly Parameter[], features
   for (const p of parameters) if (p.name !== name && references(p.expression).includes(name)) out.push({ kind: 'parameter', id: p.id, name: p.name })
   for (const f of features) if (featureReads(f, name)) out.push({ kind: 'feature', id: f.id, name: f.name })
   return out
+}
+
+/** The features a parameter drives, by id: those reading it, or reading a
+ *  parameter that reads it, at any depth — and, for a sketch among them,
+ *  the features built on it, whose faces its dimensions shape. What its
+ *  row lights while it is pointed at or edited (issue 21). */
+export function drivenBy(name: string, parameters: readonly Parameter[], features: readonly Feature[]): number[] {
+  const names = new Set([name])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const p of parameters) {
+      if (names.has(p.name) || !references(p.expression).some((n) => names.has(n))) continue
+      names.add(p.name)
+      grew = true
+    }
+  }
+  const out = new Set<number>()
+  for (const f of features) if ([...names].some((n) => featureReads(f, n))) out.add(f.id)
+  for (const f of features) if (f.kind === 'sketch' && out.has(f.id)) for (const d of dependentsOf(f.id, features)) out.add(d.id)
+  return [...out]
 }
 
 /** Where a feature reads a parameter: its slots by their paths ("extent.to"),

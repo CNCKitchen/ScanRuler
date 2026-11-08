@@ -36,6 +36,7 @@ import { BooleanTool } from './tools/BooleanTool'
 import { TrimTool } from './tools/TrimTool'
 import { HolesTool } from './tools/HolesTool'
 import { SmoothTool } from './tools/SmoothTool'
+import { DensifyTool } from './tools/DensifyTool'
 import { OffsetTool } from './tools/OffsetTool'
 import { ShellTool } from './tools/ShellTool'
 import { WrapTool } from './tools/WrapTool'
@@ -91,6 +92,12 @@ const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] =
     title: 'Take the scanner’s scatter out of the surface, never moving any point further than a limit you set, sharp edges held',
   },
   {
+    id: 'densify',
+    icon: <MeshIcon name="densify" />,
+    label: 'Densify',
+    title: 'Cut the triangles until none has an edge longer than a length you set, the surface where it was — for an STL exported from CAD, whose long triangles leave nothing inside its faces to fit on',
+  },
+  {
     id: 'offset',
     icon: <MeshIcon name="offsetSurface" />,
     label: 'Shrink/expand',
@@ -136,6 +143,7 @@ export function MeshPanel({
   onMirror,
   onFillHoles,
   onSmooth,
+  onDensify,
   onOffset,
   onShell,
   onWrap,
@@ -164,6 +172,7 @@ export function MeshPanel({
   onMirror: () => void
   onFillHoles: () => void
   onSmooth: () => void
+  onDensify: () => void
   onOffset: () => void
   onShell: (mode: 'hollow' | 'thicken') => void
   /** Wrap the mesh, stop the wrap running, make it the edited copy, or put
@@ -207,7 +216,7 @@ export function MeshPanel({
             </p>
             <p>
               <b>Remove islands</b>, <b>Delete marked</b>, <b>Flip normals</b>, <b>Cut</b>, <b>Mirror</b>, <b>Fill holes</b>,{' '}
-              <b>Smooth</b>, <b>Shrink/expand</b>, <b>Boolean</b> and <b>Shell/hollow</b> edit a copy of the scan, shown
+              <b>Smooth</b>, <b>Densify</b>, <b>Shrink/expand</b>, <b>Boolean</b> and <b>Shell/hollow</b> edit a copy of the scan, shown
               here in its place; every other workspace
               goes on measuring the scan as it was until <b>Use for analysis</b> takes the copy into
               use. <b>Reduce mesh</b> makes a light mesh beside it — of the copy, when there is one —
@@ -282,6 +291,8 @@ export function MeshPanel({
         <BooleanTool ready={Boolean(scanName)} busy={busy} onBoolean={onBoolean} />
       ) : tool === 'trim' ? (
         <TrimTool ready={Boolean(scanName)} busy={busy} onTrim={onTrim} onExport={onExportTrimmed} onClear={onClearMarking} />
+      ) : tool === 'densify' ? (
+        <DensifyTool ready={Boolean(scanName)} busy={busy} onDensify={onDensify} />
       ) : tool === 'offset' ? (
         <OffsetTool ready={Boolean(scanName)} busy={busy} onOffset={onOffset} onClear={onClearMarking} />
       ) : tool === 'shell' ? (

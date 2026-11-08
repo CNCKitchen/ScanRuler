@@ -10,6 +10,7 @@ import { lineLength } from '../core/sketch'
 import { gripFieldValue, useReverse } from '../state/reStore'
 import type { ExtrudeFeature, SketchFeature } from '../core/features'
 import { XY } from './reKit'
+import { drivenBy } from '../core/parameters'
 
 const s = () => useReverse.getState()
 
@@ -249,5 +250,48 @@ describe('a sketch dimension reading a parameter', () => {
     // A rename reaches into the open sketch.
     expect(s().setParameter(width, { name: 'w' })).toBeNull()
     expect(s().sketchDraft!.sketch.constraints.find((c) => c.id === dim)).toMatchObject({ expr: 'w' })
+  })
+})
+
+describe('what a parameter drives, and one marked important (issue 21)', () => {
+  it('drives the sketch whose dimension reads it and the extrude on that sketch, and through another parameter an extrude’s depth', () => {
+    const w = s().addParameter()
+    s().setParameter(w, { name: 'w', expression: '10' })
+    const deep = s().addParameter()
+    s().setParameter(deep, { name: 'deep', expression: 'w / 2' })
+    const idle = s().addParameter()
+    s().setParameter(idle, { name: 'spare', expression: '3' })
+    const { id: square } = finishSquare(10, 'w')
+    s().startExtrude(square)
+    s().setExtrude({ extent: { kind: 'distance', from: 0, to: 5 } })
+    s().setDraftExpr('extent.to', 'deep')
+    const extrude = s().commitExtrude()!
+    const { id: other } = finishSquare(4)
+    s().startExtrude(other)
+    s().setExtrude({ extent: { kind: 'distance', from: 0, to: 2 } })
+    const plain = s().commitExtrude()!
+    const all = [...s().features]
+    // w: the square's dimension, so the square and the extrude on it — and
+    // the depth through deep.
+    expect(drivenBy('w', s().parameters, all).sort()).toEqual([square, extrude].sort())
+    expect(drivenBy('deep', s().parameters, all)).toEqual([extrude])
+    expect(drivenBy('spare', s().parameters, all)).toEqual([])
+    expect(drivenBy('w', s().parameters, all)).not.toContain(plain)
+  })
+
+  it('is marked important and back, a step each, and lit while pointed at without a step', () => {
+    const a = s().addParameter()
+    s().setParameter(a, { name: 'a', expression: '1' })
+    const past = s().past.length
+    expect(s().setParameter(a, { pinned: true })).toBeNull()
+    expect(s().parameters[0].pinned).toBe(true)
+    expect(s().past.length).toBe(past + 1)
+    expect(s().setParameter(a, { pinned: false })).toBeNull()
+    expect('pinned' in s().parameters[0]).toBe(false)
+    s().setParameterLit(a)
+    expect(s().parameterLit).toBe(a)
+    expect(s().past.length).toBe(past + 2)
+    s().setParameterLit(null)
+    expect(s().parameterLit).toBeNull()
   })
 })

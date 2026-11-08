@@ -177,6 +177,7 @@ export function validateReversePart(raw: unknown): ReversePart {
       fields(p, 'name kind expression', 'string', 'parameter')
       if (!['length', 'angle', 'integer', 'number'].includes(p.kind as string)) invalid('parameter.kind')
       if (names.has(p.name as string)) invalid('parameter.name')
+      if (p.pinned !== undefined && typeof p.pinned !== 'boolean') invalid('parameter.pinned')
       names.add(p.name as string)
     })
     if (r.nextParameterId !== undefined) fields(r, 'nextParameterId', 'number', 'reverse')

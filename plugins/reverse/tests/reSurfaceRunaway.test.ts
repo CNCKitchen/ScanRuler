@@ -8,7 +8,7 @@
 // noise; a fit that still runs away is refused, naming where; the
 // kernel's surface through the fit is checked to follow it, and its
 // triangles are counted before it is meshed.
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Builder } from '../core/build'
 import type { Feature } from '../core/features'
 import { ReKernel } from '../core/kernel'
@@ -213,11 +213,17 @@ describe('the kernel’s surface and its mesh', () => {
   it('refuses a surface that would mesh to too many triangles, before it is meshed', async () => {
     // An egg crate a metre across, 600 mm deep, the net following it.
     const xyz = patch((x, y) => 300 * Math.sin(x / 51) * Math.sin(y / 51), 1000, 1000, 10)
-    const t = performance.now()
-    const { result } = await fitted(xyz, { net: { u: 20, v: 20 }, smoothness: 0, expandPct: 0 })
-    expect(result.status).toBe('failed')
-    expect(result.message).toMatch(/^The surface would mesh to about \d+ k triangles at its 0.05 mm chord/)
-    expect(performance.now() - t).toBeLessThan(10_000)
+    // Asked of the mesher rather than the clock: a fixed time limit failed
+    // on slower CI runners while the count still came first.
+    const meshed = vi.spyOn(await kernelPromise, 'mesh')
+    try {
+      const { result } = await fitted(xyz, { net: { u: 20, v: 20 }, smoothness: 0, expandPct: 0 })
+      expect(result.status).toBe('failed')
+      expect(result.message).toMatch(/^The surface would mesh to about \d+ k triangles at its 0.05 mm chord/)
+      expect(meshed).not.toHaveBeenCalled()
+    } finally {
+      meshed.mockRestore()
+    }
   })
 
   it('draws a fitted surface to a chord after its size', async () => {

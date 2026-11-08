@@ -28,8 +28,10 @@ import { traceLine, traceOf, traceOffset, type DatumPlane, type DatumTrace } fro
 import {
   anchorPoint,
   arcPoint,
+  distanceAlong,
   splineJoint,
   type Anchor,
+  type DistanceAxis,
   type Constraint,
   type Sketch,
   type SketchArc,
@@ -635,7 +637,10 @@ export function solveSketch(sketch: Sketch, options: SolveOptions = {}): SolveRe
         const trace = traceOf(options.datums, q.datum)
         if (trace) hard(c, [c.p.entity], (xs) => [Math.abs(traceOffset(trace, anchorAt(xs, c.p))) - c.value])
       } else {
-        hard(c, [c.p.entity, q.entity], (xs) => [len2(sub2(anchorAt(xs, c.p), anchorAt(xs, q))) - c.value])
+        // Along an axis the two points' ΔX or ΔY, unsigned as every
+        // distance is; straight across otherwise.
+        const axis = c.axis
+        hard(c, [c.p.entity, q.entity], (xs) => [distanceAlong(anchorAt(xs, c.p), anchorAt(xs, q), axis) - c.value])
       }
     } else if (c.kind === 'pointOn') {
       // Signed distance off the carrier — zero on it.
@@ -1110,6 +1115,7 @@ export function measureDimension(
   a: SketchEntity | Anchor,
   b?: SketchEntity | Anchor | { line: number } | { datum: DatumPlane },
   datums?: readonly DatumTrace[],
+  axis?: DistanceAxis,
 ): number | null {
   const ent = (id: number) => sketch.entities.find((e) => e.id === id)
   const pointOf = (x: SketchEntity | Anchor): Vec2 | null => {
@@ -1146,7 +1152,7 @@ export function measureDimension(
     return d ? Math.abs(dot2(sub2(p, l.a), perp2(d))) : null
   }
   const q = pointOf(b)
-  return q ? len2(sub2(p, q)) : null
+  return q ? distanceAlong(p, q, axis) : null
 }
 
 export { arcPoint }

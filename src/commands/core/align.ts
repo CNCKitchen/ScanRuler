@@ -281,11 +281,34 @@ const squareOut = (t: AutoAlignTilts) => ({
   })),
 })
 
+/** Rays cast from the largest face out along its normal: a 3 × 3 patch
+ *  about its middle. Most of them meeting the scan within the part's size
+ *  is a face that looks into the part — a rib's or a pocket's wall, which a
+ *  housing's largest flat face often is (issue 77) — not one it stands or
+ *  mates on. */
+const INSIDE_RAYS = 3
+const INSIDE_HITS = 6
+
+async function facesIn(largest: NonNullable<AutoAlignTilts['largest']>): Promise<{ clear: number; hits: number } | null> {
+  const client = commandHost().session.clientRef.current
+  const size = useStore.getState().modelSize
+  const n = normalize(largest.normal)
+  if (!client || !n || !(size > 0)) return null
+  const [u, v] = orthoBasis(n)
+  const cell = Math.sqrt(largest.area) / (INSIDE_RAYS + 1)
+  const off = Math.max(0.3, 0.002 * size)
+  const half = (INSIDE_RAYS * cell) / 2
+  const origin: Vec3 = [0, 1, 2].map((k) => largest.at[k] + n[k] * off - (u[k] + v[k]) * half) as Vec3
+  const values = await client.heights({ origin, dir: n, u, v, cell, cols: INSIDE_RAYS, rows: INSIDE_RAYS, far: 2 * size })
+  const hit = Array.from(values).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
+  return hit.length >= INSIDE_HITS ? { clear: hit[Math.floor(hit.length / 2)] + off, hits: hit.length } : null
+}
+
 const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
   name: 'auto',
   title: 'Auto-align the part',
   description:
-    'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts. Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.',
+    'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts; largestInside when that face looks into the part (the scan stands in front of it: a rib’s wall, not a mating face — level on the mating face with align.datum). Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.',
   input: obj({
     level: enumOf(['settled', 'largest'], 'settled (the default): all faces at once, by area. largest: the largest flat face exactly, the rest settled about its normal.'),
     detail: detailIn,
@@ -301,7 +324,18 @@ const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
         throw new CommandError('failed', lastError('Auto-align found no pose.'))
       }
       const note = useStore.getState().alignDraft?.proposal
-      return applied(await applyOpenBox(), detail, { note, square: squareOut(tilts) })
+      // Looked at in the scan's frame as it stands, before the pose moves it.
+      const inside = tilts.largest ? await facesIn(tilts.largest) : null
+      const square = squareOut(tilts)
+      const warning = inside
+        ? {
+            largestInside: {
+              clearMm: roundTo(inside.clear, 1),
+              note: `The largest flat face (${Math.round(tilts.largest!.area)} mm², square to ${tilts.largest!.axis}) faces into the part: the scan stands about ${roundTo(inside.clear, 1)} mm in front of it along its outward normal — an inside wall, a rib's or a pocket's, not a face the part stands or mates on. Check the datums before modelling: align.datum on the face it mates on (a flange, a base).`,
+            },
+          }
+        : {}
+      return applied(await applyOpenBox(), detail, { note, square, ...warning })
     } finally {
       closeBox()
     }

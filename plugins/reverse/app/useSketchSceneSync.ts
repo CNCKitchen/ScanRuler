@@ -26,6 +26,8 @@ import type { FlatScene, SketchDimensionItem } from '../../../src/viewer/FlatSce
 import { SKETCH_DOT, SKETCH_LINE, sketchPalette } from '../viewer/sketchPalette'
 import { dimensionFieldText, dimensionText } from '../viewer/sketchDimText'
 import type { SketchChains } from './useReverseWorkspace'
+import { pieceNear, pulledDimension } from '../state/reSketchDraft'
+import { trimPlan } from '../core/trim'
 
 /** How the pieces are coloured — fitted to the slice, drawn free, brought
  *  in, for construction only, selected — on the instrument as it is lit. */
@@ -173,6 +175,10 @@ function snapMark(kind: SnapKind, at: Vec2, s: number): FlatFit[] {
         ? [seg([x - s * 1.4, y], [x + s * 1.4, y]), seg([x, y - s * 1.4], [x, y + s * 1.4])]
       : kind === 'midpoint'
         ? [seg([x - s, y - s * 0.7], [x + s, y - s * 0.7]), seg([x + s, y - s * 0.7], [x, y + s]), seg([x, y + s], [x - s, y - s * 0.7])]
+      : kind === 'quadrant'
+        ? [{ kind: 'circle', center: at, radius: s * 0.8, sigma: 0, usedPoints: 0 }, seg([x - s * 0.8, y], [x + s * 0.8, y]), seg([x, y - s * 0.8], [x, y + s * 0.8])]
+      : kind === 'track'
+        ? [seg([x - s, y - s], [x + s, y + s]), seg([x - s, y + s], [x + s, y - s]), { kind: 'circle', center: at, radius: s * 0.5, sigma: 0, usedPoints: 0 }]
       : kind === 'edge'
         ? [seg([x - s, y], [x, y + s]), seg([x, y + s], [x + s, y]), seg([x + s, y], [x, y - s]), seg([x, y - s], [x - s, y])]
         : kind === 'entity' || kind === 'datum'
@@ -180,6 +186,10 @@ function snapMark(kind: SnapKind, at: Vec2, s: number): FlatFit[] {
           : [seg([x - s, y - s], [x + s, y - s]), seg([x + s, y - s], [x + s, y + s]), seg([x + s, y + s], [x - s, y + s]), seg([x - s, y + s], [x - s, y - s])]
   return shapes.filter((f): f is FlatFit => f !== null)
 }
+
+/** The tools whose clicks place points, and so track from points the
+ *  cursor passed over (snap.ts trackingSnap). */
+const TRACKING_TOOLS = new Set(['line', 'rectangle', 'polygon', 'circle', 'arc', 'spline', 'point'])
 
 const GLYPHS: Partial<Record<Constraint['kind'], string>> = {
   coincident: '•',
@@ -301,17 +311,51 @@ export function useSketchSceneSync({
   const placing = useRef<{ id: number; at: Vec2 } | null>(null)
   /** The draft's dimFocus last acted on: a new count opens a number. */
   const focusSeen = useRef<number | undefined>(undefined)
+  /** The points a drawing tool's cursor last snapped to — an end, a centre,
+   *  a middle, a quadrant, the zero — newest first, by the anchor so they
+   *  follow their piece: what the dashed tracking lines run from. Cleared
+   *  when the tool changes. */
+  const tracked = useRef<{ tool: string; points: (Anchor | 'origin')[] }>({ tool: '', points: [] })
+
+  /** The tracked points where they lie now, for the tool in hand. */
+  const trackPoints = (): Vec2[] => {
+    const d = useReverse.getState().sketchDraft
+    if (!d || !TRACKING_TOOLS.has(d.tool) || tracked.current.tool !== d.tool) return []
+    const out: Vec2[] = []
+    for (const t of tracked.current.points) {
+      if (t === 'origin') out.push([0, 0])
+      else {
+        const e = entityOf(d.sketch, t.entity)
+        if (e) out.push(anchorPoint(e, t.at))
+      }
+    }
+    return out
+  }
+
+  /** A point the drawing tool's cursor snapped to, taken as one to track
+   *  from: the newest first, the two newest kept, as CAD keeps a couple. */
+  const remember = (tool: string, snap: { kind: SnapKind | null; anchor: Anchor | null }) => {
+    if (!TRACKING_TOOLS.has(tool)) return
+    const point: Anchor | 'origin' | null = snap.kind === 'origin' ? 'origin' : snap.anchor && (snap.kind === 'anchor' || snap.kind === 'midpoint' || snap.kind === 'quadrant') ? snap.anchor : null
+    if (!point) return
+    const same = (a: Anchor | 'origin', b: Anchor | 'origin') => (a === 'origin' || b === 'origin' ? a === b : a.entity === b.entity && a.at === b.at)
+    const was = tracked.current.tool === tool ? tracked.current.points : []
+    if (was[0] && same(was[0], point)) return
+    tracked.current = { tool, points: [point, ...was.filter((p) => !same(p, point))].slice(0, 2) }
+  }
 
   /** What a click or a drag may land on besides the sketch: the slice
-   *  chains, and the grid at its current spacing when grid snapping is
-   *  switched on — or nothing, with Ctrl held. */
+   *  chains, the grid at its current spacing when grid snapping is switched
+   *  on, the tracking lines of a drawing tool — or nothing, with Ctrl held. */
   const snapFor = (raw: boolean): SnapContext => {
     const frame = useReverse.getState().sketchDraft?.frame
+    const track = trackPoints()
     return {
       chains: chainsOf()?.chains ?? null,
       grid: useRePrefs.getState().gridSnap ? (scene()?.gridStep() ?? null) : null,
       datums: frame ? datumTraces(frame) : null,
       off: raw,
+      ...(track.length > 0 ? { track } : {}),
     }
   }
 
@@ -398,11 +442,13 @@ export function useSketchSceneSync({
     if (!view) return
     if (!draft) {
       view.setDraftMarks([], null)
+      view.setGuides([])
       view.setCursor('')
       view.setDragHover(false)
       return
     }
     const fits: FlatFit[] = []
+    const guides: Parameters<FlatScene['setGuides']>[0][number][] = []
     const at = hover.current
     let overHandle = false
     const swung = arcDrag.current
@@ -421,12 +467,21 @@ export function useSketchSceneSync({
         placing.current = { id: draft.dimMade, at: at.p }
         pushDimensions()
       }
+    } else if (at && draft.tool === 'trim') {
+      // The stretch a click would take away, lit in the trim colour.
+      const hit = pieceNear(draft.sketch, at.p, at.radius)
+      const plan = hit ? trimPlan(draft.sketch, hit.id, at.p) : null
+      if (plan && typeof plan !== 'string') guides.push({ points: plan.stretch, color: colors().trim, width: SKETCH_LINE.hover })
     } else if (at && draft.tool === 'project') {
       // The edge or piece under the cursor, as the piece it would become.
       const found = projectableAt(candidates(), at.p, at.radius)
       if (found) fits.push(entityFit({ ...found.entity, id: 0 } as SketchEntity))
     } else if (at && draft.tool !== 'select') {
       const snap = snapSketchPoint(draft.sketch, at.p, at.radius, snapFor(at.raw))
+      // A point snapped to is one to track from next; the tracking lines
+      // the cursor is on are drawn dashed from their points.
+      remember(draft.tool, snap)
+      for (const g of snap.guides ?? []) guides.push({ points: [g.from, g.to], color: colors().track, dashed: true })
       // A spline's first point, the cursor back on it, closes the curve.
       const closing = draft.tool === 'spline' && splineClosesAt(draft.pending, at.p, at.radius)
       fits.push(...toolPreview(draft.tool, draft.pending, closing ? draft.pending[0] : snap.point, useRePrefs.getState().drawModes, useRePrefs.getState().polygonSides))
@@ -447,12 +502,13 @@ export function useSketchSceneSync({
     }
     // The Pattern box open: the copies it would make, drawn where they land.
     if (draft.pattern && draft.selection.length > 0) fits.push(...patternPreview(draft.sketch, draft.selection, draft.pattern))
-    view.setCursor(draft.tool === 'select' ? (pick ? 'pointer' : '') : draft.tool === 'dimension' || draft.tool === 'relation' || draft.tool === 'fillet' || draft.tool === 'chamfer' ? 'pointer' : 'crosshair')
+    view.setCursor(draft.tool === 'select' ? (pick ? 'pointer' : '') : draft.tool === 'dimension' || draft.tool === 'relation' || draft.tool === 'fillet' || draft.tool === 'chamfer' || draft.tool === 'trim' ? 'pointer' : 'crosshair')
     // Over a piece the navigator lets go of the press, so it is a drag of
     // the piece and not a pan of the sheet.
     view.setDragHover(overHandle)
     // A chain's carried-on start is an end already drawn, not a pick to pin.
     view.setDraftMarks(draft.chain ? [] : draft.pending, fits, undefined, colors().free)
+    view.setGuides(guides)
   }
 
   /** The pieces, the coordinate planes' lines and the dots on the ends, in
@@ -619,8 +675,11 @@ export function useSketchSceneSync({
     // is typed is read back into millimetres by the label's handler.
     const units = usePrefs.getState().units
     const dims: SketchDimensionItem[] = []
-    for (const c of sketch.constraints) {
-      if (!isDimension(c)) continue
+    for (const c0 of sketch.constraints) {
+      if (!isDimension(c0)) continue
+      // The one in hand as the click would put it down there: a distance
+      // pulled square above or beside its two points measures along u or v.
+      const c = held?.id === c0.id ? pulledDimension(c0, sketch, held.at) : c0
       const place = held?.id === c.id ? dimPlaceAt(c, sketch, held.at, traces) : null
       const shape = dimShape(place ? { ...c, place } : c, sketch, traces, lift)
       if (!shape) continue

@@ -752,6 +752,34 @@ export function createMeshToolsSession({
     )
   }
 
+  // ---- Densify -----------------------------------------------------------------------
+
+  /** Cut the copy's triangles until no edge is longer than the panel's
+   *  length — every new vertex an edge's middle, so the surface stays as it
+   *  was: what an STL exported from CAD, with vertices only on its edges,
+   *  needs before a fit finds points inside its faces (issue 42). */
+  const densifyScan = async (run?: EditRun): Promise<EditLanded | null> => {
+    const { densifyEdge: maxEdge } = useMeshTools.getState()
+    const len = lengthsOf(run?.units)
+    return workerEdit(
+      'Mesh Tools: densify',
+      'Densifying…',
+      () => ({ type: 'densify', maxEdge }),
+      (rep) => {
+        const d = rep.kind === 'densify' ? rep.report : null
+        const added = d?.added ?? 0
+        return {
+          edit: { kind: 'densify', maxEdge, added, triangles: d?.triangles ?? 0 },
+          status:
+            added === 0
+              ? `No edge was longer than ${len.fmt(maxEdge, 3)} — nothing to cut. Ctrl+Z takes the step back.`
+              : `Densified: ${count(d?.trianglesBefore ?? 0)} triangles cut into ${count(d?.triangles ?? 0)}, none with an edge over ${len.fmt(maxEdge, 3)} — the surface where it was. Ctrl+Z puts it back.`,
+        }
+      },
+      run,
+    )
+  }
+
   // ---- Shrink / expand -----------------------------------------------------------------
 
   /** Move the copy's surface along its normal as the panel says — all of it,
@@ -1056,6 +1084,7 @@ export function createMeshToolsSession({
     mirrorScan,
     fillScanHoles,
     smoothScan,
+    densifyScan,
     offsetScan,
     shellScan,
     meshOfSolid,

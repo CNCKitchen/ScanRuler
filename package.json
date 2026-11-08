@@ -1,7 +1,7 @@
 {
   "name": "scanruler",
   "private": true,
-  "version": "0.9.8",
+  "version": "0.9.9",
   "type": "module",
   "license": "AGPL-3.0-only",
   "author": "Stefan Hermann (CNC Kitchen) <stefan@cnckitchen.com>",
@@ -94,6 +94,6 @@
     "puppeteer-core": "^25.6.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^5.0.5"
   }
 }
