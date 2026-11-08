@@ -83,7 +83,7 @@ import { lengthInputText, unitWord, type DisplayUnits } from './core/units'
 import { useShell } from './state/shellStore'
 import { useMark } from './state/markStore'
 import { useThickness } from './state/thicknessStore'
-import { imageScaleX, useFlat } from './state/flatStore'
+import { edgesSettled, imageScaleX, useFlat } from './state/flatStore'
 import { sectionViewFrames, useSectionView } from './state/sectionViewStore'
 import type { FieldScale } from './core/field/colormap'
 import { deviationScale } from './core/deviation/deviation'
@@ -1326,20 +1326,14 @@ function Workbench() {
     flat: {
       openImage,
       closeImage: () => commitImage(null),
-      detectEdges: async (sensitivity) => {
+      detectEdges: async (sensitivity, signal) => {
         const flat = useFlat.getState()
         if (flat.subject.kind !== 'image' || !flatGrayRef.current) return flat.edgeCount
-        const before = flat.edgeVersion
+        const settled = edgesSettled(flat, signal)
         // A new sensitivity detects again by itself (the effect above).
         if (sensitivity !== flat.edgeSensitivity) flat.setEdgeSensitivity(sensitivity)
         else void runEdgeDetect()
-        await new Promise<void>((resolve) => {
-          const stop = useFlat.subscribe((s) => {
-            if (s.edgeVersion === before) return
-            stop()
-            resolve()
-          })
-        })
+        await settled
         return useFlat.getState().edgeCount
       },
       edgeIndex: () => activeEdgeIndex(),
@@ -1671,6 +1665,7 @@ function Workbench() {
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
+                s.setMarkSize(usePrefs.getState().markSize)
               }}
               onPick={handlePick}
               onHover={handleHover}

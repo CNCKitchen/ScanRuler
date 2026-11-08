@@ -14,6 +14,9 @@ export interface EditedCopy {
   map: Int32Array
 }
 
+/** The memory a version of the copy holds: its file and its numbering. */
+export const editedCopyBytes = (copy: EditedCopy): number => copy.source.bytes.byteLength + copy.map.byteLength
+
 /** The copy being edited, or null with none. Kept like the app keeps the
  *  bytes of every model it opened (app/project SourceFiles): out of every
  *  store, being a big buffer, and one to a session. */

@@ -301,6 +301,12 @@ interface MeshState {
   survey: (PieceCount & { minSize: number }) | null
   /** Bumped when a survey lands, so the viewport marks its islands. */
   surveyVersion: number
+  /** Why the survey of the tool in hand — its islands, holes or what Shell
+   *  will do — failed, or null. Kept apart from a survey of null, which is
+   *  one still being made, so a panel does not wait on it for ever. */
+  surveyFailed: string | null
+  /** Bumped by Retry, to make the failed survey again. */
+  surveyAttempt: number
   /** The islands marked on the part — or the surface marked by hand, for
    *  Delete marked — have been asked to go, and wait on a yes. Nothing is
    *  deleted before it; any change to what is marked — another size,
@@ -468,6 +474,8 @@ interface MeshState {
   setView: (view: MeshView) => void
   setPieceSize: (v: number) => void
   setSurvey: (survey: (PieceCount & { minSize: number }) | null) => void
+  setSurveyFailed: (why: string | null) => void
+  retrySurvey: () => void
   setConfirming: (on: boolean) => void
   setEditing: (on: boolean) => void
   addEdit: (edit: ScanEdit) => void
@@ -555,6 +563,8 @@ const CLEARED = {
   message: null,
   report: null,
   survey: null,
+  surveyFailed: null,
+  surveyAttempt: 0,
   holeSurvey: null,
   cutPreview: null,
   boolClosed: null,
@@ -677,6 +687,10 @@ export const useMeshTools = create<MeshState>()((set) => ({
   setPieceSize: (v) => set({ pieceSize: Math.max(1e-3, v), pieceSizeAuto: false, confirming: false }),
 
   setSurvey: (survey) => set((s) => ({ survey, surveyVersion: s.surveyVersion + 1, confirming: false })),
+
+  setSurveyFailed: (surveyFailed) => set({ surveyFailed }),
+
+  retrySurvey: () => set((s) => ({ surveyFailed: null, surveyAttempt: s.surveyAttempt + 1 })),
 
   setConfirming: (confirming) => set({ confirming }),
 
@@ -885,7 +899,9 @@ const count = (n: number) => n.toLocaleString('en-US')
  *  named again. */
 function cutPlaneText(plane: string, units: DisplayUnits): string {
   if (units === 'mm') return plane
-  return plane.replace(/(\d+(?:\.\d+)?) mm$/, (_, v: string) => typedLen(Number(v), units))
+  // String() writes a very small or very large offset in exponent form
+  // ("1e-7"), and the whole figure has to be read, not just its exponent.
+  return plane.replace(/(\d+(?:\.\d+)?(?:e[+-]?\d+)?) mm$/, (_, v: string) => typedLen(Number(v), units))
 }
 
 /** One line of the list of edits, as the panel shows it — its lengths in

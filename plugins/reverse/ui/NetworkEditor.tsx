@@ -12,6 +12,7 @@ import { useLength } from '../../../src/app/useUnits'
 import { sceneOf } from '../../../src/commands/host'
 import { fmtLen, type DisplayUnits } from '../../../src/core/units'
 import { InfoDot } from '../../../src/ui/InfoDot'
+import { NumberInput } from '../../../src/ui/NumberField'
 import type { NetworkReport } from '../core/networkBody'
 import { DEFAULT_TOLERANCE, SPANS_MAX, SPANS_MIN } from '../core/networkCurve'
 import { acceptCreases, addSeeds, redoNetwork, removeReportedPatch, removeSeed, setNetworkFit, setSide, setStripSpans, setSuggested, undoNetwork } from '../state/reNetworkDraft'
@@ -87,16 +88,16 @@ export function NetworkFields({ d }: { d: NetworkDraftOpen }) {
             <input type="checkbox" data-test={`${testId}-auto`} checked={strip.auto} onChange={(e) => edit((x) => setStripSpans(x, strip.curves, e.target.checked ? null : strip.spans))} />
             <span>Auto</span>
           </label>
-          <input
-            type="number"
+          <NumberInput
             data-test={testId}
             min={SPANS_MIN}
             max={SPANS_MAX}
             value={strip.spans}
             disabled={strip.auto}
-            onChange={(e) => {
-              const v = Math.round(Number(e.target.value))
-              if (Number.isFinite(v)) edit((x) => setStripSpans(x, strip.curves, Math.max(SPANS_MIN, Math.min(SPANS_MAX, v))))
+            onCommit={(typed) => {
+              if (typed === null) return
+              const v = Math.max(SPANS_MIN, Math.min(SPANS_MAX, Math.round(typed)))
+              if (v !== strip.spans) edit((x) => setStripSpans(x, strip.curves, v))
             }}
             style={{ width: 52 }}
           />

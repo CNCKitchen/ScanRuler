@@ -51,8 +51,9 @@ export interface FlatHost {
   openImage(file: File): Promise<void>
   /** Take the image off the sheet, as a project without one does. */
   closeImage(): void
-  /** Find the image's edges again at this sensitivity, 0 to 1. */
-  detectEdges(sensitivity: number): Promise<number>
+  /** Find the image's edges again at this sensitivity, 0 to 1. The wait for
+   *  them is given up on when `signal` aborts. */
+  detectEdges(sensitivity: number, signal?: AbortSignal): Promise<number>
   /** What a pick on the sheet snaps to — the subject's own edges. */
   edgeIndex(): EdgeIndex | null
   /** The sheet on the stage, or null with nothing on it. */

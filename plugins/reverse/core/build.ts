@@ -423,8 +423,10 @@ export class Builder {
         const slope = (p.radius2 - p.radius1) / Math.max(p.length, 1e-6)
         let from = -reach, to = reach
         const r = (t: number) => p.radius1 + slope * (t + p.length / 2)
-        if (r(from) < 1e-3) from = -p.length / 2 - (p.radius1 - 1e-3) / Math.max(-slope, 1e-9)
-        if (r(to) < 1e-3) to = p.length / 2 + (p.radius2 - 1e-3) / Math.max(slope, 1e-9)
+        // The radius falls toward −t where it grows along the axis (slope
+        // > 0), toward +t where it shrinks.
+        if (r(from) < 1e-3) from = -p.length / 2 - (p.radius1 - 1e-3) / Math.max(slope, 1e-9)
+        if (r(to) < 1e-3) to = p.length / 2 + (p.radius2 - 1e-3) / Math.max(-slope, 1e-9)
         from = Math.max(from, -reach)
         to = Math.min(to, reach)
         const n = normalize(p.axis) ?? [0, 0, 1]
@@ -3204,6 +3206,7 @@ export class Builder {
       narrow: k.narrowFaces(body.shape, SLIVER_MM).map((f) => ({ ...f, centroid: faceMiddle(f, placing) })),
       odd: k.oddEdges(body.shape, { knife: true, limit: ODD_EDGES_KEPT }),
       short: k.shortEdges(body.shape, { limit: ODD_EDGES_KEPT }),
+      conics: body.surface ? [] : k.smallConics(body.shape),
       ...(back !== undefined ? { readBack: back?.edges ?? [], readBackSolid: { closed: back?.closed ?? false, valid: back?.valid ?? false } } : {}),
       ...(folds ? { folds } : {}),
       ...(trip ? { roundTrip: trip } : {}),

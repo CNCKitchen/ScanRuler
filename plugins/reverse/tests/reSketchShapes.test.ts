@@ -159,6 +159,48 @@ describe('the sketch pattern', () => {
     near(anchorPoint(entityOf(t, open[1][0])!, 'center'), [0, 5])
   })
 
+  it('turns a rectangle round a centre and keeps it a rectangle, square to itself', () => {
+    // The copies took the original's horizontal and vertical relations, so
+    // a copy turned 120° was pulled level by the solve or conflicted
+    // (issue 34). A turn of a quarter swaps them; any other turn holds the
+    // copy's sides parallel and square to each other instead.
+    const s = emptySketch()
+    const rect = addRectangle(s, [20, 0], [30, 4])
+    const copies = patternPieces(s, rect, { kind: 'circular', centre: [0, 0], count: 4, angleDeg: 360 })
+    const turned = patternPieces(s, rect, { kind: 'circular', centre: [0, 0], count: 3, angleDeg: 360 })
+    const before = turned.map((ids) => ids.map((id) => [...line(s, id).a] as Vec2))
+    const report = solveSketch(s)
+    expect(report.ok).toBe(true)
+    expect(report.redundant).toBe(0)
+    // Nothing moved: each copy where the pattern put it.
+    turned.forEach((ids, k) => ids.forEach((id, i) => near(line(s, id).a, before[k][i])))
+    near(line(s, turned[0][0]).a, [20 * Math.cos((2 * Math.PI) / 3), 20 * Math.sin((2 * Math.PI) / 3)])
+    for (const ids of turned) {
+      const own = s.constraints.filter((c) => ('entity' in c && ids.includes(c.entity)) || ('a' in c && typeof c.a === 'number' && ids.includes(c.a)))
+      expect(own.filter((c) => c.kind === 'horizontal' || c.kind === 'vertical')).toHaveLength(0)
+      expect(own.filter((c) => c.kind === 'parallel' || c.kind === 'perpendicular')).toHaveLength(3)
+    }
+    // A quarter turn: the bottom upright, the side level.
+    const quarter = copies[0]
+    expect(s.constraints.find((c) => c.kind === 'vertical' && c.entity === quarter[0])).toBeTruthy()
+    expect(s.constraints.find((c) => c.kind === 'horizontal' && c.entity === quarter[1])).toBeTruthy()
+    // Dragged by a corner, a turned copy stays a rectangle: each corner
+    // square.
+    const sides = turned[1]
+    line(s, sides[0]).a = [line(s, sides[0]).a[0] + 0.5, line(s, sides[0]).a[1] - 0.3]
+    expect(solveSketch(s).ok).toBe(true)
+    const dir = (id: number): Vec2 => {
+      const l = line(s, id)
+      const d: Vec2 = [l.b[0] - l.a[0], l.b[1] - l.a[1]]
+      const n = Math.hypot(d[0], d[1])
+      return [d[0] / n, d[1] / n]
+    }
+    for (let i = 0; i < 4; i++) {
+      const [u, v] = [dir(sides[i]), dir(sides[(i + 1) % 4])]
+      expect(u[0] * v[0] + u[1] * v[1]).toBeCloseTo(0, 6)
+    }
+  })
+
   it('leaves what ties the pieces to the axes or to other pieces with the original', () => {
     const s = emptySketch()
     const other = addEntity(s, { kind: 'line', a: [0, -5], b: [10, -5] })

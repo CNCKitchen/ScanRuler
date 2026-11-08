@@ -223,4 +223,41 @@ describe('3MF import', () => {
     expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources/><build/>') }))).toThrow(/no triangles/)
     expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources/><build><item objectid="4"/></build>') }))).toThrow(/object 4/)
   })
+
+  it('leaves out many PrusaSlicer modifier runs without checking each against every triangle', () => {
+    const n = 80000
+    let verts = ''
+    let tris = ''
+    let vols = ''
+    for (let i = 0; i < n; i++) {
+      verts += `<vertex x="${i}" y="${i % 7}" z="${i % 3}"/>`
+      if (i >= 2) tris += `<triangle v1="${i - 2}" v2="${i - 1}" v3="${i}"/>`
+      // One-triangle modifier runs on every other triangle, past the end too.
+      vols += `<volume firstid="${2 * i}" lastid="${2 * i}"><metadata type="volume" key="modifier" value="1"/></volume>`
+    }
+    const file = pack({
+      '3D/3dmodel.model': model(`<resources><object id="1"><mesh><vertices>${verts}</vertices><triangles>${tris}</triangles></mesh></object></resources><build><item objectid="1"/></build>`),
+      'Metadata/Slic3r_PE_model.config': `<config><object id="1">${vols}</object></config>`,
+    })
+    const t = performance.now()
+    const mesh = parse3MF(file)
+    expect(performance.now() - t).toBeLessThan(1500)
+    expect(mesh.indices!.length / 3).toBe((n - 2) / 2)
+  })
+
+  it('reads a numeric entity past Unicode as a replacement character, not a RangeError', () => {
+    expect(() => parse3MF(pack({ '3D/3dmodel.model': model('<resources><object id="&#x110000;"/></resources><build/>') })))
+      .toThrow(/no triangles/)
+  })
+
+  it('does not take Object members for package parts', () => {
+    const rels = RELS.replace('/3D/3dmodel.model', 'constructor')
+    const zip = zipSync({
+      '_rels/.rels': strToU8(rels),
+      '3D/3dmodel.model': strToU8(model(`<resources><object id="1">${TRIANGLE}</object></resources><build><item objectid="1"/></build>`)),
+    })
+    expect(parse3MF(zip.buffer as ArrayBuffer).indices!.length).toBe(3)
+    const component = model(`<resources><object id="2"><components><component objectid="1" p:path="toString"/></components></object><object id="1">${TRIANGLE}</object></resources><build><item objectid="2"/></build>`)
+    expect(() => parse3MF(pack({ '3D/3dmodel.model': component }))).toThrow('This 3MF names toString, which it does not hold.')
+  })
 })

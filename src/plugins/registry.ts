@@ -75,17 +75,32 @@ let installed: readonly ScanRulerPlugin[] | null = null
  *  plugin registers never depends on the order the bundler found it in. */
 export function installPlugins(): readonly ScanRulerPlugin[] {
   if (installed) return installed
-  const all = Object.values(found)
-    .map((m) => m.default)
-    .sort((a, b) => a.id.localeCompare(b.id))
+  installed = installEnabled(Object.values(found).map((m) => m.default))
+  return installed
+}
+
+/** Install those of `all` that are enabled, by id, and return the ones that
+ *  installed. Only enabled plugins are checked for a shared id, so
+ *  `?plugins=none` still opens an app whose build has a clash. A plugin
+ *  whose install() throws is left out of the list, so nothing — the
+ *  headless engine included — takes it for one in use. */
+export function installEnabled(all: readonly ScanRulerPlugin[]): readonly ScanRulerPlugin[] {
+  const enabled = all.filter(pluginEnabled).sort((a, b) => a.id.localeCompare(b.id))
   const ids = new Set<string>()
-  for (const p of all) {
+  for (const p of enabled) {
     if (ids.has(p.id)) throw new Error(`Two plugins share the id "${p.id}".`)
     ids.add(p.id)
   }
-  installed = all.filter(pluginEnabled)
-  for (const p of installed) p.install?.()
-  return installed
+  const done: ScanRulerPlugin[] = []
+  for (const p of enabled) {
+    try {
+      p.install?.()
+      done.push(p)
+    } catch (error) {
+      console.error(`The plugin "${p.id}" could not be installed.`, error)
+    }
+  }
+  return done
 }
 
 /** The plugins in use — none until installPlugins() has run. */

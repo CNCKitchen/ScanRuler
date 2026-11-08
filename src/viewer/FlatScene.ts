@@ -970,13 +970,24 @@ export class FlatScene {
     this.container.appendChild(div)
     this.bandDiv = div
     const move = (ev: PointerEvent) => this.layoutBand(ev.clientX, ev.clientY)
-    const up = (ev: PointerEvent) => {
+    const stop = () => {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointercancel', cancel)
+    }
+    const up = (ev: PointerEvent) => {
+      stop()
       this.finishBand(ev.clientX, ev.clientY, ev)
+    }
+    // A gesture the browser takes over selects nothing: left listening, the
+    // band would box-select at whatever release came next, anywhere.
+    const cancel = () => {
+      stop()
+      this.dropBand()
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', cancel)
     this.layoutBand(e.clientX, e.clientY)
   }
 
@@ -1020,9 +1031,12 @@ export class FlatScene {
 
   /** Draw a selection box from the press: rightward a window, drawn solid,
    *  leftward a crossing box, drawn dashed — read again at every move, so
-   *  the box changes as the hand crosses back over where it started. Only
-   *  the pointer that pressed moves it; a release within the click
-   *  threshold is a click. */
+   *  the box changes as the hand crosses back over where it started. With
+   *  Ctrl, Command or Shift held it adds to the selection, and says so with
+   *  a + and a heavier border, as the key goes down or up too: the colour
+   *  tells the box's direction, not the key (issue 62). Only the pointer
+   *  that pressed moves it; a release within the click threshold is a
+   *  click. */
   private beginBox(e: PointerEvent): void {
     this.dropBox()
     const id = e.pointerId
@@ -1038,6 +1052,7 @@ export class FlatScene {
       const box = this.sheetBox(start, ev)
       div.classList.toggle('window', !box?.crossing)
       div.classList.toggle('crossing', !!box?.crossing)
+      div.classList.toggle('additive', !!box?.additive)
       this.layoutBox(div, start, ev.clientX, ev.clientY)
       if (box) this.onBoxDrag?.(box)
     }
@@ -1055,14 +1070,20 @@ export class FlatScene {
     const cancel = (ev: PointerEvent) => {
       if (ev.pointerId === id) this.dropBox()
     }
+    // The key pressed or let go with the hand still: the mark follows it.
+    const key = (ev: KeyboardEvent) => div.classList.toggle('additive', modHeld(ev) || ev.shiftKey)
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
     document.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', key)
+    window.addEventListener('keyup', key)
     this.box = {
       end: () => {
         document.removeEventListener('pointermove', move)
         document.removeEventListener('pointerup', up)
         document.removeEventListener('pointercancel', cancel)
+        window.removeEventListener('keydown', key)
+        window.removeEventListener('keyup', key)
         div.remove()
         if (moved) this.onBoxDrag?.(null)
       },

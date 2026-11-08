@@ -15,6 +15,19 @@ interface Checkpoint extends CheckpointInfo { manifest: ProjectManifest }
 
 const lockName = (id: string) => `scanruler-recovery:${id}`
 
+/** How many checkpoints left by closed pages are kept, and for how long.
+ *  Every page writes a slot of its own, each with a copy of its source
+ *  files, so without a limit the browser's storage fills session by session. */
+export const RECOVERY_KEEP = 10
+export const RECOVERY_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000
+
+/** The checkpoints to let go of: those past the age limit, and all but the
+ *  newest few of the rest. */
+export function staleCheckpoints(rows: readonly CheckpointInfo[], now: number, keep = RECOVERY_KEEP, maxAgeMs = RECOVERY_MAX_AGE_MS): string[] {
+  const newest = [...rows].sort((a, b) => b.savedAt - a.savedAt)
+  return newest.filter((row, i) => i >= keep || now - row.savedAt > maxAgeMs).map((row) => row.id)
+}
+
 /** Each page owns a separate slot. A tab can never overwrite another tab's
  *  checkpoint. Metadata reads deliberately do not load the large source files. */
 export class RecoveryStorage {

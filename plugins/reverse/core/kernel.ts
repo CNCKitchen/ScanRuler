@@ -34,7 +34,7 @@ import { asSolid, booleanFuzz, bothFaceHashes, FUZZY_COARSE_MM, fuzzyBooleans, H
 import { fullWidth } from './kernelRounds'
 import { collapsesInward, type FaceOffsetLimit, faceOffsetLimits, mostSpecific, offsetFault, onCopy, rawRefusal, shellByOffsetCut, shellPlain, shellSharpInside } from './kernelShell'
 import { meshEveryFace, meshVolume } from './kernelMesh'
-import { filesOpenEdges, hasLeftHandedTorus, mendTorusLoops, snapCurveEnds } from './kernelStep'
+import { filesOpenEdges, hasLeftHandedTorus, mendTorusLoops, type SmallConic, smallConics, snapCurveEnds, straightConics } from './kernelStep'
 import { narrowFaces, nearestEdges, nearestFaces, type OddEdge, oddEdges, type OddKind, type Poles, type ShortEdge, shortEdges, shellSpots, strayEdges } from './kernelEdges'
 import { type CutPiece, cutPieces, type PointReading, probePoints, probeRay, type RayHit } from './kernelProbe'
 import { faceLoops, type LoopSummary, loopSummary } from './stepLoops'
@@ -180,6 +180,9 @@ export interface StepShell {
 
 /** How many odd edges a part's list names at most; the count counts all. */
 export const STEP_EDGES_LISTED = 12
+
+/** The curves a conic too small for a part can be (smallConics). */
+const CONICS = new Set(['hyperbola', 'parabola', 'ellipse'])
 
 /** Under this a part's free edge read back is a hair a curve's end left
  *  off its corner (exportStepMended), mm. */
@@ -1771,11 +1774,12 @@ export class ReKernel {
    *  shape — each is a part of its own under its name and in its colour, as
    *  a CAD system lists them; without, one compound. A body with a round
    *  on a left-handed torus, whose loop the writer can get wrong, has the
-   *  file mended after it (mendTorusLoops). */
+   *  file mended after it (mendTorusLoops); an edge on a conic too small
+   *  for a part that runs straight is written as a line (straightConics). */
   exportStep(shapes: readonly Shape[], labels?: readonly StepLabel[]): string {
     return run('Writing STEP', () => {
       const text = this.writeStep(shapes, labels)
-      return shapes.some((shape) => hasLeftHandedTorus(this.occt, shape)) ? mendTorusLoops(text) : text
+      return straightConics(shapes.some((shape) => hasLeftHandedTorus(this.occt, shape)) ? mendTorusLoops(text) : text).text
     })
   }
 
@@ -1956,6 +1960,11 @@ export class ReKernel {
         // outer rim goes round one.
         const once = sheets.some(Boolean) ? [] : filesOpenEdges(text)
         if (once.length > 0) problems.push(`The file has ${once.length} edge${once.length === 1 ? '' : 's'} going round one face only, the first about (${at3(once[0])}): a hole in the skin, whatever a reader closes it with.`)
+        // Edges on a conic too small for a part, which exportStep did not
+        // write as lines: a reader that draws the conic draws a spike.
+        const conics = smallConics(text)
+        // units-ok: build message, also the agent's answer
+        if (conics.length > 0) problems.push(`The file has ${conics.length} edge${conics.length === 1 ? '' : 's'} on a ${conics[0].kind} only ${conics[0].size.toPrecision(2)} mm across, the first about (${at3(conics[0].at)}) and centred at (${at3(conics[0].centre)}): a plane a hair off a cone's apex or a revolve's axis makes one, and a reader that draws it (Fusion) can draw a spike out to its centre. Put the plane on the axis.`)
         return { ok: problems.length === 0, parts: parts.length, bodies, loops, problems, notes }
       } finally {
         for (const p of parts) o.release(p.shape)
@@ -2017,6 +2026,23 @@ export class ReKernel {
    *  does not take for degenerate (kernelEdges.ts). */
   shortEdges(shape: Shape, options: { underMm?: number; limit?: number } = {}): { edges: ShortEdge[]; count: number } {
     return run('Reading the edges', () => shortEdges(this.occt, shape, options))
+  }
+
+  /** The edges of a shape on a conic too small for a part — a plane a hair
+   *  off a cone's apex (kernelStep.ts smallConics) — as the STEP writer
+   *  writes them, before exportStep writes those that run straight as
+   *  lines. Only a shape with an edge on a hyperbola, parabola or ellipse
+   *  is written to find out. */
+  smallConics(shape: Shape): SmallConic[] {
+    return run('Reading the edges', () => {
+      const edges = this.occt.getSubShapes(shape, 'edge')
+      try {
+        if (!edges.some((e) => CONICS.has(this.occt.curveType(e)))) return []
+      } finally {
+        for (const e of edges) this.occt.release(e)
+      }
+      return smallConics(this.writeStep([shape]))
+    })
   }
 
   /** The faces of a shape narrower than `widthMm` (twice the area over the

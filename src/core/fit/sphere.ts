@@ -12,6 +12,7 @@
 // moves both of them several times as far as it is off.
 
 import type { Sphere } from '../types'
+import { refineBall } from './ballFit'
 import { clippedRefit } from './clip'
 import { centroidOf, solveLinear } from './linalg'
 
@@ -63,49 +64,23 @@ function fitSphereAlgebraic(positions: Float32Array, idx: ArrayLike<number>): Sp
   return { cx: mx + u[0], cy: my + u[1], cz: mz + u[2], r: Math.sqrt(r2) }
 }
 
-/** Geometric (orthogonal-distance) refinement minimizing Σ(dᵢ − r)² via the
- *  standard fixed-point iteration c ← x̄ − r̄·ū. This is the Gaussian best-fit. */
-function refineSphereGeometric(
-  positions: Float32Array,
-  idx: ArrayLike<number>,
-  init: Sphere,
-  maxIter = 150,
-): Sphere {
+/** Geometric (orthogonal-distance) refinement minimizing Σ(dᵢ − r)², to
+ *  convergence (refineBall). This is the Gaussian best-fit. */
+function refineSphereGeometric(positions: Float32Array, idx: ArrayLike<number>, init: Sphere): Sphere {
   const n = idx.length
   if (n === 0) return init
-
+  // About the centroid, where the sums keep their digits.
   const [mx, my, mz] = centroidOf(positions, idx)
-
-  let cx = init.cx, cy = init.cy, cz = init.cz, r = init.r
-  for (let iter = 0; iter < maxIter; iter++) {
-    let sd = 0, sux = 0, suy = 0, suz = 0, m = 0
-    for (let i = 0; i < n; i++) {
-      const j = idx[i] * 3
-      const dx = positions[j] - cx
-      const dy = positions[j + 1] - cy
-      const dz = positions[j + 2] - cz
-      const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (d < 1e-12) continue
-      sd += d
-      sux += dx / d
-      suy += dy / d
-      suz += dz / d
-      m++
-    }
-    if (m === 0) break
-    const rNew = sd / m
-    const ncx = mx - rNew * (sux / m)
-    const ncy = my - rNew * (suy / m)
-    const ncz = mz - rNew * (suz / m)
-    const move = Math.sqrt((ncx - cx) ** 2 + (ncy - cy) ** 2 + (ncz - cz) ** 2)
-    cx = ncx
-    cy = ncy
-    cz = ncz
-    r = rNew
-    if (move < 1e-10 * Math.max(1, r)) break
+  const coords = new Float64Array(3 * n)
+  for (let i = 0; i < n; i++) {
+    const j = idx[i] * 3
+    coords[3 * i] = positions[j] - mx
+    coords[3 * i + 1] = positions[j + 1] - my
+    coords[3 * i + 2] = positions[j + 2] - mz
   }
-  if (!Number.isFinite(cx) || !Number.isFinite(r)) return init
-  return { cx, cy, cz, r }
+  const ball = refineBall(3, coords, [init.cx - mx, init.cy - my, init.cz - mz], init.r)
+  if (!ball) return init
+  return { cx: ball.centre[0] + mx, cy: ball.centre[1] + my, cz: ball.centre[2] + mz, r: ball.r }
 }
 
 /** The centre of the sphere of radius `r` that fits best — Gauss–Newton on

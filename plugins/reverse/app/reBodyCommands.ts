@@ -733,7 +733,14 @@ export const check: Command<{ body?: Ref; before?: Ref; tinyArea?: number; audit
       const contactWarning = edgeCounts.contacts > 0 ? `${edgeCounts.contacts} tangent contact${edgeCounts.contacts === 1 ? '' : 's'} — a face that only touched another and left its line${oddWhere(['inside', 'knife'])}: let the one cross the other clearly (0.05 mm or more) or meet it with a round; reverse.export.step may read back as no closed solid.` : null
       const first = hairEdges[0]
       const hairWarning = first ? `${c.short.count === 1 ? 'An edge' : `${c.short.count} edges`} between two faces under 0.0001 mm — a hair a round left, which a STEP reader may drop from one face and read back as a hole: the first at (${first.at.join(', ')}), faces ${first.faces.indices.join(', ') || '?'}${first.faces.makers.length > 0 ? ` made by ${first.faces.makers.join(', ')}` : ''}; reverse.export.step { verify: true } says whether it holds.` : null
-      const warnings = [...(voidWarning ? [voidWarning] : []), ...(contactWarning ? [contactWarning] : []), ...(hairWarning ? [hairWarning] : []), ...(audit !== 'brief' && audited ? audited.warnings : [])]
+      // Edges on a conic too small for a part: the export writes those
+      // that run straight as lines; any other is a problem in the file.
+      const conics = c.conics ?? []
+      const bent = conics.filter((k) => !k.straight)
+      const conicWords = (list: typeof conics) => `${list.length === 1 ? 'an edge' : `${list.length} edges`} on a ${list[0].kind} only ${list[0].size.toPrecision(2)} mm across, the first at (${round3s(list[0].at).join(', ')}) and centred at (${round3s(list[0].centre).join(', ')}) — a plane a hair off a cone's apex makes one, as a wedge's side meant to pass through a revolve's axis does when its sketch is rounded`
+      if (bent.length > 0) problems.push(`It has ${conicWords(bent)}: a reader that draws it (Fusion) can draw a spike out to its centre, and the export cannot write it as a line. Put the plane on the axis.`)
+      const conicWarning = conics.length > bent.length ? `It has ${conicWords(conics.filter((k) => k.straight))}. The edge runs straight, and reverse.export.step writes it as a line, so the file holds; to clear it, put the plane on the axis.` : null
+      const warnings = [...(voidWarning ? [voidWarning] : []), ...(contactWarning ? [contactWarning] : []), ...(hairWarning ? [hairWarning] : []), ...(conicWarning ? [conicWarning] : []), ...(audit !== 'brief' && audited ? audited.warnings : [])]
       out.push({
         id: b.id,
         name: b.name,

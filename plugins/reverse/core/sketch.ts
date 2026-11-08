@@ -782,7 +782,11 @@ export function renumbered(c: ConstraintInput, id: (old: number) => number): Con
  * themselves copied onto it — a copied rectangle is a rectangle of the same
  * size, dimensioned the same, its dimensions reading the same expressions.
  * What ties a piece to anything outside the set (another piece, a
- * coordinate plane, a sheet axis, a Fix) stays with the original.
+ * coordinate plane, a sheet axis, a Fix) stays with the original. A copy
+ * turned by a quarter has its horizontals and verticals swapped; turned
+ * by anything else that is not a half turn, its sides held level or
+ * upright are held parallel and square to one another instead, so it
+ * keeps its shape where the pattern turned it.
  * Construction pieces are copied as construction. Returns the ids of the
  * new pieces, copy by copy, in the order the pieces were given.
  */
@@ -822,11 +826,29 @@ export function patternPieces(sketch: Sketch, ids: readonly number[], spec: Sket
       map.set(e.id, addEntity(sketch, made))
     }
     const id = (old: number) => map.get(old)!
+    // The turn in quarters, where it is a whole number of them.
+    const q = at.turn / (Math.PI / 2)
+    const quarters = Math.abs(q - Math.round(q)) < 1e-9 ? ((Math.round(q) % 4) + 4) % 4 : null
+    const square: Extract<Constraint, { kind: 'horizontal' | 'vertical' }>[] = []
     for (const c of inner) {
       const { id: _id, place: _place, ...rest } = c
       void _id
       void _place
+      if (c.kind === 'horizontal' || c.kind === 'vertical') {
+        if (quarters === null) {
+          square.push(c)
+          continue
+        }
+        if (quarters % 2 === 1) (rest as { kind: string }).kind = c.kind === 'horizontal' ? 'vertical' : 'horizontal'
+      }
       addConstraint(sketch, renumbered(rest as ConstraintInput, id))
+    }
+    // Turned off the axes: each side that was level or upright parallel
+    // or square to the first such side.
+    const first = square[0]
+    for (const c of square.slice(1)) {
+      if (c.entity === first.entity) continue
+      addConstraint(sketch, { kind: c.kind === first.kind ? 'parallel' : 'perpendicular', a: id(first.entity), b: id(c.entity), ...(c.inferred ? { inferred: true } : {}) })
     }
     copies.push(pieces.map((e) => id(e.id)))
   }

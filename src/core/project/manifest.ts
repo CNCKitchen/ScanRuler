@@ -37,6 +37,34 @@ export const REFERENCE_STEM = 'reference'
 export const IMAGE_STEM = 'image'
 export const MANIFEST_NAME = 'project.json'
 
+/** PROJECT_EXTENSION, then a count: see isProjectName. */
+const PROJECT_NAME = /\.scanruler(?:-\d+| ?\(\d+\))?$/i
+
+/** Whether a file's name is a project's: `.scanruler`, or that with the
+ *  count a browser adds after it when the name is taken in the folder —
+ *  `MyProject.scanruler-2` (Chrome on macOS, issue 83), or ` (2)`. */
+export function isProjectName(name: string): boolean {
+  return PROJECT_NAME.test(name.trim())
+}
+
+/** The extensions the Open dialog offers a project by: its own, and the
+ *  counted ones a browser leaves when it saves over a name (isProjectName)
+ *  — a Mac's dialog will not let any other be picked. */
+export const PROJECT_ACCEPT = [`.${PROJECT_EXTENSION}`, ...Array.from({ length: 9 }, (_, i) => `.${PROJECT_EXTENSION}-${i + 1}`)].join(',')
+
+/** Whether a file begins as a project does, whatever its name: a zip whose
+ *  first member is the manifest (packProject writes it first) — the local
+ *  header's signature, then the name at byte 30. `head` is the file's first
+ *  bytes, 30 and the name's length at least. */
+export function startsAsProject(head: Uint8Array): boolean {
+  if (head.length < 30 + MANIFEST_NAME.length) return false
+  if (head[0] !== 0x50 || head[1] !== 0x4b || head[2] !== 0x03 || head[3] !== 0x04) return false
+  const nameLength = head[26] | (head[27] << 8)
+  if (nameLength !== MANIFEST_NAME.length) return false
+  for (let i = 0; i < nameLength; i++) if (head[30 + i] !== MANIFEST_NAME.charCodeAt(i)) return false
+  return true
+}
+
 /** A rigid transform as JSON — row-major rotation, translation. */
 export interface RigidJson {
   r: number[]

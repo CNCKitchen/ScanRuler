@@ -22,10 +22,10 @@ test('every command is a tool, dots to underscores, its schema an object', () =>
   }
 })
 
-test('an answer keeps six significant digits, no finer than a millionth, and whole numbers whole', () => {
+test('an answer keeps six significant digits or four decimals, no finer than a millionth, and whole numbers whole', () => {
   assert.equal(
     agentJson({ a: 0.9483828176573491, b: 12.000000000000002, c: 1e-17, d: -3.4e-8, e: 1234567.891, f: 0.0423171, g: [1, 2, 3], h: 123.456789, id: 9007199254740991, s: '0.123456789', n: null }),
-    '{"a":0.948383,"b":12,"c":0,"d":0,"e":1234570,"f":0.042317,"g":[1,2,3],"h":123.457,"id":9007199254740991,"s":"0.123456789","n":null}',
+    '{"a":0.948383,"b":12,"c":0,"d":0,"e":1234567.891,"f":0.042317,"g":[1,2,3],"h":123.4568,"id":9007199254740991,"s":"0.123456789","n":null}',
   )
 })
 

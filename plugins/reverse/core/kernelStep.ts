@@ -138,15 +138,223 @@ export function snapCurveEnds(step: string, places: readonly Vec3[], { radius = 
     }
   }
   if (to.size === 0) return { text: step, moved: 0, offMax: 0 }
-  const real = (x: number) => {
-    const t = String(x).toUpperCase()
-    return /[.E]/.test(t) ? (t.includes('.') ? t : t.replace('E', '.E')) : `${t}.`
-  }
   const text = step.replace(/(#(\d+)\s*=\s*CARTESIAN_POINT\s*\(\s*'[^']*'\s*,\s*)\([^)]*\)/g, (whole, head: string, id: string) => {
     const v = to.get(Number(id))
     return v ? `${head}(${v.map(real).join(',')})` : whole
   })
   return { text, moved: to.size, offMax }
+}
+
+/** A number as a STEP real: always with its point. */
+function real(x: number): string {
+  const t = String(x).toUpperCase()
+  return /[.E]/.test(t) ? (t.includes('.') ? t : t.replace('E', '.E')) : `${t}.`
+}
+
+/** Under this a conic's smallest size — a hyperbola's or an ellipse's
+ *  shorter semi-axis, a parabola's focal distance — is no size a part has,
+ *  mm: the gap the file's check holds a file to its body by. */
+export const SMALL_CONIC_MM = 1e-3
+/** An edge on a small conic that lies within this of the line through
+ *  its two ends is written as that line, mm. */
+const STRAIGHT_MM = 1e-6
+/** Points an edge on a small conic is read at to tell whether it runs
+ *  straight. */
+const STRAIGHT_SAMPLES = 32
+
+/** A conic of a STEP file under SMALL_CONIC_MM (smallConics). */
+export interface SmallConic {
+  kind: 'hyperbola' | 'parabola' | 'ellipse'
+  /** Its smallest size, mm: see SMALL_CONIC_MM. */
+  size: number
+  /** Its centre — a parabola's vertex — mm. */
+  centre: Vec3
+  /** The middle of the edge on it, where one edge is; else its centre. */
+  at: Vec3
+  /** The edge on it runs straight within STRAIGHT_MM: straightConics
+   *  writes it as a line. */
+  straight: boolean
+}
+
+/**
+ * The conics of a STEP file under SMALL_CONIC_MM, with the edge on each.
+ *
+ * A plane that misses a cone's apex by a hair — a wedge's side meant to
+ * pass through a revolve's axis, its sketch's corners rounded — cuts the
+ * cone in a hyperbola with semi-axes of that hair, centred on the apex,
+ * however far off the part that is. The edge lies far out along the
+ * hyperbola, where it runs as straight as its asymptote, and OCCT's reader
+ * takes it so; Fusion drew a spike from the part to the apex (issue 97,
+ * semi-axes 2e-5 mm). Nothing else in the file's check sees it: the part
+ * reads back closed and on its body.
+ */
+export function smallConics(step: string): SmallConic[] {
+  if (!/HYPERBOLA|PARABOLA|ELLIPSE/.test(step)) return []
+  return conicEdges(stepEntities(step)).map(({ conic }) => conic)
+}
+
+/**
+ * The file with every edge on a small conic that runs straight
+ * (smallConics) written as the line through its two vertices: its
+ * surface curve, or the conic where the edge names it alone, becomes that
+ * line, and the conic and the edge's curves on its faces go — a reader
+ * works those out from the line and the faces, as it does for a file
+ * written without them. The line lies within STRAIGHT_MM of the conic, so
+ * on the plane and the cone alike. An edge on a conic another edge
+ * shares, or that does not run straight, is left as it is for the check
+ * to name.
+ */
+export function straightConics(step: string): { text: string; straightened: number } {
+  if (!/HYPERBOLA|PARABOLA/.test(step)) return { text: step, straightened: 0 }
+  const file = stepEntities(step)
+  const lines = conicEdges(file).flatMap(({ conic, edge }) => (conic.straight && edge ? [edge] : []))
+  if (lines.length === 0) return { text: step, straightened: 0 }
+  let next = Math.max(...file.ids) + 1
+  const rewrite = new Map<number, string>()
+  const added: string[] = []
+  const gone: number[] = []
+  for (const { curve, from, to } of lines) {
+    const d = sub(to, from)
+    const dir = scale(d, 1 / len(d))
+    const [p, v, n] = [next, next + 1, next + 2]
+    next += 3
+    added.push(`#${p} = CARTESIAN_POINT('',(${from.map(real).join(',')}));`, `#${v} = VECTOR('',#${n},1.);`, `#${n} = DIRECTION('',(${dir.map(real).join(',')}));`)
+    rewrite.set(curve, `LINE('',#${p},#${v})`)
+    gone.push(...refsIn(file.raw(curve)))
+  }
+  // What the old curves alone named goes with them: each entity nothing
+  // names any more, from what they named on down.
+  const users = new Map<number, number>()
+  for (const id of file.ids) for (const r of refsIn(rewrite.get(id) ?? file.raw(id))) users.set(r, (users.get(r) ?? 0) + 1)
+  const dropped = new Set<number>()
+  while (gone.length > 0) {
+    const id = gone.pop()!
+    if (dropped.has(id) || rewrite.has(id) || (users.get(id) ?? 0) > 0) continue
+    dropped.add(id)
+    for (const r of refsIn(file.raw(id))) {
+      users.set(r, (users.get(r) ?? 0) - 1)
+      gone.push(r)
+    }
+  }
+  let text = step.replace(/#(\d+)\s*=\s*[\s\S]*?;[ \t]*(\r?\n|$)/g, (whole, id: string, end: string) => {
+    const n = Number(id)
+    if (dropped.has(n)) return ''
+    const line = rewrite.get(n)
+    return line ? `#${n} = ${line};${end}` : whole
+  })
+  const data = text.indexOf('DATA;')
+  const close = data < 0 ? -1 : text.indexOf('ENDSEC;', data)
+  if (close < 0) return { text: step, straightened: 0 }
+  const eol = step.includes('\r\n') ? '\r\n' : '\n'
+  text = text.slice(0, close) + added.join(eol) + eol + text.slice(close)
+  return { text, straightened: lines.length }
+}
+
+/** The ids an entity's text names. */
+const refsIn = (raw: string): number[] => [...raw.matchAll(/#(\d+)/g)].map((m) => Number(m[1]))
+
+interface ConicEdge {
+  conic: SmallConic
+  /** The one edge on the conic — the edge, the curve it names (the conic,
+   *  or a surface curve on it) and its ends in that curve's direction — or
+   *  null where none or more than one is. */
+  edge: { id: number; curve: number; from: Vec3; to: Vec3 } | null
+}
+
+/** The small conics of a file (see smallConics), each with its edge. */
+function conicEdges(file: StepFile): ConicEdge[] {
+  const named = new Map<number, number[]>()
+  for (const id of file.ids) {
+    const raw = file.raw(id)
+    const edge = raw.startsWith('EDGE_CURVE')
+    if (!edge && !raw.startsWith('SURFACE_CURVE') && !raw.startsWith('SEAM_CURVE')) continue
+    // An edge names its two vertices, then its curve; a surface curve its
+    // 3D curve first.
+    const curve = refsIn(raw)[edge ? 2 : 0]
+    if (curve !== undefined) named.set(curve, [...(named.get(curve) ?? []), id])
+  }
+  const out: ConicEdge[] = []
+  for (const id of file.ids) {
+    const raw = file.raw(id)
+    const kind = raw.startsWith('HYPERBOLA') ? 'hyperbola' : raw.startsWith('PARABOLA') ? 'parabola' : raw.startsWith('ELLIPSE') ? 'ellipse' : null
+    if (!kind) continue
+    let shape: ConicShape
+    try {
+      const c = file.get(id)
+      // A conic in a face's (u, v) is placed in 2D: no edge's own curve.
+      if (!file.raw((c.args[1] as Ref).ref).startsWith('AXIS2_PLACEMENT_3D')) continue
+      shape = conicShape(kind, placement(file, c.args[1]), c.args.slice(2) as number[])
+    } catch (e) {
+      if (e instanceof NotUnrolled) continue
+      throw e
+    }
+    if (!(shape.size < SMALL_CONIC_MM)) continue
+    const edges: { id: number; curve: number }[] = []
+    for (const by of named.get(id) ?? []) {
+      if (file.raw(by).startsWith('EDGE_CURVE')) edges.push({ id: by, curve: id })
+      else for (const e of named.get(by) ?? []) if (file.raw(e).startsWith('EDGE_CURVE')) edges.push({ id: e, curve: by })
+    }
+    let edge: ConicEdge['edge'] = null
+    let straight = false
+    let at = shape.centre
+    if (edges.length === 1) {
+      try {
+        const [, start, end, , sense] = file.get(edges[0].id).args
+        const a = point(file, file.get(start as Ref).args[1])
+        const b = point(file, file.get(end as Ref).args[1])
+        const [from, to] = sense === false ? [b, a] : [a, b]
+        at = scale(add(a, b), 0.5)
+        straight = kind !== 'ellipse' && len(sub(to, from)) > 0 && offChord(shape, from, to) <= STRAIGHT_MM
+        edge = { ...edges[0], from, to }
+      } catch (e) {
+        if (!(e instanceof NotUnrolled)) throw e
+      }
+    }
+    out.push({ conic: { kind, size: shape.size, centre: shape.centre, at, straight }, edge })
+  }
+  return out
+}
+
+/** A conic as STEP places it: a hyperbola at (a cosh t, b sinh t) in its
+ *  frame, a parabola at (t² / 4f, t), an ellipse at (a cos t, b sin t);
+ *  the parameter of a point on it, and whether a point is on the branch
+ *  it runs along. */
+interface ConicShape {
+  size: number
+  centre: Vec3
+  at(t: number): Vec3
+  param(p: Vec3): number
+  branch(p: Vec3): boolean
+}
+
+function conicShape(kind: SmallConic['kind'], f: ReturnType<typeof placement>, sizes: number[]): ConicShape {
+  const local = (p: Vec3): [number, number] => [dot(sub(p, f.o), f.x), dot(sub(p, f.o), f.y)]
+  const at = (x: number, y: number) => add(f.o, add(scale(f.x, x), scale(f.y, y)))
+  if (kind === 'hyperbola') {
+    const [a, b] = sizes
+    return { size: Math.min(a, b), centre: f.o, at: (t) => at(a * Math.cosh(t), b * Math.sinh(t)), param: (p) => Math.asinh(local(p)[1] / b), branch: (p) => local(p)[0] > 0 }
+  }
+  if (kind === 'parabola') {
+    const [focal] = sizes
+    return { size: focal, centre: f.o, at: (t) => at((t * t) / (4 * focal), t), param: (p) => local(p)[1], branch: () => true }
+  }
+  const [a, b] = sizes
+  return { size: Math.min(a, b), centre: f.o, at: (t) => at(a * Math.cos(t), b * Math.sin(t)), param: (p) => Math.atan2(local(p)[1] / b, local(p)[0] / a), branch: () => true }
+}
+
+/** How far a conic between two of its points strays from the line through
+ *  them, mm: Infinity where either is off the branch the conic runs on. */
+function offChord(c: ConicShape, from: Vec3, to: Vec3): number {
+  if (!c.branch(from) || !c.branch(to)) return Infinity
+  const [t0, t1] = [c.param(from), c.param(to)]
+  const d = sub(to, from)
+  const along = scale(d, 1 / len(d))
+  let off = 0
+  for (let s = 0; s <= STRAIGHT_SAMPLES; s++) {
+    const q = sub(c.at(t0 + ((t1 - t0) * s) / STRAIGHT_SAMPLES), from)
+    off = Math.max(off, len(sub(q, scale(along, dot(q, along)))))
+  }
+  return off
 }
 
 /** The edges of a STEP file not going round two faces — what a reader may

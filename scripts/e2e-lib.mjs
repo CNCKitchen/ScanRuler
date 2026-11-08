@@ -347,15 +347,18 @@ export async function fitBall(page, rect, farEnd, want, { ready } = {}) {
   return null
 }
 
-/** A number field set the way a person sets one: clicked, its text selected
- *  and cleared — a number input ignores select() and triple-click — typed,
- *  and left; then `settle` ms for the app to take it. */
+/** A number field set the way a person sets one: clicked, cleared, typed and
+ *  left; then `settle` ms for the app to take it. Cleared through the input's
+ *  own value setter and an input event, as React hears a keystroke: a number
+ *  input ignores select() and triple-click, and MOD+A selected nothing under
+ *  headless Chrome on macOS, so the figure was typed after what was there
+ *  (9.999 then 5 gave 9.995, issue 76). */
 export const fieldSetter = (page, { settle = 300 } = {}) => async (sel, value) => {
   await page.click(sel)
-  await page.keyboard.down(MOD)
-  await page.keyboard.press('KeyA')
-  await page.keyboard.up(MOD)
-  await page.keyboard.press('Backspace')
+  await page.$eval(sel, (el) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, '')
+    el.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   await page.type(sel, String(value))
   await page.$eval(sel, (el) => el.blur())
   await sleep(settle)

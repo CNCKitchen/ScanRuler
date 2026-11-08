@@ -27,6 +27,22 @@ describe('Gaussian sphere fit', () => {
     expect(Math.abs(fit.sphere.cz - CENTER[2])).toBeLessThan(0.02)
   })
 
+  it('reads the radius of a shallow cap whose points scatter evenly about it', () => {
+    // 150 fixed-point steps stopped far short of the best sphere on a cap
+    // (issue 34). Each point twice, 0.05 outside and inside R12.7: the best
+    // sphere is that one.
+    const on = sampleSphere(2_000, CENTER, R, 0, 45, (20 * Math.PI) / 180)
+    const pts = new Float32Array(on.length * 2)
+    for (let i = 0; i < 2_000; i++) {
+      for (const [w, off] of [[2 * i, 0.05], [2 * i + 1, -0.05]]) {
+        for (let a = 0; a < 3; a++) pts[w * 3 + a] = CENTER[a] + ((on[i * 3 + a] - CENTER[a]) * (R + off)) / R
+      }
+    }
+    const fit = fitSphereClipped(pts, allIndices(4_000), 10)!
+    expect(fit.sphere.r).toBeCloseTo(R, 3)
+    expect(Math.abs(fit.sphere.cz - CENTER[2])).toBeLessThan(0.001)
+  })
+
   it('sigma clipping sheds sparse gross outliers', () => {
     const pts = sampleSphere(20_000, CENTER, R, 0.02, 44)
     // Push 2% of points 0.5 mm outward — dust / reconstruction spikes.

@@ -15,6 +15,7 @@ import { create } from 'zustand'
 import { colormapById, type ColormapId } from '../core/field/colormap'
 import { meshUnitsOf, type MeshUnits } from '../core/meshUnits'
 import { displayUnitsOf, type DisplayUnits } from '../core/units'
+import { clampMarkSize } from '../viewer/markSize'
 import {
   EDGE_LINE_DEFAULT,
   SECTION_LINE_DEFAULT,
@@ -44,6 +45,7 @@ const COLORMAP_KEY = 'scanruler.colormap'
 const SECTION_LINES_KEY = 'scanruler.sectionlines'
 const SHEET_LINES_KEY = 'scanruler.sheetlines'
 const EDGE_LINES_KEY = 'scanruler.edgelines'
+const MARK_SIZE_KEY = 'scanruler.marksize'
 const PINS_BEHIND_KEY = 'scanruler.pinsbehind'
 const SUPPORT_CARD_KEY = 'scanruler.supportcard'
 const SUPPORT_ASK_KEY = 'scanruler.supportask'
@@ -118,6 +120,10 @@ interface PrefsState {
   /** The edge chains the curves are fitted to — found in the scan, or cut by
    *  a section — in pixels. */
   edgeLines: number
+  /** The marks held at a size on the screen — points, picked spots, the
+   *  arrows on an element being made — as a factor on their size
+   *  (markSize.ts). */
+  markSize: number
   /** Pinned readings whose spot is on the far side of the part, or behind a
    *  feature of it, put away until the part turns to show them — the
    *  default; off, every pin shows through the part. */
@@ -173,6 +179,7 @@ interface PrefsState {
   setSectionLines: (px: number) => void
   setSheetLines: (px: number) => void
   setEdgeLines: (px: number) => void
+  setMarkSize: (factor: number) => void
   setHidePinsBehind: (on: boolean) => void
   setSupportCard: (on: boolean) => void
   setSupportAsk: (on: boolean) => void
@@ -201,6 +208,7 @@ export const usePrefs = create<PrefsState>()((set) => {
     sectionLines: clampLineWidth(read(SECTION_LINES_KEY), SECTION_LINE_DEFAULT),
     sheetLines: clampLineWidth(read(SHEET_LINES_KEY), SHEET_LINE_DEFAULT),
     edgeLines: clampLineWidth(read(EDGE_LINES_KEY), EDGE_LINE_DEFAULT),
+    markSize: clampMarkSize(read(MARK_SIZE_KEY)),
     hidePinsBehind: read(PINS_BEHIND_KEY) !== '0',
     supportCard: read(SUPPORT_CARD_KEY) !== '0',
     supportAsk: read(SUPPORT_ASK_KEY) !== '0',
@@ -226,6 +234,11 @@ export const usePrefs = create<PrefsState>()((set) => {
       const colormap = colormapById(id).id
       write(COLORMAP_KEY, colormap)
       set({ colormap })
+    },
+    setMarkSize: (factor) => {
+      const markSize = clampMarkSize(factor)
+      write(MARK_SIZE_KEY, String(markSize))
+      set({ markSize })
     },
     setSectionLines: (px) => {
       const sectionLines = clampLineWidth(px, SECTION_LINE_DEFAULT)

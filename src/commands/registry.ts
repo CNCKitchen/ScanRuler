@@ -90,6 +90,8 @@ export function runsHeadless(name: string): boolean {
 export const COMMAND_TIMEOUT_MS = 10 * 60_000
 
 let queue: Promise<unknown> = Promise.resolve()
+/** The change last given up on past its time, while the queue waits for it. */
+let lingering: Promise<void> | null = null
 
 /** The viewport's own queue: the commands that set it or picture it
  *  (Command.scene), one at a time, whatever else runs beside them. */
@@ -120,10 +122,12 @@ const asCommandError = (e: unknown): CommandError =>
  *  (ctx.signal) and let go — whatever it does after is nobody's answer —
  *  and the caller is answered `timeout`, so that what waits on it, the
  *  history step and the queue, moves on. */
-function limited<T>(name: string, ms: number, abort: AbortController, run: () => Promise<T>): Promise<T> {
+function limited<T>(name: string, ms: number, abort: AbortController, run: () => Promise<T>, onLate?: (ran: Promise<unknown>) => void): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
+  let ran: Promise<T>
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
+      onLate?.(ran)
       const e = new CommandError(
         'timeout',
         `${name} did not finish in ${ms / 1000} s and was given up on. It may have changed the session in part — read session.state (history.undo says the last step) before running it again.`,
@@ -132,7 +136,6 @@ function limited<T>(name: string, ms: number, abort: AbortController, run: () =>
       reject(e)
     }, ms)
   })
-  let ran: Promise<T>
   try {
     ran = run()
   } catch (e) {
@@ -181,7 +184,14 @@ function start(name: string, input: unknown, onProgress: ((text: string) => void
   }
   if (command.interrupts) return interrupt(name, command, args, onProgress)
   const job = queue.then(() => inScene(command, () => execute(name, command, args, onProgress, deferred)))
-  queue = job.catch(() => {})
+  // A change given up on past its time may still be changing the session:
+  // the next change waits for it to finish, or for one more of its time if
+  // it never does, so their changes do not land in each other's steps.
+  queue = job.catch(() => {}).then(() => {
+    const waiting = lingering
+    lingering = null
+    return waiting
+  })
   return job
 }
 
@@ -288,7 +298,11 @@ async function guarded(
   }
   // Raced inside the history step, so that the step ends — and the history
   // takes changes again — when the command is given up on.
-  const run = () => limited(name, command.timeoutMs ?? COMMAND_TIMEOUT_MS, abort, () => command.run(input, ctx))
+  const ms = command.timeoutMs ?? COMMAND_TIMEOUT_MS
+  const linger = (ran: Promise<unknown>) => {
+    lingering = Promise.race([ran.then(() => {}, () => {}), new Promise<void>((resolve) => setTimeout(resolve, ms))])
+  }
+  const run = () => limited(name, ms, abort, () => command.run(input, ctx), linger)
   useCommandActivity.setState({ running: { name, title: command.title, since: Date.now() }, progress: null })
   current = { name, deferred }
   try {

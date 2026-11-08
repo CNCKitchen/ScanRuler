@@ -1858,6 +1858,29 @@ button.x:disabled {
   background: rgba(77, 184, 255, 0.12);
 }
 
+/* Ctrl, Command or Shift held: the box adds to the selection — a + in its
+   corner and a heavier border, in the box's own colour. */
+.flat-band.box.window {
+  color: #3cb371;
+}
+
+.flat-band.box.crossing {
+  color: #4db8ff;
+}
+
+.flat-band.box.additive {
+  border-width: 2px;
+}
+
+.flat-band.box.additive::after {
+  content: '+';
+  position: absolute;
+  top: 1px;
+  right: 4px;
+  font: 700 18px/1 var(--mono);
+  color: currentColor;
+}
+
 .loupe {
   position: absolute;
   width: 120px;
@@ -3229,7 +3252,8 @@ button.x:disabled {
 }
 
 .field input[type='number'],
-.field input[type='text'] {
+.field input[type='text'],
+.field input[type='password'] {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink);

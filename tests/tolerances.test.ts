@@ -235,6 +235,22 @@ describe('angularity', () => {
     }
   })
 
+  it('takes a basic angle over 90° as the same lean the other way', () => {
+    // A basic 150° was never folded as the feature's direction is, so a
+    // face drawn at 150° read as far off as could be (issue 34).
+    const datum = plane([0, 0, 0])
+    for (const [basic, tilt] of [[150, 150], [150, 30], [120, -60], [120, 120]]) {
+      const feature = plane([0, 0, 0], tilt)
+      const r = evaluateTolerance('orient-angularity', [feature, datum], { basic, surfaces: [surfaceOf(feature), null] })
+      expect(r.raw, `basic ${basic}, tilt ${tilt}`).toBeLessThan(1e-5)
+    }
+    const off = evaluateTolerance('orient-angularity', [plane([0, 0, 0], 149.5), datum], { basic: 150 })
+    expect(off.raw).toBeCloseTo(20 * Math.sin(0.5 * DEG), 9)
+    expect(off.detail).toBe('0.500° off the basic 150.00°')
+    const axis = evaluateTolerance('orient-angularity', [cylinder([0, 0, 0], tiltedX(135)), datum], { basic: 135 })
+    expect(axis.raw).toBeLessThan(1e-9)
+  })
+
   it('reads the excess tilt across the patch, and names it', () => {
     const r = evaluateTolerance('orient-angularity', [plane([0, 0, 0], 30.5), plane([0, 0, 0])], {
       basic: 30,

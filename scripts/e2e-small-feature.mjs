@@ -206,6 +206,44 @@ try {
   check(lineNear.rod < 6 && lineFar.rod >= 2, `a line's thickness holds too: ${lineNear.rod.toFixed(1)} px near, ${lineFar.rod.toFixed(1)} px far`)
   check(lineNear.rodLength === lineFar.rodLength && lineNear.rodLength === 21, `and its length is its own: ${lineNear.rodLength}`)
 
+  // ---- a point's pin stands clear of it, from any side ----------------------------------
+  // The pin was lifted 18 px along the part's Y: looking along Y it sat on
+  // the point, and from anywhere its lower half covered it (issue 47 again).
+  /** How far the pin's lower edge stands above the top of the point's ball
+   *  on the screen, pixels: below zero, it covers the ball. */
+  const pinClearance = () => page.evaluate(() => {
+    const s = window.__scanruler.scene()
+    const pixel = s.viewport.worldPerPixel()
+    const ball = s.overlays.pickTargets().filter((m) => m.userData.elementId === 901 && m.geometry.type === 'SphereGeometry').sort((a, b) => b.scale.x - a.scale.x)[0]
+    const c = s.viewport.renderer.domElement.getBoundingClientRect()
+    const v = ball.getWorldPosition(ball.position.clone()).project(s.viewport.camera)
+    const y = c.top + ((1 - v.y) / 2) * c.height
+    const label = [...document.querySelectorAll('.viewport-label.element-label')].find((el) => el.textContent.includes('Point 901'))
+    return y - ball.scale.x / pixel - label.getBoundingClientRect().bottom
+  })
+  await closeUp()
+  for (const view of ['iso', 'front', 'right', 'top']) {
+    await page.evaluate((v) => window.__scanruler.scene().viewFrom(v), view)
+    await sleep(900)
+    const clear = await pinClearance()
+    check(clear >= 2, `from the ${view}, the point's pin stands clear of it: ${clear.toFixed(1)} px`)
+  }
+  await page.screenshot({ path: shotPath(`${prefix}-5b-point-pin-front.png`) })
+
+  // ---- Settings → Points and grips grows what is held on the screen ---------------------
+  const ballAt = async () => big(await marksOf(901))
+  const plain = await ballAt()
+  await page.evaluate(() => window.__scanruler.scene().setMarkSize(2))
+  await sleep(300)
+  const doubled = await ballAt()
+  check(Math.abs(doubled - 2 * plain) < 0.5, `twice the size, the point is twice as large: ${plain.toFixed(1)} → ${doubled.toFixed(1)} px`)
+  check((await pinClearance()) >= 2, 'and its pin still stands clear of it')
+  await page.evaluate(() => window.__scanruler.scene().setMarkSize(1))
+  await sleep(300)
+  await page.evaluate(() => window.__scanruler.scene().viewFrom('iso'))
+  await sleep(900)
+  await allIn()
+
   // ---- a click on the point from far off takes it, and its stroke follows the zoom -----
   check((await strokes()) === 0, 'nothing is selected yet')
   await click(page, '[data-test="new-dimension"]')

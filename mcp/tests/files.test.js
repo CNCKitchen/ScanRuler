@@ -294,3 +294,19 @@ test('relative paths from one folder: the scan’s once one is opened, else wher
   assert.match(tools.find((t) => t.name === 'scanruler_batch').description, /\$file.*relative path is taken from the folder of the scan/)
   await c.close()
 })
+
+test('a batch file of more calls than a spread can pass still answers', async () => {
+  const c = await copy()
+  await writeFile(join(dir, 'many.json'), JSON.stringify(Array.from({ length: 130_000 }, () => ({ tool: 'demo_echo' }))))
+  const r = await c.call('scanruler_batch', { file: join(dir, 'many.json'), wait: false })
+  // A wait answers "running" at the answer limit (45 s), which this batch
+  // can pass on a busy machine; an agent asks again, and so does this.
+  let done
+  for (let asked = 0; asked < 5; asked++) {
+    done = await c.call('scanruler_wait', { for: 'job', job: r.json.job, timeoutSeconds: 600 })
+    if (done.error || done.json.state !== 'running') break
+  }
+  assert.equal(done.error, false, done.text)
+  assert.equal(done.json.state, 'done', done.text)
+  await c.close()
+})

@@ -11,6 +11,7 @@ import type { StepReads } from './buildReads'
 import type { BuildStep, TrimPrimitive } from './features'
 import type { KernelMesh, ReadBackEdge, ReKernel, Shape, StepCheck, StepMend } from './kernel'
 import type { MeshFault } from './kernelMesh'
+import type { SmallConic } from './kernelStep'
 import type { NetworkReport } from './networkBody'
 import type { OddEdge, OddKind, ShortEdge } from './kernelEdges'
 import type { CopyMark } from './patternCopies'
@@ -189,6 +190,11 @@ export interface BodyCheck {
    *  from one face (kernelEdges.ts shortEdges) — the first ODD_EDGES_KEPT,
    *  and how many. */
   short: { edges: ShortEdge[]; count: number }
+  /** Edges on a conic too small for a part — a plane a hair off a cone's
+   *  apex, a wedge's side meant to pass through a revolve's axis — as the
+   *  STEP writer writes them; `straight` ones the export writes as lines
+   *  (kernelStep.ts smallConics). */
+  conics: SmallConic[]
   /** Without roundTrip, on a solid of up to READ_BACK_FACES faces: the
    *  body written as STEP and read back, and the edges of the part read
    *  back that do not join two faces as a closed solid's do — the hole a

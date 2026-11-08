@@ -12,7 +12,7 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node plugins/reverse/scripts/e2e-sketch-box.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SHOT_DIR.
-import { check, click, finish, launchApp, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
+import { check, click, finish, launchApp, MOD, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
 import { openReverse, reverseHelpers } from './lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp({ width: 1600, height: 1000, protocolTimeout: 600_000 })
@@ -82,12 +82,13 @@ await drag([5, 0], [55, 30], {
   before: async () => {
     band = await re(() => {
       const b = document.querySelector('[data-test=sketch-viewport] .flat-band.box')
-      return b ? { window: b.classList.contains('window'), crossing: b.classList.contains('crossing'), w: b.getBoundingClientRect().width } : null
+      return b ? { window: b.classList.contains('window'), crossing: b.classList.contains('crossing'), additive: b.classList.contains('additive'), w: b.getBoundingClientRect().width } : null
     })
     await page.screenshot({ path: shotPath('sketch-box-window.png') })
   },
 })
 check(band !== null && band.window && !band.crossing && band.w > 50, 'dragged rightward the box is a window')
+check(band !== null && !band.additive, 'with no key held it bears no + (it replaces the selection)')
 check(same(await selection(), ids.square), 'the window takes the four sides of the rectangle, not the lone line')
 check(same(await centre(), startCentre), 'the left-drag did not pan the sheet')
 check((await re(() => document.querySelector('[data-test=sketch-viewport] .flat-band'))) === null, 'the box is gone once let go')
@@ -110,13 +111,25 @@ check(band !== null && band.crossing && !band.window, 'dragged leftward the box 
 check(same(await selection(), [ids.bottom, ids.right, ids.lone].sort((a, b) => a - b)), 'the crossing box takes the bottom and right sides it touches and the lone line')
 
 // ---- Shift adds -------------------------------------------------------------------------
-await drag([5, 0], [55, 30], { shift: true })
+/** Whether the box on the stage bears the + of a box that adds. */
+const marked = () => re(() => document.querySelector('[data-test=sketch-viewport] .flat-band.box')?.classList.contains('additive') ?? null)
+let adding = null
+await drag([5, 0], [55, 30], {
+  shift: true,
+  before: async () => {
+    adding = await marked()
+    await page.screenshot({ path: shotPath('sketch-box-additive.png') })
+  },
+})
+check(adding === true, 'with Shift held the box bears a + while it is dragged (issue 62)')
 check(same(await selection(), [...ids.square, ids.lone].sort((a, b) => a - b)), 'a window with Shift held adds the rectangle to the selection')
 check(same(await centre(), startCentre), 'the Shift+drag did not pan the sheet')
 
 // ---- Command, as a Mac presses it ----------------------------------------------------------
 await drag([70, 10], [45, 0])
-await drag([5, 0], [55, 30], { key: 'Meta' })
+adding = null
+await drag([5, 0], [55, 30], { key: 'Meta', before: async () => (adding = await marked()) })
+check(adding === true, 'and with Command held too')
 check(same(await selection(), [...ids.square, ids.lone].sort((a, b) => a - b)), 'a window with Command held adds the rectangle to the selection')
 check(same(await centre(), startCentre), 'the Command+drag did not pan the sheet')
 {
@@ -125,9 +138,10 @@ check(same(await centre(), startCentre), 'the Command+drag did not pan the sheet
   const after = await re((id) => window.__re.store.getState().sketchDraft.sketch.entities.find((e) => e.id === id).a[1], ids.lone)
   check(after < before - 1, `a press on a piece with Command held starts its drag (${before} to ${after})`)
   check(same(await centre(), startCentre), 'and does not pan the sheet')
-  await page.keyboard.down('Control')
+  // The platform's own key: on a Mac, Control with a click is a right click.
+  await page.keyboard.down(MOD)
   await page.keyboard.press('z')
-  await page.keyboard.up('Control')
+  await page.keyboard.up(MOD)
   await sleep(250)
 }
 

@@ -6,6 +6,7 @@
 // fit working in a plane from the start (a flatbed scan, a section through a
 // mesh) can use it without inventing a third dimension first.
 
+import { refineBall } from './ballFit'
 import { solveLinear } from './linalg'
 
 export interface Circle2d {
@@ -16,8 +17,9 @@ export interface Circle2d {
 
 /**
  * Best-fit circle through 2D points — algebraic (Coope) start, exactly
- * determined for three points and least squares beyond, then the 2D form of
- * the orthogonal-distance fixed-point iteration (a no-op for three points).
+ * determined for three points and least squares beyond, then the
+ * orthogonal-distance fit to convergence (refineBall; a no-op for three
+ * points).
  * Null when the points do not determine a circle.
  */
 export function fitCircle2d(pu0: ArrayLike<number>, pv0: ArrayLike<number>): Circle2d | null {
@@ -68,30 +70,16 @@ export function fitCircle2d(pu0: ArrayLike<number>, pv0: ArrayLike<number>): Cir
   if (!(r2 > 0) || !Number.isFinite(r2)) return null
   let r = Math.sqrt(r2)
 
-  // Orthogonal-distance refinement.
-  for (let iter = 0; iter < 100; iter++) {
-    let sd = 0, sxu = 0, sxv = 0, m = 0
-    for (let i = 0; i < n; i++) {
-      const du = pu[i] - cu
-      const dv = pv[i] - cv
-      const dist = Math.hypot(du, dv)
-      if (dist < 1e-12) continue
-      sd += dist
-      sxu += du / dist
-      sxv += dv / dist
-      m++
-    }
-    if (m === 0) break
-    const rNew = sd / m
-    const nu = su / n - rNew * (sxu / m)
-    const nv = sv / n - rNew * (sxv / m)
-    const move = Math.hypot(nu - cu, nv - cv)
-    cu = nu
-    cv = nv
-    r = rNew
-    if (move < 1e-10 * Math.max(1, r)) break
+  // Orthogonal-distance refinement, to convergence.
+  const coords = new Float64Array(2 * n)
+  for (let i = 0; i < n; i++) {
+    coords[2 * i] = pu[i]
+    coords[2 * i + 1] = pv[i]
   }
-  if (!Number.isFinite(cu) || !Number.isFinite(cv) || !Number.isFinite(r) || !(r > 0)) return null
+  const ball = refineBall(2, coords, [cu, cv], r)
+  if (!ball) return null
+  ;[cu, cv] = ball.centre
+  r = ball.r
 
   return { cu: cu + mu, cv: cv + mv, r }
 }

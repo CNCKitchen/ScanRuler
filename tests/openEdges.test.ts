@@ -3,7 +3,7 @@
 // conversion's verdict that names the faces it lost and says where the gaps
 // they left lie.
 import { describe, expect, it } from 'vitest'
-import { meshGaps } from '../src/core/geometry/openEdges'
+import { meshGaps, rimLoops } from '../src/core/geometry/openEdges'
 import { describeConversion } from '../src/core/parsers/step'
 import { weldTriangleSoup } from '../src/core/geometry/weld'
 import { boxMesh } from './helpers'
@@ -24,6 +24,30 @@ function boxWithout(face: (p: Vec3) => boolean): { positions: Float32Array; indi
   }
   return { positions: p, indices: Uint32Array.from(kept) }
 }
+
+describe('open edges on a scan of millions of vertices', () => {
+  // Edges were keyed by the lower vertex times 2^32, which runs past 2^53
+  // once a vertex is numbered over 2^21: neighbouring edges took one key.
+  const A = 2 ** 23 + 1
+  const quad = new Uint32Array([A, A + 1, A + 2, A, A + 2, A + 3])
+
+  it('walks the rim of a quad numbered past 2^23 round its four corners', () => {
+    const loops = rimLoops(quad)
+    expect(loops).toHaveLength(1)
+    expect(loops[0].closed).toBe(true)
+    expect([...loops[0].vertices].sort((a, b) => a - b)).toEqual([A, A + 1, A + 2, A + 3])
+  })
+
+  it('places its gap', () => {
+    const positions = new Float32Array((A + 4) * 3)
+    positions.set([0, 0, 0, 10, 0, 0, 10, 10, 0, 0, 10, 0], A * 3)
+    const gaps = meshGaps(positions, quad)
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0].edges).toBe(4)
+    expect(gaps[0].length).toBeCloseTo(40, 6)
+    expect(gaps[0].at).toEqual([5, 5, 0])
+  })
+})
 
 describe('meshGaps', () => {
   it('finds nothing on a closed box', () => {

@@ -6,6 +6,7 @@ import { useLength } from '../../../../src/app/useUnits'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
 import { useMeshTools } from '../../state/meshStore'
+import { SurveyWait } from '../SurveyWait'
 import { count, typedLen } from '../meshFormat'
 
 export function HolesTool({ ready, busy, onFill }: { ready: boolean; busy: boolean; onFill: () => void }) {
@@ -80,11 +81,7 @@ export function HolesTool({ ready, busy, onFill }: { ready: boolean; busy: boole
         </div>
       </div>
 
-      {ready && !s && (
-        <p className="hint">
-          <span className="spinner" /> Looking for holes…
-        </p>
-      )}
+      {ready && !s && <SurveyWait looking="Looking for holes…" />}
       {s && (
         <>
           <div className="kv" data-test="holes-rims">

@@ -3,12 +3,21 @@
 // the development repository, and each publish is a single commit of the whole
 // tree, so their authors would never show here without Co-authored-by lines:
 // GitHub counts those as contributions. Credited are the authors of what this
-// release brings that no commit since its last version has credited yet, and
-// anyone in the whole development history never credited at all, so a publish
-// that failed or a contribution from before this script is made good by the
-// next one. Commits that touch only what stays private count for nothing.
+// publish brings, and anyone in the whole development history never credited
+// at all, so a contribution from before this script is made good too. Commits
+// that touch only what stays private count for nothing.
 //
-//   node scripts/oss-credits.mjs --private <repo> --public <repo> --since v1.2.3 --skip a@b.c,d@e.f
+// What a publish brings is the commits since the one the last publish was made
+// from, which the publish marks with a tag (--from, `oss-published`): a publish
+// that failed leaves the mark where it was, and the next one brings its
+// commits. Without the mark — the first publish after it came in — the release
+// is the commits since the last version (--since), less the people a public
+// commit since that version has credited. That second way is by person, not by
+// commit: when a version never reached the public repository, a commit after
+// the version before it that credited someone for older work hid their new
+// work, as it did in 0.9.6.
+//
+//   node scripts/oss-credits.mjs --private <repo> --public <repo> --from oss-published --since v1.2.3 --skip a@b.c,d@e.f
 //
 // Prints a Co-authored-by line each, or nothing. --skip names the emails that are
 // never credited, the maintainer's and an assistant's; bots never are.
@@ -88,13 +97,17 @@ function main() {
   const dev = option('private')
   const pub = option('public')
   const since = option('since')
+  const from = option('from')
   if (!dev || !pub) throw new Error('Give --private and --public.')
   const paths = privatePaths(dev)
+  // The commits since the last publish, none of them credited yet; or, with
+  // no mark, those since the last version, as far as the public side says.
+  const marked = Boolean(from) && hasTag(dev, from)
   const known = Boolean(since) && hasTag(dev, since)
   const lines = creditLines({
-    release: known ? logPeople(dev, `${since}..HEAD`, paths) : [],
+    release: marked ? logPeople(dev, `${from}..HEAD`, paths) : known ? logPeople(dev, `${since}..HEAD`, paths) : [],
     everyone: logPeople(dev, null, paths),
-    creditedRelease: since && hasTag(pub, since) ? logPeople(pub, `${since}..HEAD`) : [],
+    creditedRelease: !marked && since && hasTag(pub, since) ? logPeople(pub, `${since}..HEAD`) : [],
     creditedEver: logPeople(pub, null),
     skip: (option('skip') ?? '').split(',').filter(Boolean),
   })

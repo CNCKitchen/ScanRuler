@@ -92,18 +92,30 @@ export function ImprintModal() {
           </li>
           <li>
             Your scans, reference models, fitted elements and every measurement made from them
-            are processed entirely in your browser. They are held in memory for the duration of
-            the session only, are never uploaded, and are gone when you close the tab. The one
-            exception is the optional agent connection: if you switch it on and accept its warning,
+            are processed entirely in your browser and are never uploaded. So that unsaved work
+            survives a closed or crashed tab, a recovery copy of it, the files included, is kept
+            on your device in your browser’s IndexedDB storage. Copies left by closed tabs are
+            offered back when you open ScanRuler again, and are deleted when you discard them,
+            after 14 days, once more than ten have built up, or when you clear this site’s data
+            in your browser.
+            The one exception is the optional agent connection: if you switch it on and accept its warning,
             what the AI agent you connected reads is processed by that agent and, unless its model
             runs on your computer, by the model’s provider, under that provider’s terms. ScanRuler
             itself sends none of this anywhere and has no part in that processing.
           </li>
           <li>
-            The only things this tool stores on your device are four preferences — your chosen
-            mouse navigation scheme, viewport colour scheme, STEP export style, and whether the
-            guided hints are shown and which workspaces you have already been through — kept in
-            your browser’s localStorage. No personal data is stored.
+            Besides that recovery copy, this tool stores your settings on your device, in your
+            browser’s localStorage: preferences such as the navigation scheme, colours, units,
+            export and fit options, the guided hints and the Beta switch, and, if you use the
+            agent connection, its port and the token that pairs it with the agent server. No
+            personal data is stored.
+          </li>
+          <li>
+            A link that opens a file (an address with <code>?open=</code> or <code>/s/</code>)
+            makes your browser fetch that file from where the link points: for{' '}
+            <code>/s/</code> this site’s own file store on Cloudflare, for <code>?open=</code> any
+            server the link names, which may belong to someone else and sees your IP address as
+            any website does.
           </li>
           <li>This website does not use cookies, analytics, or any tracking technologies.</li>
           <li>
