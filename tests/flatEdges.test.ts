@@ -191,3 +191,28 @@ describe('detectEdges', () => {
     expect(leftChains.size).toBe(1)
   })
 })
+
+describe('the memory edge detection takes', () => {
+  it('keeps two image-sized float arrays, not five', () => {
+    // A 100-megapixel scan is where this shows; counted here as the arrays
+    // the size of the image that are made while the edges are found.
+    const w = 200
+    const h = 150
+    const gray = new Uint8Array(w * h)
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) gray[y * w + x] = Math.hypot(x - 100, y - 75) < 50 ? 200 : 40
+    const Real = globalThis.Float32Array
+    let imageSized = 0
+    globalThis.Float32Array = new Proxy(Real, {
+      construct(target, args) {
+        if (args[0] === w * h) imageSized++
+        return Reflect.construct(target, args)
+      },
+    })
+    try {
+      expect(chainCount(detectEdges(gray, w, h))).toBeGreaterThan(0)
+    } finally {
+      globalThis.Float32Array = Real
+    }
+    expect(imageSized).toBe(2)
+  })
+})
