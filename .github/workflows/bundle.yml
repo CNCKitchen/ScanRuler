@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The agent server and the desktop app, bundled for every platform and architecture a GitHub-hosted runner offers, then started and made to do real work. The agent server is a single executable with the headless engine and the built app beside it (npm run bundle:agent, npm run smoke:agent); the desktop app is Electron with the shell, the app and the server in its resources (npm run package:electron, npm run smoke:electron), and its installer is made and installed for real (npm run make:installer, npm run smoke:installer). Each target is built on its own runner because both carry that runner's runtime. Called by CI on every pull request, so a platform that cannot be bundled fails before a release, and by the release workflow, which passes the tag whose release the archives are attached to.
+name: Bundles
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to attach the archives to (empty keeps them as workflow artifacts only)
+        type: string
+        required: false
+        default: ''
+
+# No permissions block: a called workflow can only lower the caller's token, so declaring contents: read here would stop the release caller's contents: write reaching the upload step (HTTP 403).
+
+jobs:
+  bundle:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-24.04 }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm }
+          - { target: darwin-x64, runner: macos-15-intel }
+          - { target: darwin-arm64, runner: macos-15 }
+          - { target: win32-x64, runner: windows-latest }
+          - { target: win32-arm64, runner: windows-11-arm }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix mcp ci
+      - run: npm run bundle:agent
+      - run: npm run smoke:agent
+      - run: npm run package:electron
+      - name: Smoke-test the desktop app (under a virtual display on Linux)
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = Linux ]; then
+            command -v xvfb-run > /dev/null || sudo apt-get install -y xvfb
+            xvfb-run -a npm run smoke:electron
+          else
+            npm run smoke:electron
+          fi
+      - name: Make the desktop installer and smoke-test it (under a virtual display on Linux)
+        shell: bash
+        run: |
+          npm run make:installer
+          if [ "${{ runner.os }}" = Linux ]; then
+            xvfb-run -a npm run smoke:installer
+          else
+            npm run smoke:installer
+          fi
+      - name: Archive
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          for kind in agent desktop; do
+            if [ "$kind" = agent ]; then
+              dir="dist-agent/${{ matrix.target }}"; name="scanruler-agent-${TAG:-test}-${{ matrix.target }}"
+            else
+              dir="dist-electron/${{ matrix.target }}/ScanRuler-${{ matrix.target }}"; name="scanruler-desktop-${TAG:-test}-${{ matrix.target }}"
+            fi
+            test -d "$dir"
+            if [ "${{ runner.os }}" = Windows ]; then
+              7z a -tzip "$name.zip" "./$dir/*"
+            else
+              tar -C "$dir" -czf "$name.tar.gz" .
+            fi
+          done
+          for installer in dist-installers/${{ matrix.target }}/*; do
+            case "$installer" in
+              *.dmg) ext=dmg ;;
+              *-setup.exe) ext=setup.exe ;;
+              *.deb) ext=deb ;;
+              *) echo "unexpected installer $installer"; exit 1 ;;
+            esac
+            cp "$installer" "scanruler-installer-${TAG:-test}-${{ matrix.target }}.$ext"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.target }}
+          path: |
+            scanruler-agent-*
+            scanruler-desktop-*
+            scanruler-installer-*
+          retention-days: 7
+      - name: Attach to the release
+        if: ${{ inputs.tag != '' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: gh release upload "$TAG" scanruler-agent-* scanruler-desktop-* scanruler-installer-* --clobber

@@ -159,6 +159,24 @@ of `CHANGELOG.md` (`.github/workflows/release.yml`;
 `node scripts/release-notes.mjs 0.3.0` prints them). Run that workflow by hand
 to release a tag again or catch up on tags that have no release.
 
+## Agent bundles
+
+`npm run bundle:agent` bundles the agent server (`mcp/`) with ScanRuler running headless in it, for the platform it runs on, into `dist-agent/<platform>-<arch>/`: a Node single executable (`scanruler-agent`) and an `engine/` folder holding the standalone engine and the CAD kernel's WebAssembly, which the executable finds beside itself. The runtime inside the executable is the Node that runs the script, so each platform is bundled on its own runner. `npm run build:engine -- --standalone` builds just the engine, with every package inlined.
+
+`npm run smoke:agent` starts the bundled executable the way an agent does, over stdio, and has it add a parameter and read it back. CI runs both on every pull request, on Linux, macOS and Windows runners, x64 and arm64 (`.github/workflows/agent-bundle.yml`, called by `ci.yml`), so a platform that cannot be bundled fails before a release. The release workflow calls the same workflow with the tag, which attaches one archive per platform to the tag's release.
+
+The bundle also carries the built app (`app/`), and the executable's `start`, `open`, `status` and `stop` commands run a detached background server that serves it and relays to the tab (`mcp/src/daemon.js`, described in `mcp/README.md`); `npm run smoke:agent` exercises that lifecycle too, in a config directory and on a port of its own.
+
+The macOS executables are signed ad hoc, which Apple silicon requires of any binary, but they are not notarised: a copy downloaded in a browser needs its quarantine attribute cleared once (`xattr -d com.apple.quarantine scanruler-agent`). The Windows executables are unsigned. The server in the executable never updates itself from npm; a newer release is a newer download.
+
+## Desktop app
+
+`npm run package:electron` packages the desktop app for the platform it runs on into `dist-electron/<platform>-<arch>/ScanRuler-<platform>-<arch>/`: Electron running the shell in `electron/`, with the built app, the agent server and the tray's icon in its resources. The shell is a tray app: one instance per user, a tray icon with Open, Quit and Quit and stop background server, closing the window leaves it running, and only the Quit entries end it. The app is served by the background server (`mcp/src/daemon.js`), which the shell attaches to or starts detached, running the bundled server through Electron as Node, so the server and the agents relaying through it outlive both the window and a plain Quit; Quit and stop background server ends it too. The shell's behaviour is in `electron/shell.ts` with Electron's API handed in, tested with vitest in `tests/desktopShell.test.ts`.
+
+`npm run smoke:electron` runs the packaged app with `--smoke`, in a config directory, a user-data directory and on a port of its own: it must start the server, load the app into a hidden window, find the page titled ScanRuler, make its tray and exit 0, after which the server must still be running, serve the app and stop on request. It opens a window, so run it where a display is available; CI runs it on every platform, under `xvfb-run` on Linux, with the bundles above (`.github/workflows/bundle.yml`). The macOS app is signed ad hoc and not notarised (`xattr -d com.apple.quarantine ScanRuler.app` once after a download); the Windows app is unsigned. Electron ships Chromium's FFmpeg as a separate LGPL library, which CONTRIBUTING.md records.
+
+`npm run make:installer` makes the desktop app's installer for the platform it runs on into `dist-installers/<platform>-<arch>/`, from the packaged app, with each platform's own tool so there is no packaging dependency to vet: a disk image on macOS (`diskutil image`: a sparse image filled and then compressed, because `hdiutil create` is deprecated and `diskutil image create from` rejects a folder on macOS 15), a setup program on Windows (Inno Setup, compiled from `scripts/installer/windows.iss`; both Windows runner images carry it) and a Debian package on Linux (`dpkg-deb`, which puts the app under `/opt/ScanRuler` with a `scanruler` command and a menu entry). What goes into them is in `scripts/lib/installer.ts`, tested by `tests/installerPlan.test.ts`. `npm run smoke:installer` installs the result for real, runs the installed app with `--smoke`, then uninstalls it and checks it is gone; it needs a display and, on Linux, `sudo`. CI makes and tests all three on every platform and attaches them to a release beside the archives. The installers carry the same signing caveats as the archives: the macOS app is signed ad hoc and the Windows setup program is unsigned, so Windows SmartScreen warns on first run.
+
 ## Deploying to Cloudflare
 
 The app is a static Vite build (`dist/`) served by a Cloudflare Worker with no

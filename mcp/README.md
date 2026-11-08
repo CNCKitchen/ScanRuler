@@ -180,6 +180,19 @@ serves a built ScanRuler (`npm run build` in a clone) at
 for working offline, and for your own build. A page from there needs
 no browser permission, and `--pair` then gives a link to it.
 
+### The bundled executable
+
+The release archives hold `scanruler-agent`, this server and ScanRuler itself in one executable with an `app/` folder (the built app) and an `engine/` folder (the headless engine) beside it. Run from a terminal with no arguments it starts the background server and opens the app in your browser, already paired. Its commands manage that server:
+
+| Command | What it does |
+| --- | --- |
+| `scanruler-agent start` | Start the background server, detached so it outlives the terminal, serving `app/` on the port. A second `start` finds the first. |
+| `scanruler-agent open` | Start it if it is not running, then open the app in your browser, already paired. |
+| `scanruler-agent status` | Say whether it runs, and on which port; exit code 1 when it does not. |
+| `scanruler-agent stop` | End it. |
+
+`--port <n>` (or `SCANRULER_MCP_PORT`) picks the port for these. The background server is `--daemon` of this server: it holds the port and relays to the open tab with no agent attached, and records itself in the config directory (`daemon.json`) so the commands find it again. An agent that starts `scanruler-agent` over stdio while it runs relays through it to the tab you have open; with none running, the executable runs ScanRuler headless from its `engine/` folder, as in the next section. The executable never updates itself from npm.
+
 ### Without a browser (headless)
 
 ```bash
@@ -292,6 +305,7 @@ may add one — and the server says so on its stderr when a tab connects.
 | `--trace-args` | With `--trace`, each call's arguments too; otherwise only their size. |
 | `--answer-within <s>` | Hold a call at most this many seconds, 45 unless given: a change, a batch or a long read still running then answers `{ queued: true, job, after }` and runs on, and `scanruler_wait` waits no longer either. A client, or a bridge between it and this computer, may cut a call at a minute; a cut call says nothing. `0` holds every call to its end. Also `SCANRULER_MCP_ANSWER_WITHIN`. |
 | `--no-update` | Do not keep the server current (see *Staying current*). Also `SCANRULER_MCP_NO_UPDATE=1`. |
+| `--daemon` | Run as the background server: hold the port, serve `--serve <dir>` and relay to the page with no agent attached. The bundled executable's `start` runs it. |
 | `--pair` | Print the port, the token and the pairing link, and exit. |
 | `--version` | Print the server's version, and exit. |
 | `--help` | The options. |
