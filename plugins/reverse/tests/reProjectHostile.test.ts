@@ -23,6 +23,17 @@ describe('a Reverse project file', () => {
   })
 })
 
+describe('a Reverse model rolled back to the top', () => {
+  it('still holds work, so a project is not opened over it without a word (issue 34)', () => {
+    const feature = { id: 1, kind: 'import', name: 'Import 1', file: { key: 'k1', name: 'a.step', size: 13 } }
+    useReverse.setState({ features: [], rolledBack: [feature as never] })
+    expect(reverseSection.holdsWork?.()).toBe(true)
+    expect(reverseSection.holds?.()).toEqual({ features: 1 })
+    useReverse.setState({ features: [], rolledBack: [] })
+    expect(reverseSection.holdsWork?.()).toBe(false)
+  })
+})
+
 describe('a Reverse project file with an Import keyed like an object property', () => {
   it('finds no STEP file for the key and saves none', () => {
     const feature = { id: 1, kind: 'import', name: 'Import 1', file: { key: 'constructor', name: 'a.step', size: 1 } }

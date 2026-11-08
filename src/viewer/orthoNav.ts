@@ -715,9 +715,8 @@ export class OrthoNavigator {
     // Emulated by the 3Dconnexion driver while the puck is pushed — see
     // spaceMouseBusy.
     if (spaceMouseBusy()) return
-    // SolidWorks/Autodesk/NX muscle memory: their schemes zoom OUT on scroll up.
-    const zoomIn = this.scheme.wheelZoomsOut ? e.deltaY > 0 : e.deltaY < 0
-    this.zoomAt(zoomIn ? 1.1 : 1 / 1.1, e.clientX, e.clientY)
+    const factor = wheelZoomFactor(e.deltaY, e.deltaMode, this.scheme.wheelZoomsOut ?? false)
+    if (factor !== 1) this.zoomAt(factor, e.clientX, e.clientY)
   }
 
   /** Cursor-centric zoom: scale the frustum, then shift the camera so the world
@@ -813,4 +812,29 @@ export class OrthoNavigator {
     this.camera.updateMatrixWorld()
     this.onChange?.()
   }
+}
+
+/** One notch of a mouse wheel, as Chrome and Edge report it, in pixels. */
+const NOTCH_PX = 100
+/** What a notch zooms by. */
+const NOTCH_ZOOM = 1.1
+/** The most one wheel event moves, in pixels: a page-sized jump, or a burst
+ *  a driver reports as one, takes three notches' worth at most. */
+const MAX_WHEEL_PX = 3 * NOTCH_PX
+
+/**
+ * The zoom one wheel event makes: by how far it scrolled, so a mouse notch
+ * zooms 1.1× as it always has and a trackpad's run of small deltas zooms
+ * smoothly instead of a full step each — it jumped. A scroll with no
+ * vertical part (a trackpad swiped sideways, a tilt wheel) zooms nothing; it
+ * read as a zoom out (issue 34). `zoomsOut`: the SolidWorks, Autodesk and NX
+ * schemes zoom out on scroll up.
+ */
+export function wheelZoomFactor(deltaY: number, deltaMode: number, zoomsOut: boolean): number {
+  if (deltaY === 0 || !Number.isFinite(deltaY)) return 1
+  // Lines (Firefox: three a notch) and pages, in pixels.
+  const px = deltaMode === 1 ? deltaY * (NOTCH_PX / 3) : deltaMode === 2 ? deltaY * MAX_WHEEL_PX : deltaY
+  const clamped = Math.max(-MAX_WHEEL_PX, Math.min(MAX_WHEEL_PX, px))
+  const steps = -clamped / NOTCH_PX
+  return NOTCH_ZOOM ** (zoomsOut ? -steps : steps)
 }

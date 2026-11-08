@@ -156,7 +156,17 @@ function Workbench() {
     cancelDraft: handleCancelDraft,
     findSymmetry: handleFindSymmetry,
   } = session.measure
-  const { commitScan, openScan: openFile } = session.scan
+  const { commitScan, openScan } = session.scan
+  /** A scan the person opens: asked about first when the session holds
+   *  measurements on the scan in place, which a new scan clears — opening
+   *  one let them go without a word (pull request 23, issue 34). An agent
+   *  opens through scan.open, whose discard says it. */
+  const openFile = (file: File) =>
+    openScan(file, undefined, () => {
+      const s = useStore.getState()
+      const held = s.elements.length + s.dimensions.length + s.sections.length
+      return held === 0 || window.confirm(`Opening ${file.name} replaces the scan, and the ${held === 1 ? 'measurement' : `${held} measurements`} on it — elements, dimensions and sections — go with it. Continue?`)
+    })
   // In development the viewport, the worker and the Measure store are
   // reachable from the console and the browser checks — nothing in a
   // production build.
@@ -677,7 +687,7 @@ function Workbench() {
   // app/scanSwap.
   const { swapScan, remapScan, remeasureScan } = session.swap
 
-  hostVerbs.current = { openScan: openFile, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, remapScan, remeasureScan }
+  hostVerbs.current = { openScan, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, remapScan, remeasureScan }
 
   useProjectHistory({ clientRef, sceneRef, elementScope, deviation, deviationRgb, referenceMap: maps.referenceMap, referenceRgb: maps.referenceRgb,
     thickness, thicknessRgb, imports, sources, runFit, runDeviation, runThickness, swapScan, remeasureScan })

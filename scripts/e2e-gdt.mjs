@@ -91,6 +91,8 @@ const SHAFT = join(dir, 'shaft.stl')
 writeFileSync(SHAFT, Buffer.from(writeBinarySTL(steppedShaft())))
 
 const { browser, page, consoleErrors } = await launchApp()
+// A scan opened over measurements asks first: yes.
+page.on('dialog', (d) => void d.accept())
 
 const saveEnabled = (timeout = 30_000) =>
   page

@@ -141,8 +141,10 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
 
   /** An STL is asked about first — what units it is in — unless `units` is
    *  given: a file the instrument wrote itself, in millimetres like
-   *  everything it holds. A question dismissed leaves the file unopened. */
-  const openScan = async (file: File, units?: MeshUnits): Promise<void> => {
+   *  everything it holds. A question dismissed leaves the file unopened.
+   *  `shouldStart`, asked at the head of the import queue — so it sees work
+   *  made while the file waited — leaves it unopened when it says no. */
+  const openScan = async (file: File, units?: MeshUnits, shouldStart?: () => boolean): Promise<void> => {
     const read = units ?? (await meshUnitsFor(file.name))
     if (!read) return
     await runImport(imports, isStepFile(file.name) ? 'Reading STEP file — tessellating the CAD surfaces…' : 'Reading file…', async () => {
@@ -172,7 +174,7 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
         prepared.view.dispose()
         await client.discardImport([prepared.id])
       }
-    })
+    }, shouldStart)
   }
 
   return { commitScan, openScan }

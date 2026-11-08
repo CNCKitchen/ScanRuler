@@ -11,7 +11,7 @@ import { parsePlaneName } from '../src/commands/refs'
 import { BASE_PLANES } from '../src/core/basePlanes'
 import { worldPlaneName } from '../src/core/section/frame'
 import { registerStateSection } from '../src/commands/stateSections'
-import { useHistory } from '../src/state/historyStore'
+import { registerHistory, useHistory } from '../src/state/historyStore'
 import { useShell } from '../src/state/shellStore'
 import { useStore } from '../src/state/store'
 import { boxMesh, cylinderMesh, icosphere } from './helpers'
@@ -632,6 +632,25 @@ describe('session, report, files and history', () => {
     expect(u).toMatchObject({ undone: 'Agent: fit plane', state: { elements: [] } })
     const r = await run<{ redone: string }>('history.redo')
     expect(r.redone).toBe('Agent: fit plane')
+  })
+
+  it('history.undo is refused while an editor walks a history of its own (issue 34)', async () => {
+    await openBox()
+    await fitFace([0, 0, 20])
+    let stepped = 0
+    const stop = registerHistory({
+      local: { workspace: 'measure', label: 'sketch edit', active: () => true, canUndo: () => true, canRedo: () => false, undo: () => stepped++, redo: () => stepped++ },
+    })
+    try {
+      const e = await refused('history.undo')
+      expect(e.code).toBe('invalid_state')
+      expect(e.message).toMatch(/sketch edit is open/)
+      expect(stepped).toBe(0)
+      expect(undoLabels()).toEqual(['Agent: fit plane'])
+    } finally {
+      stop()
+    }
+    expect((await run<{ undone: string }>('history.undo')).undone).toBe('Agent: fit plane')
   })
 
   it('session.reset closes everything — only when told to drop the work', async () => {

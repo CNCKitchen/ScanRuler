@@ -157,6 +157,8 @@ export class ExtendGrips {
   private fieldGroup = new THREE.Group()
   private field: { side: GripSide; label: CSS2DObject; input: HTMLInputElement; unit: HTMLElement; value: number } | null = null
   private hoveredHandle: GripSide | null = null
+  /** Whether the grip in hand was taken by a finger or a pen, not a mouse. */
+  private touchHeld = false
   /** The view the grips held on the screen were last fitted to: what a
    *  pixel was worth, and which way the camera looked. */
   private pixel = 0
@@ -619,8 +621,14 @@ export class ExtendGrips {
    *  already stepped aside for it, the same way it does for the brush.
    *  Returns whether the event was taken. */
   handlePointerDown(e: PointerEvent): boolean {
-    if (this.hoveredHandle === null) return false
     if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey) return false
+    // A finger or a pen has no hover to have lit a grip: what is under it is
+    // read at the press, or no grip could be taken by touch (issue 34).
+    this.touchHeld = e.pointerType !== 'mouse'
+    if (this.hoveredHandle === null && this.touchHeld && this.handleDrag === null) {
+      this.setHoveredHandle(this.handleAt(e.clientX, e.clientY)?.side ?? null)
+    }
+    if (this.hoveredHandle === null) return false
     const grip = this.handles.find((h) => h.side === this.hoveredHandle)
     if (!grip) return false
     this.beginHandleDrag(grip, e.clientX, e.clientY)
@@ -742,6 +750,9 @@ export class ExtendGrips {
     const drag = this.handleDrag
     if (!drag) return
     this.handleDrag = null
+    // A finger lifted leaves nothing hovering, and the plain drag goes back
+    // to the camera.
+    if (this.touchHeld) this.setHoveredHandle(null)
     this.ctx.canvas.style.cursor = this.hoveredHandle !== null ? 'grab' : ''
     this.syncActiveSide()
     this.ctx.onExtendDrag(drag.side, 0, 'end')

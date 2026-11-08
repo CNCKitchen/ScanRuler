@@ -31,6 +31,8 @@ writeFileSync(OPEN, Buffer.from(writeBinarySTL({ ...cube, indices: cube.indices.
 writeFileSync(REFERENCE, cubeStep(20))
 
 let { browser, page, consoleErrors } = await launchApp()
+// Opening the next scan asks before it replaces the measurements: yes.
+page.on('dialog', (d) => void d.accept())
 
 /** How much of a picture of the view is in the cut colour's warm hue — the
  *  clay a closed part's cut face is filled with. The surfaces are grey. */
@@ -162,6 +164,7 @@ await browser.close()
 
 // ---- the reference, and the split view ------------------------------------------
 ;({ browser, page, consoleErrors } = await launchApp())
+page.on('dialog', (d) => void d.accept())
 await page.click('[data-test=support-card] .sc-x').catch(() => {})
 await page.click('[data-test=workspace-deviation]')
 await loadScan(page, CLOSED, { inputSelector: '[data-test=start-scan] input[type=file]', settle: 0 })

@@ -7,6 +7,8 @@
 // while its workspace is on screen — the plugin that puts the scan away
 // its own way says so with `applies` — and may say why one of its own is
 // off (`why`), for a picture that comes out without it.
+import { withoutHistory } from '../state/historyStore'
+
 
 export interface ViewToggle {
   /** The key `show` names it by: `scan`, `sections`, a plugin's own. */
@@ -95,7 +97,9 @@ export function applyShow(all: ReadonlyMap<string, ViewToggle>, show: Record<str
   }
   const done: [ViewToggle, unknown][] = []
   // Each put back whatever another does; the first failure said after.
-  const putBack = () => {
+  // What is shown is no step of the history, set or put back: view.set and
+  // view.render are read-only, and a step would clear the redo stack.
+  const putBack = () => withoutHistory(() => {
     let failed: unknown = null
     for (const [t, saved] of [...done].reverse()) {
       try {
@@ -106,12 +110,14 @@ export function applyShow(all: ReadonlyMap<string, ViewToggle>, show: Record<str
       }
     }
     if (failed) throw failed
-  }
+  })
   try {
-    for (const [t, on] of asked) {
-      done.push([t, t.save ? t.save() : t.shown()])
-      t.show(on)
-    }
+    withoutHistory(() => {
+      for (const [t, on] of asked) {
+        done.push([t, t.save ? t.save() : t.shown()])
+        t.show(on)
+      }
+    })
   } catch (e) {
     try {
       putBack()

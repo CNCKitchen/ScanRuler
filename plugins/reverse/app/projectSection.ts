@@ -385,8 +385,17 @@ export const reverseSection: ProjectSection<ReversePart> = {
     }
   },
   hasContent: () => true,
-  holdsWork: () => useReverse.getState().features.length > 0,
-  holds: () => ({ features: useReverse.getState().features.length }),
+  // The features below the rollback bar are work as much as those above it:
+  // a model rolled back to the top counted as empty, and a project could be
+  // opened over it without a word (issue 34).
+  holdsWork: () => {
+    const r = useReverse.getState()
+    return r.features.length + r.rolledBack.length > 0
+  },
+  holds: () => {
+    const r = useReverse.getState()
+    return { features: r.features.length + r.rolledBack.length }
+  },
   hasDraft: () => {
     const r = useReverse.getState()
     return DRAFTS.some((k) => !!r[k])

@@ -771,14 +771,22 @@ export function addInsetTwin(source: SketchFeature, name: string, by: number, ex
  *  bodies (bodiesOfFeature) — as their eyes in the body list do, so the
  *  export, the comparison and the pictures leave hidden ones out. What was
  *  shown or hidden, for the answer. */
+/** The bodies `visible` shows or hides for a feature other than a sketch —
+ *  refused, changing nothing, when it has none standing. */
+function bodiesToShow(f: Feature): number[] {
+  const r = re()
+  const ids = bodiesOfFeature(f, r.bodies, r.results[f.id])
+  if (ids.length === 0) invalid(`${f.name} has no body standing to show or hide — it built none, or a later feature took its body into another; show or hide that body (reverse.body.set { visible }).`)
+  return ids
+}
+
 function showFeature(f: Feature, visible: boolean): { visibility?: { visible: boolean; bodies: { id: number; name: string }[] } } {
   const r = re()
   if (f.kind === 'sketch') {
-    if (visible !== f.visible) r.toggleFeatureVisible(f.id)
+    if (visible !== r.features.concat(r.rolledBack).find((x) => x.id === f.id)?.visible) r.toggleFeatureVisible(f.id)
     return {}
   }
-  const ids = bodiesOfFeature(f, r.bodies, r.results[f.id])
-  if (ids.length === 0) invalid(`${f.name} has no body standing to show or hide — it built none, or a later feature took its body into another; show or hide that body (reverse.body.set { visible }).`)
+  const ids = bodiesToShow(f)
   r.setBodiesVisible(ids, visible)
   return { visibility: { visible, bodies: ids.map((id) => ({ id, name: bodyAt(id).name })) } }
 }
@@ -906,11 +914,21 @@ function holeTaken(s: ReverseSession, f: Feature, pick: unknown): { largestInsid
 /** A feature's box opened on it, what was handed in written over it, and
  *  committed: the panel's edit. */
 export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve?: unknown; inset?: unknown; routed?: Routed[]; largestInside?: string } & Partial<ReturnType<typeof madeOut>> & ReturnType<typeof showFeature> & Partial<ReturnType<typeof putOnPlane>> {
-  const r = re()
-  const shown = set.visible !== undefined ? showFeature(f, set.visible === true) : {}
-  if (set.suppressed !== undefined) r.setSuppressed([f.id], set.suppressed === true)
+  // Shown or hidden, suppressed or not, only once the rest of the edit is
+  // taken: set first, they stood after an edit refused — and the refusal
+  // still recorded a step (issue 34). What would refuse them is asked first.
+  if (set.visible !== undefined && f.kind !== 'sketch') bodiesToShow(f)
   const fields = Object.fromEntries(Object.entries(set).filter(([k]) => k !== 'visible' && k !== 'suppressed'))
-  if (Object.keys(fields).length === 0) return shown
+  const edited = Object.keys(fields).length === 0 ? {} : editFields(s, f, fields)
+  const shown = set.visible !== undefined ? showFeature(f, set.visible === true) : {}
+  if (set.suppressed !== undefined) re().setSuppressed([f.id], set.suppressed === true)
+  return { ...edited, ...shown }
+}
+
+/** The fields of an update other than visible and suppressed, written over
+ *  the feature's box and committed. */
+function editFields(s: ReverseSession, f: Feature, fields: Json): { solve?: unknown; inset?: unknown; routed?: Routed[]; largestInside?: string } & Partial<ReturnType<typeof madeOut>> & Partial<ReturnType<typeof putOnPlane>> {
+  const r = re()
   switch (f.kind) {
     case 'sketch': {
       const given = fields.sketch as Json | undefined
@@ -965,11 +983,11 @@ export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve
       r.editExtrude(f.id)
       if (fields.face !== undefined) invalid('An extrude keeps what it is pulled from — make a new one.')
       commitExtrude(s, fields)
-      return { ...shown, ...holeTaken(s, f, fields.regions) }
+      return holeTaken(s, f, fields.regions)
     case 'revolve':
       r.editRevolve(f.id)
       commitRevolve(s, fields)
-      return { ...shown, ...holeTaken(s, f, fields.regions) }
+      return holeTaken(s, f, fields.regions)
     case 'loft': {
       // A loft's numbers are its stations': the expressions go to them.
       const { exprs, ...others } = fields
@@ -978,12 +996,12 @@ export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve
         r.editFeature(f.id)
         commitBox(s, 'loft', others, true)
       }
-      return { ...shown, ...(routed ? { routed } : {}) }
+      return routed ? { routed } : {}
     }
     default:
       r.editFeature(f.id)
       if (!re().featureDraft) invalid(`${f.name} cannot be edited.`)
       commitBox(s, f.kind as FeatureDraftKind, fields, true)
-      return shown
+      return {}
   }
 }

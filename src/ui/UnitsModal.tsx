@@ -37,6 +37,10 @@ export function UnitsModal() {
         cancel()
       } else if (e.key === 'Enter') {
         e.stopPropagation()
+        // Enter on a focused button is that button's: Cancel focused and
+        // Enter pressed opened the file all the same (issue 34). The browser
+        // clicks it.
+        if ((e.target as HTMLElement | null)?.closest?.('button')) return
         answer(units, remember)
       }
     }

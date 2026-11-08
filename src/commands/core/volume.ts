@@ -6,6 +6,7 @@
 
 import type { Vec3 } from '../../core/types'
 import { useDeviation } from '../../state/deviationStore'
+import { withoutHistory } from '../../state/historyStore'
 import { commandHost } from '../host'
 import { requireScan } from '../refs'
 import { arr, enumOf, int, num, obj, vec3 } from '../schema'
@@ -34,7 +35,9 @@ const volumeCommand: Command<{ tolerance?: number; cell?: number; regions?: numb
     requireScan()
     if (!useDeviation.getState().nominalName) throw new CommandError('invalid_state', 'No reference part is open — open one with deviation.open_reference.')
     showWorkspace('deviation')
-    if (useDeviation.getState().source !== 'reference') useDeviation.getState().setSource('reference')
+    // Read-only: the switch to the reference's map is no step of the
+    // history, which would clear the redo stack (issue 34).
+    if (useDeviation.getState().source !== 'reference') withoutHistory(() => useDeviation.getState().setSource('reference'))
     const d = useDeviation.getState()
     if (!d.align) throw new CommandError('invalid_state', 'The scan is not aligned to the reference — run deviation.align first.')
     if (d.volumeStatus === 'running') throw new CommandError('busy', 'The volume error is being measured already.')

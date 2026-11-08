@@ -7,6 +7,36 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Opening a scan asks before it replaces your measurements**
+  (2026-11-08). A new scan clears the elements, dimensions and sections
+  measured on the one in place, and opening one from the panel, by drag and
+  drop, as the sample or from a link did so without a word. It now asks
+  first when there is something to lose. The idea came from Greg-J's pull
+  request 23.
+- **Keys stay with an open dialog** (2026-11-08, issue 34). With Settings,
+  the imprint or another dialog open, Enter, a middle click and the view
+  keys still acted on the workspace behind it: Enter could press "Align
+  automatically" behind Settings. The units question no longer opens the
+  file on Enter with Cancel focused, and Escape stops a running best fit
+  from the Reverse engineer as it does elsewhere. Thanks to Jozkah.
+- **Smooth zoom on a trackpad** (2026-11-08, issue 34). Each scroll event
+  zoomed a full step, so a trackpad jumped, and a sideways swipe zoomed out.
+  The zoom now follows how far you scroll, one mouse notch as before, and a
+  sideways swipe does nothing. Thanks to Jozkah.
+- **Extend grips can be dragged by touch** (2026-11-08, issue 34). A grip
+  had to be hovered before it could be taken, which a finger never does.
+  Thanks to Jozkah.
+- **Undo is left alone by an agent's pictures and readings** (2026-11-08,
+  issue 34). A picture with the scan or the map put away, or a volume
+  reading, went through the same switches as a click and recorded undo
+  steps, which also cleared redo. An agent's undo with a sketch open is
+  refused instead of stepping the sketch's own history. Thanks to Jozkah.
+- **A Reverse engineer model kept safe in three more places** (2026-11-08,
+  issue 34). A model rolled back to its first feature counted as empty, so a
+  project could be opened over it without a warning. A build still running
+  when every feature was deleted brought the bodies back when it finished.
+  An edit an agent was refused still hid or suppressed the feature. Thanks
+  to Jozkah.
 - **A huge scan is drawn whole while it turns, unless it turns slowly**
   (2026-11-08). The coarser copy 0.9.10 drew while the view moves, for every
   scan of more than 400,000 triangles, made the part flicker between two

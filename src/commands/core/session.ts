@@ -4,7 +4,7 @@
 // history.
 
 import { runImport } from '../../app/imports'
-import { historyBlocked, redo, undo, useHistory } from '../../state/historyStore'
+import { activeLocalHistory, historyBlocked, redo, undo, useHistory } from '../../state/historyStore'
 import { useShell } from '../../state/shellStore'
 import { useStore } from '../../state/store'
 import { commandHost, sceneOf } from '../host'
@@ -102,8 +102,23 @@ const afterStep = async (detail: StepDetail) => {
   return detail === 'full' ? { state: await sessionState() } : { after: sessionAfterStep() }
 }
 
+/** Refused while an editor with an undo history of its own is open: the
+ *  undo keys walk that one then, and a command that meant the session's
+ *  would step the editor's — a sketch edit — and report its own step as
+ *  failed (issue 34). */
+function refuseLocal(what: string): void {
+  const local = activeLocalHistory()
+  if (local) {
+    throw new CommandError(
+      'invalid_state',
+      `A ${local.label} is open with an undo history of its own, so ${what} would step that instead of the session's — finish or cancel it first.`,
+    )
+  }
+}
+
 /** Walk the history one step, as the undo keys do. */
 async function travel(back: boolean, detail: StepDetail) {
+  refuseLocal(back ? 'undo' : 'redo')
   const h = useHistory.getState()
   const entry = (back ? h.past : h.future).at(-1)
   if (!entry) throw new CommandError('invalid_state', `There is nothing to ${back ? 'undo' : 'redo'}.`)
@@ -197,6 +212,7 @@ const restoreCommand: Command<{ checkpoint: string; detail?: StepDetail }> = {
     if (mark.top !== null && at < 0) {
       throw new CommandError('invalid_state', `The history no longer holds the step the checkpoint was made on (“${mark.label}”) — it was undone, or the history started afresh; nothing was undone.`)
     }
+    refuseLocal('history.restore')
     const undone: string[] = []
     while (useHistory.getState().past.length - 1 > at) {
       // Each step once the one before has settled — a rebuild it set off

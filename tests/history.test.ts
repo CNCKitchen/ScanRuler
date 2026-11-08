@@ -5,7 +5,7 @@ import { useFlat } from '../src/state/flatStore'
 import { useDeviation } from '../src/state/deviationStore'
 import { useThickness } from '../src/state/thicknessStore'
 import { useShell } from '../src/state/shellStore'
-import { beginHistoryGroup, endHistoryGroup, clearHistory, configureHistory, historyAction, historyAsync, installHistory, registerHistory, undo, redo, useHistory } from '../src/state/historyStore'
+import { beginHistoryGroup, endHistoryGroup, clearHistory, configureHistory, historyAction, historyAsync, installHistory, registerHistory, undo, redo, useHistory, withoutHistory } from '../src/state/historyStore'
 import { frameKey, type SectionFrame } from '../src/core/section/frame'
 
 const m = () => useStore.getState(), f = () => useFlat.getState(), d = () => useDeviation.getState()
@@ -275,3 +275,20 @@ describe('a failing participant', () => {
   })
 })
 
+describe('a change made without history', () => {
+  it('records no step and keeps the redo stack (issue 34)', async () => {
+    useShell.getState().setWorkspace('deviation')
+    d().setShowMap(false)
+    await undo()
+    expect(h().future).toHaveLength(1)
+    const past = h().past.length
+    // A read-only command switching what is shown, and back.
+    withoutHistory(() => d().setShowScan(false))
+    withoutHistory(() => d().setShowScan(true))
+    expect(h().past).toHaveLength(past)
+    expect(h().future).toHaveLength(1)
+    // And a step after it records as before.
+    d().setShowScan(false)
+    expect(h().past).toHaveLength(past + 1)
+  })
+})

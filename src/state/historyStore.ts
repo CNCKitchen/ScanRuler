@@ -204,6 +204,17 @@ export function historyAction<T>(label: string, job: () => T): T {
   finally { depth--; record(before, captureHistory(), label, workspace, generation) }
 }
 
+/** Run `job` with nothing it changes recorded as a step: a read-only
+ *  command that has to switch what is shown — a picture with the scan put
+ *  away, a reading that needs the reference's map on — goes through the
+ *  same store actions a person's click does, and each of those is a step
+ *  that would clear the redo stack (issue 34). */
+export function withoutHistory<T>(job: () => T): T {
+  paused++
+  try { return job() }
+  finally { paused-- }
+}
+
 /** Async geometry commands must complete before their after-state is recorded. */
 export async function historyAsync(label: string, job: () => Promise<void>): Promise<void> {
   if (paused || useHistory.getState().restoring) return job()
