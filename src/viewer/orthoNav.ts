@@ -491,7 +491,7 @@ export class OrthoNavigator {
     const dist = Math.hypot(a.x - b.x, a.y - b.y)
     const prev = this.pinch
     this.pinch = { x, y, dist }
-    if (!prev) return // first move of the gesture: this frame only sets the datum
+    if (!prev) return
     this.moving = true
     this.panByPixels(x - prev.x, y - prev.y)
     // Below a finger's width apart the spacing is mostly noise, and dividing by
@@ -512,15 +512,18 @@ export class OrthoNavigator {
    *  other straight back to the orbit — re-anchored where it currently is,
    *  which is what keeps the model from jumping as the second finger goes. */
   private retuneTouch(): void {
-    if (this.touchPair()) {
+    const pair = this.touchPair()
+    if (pair) {
       if (this.touchOrbit) {
         this.endOrbit()
         this.touchOrbit = false
       }
       this.touchPan = null
-      // Datum is taken on the next move, by which time both fingers have
-      // reported a position through touchMove.
-      this.pinch = null
+      // The datum is where the fingers are now: each is held from its touch
+      // down and kept current by every move. Taken on the next move instead,
+      // that move's travel was lost, and a two-finger pan lagged the hand.
+      const [a, b] = pair
+      this.pinch = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, dist: Math.hypot(a.x - b.x, a.y - b.y) }
       return
     }
     this.pinch = null

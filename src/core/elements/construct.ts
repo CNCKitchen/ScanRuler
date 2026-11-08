@@ -24,7 +24,7 @@ import {
 import { orthoBasis } from '../fit/linalg'
 import { fmtLen, type DisplayUnits } from '../units'
 import type { RefRole } from './refs'
-import { refAxis, refPlane, refPoint } from './refs'
+import { refAxis, refPlane, refPoint, type AxisRef } from './refs'
 
 /** A degenerate construction — the message is written for the user. */
 export class ConstructionError extends Error {}
@@ -46,6 +46,8 @@ export interface ParamSpec {
    *  in the params so the element rebuilds, moves and saves like any typed
    *  one — a centroid, a symmetry plane. */
   hidden?: boolean
+  /** What the field holds when the method is chosen; empty without. */
+  initial?: number
 }
 
 const found = (p: ParamSpec): ParamSpec => ({ ...p, hidden: true })
@@ -135,6 +137,52 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     ],
     params: [],
   },
+  {
+    id: 'point-center',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Centre of a feature',
+    hint: 'The centre of a sphere or a circle, or of a torus’s ring, as a point of its own.',
+    slots: [{ role: 'point', label: 'Sphere, circle or torus', kinds: ['sphere', 'circle', 'torus'] }],
+    params: [],
+  },
+  {
+    id: 'point-three-planes',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Three-plane intersection',
+    hint: 'The corner where three planes meet — two faces and the floor, say.',
+    slots: [
+      { role: 'plane', label: 'Plane A' },
+      { role: 'plane', label: 'Plane B' },
+      { role: 'plane', label: 'Plane C' },
+    ],
+    params: [],
+  },
+  {
+    id: 'point-line-line',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Line–line intersection',
+    hint: 'Where two lines or axes cross. Measured lines never meet exactly: they are taken to cross at the middle of their nearest approach as long as they pass no further apart than Max gap, and refused past it — two skew lines have no intersection.',
+    slots: [
+      { role: 'axis', label: 'Line or axis A' },
+      { role: 'axis', label: 'Line or axis B' },
+    ],
+    params: [{ key: 'gap', label: 'Max gap', unit: 'mm', initial: 0.1 }], // units-ok: an id
+  },
+  {
+    id: 'point-project',
+    kind: 'point',
+    mode: 'construct',
+    label: 'Projected onto a plane',
+    hint: 'A point, or the centre of a sphere, circle or torus, dropped square onto a plane.',
+    slots: [
+      { role: 'point', label: 'Point' },
+      { role: 'plane', label: 'Onto plane' },
+    ],
+    params: [],
+  },
   // ---- Line ----------------------------------------------------------------
   {
     id: 'line-two-points',
@@ -152,9 +200,9 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     id: 'line-axis',
     kind: 'line',
     mode: 'construct',
-    label: 'Cylinder axis',
-    hint: "A cylinder's axis as a standalone line element.",
-    slots: [{ role: 'axis', label: 'Cylinder' }],
+    label: 'Axis of a feature',
+    hint: 'The axis of a cylinder, a cone or a torus, or a circle’s normal through its centre, as a line of its own.',
+    slots: [{ role: 'axis', label: 'Cylinder, cone, torus or circle' }],
     params: [],
   },
   {
@@ -168,6 +216,45 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
       { role: 'plane', label: 'Plane B' },
     ],
     params: [],
+  },
+  {
+    id: 'line-plane-point',
+    kind: 'line',
+    mode: 'construct',
+    label: 'Square to a plane through a point',
+    hint: 'The line through a point along a plane’s normal — the plumb line from a feature to its datum.',
+    slots: [
+      { role: 'plane', label: 'Plane' },
+      { role: 'point', label: 'Through point' },
+    ],
+    params: [],
+  },
+  {
+    id: 'line-project',
+    kind: 'line',
+    mode: 'construct',
+    label: 'Projected onto a plane',
+    hint: 'A line or a feature’s axis laid square onto a plane — a bore’s axis on its datum face, to measure where it runs in that face.',
+    slots: [
+      { role: 'axis', label: 'Line or axis' },
+      { role: 'plane', label: 'Onto plane' },
+    ],
+    params: [],
+  },
+  {
+    id: 'line-coords',
+    kind: 'line',
+    mode: 'construct',
+    label: 'From coordinates',
+    hint: 'A fixed reference line: its direction, a point on it and the length drawn.',
+    slots: [],
+    params: [
+      { key: 'dx', label: 'Direction X' },
+      { key: 'dy', label: 'Direction Y' },
+      { key: 'dz', label: 'Direction Z' },
+      ...XYZ.map((p) => ({ ...p, key: 'p' + p.key, label: 'Point ' + p.label })),
+      { key: 'length', label: 'Length', unit: 'mm' }, // units-ok: an id
+    ],
   },
   // ---- Plane ---------------------------------------------------------------
   {
@@ -210,6 +297,90 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     slots: [
       { role: 'plane', label: 'Plane A' },
       { role: 'plane', label: 'Plane B' },
+    ],
+    params: [],
+  },
+  {
+    id: 'plane-offset-point',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Parallel through a point',
+    hint: 'A plane parallel to another, through a point or a feature’s centre instead of at a typed offset.',
+    slots: [
+      { role: 'plane', label: 'Parallel to' },
+      { role: 'point', label: 'Through point' },
+    ],
+    params: [],
+  },
+  {
+    id: 'plane-line-point',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Normal to a line through a point',
+    hint: 'The plane square to a line or an axis, through a point — a cross-section of a shaft at a feature. The point’s foot on the line lies in it too, so it is also the plane along the line at that place.',
+    slots: [
+      { role: 'axis', label: 'Line or axis' },
+      { role: 'point', label: 'Through point' },
+    ],
+    params: [],
+  },
+  {
+    id: 'plane-angle',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'At an angle about an axis',
+    hint: 'A plane containing a line or an axis, turned about it by an angle. At 0° it lies as near parallel to the zero-angle plane as the axis allows — the plane itself when the axis lies in it — and the angle turns right-handed about the axis.',
+    slots: [
+      { role: 'axis', label: 'Rotation axis' },
+      { role: 'plane', label: 'Zero-angle plane' },
+    ],
+    params: [{ key: 'angle', label: 'Angle (°)', initial: 0 }],
+  },
+  {
+    id: 'plane-line-plane',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Square to a plane through a line',
+    hint: 'The plane that contains a line or an axis and stands square to another plane.',
+    slots: [
+      { role: 'axis', label: 'Line it contains' },
+      { role: 'plane', label: 'Square to plane' },
+    ],
+    params: [],
+  },
+  {
+    id: 'plane-two-lines',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Through two lines',
+    hint: 'The plane containing two lines or axes that cross or run parallel. Measured lines never cross exactly: they are taken to as long as they pass no further apart than Max gap, and refused past it — two skew lines lie in no one plane.',
+    slots: [
+      { role: 'axis', label: 'Line or axis A' },
+      { role: 'axis', label: 'Line or axis B' },
+    ],
+    params: [{ key: 'gap', label: 'Max gap', unit: 'mm', initial: 0.1 }], // units-ok: an id
+  },
+  {
+    id: 'plane-tangent-sphere',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Tangent to a sphere',
+    hint: 'The plane touching a sphere on the side facing a point.',
+    slots: [
+      { role: 'point', label: 'Sphere', kinds: ['sphere'] },
+      { role: 'point', label: 'Toward point' },
+    ],
+    params: [],
+  },
+  {
+    id: 'plane-tangent-cylinder',
+    kind: 'plane',
+    mode: 'construct',
+    label: 'Tangent to a cylinder',
+    hint: 'The plane touching a cylinder along its length, on the side facing a point — the flat a shaft would rest on.',
+    slots: [
+      { role: 'axis', label: 'Cylinder', kinds: ['cylinder'] },
+      { role: 'point', label: 'Toward point' },
     ],
     params: [],
   },
@@ -380,6 +551,62 @@ const INTERSECT_MIN_ANGLE = 0.2
  *  all, but below this the major axis is within 0.4 % of the radius — inside
  *  the noise of any fit — while past it the "circle" would be a lie. */
 const SECTION_MAX_TILT = 5
+
+/** `p` dropped square onto the plane. */
+function ontoPlane(p: Vec3, pl: PlaneFit): Vec3 {
+  return addScaled(p, pl.normal, -dot(sub(p, pl.center), pl.normal))
+}
+
+/** `v` turned by `angle` radians about the unit `axis`, right-handed
+ *  (Rodrigues). */
+function rotateAbout(v: Vec3, axis: Vec3, angle: number): Vec3 {
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  return add(add(scale(v, c), scale(cross(axis, v), s)), scale(axis, dot(axis, v) * (1 - c)))
+}
+
+/** A plane containing `axis`, facing `normal`, drawn about the point on the
+ *  axis nearest `near` and long enough to show the axis's measured length. */
+function planeThroughAxis(axis: AxisRef, normal: Vec3, near: Vec3, fallbackSize: number): PlaneFit {
+  const center = footOnLine(near, axis.origin, axis.dir)
+  const extent = Math.max(fallbackSize * 0.3, 1)
+  return {
+    kind: 'plane',
+    center,
+    normal,
+    basisU: axis.dir,
+    basisV: cross(normal, axis.dir),
+    extentU: Math.max(axis.halfLength, extent),
+    extentV: extent,
+    ...NO_FIT_STATS,
+  }
+}
+
+/** Where two lines or axes come nearest: the point on each, and the axes,
+ *  or `parallel` when they run side by side. Refused, saying so, when they
+ *  pass further apart than `maxGap` — two skew lines have no intersection,
+ *  and the middle of their nearest approach is not one to put in its place
+ *  unasked. */
+function nearestApproach(
+  fa: FitData,
+  fb: FitData,
+  maxGap: number,
+): { a: AxisRef; b: AxisRef; onA: Vec3; onB: Vec3 } | { parallel: true; a: AxisRef; b: AxisRef } {
+  const a = need(refAxis(fa), 'line or axis A')
+  const b = need(refAxis(fb), 'line or axis B')
+  if (acuteAngle(a.dir, b.dir) < INTERSECT_MIN_ANGLE) return { parallel: true, a, b }
+  if (!(maxGap >= 0)) throw new ConstructionError('Enter the largest gap the two lines may pass apart and still be taken to cross.')
+  const w = sub(a.origin, b.origin)
+  const ab = dot(a.dir, b.dir)
+  const d = dot(a.dir, w)
+  const e = dot(b.dir, w)
+  const denom = 1 - ab * ab
+  const onA = addScaled(a.origin, a.dir, (ab * e - d) / denom)
+  const onB = addScaled(b.origin, b.dir, (e - ab * d) / denom)
+  if (len(sub(onA, onB)) > maxGap)
+    throw new ConstructionError('The lines are skew: at their nearest they pass further apart than Max gap, so they do not cross. Raise Max gap to take the middle of that nearest approach, or check the two references.')
+  return { a, b, onA, onB }
+}
 
 /**
  * Build the geometry of a constructed element from its already-resolved
@@ -559,6 +786,161 @@ export function evaluateConstruction(
       } satisfies PlaneFit
     }
 
+    case 'point-center': {
+      return { kind: 'point', center: pointOf(refs[0], 'the feature'), ...NO_FIT_STATS } satisfies PointFit
+    }
+
+    case 'point-three-planes': {
+      const [a, b, c] = [0, 1, 2].map((i) => need(refPlane(refs[i]), `plane ${'ABC'[i]}`))
+      for (const [x, y, nx, ny] of [[a, b, 'A', 'B'], [a, c, 'A', 'C'], [b, c, 'B', 'C']] as const) {
+        if (acuteAngle(x.normal, y.normal) < INTERSECT_MIN_ANGLE)
+          throw new ConstructionError(`Planes ${nx} and ${ny} are parallel — the three meet in no point.`)
+      }
+      const bc = cross(b.normal, c.normal)
+      const det = dot(a.normal, bc)
+      // Each pair crosses, but all three may share one line: then they meet
+      // along it, not at a point.
+      if (Math.abs(det) < Math.sin((INTERSECT_MIN_ANGLE * Math.PI) / 180))
+        throw new ConstructionError('The three planes share a line — they meet along it, not at a point.')
+      const [da, db, dc] = [a, b, c].map((q) => dot(q.normal, q.center))
+      const center = scale(add(add(scale(bc, da), scale(cross(c.normal, a.normal), db)), scale(cross(a.normal, b.normal), dc)), 1 / det)
+      return { kind: 'point', center, ...NO_FIT_STATS } satisfies PointFit
+    }
+
+    case 'point-line-line': {
+      const near = nearestApproach(refs[0], refs[1], params[0])
+      if ('parallel' in near) throw new ConstructionError('The lines run parallel — they never cross.')
+      return { kind: 'point', center: mid(near.onA, near.onB), ...NO_FIT_STATS } satisfies PointFit
+    }
+
+    case 'point-project': {
+      const point = pointOf(refs[0], 'the point')
+      const pl = need(refPlane(refs[1]), 'the plane')
+      return { kind: 'point', center: ontoPlane(point, pl), ...NO_FIT_STATS } satisfies PointFit
+    }
+
+    case 'line-plane-point': {
+      const pl = need(refPlane(refs[0]), 'the plane')
+      const point = pointOf(refs[1], 'the point')
+      const foot = ontoPlane(point, pl)
+      // Drawn from the point down to the plane, and a little past both.
+      const span = len(sub(point, foot))
+      return {
+        kind: 'line',
+        center: mid(point, foot),
+        dir: pl.normal,
+        length: Math.max(span * 1.2, fallbackSize * 0.1),
+        ...NO_FIT_STATS,
+      } satisfies LineFit
+    }
+
+    case 'line-project': {
+      const axis = need(refAxis(refs[0]), 'a line or an axis')
+      const pl = need(refPlane(refs[1]), 'the plane')
+      const along = sub(axis.dir, scale(pl.normal, dot(axis.dir, pl.normal)))
+      if (len(along) < Math.sin((INTERSECT_MIN_ANGLE * Math.PI) / 180))
+        throw new ConstructionError('The line stands square to the plane — it projects to a single point: Line–plane intersection gives that point.')
+      return {
+        kind: 'line',
+        center: ontoPlane(axis.origin, pl),
+        dir: normalize(along)!,
+        length: Math.max(axis.halfLength * 2 * len(along), fallbackSize * 0.1),
+        ...NO_FIT_STATS,
+      } satisfies LineFit
+    }
+
+    case 'line-coords': {
+      const [dx, dy, dz, px, py, pz, length] = params
+      if (![dx, dy, dz, px, py, pz].every(Number.isFinite))
+        throw new ConstructionError('Enter the direction and a point on the line.')
+      const dir = normalize([dx, dy, dz])
+      if (!dir) throw new ConstructionError('The direction must not be zero.')
+      return {
+        kind: 'line',
+        center: [px, py, pz],
+        dir,
+        length: Number.isFinite(length) && length > 0 ? length : fallbackSize * 0.3,
+        ...NO_FIT_STATS,
+      } satisfies LineFit
+    }
+
+    case 'plane-offset-point': {
+      const pl = need(refPlane(refs[0]), 'the plane')
+      const point = pointOf(refs[1], 'the point')
+      // The source's patch, slid along its normal to the point.
+      return {
+        ...pl,
+        ...NO_FIT_STATS,
+        center: addScaled(pl.center, pl.normal, dot(sub(point, pl.center), pl.normal)),
+      } satisfies PlaneFit
+    }
+
+    case 'plane-line-point': {
+      const axis = need(refAxis(refs[0]), 'a line or an axis')
+      const point = pointOf(refs[1], 'the point')
+      return { ...planeAt(point, axis.dir, fallbackSize), ...NO_FIT_STATS } satisfies PlaneFit
+    }
+
+    case 'plane-angle': {
+      const axis = need(refAxis(refs[0]), 'the rotation axis')
+      const pl = need(refPlane(refs[1]), 'the zero-angle plane')
+      const [deg] = params
+      if (!Number.isFinite(deg)) throw new ConstructionError('Enter the angle.')
+      // At 0°: the plane through the axis whose normal is the zero plane's,
+      // less its part along the axis — the zero plane itself when the axis
+      // lies in it. Undefined when the axis stands square to that plane.
+      const zero = normalize(sub(pl.normal, scale(axis.dir, dot(pl.normal, axis.dir))))
+      if (!zero || acuteAngle(axis.dir, pl.normal) < INTERSECT_MIN_ANGLE)
+        throw new ConstructionError('The axis stands square to the zero-angle plane — every plane through it is square to that plane, so none is at 0°. Pick a plane the axis does not pierce square.')
+      return planeThroughAxis(axis, rotateAbout(zero, axis.dir, (deg * Math.PI) / 180), pl.center, fallbackSize)
+    }
+
+    case 'plane-line-plane': {
+      const axis = need(refAxis(refs[0]), 'the line')
+      const pl = need(refPlane(refs[1]), 'the plane')
+      const normal = normalize(cross(axis.dir, pl.normal))
+      if (!normal || acuteAngle(axis.dir, pl.normal) < INTERSECT_MIN_ANGLE)
+        throw new ConstructionError('The line stands square to the plane — every plane through it is square to the plane. At an angle about an axis picks one.')
+      return planeThroughAxis(axis, normal, pl.center, fallbackSize)
+    }
+
+    case 'plane-two-lines': {
+      const near = nearestApproach(refs[0], refs[1], params[0])
+      if ('parallel' in near) {
+        // Parallel lines span the plane between them, unless they are one.
+        const across = sub(near.b.origin, near.a.origin)
+        const off = sub(across, scale(near.a.dir, dot(across, near.a.dir)))
+        const normal = normalize(cross(near.a.dir, off))
+        if (!normal || len(off) < 1e-6 * Math.max(1, fallbackSize))
+          throw new ConstructionError('The two lines are one — they do not fix a plane.')
+        return planeThroughAxis(near.a, normal, mid(near.a.origin, near.b.origin), fallbackSize)
+      }
+      const normal = normalize(cross(near.a.dir, near.b.dir))!
+      return planeThroughAxis({ ...near.a, origin: mid(near.onA, near.onB) }, normal, mid(near.onA, near.onB), fallbackSize)
+    }
+
+    case 'plane-tangent-sphere': {
+      const sphere = refs[0]
+      if (sphere.kind !== 'sphere') throw new ConstructionError('Missing the sphere.')
+      const toward = normalize(sub(pointOf(refs[1], 'the point'), sphere.center))
+      if (!toward) throw new ConstructionError('The point is the sphere’s centre — it faces no side.')
+      return {
+        ...planeAt(addScaled(sphere.center, toward, sphere.radius), toward, Math.max(fallbackSize, sphere.radius * 2)),
+        ...NO_FIT_STATS,
+      } satisfies PlaneFit
+    }
+
+    case 'plane-tangent-cylinder': {
+      const cyl = refs[0]
+      if (cyl.kind !== 'cylinder') throw new ConstructionError('Missing the cylinder.')
+      const point = pointOf(refs[1], 'the point')
+      const foot = footOnLine(point, cyl.center, cyl.axis)
+      const toward = normalize(sub(point, foot))
+      if (!toward) throw new ConstructionError('The point lies on the cylinder’s axis — it faces no side.')
+      const axis = { origin: addScaled(cyl.center, toward, cyl.radius), dir: cyl.axis, halfLength: cyl.length / 2 }
+      return planeThroughAxis(axis, toward, addScaled(foot, toward, cyl.radius), fallbackSize)
+    }
+
     case 'plane-coords': {
       const [nx, ny, nz, px, py, pz] = params
       if (![nx, ny, nz, px, py, pz].every(Number.isFinite))
@@ -685,6 +1067,32 @@ export function describeConstruction(
       return `${fmtLen(params[0], units, 3)} offset from ${a}`
     case 'plane-midplane':
       return `midplane of ${a} and ${b}`
+    case 'point-center':
+      return `centre of ${a}`
+    case 'point-three-planes':
+      return `where ${a}, ${b} and ${c} meet`
+    case 'point-line-line':
+      return `where ${a} crosses ${b}, within ${fmtLen(params[0], units, 3)}`
+    case 'point-project':
+    case 'line-project':
+      return `${a} projected onto ${b}`
+    case 'line-plane-point':
+      return `square to ${a} through ${b}`
+    case 'line-coords':
+      return `direction (${params.slice(0, 3).map((v) => v.toFixed(3)).join(', ')}) through ${at(params.slice(3, 6))}`
+    case 'plane-offset-point':
+      return `parallel to ${a} through ${b}`
+    case 'plane-line-point':
+      return `square to ${a} through ${b}`
+    case 'plane-angle':
+      return `${params[0]}° about ${a} from ${b}`
+    case 'plane-line-plane':
+      return `through ${a}, square to ${b}`
+    case 'plane-two-lines':
+      return `through ${a} and ${b}`
+    case 'plane-tangent-sphere':
+    case 'plane-tangent-cylinder':
+      return `tangent to ${a} toward ${b}`
     case 'plane-coords':
       return `normal (${params.slice(0, 3).map((v) => v.toFixed(3)).join(', ')}) through ${at(params.slice(3))}`
     case 'plane-symmetry': {

@@ -12,6 +12,7 @@ import { BASE_PLANE_SEEDS } from '../core/symmetry'
 import type { SigmaPreset } from '../core/types'
 import { useMark } from '../state/markStore'
 import { blockedRefs, draftColorOf, orientedDraft, useStore, type SelectMode } from '../state/store'
+import { unlinkedSource } from '../state/elementModel'
 import { dimensionRefsOf } from '../state/sectionModel'
 import { usePulse } from '../app/useHints'
 import { AssumedField } from './AssumedField'
@@ -79,6 +80,7 @@ export function DraftEditor({
   // The element the open draft writes back to, if it is an edit rather than a
   // new element, and what such a draft must not be built on.
   const edited = draft?.editId !== undefined ? elements.find((e) => e.id === draft.editId) : undefined
+  const unlinkElement = useStore((st) => st.unlinkElement)
   const blocked = blockedRefs(draft?.editId, elements)
   // What a slot can be filled from: the elements, and the sections as the
   // planes they were cut on, which only a plane's slot takes.
@@ -132,6 +134,23 @@ export function DraftEditor({
               testId="draft-name"
               onChange={(name) => setDraftName(name)}
             />
+          )}
+
+          {edited && unlinkedSource(edited) && (
+            <>
+              <p className="hint" data-test="linked-note">
+                Linked: built from the elements below, and rebuilt whenever one of them changes.
+              </p>
+              <button
+                type="button"
+                className="block"
+                data-test="unlink-element"
+                title="Keep it where it stands now, as coordinates of its own: it no longer moves when its sources do, and stays if they are deleted"
+                onClick={() => unlinkElement(edited.id)}
+              >
+                Unlink from its sources
+              </button>
+            </>
           )}
 
           {kindMethods.length > 1 && (

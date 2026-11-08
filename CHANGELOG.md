@@ -7,6 +7,36 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **More ways to construct points, lines and planes** (2026-11-08, issues
+  45 and 46). Under Create element, 3D Measure now also builds:
+  - points: the centre of a sphere, circle or torus; where three planes
+    meet; where two lines or axes cross; a point dropped onto a plane;
+  - lines: square to a plane through a point; a line or a feature's axis
+    laid onto a plane; a line from coordinates; and the axis of a cone,
+    torus or circle as well as a cylinder's;
+  - planes: parallel to a plane through a point; normal to a line through a
+    point; at an angle about an axis; through a line and square to a plane;
+    through two lines; tangent to a sphere or a cylinder on the side facing
+    a point.
+
+  Measured lines never cross exactly, so the two that need crossing lines
+  take a Max gap (0.1 mm to start with) and refuse lines that pass further
+  apart, rather than putting the nearest approach in place of an
+  intersection; parallel, coincident and square-on cases say why they have
+  no answer. A torus now stands for its ring's centre wherever a point is
+  asked for. Constructions stay linked to what they are built from — a
+  constructed row says so when you point at it — and Unlink from its
+  sources, in its box (element.unlink for an agent), freezes one where it
+  stands. Thanks to SteemSucker for both issues.
+- **A new dimension or tolerance starts over an empty box** (2026-11-08).
+  Add dimension and Add tolerance leave an empty box open for the next one,
+  and that empty box greyed out New tolerance, New dimension and the edit
+  keys on every row until it was cancelled. An empty box is no longer in the
+  way; one with something in it still is.
+- **A two-finger pan keeps up with the fingers** (2026-11-08). The first
+  move of a two-finger gesture only set where it started, so a pan or pinch
+  lost that move's travel and lagged the hand. It now starts where the
+  fingers land.
 - **Opening a scan asks before it replaces your measurements**
   (2026-11-08). A new scan clears the elements, dimensions and sections
   measured on the one in place, and opening one from the panel, by drag and

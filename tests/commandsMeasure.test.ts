@@ -47,7 +47,7 @@ describe('the command list', () => {
     const names = listCommands().map((c) => c.name)
     for (const name of [
       'session.state', 'session.reset', 'workspace.set', 'scan.open', 'scan.nearest', 'scan.query', 'scan.fit_surface', 'scan.draft',
-      'element.fit', 'element.fit_marked', 'element.construct', 'element.rename', 'element.remove', 'element.set_visible',
+      'element.fit', 'element.fit_marked', 'element.construct', 'element.rename', 'element.unlink', 'element.remove', 'element.set_visible',
       'dimension.add', 'dimension.set_limit', 'dimension.set_basic', 'dimension.remove',
       'align.datum', 'align.auto', 'align.symmetry', 'align.clear', 'section.cut', 'section.get',
       'deviation.open_reference', 'deviation.align', 'deviation.measure', 'deviation.set_target', 'deviation.settings', 'deviation.hotspots',
@@ -242,6 +242,29 @@ describe('elements', () => {
       'Agent: construct plane-offset', 'Agent: construct line-plane-plane', 'Agent: construct point-coords', 'Agent: construct point-centroid',
     ])
     expect(useStore.getState().draft).toBeNull()
+  })
+
+  it('element.construct takes the constructions of issues 45 and 46, and element.unlink freezes one', async () => {
+    const top = await fitFace([0, 0, 20])
+    const side = await fitFace([20, 0, 0])
+    const front = await fitFace([0, -20, 0])
+    const corner = (await run<{ element: El }>('element.construct', { kind: 'point', method: 'point-three-planes', refs: [top.id, side.id, front.id] })).element
+    for (const [c, want] of corner.fit!.center.map((c, i) => [c, [20, -20, 20][i]])) expect(Math.abs(c)).toBeCloseTo(Math.abs(want), 2)
+    const edge = (await run<{ element: El }>('element.construct', { kind: 'line', method: 'line-plane-plane', refs: [top.id, side.id] })).element
+    // 30° about the top's edge from the top: Max gap and the angle by key,
+    // the gap left at its default where a method has one.
+    const turned = (await run<{ element: El }>('element.construct', { kind: 'plane', method: 'plane-angle', refs: [edge.id, top.id], params: { angle: 30 } })).element
+    expect((Math.acos(Math.abs(turned.fit!.normal![2])) * 180) / Math.PI).toBeCloseTo(30, 3)
+    const onTop = (await run<{ element: El }>('element.construct', { kind: 'point', method: 'point-project', refs: [corner.id, top.id] })).element
+    expect(Math.abs(onTop.fit!.center[2])).toBeCloseTo(20, 2)
+    // A torus is a point now (its ring's centre) — and a plane is still not.
+    expect((await refused('element.construct', { kind: 'point', method: 'point-center', refs: [top.id] })).code).toBe('invalid_input')
+
+    const unlinked = (await run<{ element: El & { source: { method?: string } } }>('element.unlink', { element: turned.id })).element
+    expect(unlinked.source).toMatchObject({ type: 'constructed', method: 'plane-coords', refs: [] })
+    expect((Math.acos(Math.abs(unlinked.fit!.normal![2])) * 180) / Math.PI).toBeCloseTo(30, 3)
+    expect((await refused('element.unlink', { element: turned.id })).code).toBe('invalid_input')
+    expect(undoLabels().at(-1)).toBe('Agent: unlink element')
   })
 
   it('element.rename, element.set_visible and element.remove are a step each', async () => {

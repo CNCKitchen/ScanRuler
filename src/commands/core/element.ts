@@ -9,7 +9,7 @@ import { methodsForKind } from '../../core/elements/construct'
 import { isExtendable, type ExtendSide } from '../../core/elements/extend'
 import { isOrientable, type OrientRelation } from '../../core/elements/orient'
 import { worldAxisDir, worldPlaneName, type WorldAxis } from '../../core/section/frame'
-import { roleOf } from '../../core/elements/refs'
+import { providesRole } from '../../core/elements/refs'
 import type { ScanSpot } from '../../core/geometry/nearest'
 import type { ElementKind, FitTold, PointFit, SigmaPreset, Vec3 } from '../../core/types'
 import { forgetSurface } from '../../app/surfaces'
@@ -32,6 +32,7 @@ import type { FitGuide } from '../../core/fit/guide'
 import { looksLikeCrown } from '../../core/fit/segment'
 import { seedOff } from '../../core/fit/seedOff'
 import { describeElement } from '../state'
+import { unlinkedSource } from '../../state/elementModel'
 import { requireMarked, setMarked } from '../marked'
 import { roundTo } from '../../core/round'
 import { CommandError, type Command } from '../types'
@@ -547,7 +548,7 @@ const construct: Command<{
   name: 'construct',
   title: 'Construct an element',
   description:
-    'Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane; line: line-two-points, line-axis, line-plane-plane; plane: plane-three-points, plane-offset, plane-midplane, plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; "XY", "YZ", "XZ" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.',
+    'Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane, point-center (of a sphere, circle or torus), point-three-planes, point-line-line (params gap: the most two measured lines may pass apart and be taken to cross, 0.1 mm by default; skew past it is refused), point-project (a point onto a plane); line: line-two-points, line-axis (of a cylinder, cone, torus or circle), line-plane-plane, line-plane-point (square to a plane through a point), line-project (a line or axis onto a plane), line-coords (dx, dy, dz, px, py, pz, length); plane: plane-three-points, plane-offset, plane-offset-point (parallel through a point), plane-midplane, plane-line-point (normal to a line through a point), plane-angle (refs axis, zero-angle plane; params angle in degrees, right-handed about the axis), plane-line-plane (through a line, square to a plane), plane-two-lines (params gap as for point-line-line), plane-tangent-sphere, plane-tangent-cylinder (refs the feature, a point on the side to touch), plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. Constructions stay linked to their sources, rebuilt when one changes; element.unlink freezes one where it stands. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; "XY", "YZ", "XZ" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.',
   input: obj(
     {
       kind: enumOf(ALL_KINDS, 'What to construct.'),
@@ -556,7 +557,7 @@ const construct: Command<{
       params: oneOf(
         [
           arr(num(), 'The numbers in the method’s order.'),
-          anyObject('The numbers by key (x, y, z; offset; nx, ny, nz, px, py, pz; d, cx, cy, cz).', { additionalProperties: true }),
+          anyObject('The numbers by key (x, y, z; offset; angle; gap; nx, ny, nz, px, py, pz; dx, dy, dz, length; d, cx, cy, cz).', { additionalProperties: true }),
         ],
         'The method’s typed-in numbers, mm.',
       ),
@@ -590,7 +591,9 @@ const construct: Command<{
       const name = axis ? worldPlaneName(axis) : null
       const el = axis ? null : measureRef(ref)
       const kind: ElementKind = el?.kind ?? 'plane'
-      const plays = slot.role === roleOf(kind) || (slot.role === 'axis' && kind === 'circle')
+      // As the panel's slot lists offer it: a circle is an axis too, a torus
+      // a point (its ring's centre) too.
+      const plays = providesRole(kind, slot.role)
       if (!plays || (slot.kinds && !slot.kinds.includes(kind))) {
         throw new CommandError('invalid_input', `${el?.name ?? name} cannot be “${slot.label}” — that takes a ${slot.kinds?.join(' or ') ?? slot.role}.`)
       }
@@ -602,6 +605,8 @@ const construct: Command<{
       ? given
       : typed.map((p) => {
           const v = (given as Record<string, unknown>)[p.key]
+          // A number the method starts with (Max gap) may be left out.
+          if (v === undefined && p.initial !== undefined) return p.initial
           if (typeof v !== 'number' || !Number.isFinite(v)) throw new CommandError('invalid_input', `params.${p.key} (${p.label}) is required.`)
           return v
         })
@@ -672,6 +677,24 @@ const renameCommand: Command<{ element: ElementRef; name: string }> = {
   },
 }
 
+const unlink: Command<{ element: ElementRef }> = {
+  name: 'unlink',
+  title: 'Unlink a construction from its sources',
+  description:
+    'Freeze a constructed element where it stands: its sources give way to coordinates of its own (point-coords, line-coords, plane-coords or circle-coords), so it no longer moves when they do and stays if they are deleted. Refused for an element that is not linked to others. Returns the element. One undo step.',
+  input: obj({ element: elementRefSchema('The constructed element.') }, ['element']),
+  label: () => 'unlink element',
+  run: async ({ element }) => {
+    requireMeasureFree()
+    const el = findElement(element)
+    if (!unlinkedSource(el)) {
+      throw new CommandError('invalid_input', `${el.name} is not built from other elements — there is nothing to unlink.`)
+    }
+    useStore.getState().unlinkElement(el.id)
+    return { element: created(el.id) }
+  },
+}
+
 const remove: Command<{ element: ElementRef }> = {
   name: 'remove',
   title: 'Delete an element',
@@ -722,4 +745,4 @@ const setVisible: Command<{ element?: ElementRef; all?: boolean; visible: boolea
   },
 }
 
-export const elementCommands = [fit, fitMarked, construct, renameCommand, remove, setVisible]
+export const elementCommands = [fit, fitMarked, construct, renameCommand, unlink, remove, setVisible]

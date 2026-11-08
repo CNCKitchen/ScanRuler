@@ -161,7 +161,7 @@ export function freshDraft(
     pickPoints: [],
     settings,
     refs: m.slots.map(() => null),
-    params: m.params.map(() => NaN),
+    params: m.params.map((p) => p.initial ?? NaN),
     status: 'empty',
     ...edit,
   }
@@ -449,6 +449,15 @@ export function transformSource(source: ElementSource, m: Rigid): ElementSource 
     if (moved.kind !== 'line') return source
     return { ...source, params: [...moved.dir, ...moved.center, ...rest] }
   }
+  if (source.method === 'line-coords') {
+    const [dx, dy, dz, px, py, pz, ...rest] = source.params
+    const moved = transformFit(
+      { kind: 'line', center: [px, py, pz], dir: [dx, dy, dz], length: 0, sigma: 0, usedPoints: 0, regionSize: 0 },
+      m,
+    )
+    if (moved.kind !== 'line') return source
+    return { ...source, params: [...moved.dir, ...moved.center, ...rest] }
+  }
   if (source.method === 'circle-coords') {
     const [d, nx, ny, nz, cx, cy, cz] = source.params
     const moved = transformFit(
@@ -459,6 +468,38 @@ export function transformSource(source: ElementSource, m: Rigid): ElementSource 
     return { ...source, params: [d, ...moved.dir, ...moved.center] }
   }
   return source
+}
+
+/** The constructions that hold coordinates of their own rather than
+ *  sources: what an unlinked construction becomes. */
+export const COORDINATE_METHODS: ReadonlySet<string> = new Set(['point-coords', 'line-coords', 'plane-coords', 'circle-coords'])
+
+/**
+ * A constructed element's recipe frozen where it stands: the coordinates of
+ * its kind (a point's, a line's, a plane's, a circle's) in place of its
+ * sources, so it no longer moves when they do and outlives them (issue 46).
+ * The construction's own result, before any alignment of the element to a
+ * plane, which stays on top. Null for an element that has nothing to
+ * unlink — not constructed, already coordinates, or with no geometry.
+ */
+export function unlinkedSource(el: Element): ElementSource | null {
+  if (el.source.type !== 'constructed' || COORDINATE_METHODS.has(el.source.method)) return null
+  if (el.source.refs.length === 0) return null
+  const fit = el.measured ?? el.fit
+  if (!fit) return null
+  const params =
+    fit.kind === 'point'
+      ? [...fit.center]
+      : fit.kind === 'line'
+        ? [...fit.dir, ...fit.center, fit.length]
+        : fit.kind === 'plane'
+          ? [...fit.normal, ...fit.center]
+          : fit.kind === 'circle'
+            ? [2 * fit.radius, ...fit.normal, ...fit.center]
+            : null
+  if (!params) return null
+  const method = `${fit.kind}-coords`
+  return { type: 'constructed', method, refs: [], params }
 }
 
 /** All elements that (transitively) build on the given one. Being aligned to

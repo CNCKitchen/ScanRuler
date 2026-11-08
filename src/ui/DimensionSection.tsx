@@ -14,6 +14,7 @@ import {
 } from '../core/dimensions'
 import type { FitData } from '../core/types'
 import { useStore } from '../state/store'
+import { dimHolds } from '../state/historyStore'
 import { dimensionRefsOf } from '../state/sectionModel'
 import { usePulse } from '../app/useHints'
 import { surfaceSource, useSurfaces } from '../app/surfaces'
@@ -162,7 +163,9 @@ export function DimensionSection({
           <button
             className={pulseNew ? 'block pulse' : 'block'}
             data-test="new-dimension"
-            disabled={refs.every((e) => !e.fit) || dimDraft !== null || draftOpen}
+            // An empty tolerance box, as Add tolerance leaves for the next,
+            // is no work to keep: a dimension starts over it.
+            disabled={refs.every((e) => !e.fit) || dimHolds(dimDraft) || draftOpen}
             onClick={() => startDimension('dist-point-point')}
           >
             New dimension

@@ -16,7 +16,8 @@ import type { ElementKind, FitData, PlaneFit, Vec3 } from '../types'
 export type RefRole = 'point' | 'axis' | 'plane'
 
 const ROLE_PROVIDERS: Record<RefRole, readonly ElementKind[]> = {
-  point: ['point', 'sphere', 'circle'],
+  // A torus is its ring's centre as a point, as a circle is (issue 46).
+  point: ['point', 'sphere', 'circle', 'torus'],
   axis: ['line', 'cylinder', 'cone', 'circle', 'torus'],
   plane: ['plane'],
 }
@@ -49,7 +50,7 @@ export function slotTakes(slot: SlotRoles, kind: ElementKind): boolean {
 
 /** The point an element stands for, or null if it has none. */
 export function refPoint(fit: FitData): Vec3 | null {
-  return fit.kind === 'point' || fit.kind === 'sphere' || fit.kind === 'circle'
+  return fit.kind === 'point' || fit.kind === 'sphere' || fit.kind === 'circle' || fit.kind === 'torus'
     ? fit.center
     : null
 }

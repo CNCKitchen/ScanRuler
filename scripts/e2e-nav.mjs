@@ -22,12 +22,16 @@ import {
   sleep,
   stageCrop,
   withSettings,
+  viewOption,
 } from './e2e-lib.mjs'
 
 const STL = process.env.STL ?? repoFile('ballbar.stl')
 
 const { browser, page, consoleErrors } = await launchApp()
 await loadScan(page, STL)
+// The back faces drawn plain: their red tint is the colour the pivot
+// marker is told by, and an open scan shows its insides as it turns.
+await viewOption(page, 'toggle-scan', 'toggle-backfaces')
 
 const rect = await canvasRect(page)
 const mid = [rect.x + rect.w / 2, rect.y + rect.h / 2]

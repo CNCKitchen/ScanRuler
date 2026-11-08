@@ -17,6 +17,7 @@ import {
 import { TOLERANCE_TYPES } from '../core/tolerances'
 import type { FitData } from '../core/types'
 import { useStore } from '../state/store'
+import { dimHolds } from '../state/historyStore'
 import { surfaceSource, useSurfaces } from '../app/surfaces'
 import { useUnits } from '../app/useUnits'
 import { ValueWindow } from './DroValue'
@@ -121,7 +122,8 @@ export function ToleranceSection({
         <button
           className="block"
           data-test="new-tolerance"
-          disabled={!anyFitted || dimDraft !== null || draftOpen}
+          // Likewise over an empty dimension box.
+          disabled={!anyFitted || dimHolds(dimDraft) || draftOpen}
           onClick={() => startDimension('form-flatness')}
         >
           New tolerance

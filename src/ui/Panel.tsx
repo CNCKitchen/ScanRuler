@@ -4,6 +4,7 @@
 
 import { useEffect } from 'react'
 import { draftHolds, useStore, type SelectMode } from '../state/store'
+import { dimHolds } from '../state/historyStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
 import { ELEMENT_KINDS, elementKindInfo } from '../core/elements/kinds'
@@ -12,6 +13,8 @@ import { describeShadow } from '../core/section/shadow'
 import { isExtruded } from '../state/sectionModel'
 import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
+import { describeConstruction } from '../core/elements/construct'
+import { unlinkedSource, type Element } from '../state/elementModel'
 import type { CloudFormat } from '../core/exportPointCloud'
 import type { ScaleReference } from '../core/scanScale'
 import type { Rigid } from '../core/deviation/rigid'
@@ -128,6 +131,13 @@ export function Panel({
   const busy = useStore((s) => s.busy)
   // Every reading in the lists is written in the units shown.
   const units = useUnits()
+  /** What a constructed row says on hover: what it is built from, and that it
+   *  follows them (issue 46). */
+  const linkedTitle = (el: Element): string | undefined => {
+    if (el.source.type !== 'constructed' || !unlinkedSource(el)) return undefined
+    const names = el.source.refs.map((id) => elements.find((e) => e.id === id)?.name ?? '?')
+    return `${el.name}: ${describeConstruction(el.source.method, names, el.source.params, units)} — linked, it follows its sources. Open it to unlink.`
+  }
   const triangleCount = useStore((s) => s.triangleCount)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
@@ -174,8 +184,10 @@ export function Panel({
   // While anything is being assembled the row keys stand down: re-opening a
   // second element or dimension would throw away what is already in the box.
   // A kind merely in hand, its box still empty, is not in the way.
+  // Nor is an empty dimension box, as Add dimension or Add tolerance leaves
+  // for the next: editing a row, or starting the other kind, goes over it.
   const editorOpen =
-    draftHolds(draft) || dimDraft !== null || alignDraft !== null || sectionDraft !== null
+    draftHolds(draft) || dimHolds(dimDraft) || alignDraft !== null || sectionDraft !== null
 
   // Elements currently referenced by the dimension, construction, alignment
   // or section being built — marked in the list to mirror their glow in the
@@ -348,6 +360,7 @@ export function Panel({
               name={el.name}
               color={el.color}
               visible={el.visible}
+              title={linkedTitle(el)}
               reading={
                 el.status === 'fitting' ? (
                   <b className="working">

@@ -81,7 +81,7 @@ import type {
   SigmaPreset,
   Vec3,
 } from '../core/types'
-import { blockedRefs, defaultMethod, dependentsOf, type DimensionDraft, type Draft, draftFromElement, type Element, elementColor, evalConstructDraft, freshCounters, freshDraft, keptOf, nextPointPick, reevaluateConstructions, type SelectMode, transformSource, withoutRegion } from './elementModel'
+import { blockedRefs, defaultMethod, dependentsOf, type DimensionDraft, type Draft, draftFromElement, type Element, elementColor, evalConstructDraft, freshCounters, freshDraft, keptOf, nextPointPick, reevaluateConstructions, type SelectMode, transformSource, unlinkedSource, withoutRegion } from './elementModel'
 import { type AlignDraft, type AlignmentProposal, alignSlotPicks, withSlotPicks, withSlotRef } from './alignModel'
 import { centreShadowDraft, dimensionRefsOf, type Section, sectionMeasureRefs, type SectionDraft, sectionDraftReady, sectionKeyOf, type SectionKind, specFields, settleSectionDraft } from './sectionModel'
 export { type Section, type SectionDraft, sectionDraftColorOf, sectionDraftReady } from './sectionModel'
@@ -237,6 +237,8 @@ interface AppState {
   resolveFit: (id: number, r: FitOutput) => void
   failFit: (id: number, message: string) => void
   removeElement: (id: number) => void
+  /** A constructed element frozen where it stands — see unlinkedSource. */
+  unlinkElement: (id: number) => void
   toggleElementVisible: (id: number) => void
   /** Show or hide every element at once. */
   setAllElementsVisible: (visible: boolean) => void
@@ -686,6 +688,20 @@ export const useStore = create<AppState>()((set, get) => ({
   // Deleting an element takes every construction built on it along, and every
   // dimension that references anything removed.
   removeElement: (id) => set((s) => withoutRefs(s, dependentsOf(id, s.elements))),
+  unlinkElement: (id) =>
+    set((s) => {
+      const el = s.elements.find((e) => e.id === id)
+      const source = el ? unlinkedSource(el) : null
+      if (!el || !source) return {}
+      return {
+        elements: rebuilt(
+          s.elements.map((e) => (e.id === id ? { ...e, source } : e)),
+          s,
+        ),
+        // Its box, open on the sources, closes: they are not its any more.
+        draft: s.draft?.editId === id ? null : s.draft,
+      }
+    }),
 
   toggleElementVisible: (id) =>
     set((s) => ({
@@ -724,6 +740,9 @@ export const useStore = create<AppState>()((set, get) => ({
               : el.source.type === 'fitted' || takesSurface(creationMethod(el.kind, el.source.method))
                 ? 'auto'
                 : s.selectMode,
+        // An empty dimension box, left by Add dimension for the next, goes:
+        // one with work in it keeps the row keys from getting here at all.
+        dimDraft: null,
         alignDraft: null,
         scaleDraft: null,
         sectionDraft: null,

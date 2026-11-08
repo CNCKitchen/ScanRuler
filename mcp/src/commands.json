@@ -1,6 +1,6 @@
 {
   "app": "0.9.10",
-  "saved": "2026-11-08T18:25:31.231Z",
+  "saved": "2026-11-08T21:07:49.381Z",
   "commands": [
     {
       "name": "align.auto",
@@ -1029,7 +1029,7 @@
     {
       "name": "element.construct",
       "title": "Construct an element",
-      "description": "Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane; line: line-two-points, line-axis, line-plane-plane; plane: plane-three-points, plane-offset, plane-midplane, plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; \"XY\", \"YZ\", \"XZ\" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.",
+      "description": "Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane, point-center (of a sphere, circle or torus), point-three-planes, point-line-line (params gap: the most two measured lines may pass apart and be taken to cross, 0.1 mm by default; skew past it is refused), point-project (a point onto a plane); line: line-two-points, line-axis (of a cylinder, cone, torus or circle), line-plane-plane, line-plane-point (square to a plane through a point), line-project (a line or axis onto a plane), line-coords (dx, dy, dz, px, py, pz, length); plane: plane-three-points, plane-offset, plane-offset-point (parallel through a point), plane-midplane, plane-line-point (normal to a line through a point), plane-angle (refs axis, zero-angle plane; params angle in degrees, right-handed about the axis), plane-line-plane (through a line, square to a plane), plane-two-lines (params gap as for point-line-line), plane-tangent-sphere, plane-tangent-cylinder (refs the feature, a point on the side to touch), plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. Constructions stay linked to their sources, rebuilt when one changes; element.unlink freezes one where it stands. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; \"XY\", \"YZ\", \"XZ\" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.",
       "input": {
         "type": "object",
         "properties": {
@@ -1082,7 +1082,7 @@
               },
               {
                 "type": "object",
-                "description": "The numbers by key (x, y, z; offset; nx, ny, nz, px, py, pz; d, cx, cy, cz).",
+                "description": "The numbers by key (x, y, z; offset; angle; gap; nx, ny, nz, px, py, pz; dx, dy, dz, length; d, cx, cy, cz).",
                 "additionalProperties": true
               }
             ],
@@ -1792,6 +1792,38 @@
         },
         "required": [
           "visible"
+        ],
+        "additionalProperties": false
+      },
+      "readOnly": false,
+      "returnsFile": false,
+      "returnsImage": false
+    },
+    {
+      "name": "element.unlink",
+      "title": "Unlink a construction from its sources",
+      "description": "Freeze a constructed element where it stands: its sources give way to coordinates of its own (point-coords, line-coords, plane-coords or circle-coords), so it no longer moves when they do and stays if they are deleted. Refused for an element that is not linked to others. Returns the element. One undo step.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "element": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "Its id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "Its name — \"Sphere 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "The constructed element."
+          }
+        },
+        "required": [
+          "element"
         ],
         "additionalProperties": false
       },

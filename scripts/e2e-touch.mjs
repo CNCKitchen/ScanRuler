@@ -23,14 +23,20 @@ import {
   shotPath,
   sleep,
   stageCrop,
+  viewOption,
 } from './e2e-lib.mjs'
 
-const STL = process.env.STL ?? repoFile('ballbar.stl')
+// One compact part: the gestures are aimed at the part's centroid, which on
+// a ball bar lies in the empty space between the balls.
+const STL = process.env.STL ?? repoFile('side bracket left.stl')
 
 // A tablet-shaped window, because that is the machine this exists for.
 const { browser, page, consoleErrors } = await launchApp({ width: 1180, height: 820 })
 await page.setViewport({ width: 1180, height: 820, hasTouch: true, deviceScaleFactor: 1 })
 await loadScan(page, STL)
+// The back faces drawn plain: their red tint is the colour the pivot
+// marker is told by, and an open scan shows its insides as it turns.
+await viewOption(page, 'toggle-scan', 'toggle-backfaces')
 
 const rect = await canvasRect(page)
 const mid = [rect.x + rect.w / 2, rect.y + rect.h / 2]
@@ -190,7 +196,7 @@ check(
 // that crop loses pixels on the leading side as it travels and its centroid
 // lags the hand — an artefact of the ruler, not of the pan. Small enough to
 // stay wholly inside the crop, the two agree to a pixel or two.
-s = pinchAbout((await sample()).at, 190, 70)
+s = pinchAbout((await sample()).at, 190, 45)
 g = await sweep(s.from, s.to)
 await g.lift()
 

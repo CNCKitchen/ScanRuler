@@ -107,6 +107,10 @@ export async function launchApp({ width = 1500, height = 950, protocolTimeout, u
     // The big support card would take the next click after any export.
     // e2e-support-ask switches it back on in Settings.
     try { localStorage.setItem('scanruler.supportask', '0') } catch { /* as above */ }
+    // And the small card in the stage's corner, off as Settings turns it
+    // off: it sits in the middle of the stage the navigation checks read
+    // for the part, and its buttons read as part.
+    try { localStorage.setItem('scanruler.supportcard', '0') } catch { /* as above */ }
   })
   // The agent connection's warning, accepted the way a person would have:
   // every pairing link would stall on it. e2e-agent-warning asks to see it.
