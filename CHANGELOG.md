@@ -5,6 +5,92 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.9.7 — 2026-11-08
+
+- **scanruler-mcp fixes** (2026-11-07, scanruler-mcp 0.6.2). Thanks to Jozkah.
+  - A returned file whose name holds a colon wrote on Windows into a hidden
+    stream and left an empty file. Characters Windows refuses become `_`,
+    and a name such as `CON` gets one in front.
+  - A picture tool no longer writes over a file that is there; a path to a
+    folder still numbers past what is in it.
+  - `--allow-origin` matches the page's address however it is written (a
+    slash at the end, capitals), and a value that is not an address is
+    refused at start.
+  - Numbers of 100 or more in answers keep four decimals: six digits of a
+    coordinate far from the origin had moved it by a tenth of a millimetre
+    or more.
+  - The server's own tools check their arguments: a `timeoutSeconds` that is
+    no number or out of range is refused, where it waited no time at all. A
+    number sent as a string is taken as that number, as before.
+  - An update that stopped because of the arguments it was given is no
+    longer marked as broken.
+  - Copies started at the same moment no longer each make a pairing token,
+    and a damaged `config.json` is kept as `config.json.bad`, not replaced.
+  - A relative `--out` folder is resolved, and the file tools no longer
+    follow a link out of the scan's folder.
+  - A page that stops answering no longer holds a read or a wait past the
+    answer limit, and leaves nothing waiting behind it.
+  - When another page takes the connection over, the calls of the one
+    closing are turned down instead of left hanging.
+  - A batch file of very many calls answers after running them, where it
+    failed past about 125,000.
+  - An answer limit or wait too long for a timer to hold no longer fires at
+    once.
+  - A torn read of `folders.json` no longer wipes the list of folders, and
+    the file is written whole.
+  - The pairing token is left out of call traces.
+- **Scan colours from PLY and OBJ, and sturdier file reading** (2026-11-07).
+  Thanks to Jozkah.
+  - A PLY or OBJ scan that carries a colour on each vertex now opens in
+    colour, as a 3MF does. One colour on every vertex is taken as the
+    exporter's default and left out.
+  - A PLY whose header counts more than the file holds, or names a type it
+    does not know, is refused at once. Before, it could spin or open as
+    garbage.
+  - A PrusaSlicer project with many modifier parts opens faster.
+  - A 3MF with an odd character code or member name gives a clear error.
+  - A project file is held to the ranges the panels set, so a damaged one
+    cannot start a thickness map with a billion rays. Agents' `bands` and
+    `coneRays` stop at 256 to match.
+  - A best fit stopped while it still waited its turn no longer runs anyway.
+  - Edge detection on a 2D image reports only the failure of the request on
+    screen, not of one already replaced.
+- **Undo, agents and recovery hold together better** (2026-11-07). Thanks
+  to Jozkah.
+  - A step that takes a while (a fit, a mesh edit) no longer merges into the
+    edit of a field that happened to be open while it ran.
+  - An undo across a scan edit that fails halfway puts the scan back as it
+    was, so scan and measurements stay on the same side of the step.
+  - An agent's change that ran out of time is waited for before the next
+    one starts, so their changes don't land in each other's steps. An
+    agent hears when starting over failed.
+  - The agent link, switched off while the browser asks for local network
+    access, stays off.
+  - A plugin that fails to start is left out, not half in use.
+  - Local recovery keeps the newest ten checkpoints of closed pages, for
+    two weeks; before, they piled up and filled the browser's storage. A
+    save or a restore drops the checkpoint it makes needless.
+  - A project opened with files of a plugin not in use keeps them, but they
+    no longer overwrite the scan, reference or image of the same name.
+  - A file opened from a link (`?open=`) is limited to 1 GB.
+  - An image whose header claims more than 16384 × 16384 pixels is refused
+    before decoding.
+  - A rubber band on the 2D sheet is dropped when the browser takes the
+    gesture over, instead of selecting at the next release.
+- **Mesh Tools fixes** (2026-11-07). Thanks to Jozkah.
+  - The undo history keeps edited copies up to 1 GB of memory, dropping
+    the oldest steps past that; it always keeps the newest. Before, a long
+    run of edits on a large scan could run the tab out of memory.
+  - Edits on a copy not yet taken into use count as work: leaving the page
+    or opening another scan asks first.
+  - A survey that fails (islands, holes, shell) says so with a key to try
+    again, instead of spinning on.
+  - A project whose edited copy doesn't fit its scan is refused before it
+    replaces the session.
+  - Cut's offset in inches is read whole, the trim piece's gap colours
+    repaint in place, and the tool panels draw again only when what they
+    show changes.
+
 ## 0.9.6 — 2026-11-07
 
 - **The window and the lasso take only surface you can see** (2026-11-07,
@@ -51,6 +137,20 @@ saves carry the same number as `appVersion`. How a release is cut is in
   instead of being cut off, the units dialog fits its four keys, the agent
   port and token fields look like the panel's other fields, and small keys
   are easier to hit. Thanks to Jozkah.
+- **Reverse engineer fixes** (2026-11-07). Thanks to Jozkah.
+  - A project with an imported STEP file never read as saved: the page
+    warned on leaving even right after a save, and recovery wrote the whole
+    project again every two seconds. It now reads as saved.
+  - After a Mesh Tools edit (a smooth, an offset) or an undo across one,
+    splits and compares ran on the scan as it was before. They now take the
+    edited scan.
+  - A project file whose id counters were too low could make removing one
+    feature remove two. The counters now start past every id in use.
+  - A helper kernel that failed to load stayed failed until a reload, and
+    builds lost its share of the work. It is tried again.
+  - An expression nested too deeply, or a long chain of parameters each
+    reading the next, could stop the page. It is now an error of that
+    expression.
 - **Wrap in Mesh Tools** (2026-11-05). A new tool puts one closed skin round
   a part that is a mess inside: an assembly exported as one file, a casting
   with channels inside, overlapping or inside-out shells, a scan with cracks.

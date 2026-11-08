@@ -2,6 +2,7 @@
 // Mirror: the scan reflected across a plane — the whole part, or one side of
 // it reflected onto the other to make it symmetric.
 
+import { useShallow } from 'zustand/react/shallow'
 import { isWorldAxis, SECTION_REF_KINDS, type SectionRef } from '../../../../src/core/section/frame'
 import { useStore } from '../../../../src/state/store'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -17,7 +18,22 @@ const MODES: { id: MirrorMode; label: string; title: string }[] = [
 ]
 
 export function MirrorTool({ ready, busy, onMirror }: { ready: boolean; busy: boolean; onMirror: () => void }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the mirror preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      editing: s.editing,
+      mirrorKeep: s.mirrorKeep,
+      mirrorMode: s.mirrorMode,
+      mirrorOffset: s.mirrorOffset,
+      mirrorOffsetAuto: s.mirrorOffsetAuto,
+      mirrorRef: s.mirrorRef,
+      setMirrorKeep: s.setMirrorKeep,
+      setMirrorMode: s.setMirrorMode,
+      setMirrorOffset: s.setMirrorOffset,
+      setMirrorRef: s.setMirrorRef,
+    })),
+  )
   const elements = useStore((s) => s.elements)
   const modelCenter = useStore((s) => s.modelCenter)
   const modelSize = useStore((s) => s.modelSize)

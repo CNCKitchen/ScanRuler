@@ -3,6 +3,7 @@
 // every opening narrower than the gap bridged — a preview until it is
 // applied.
 
+import { useShallow } from 'zustand/react/shallow'
 import { InfoDot } from '../../../../src/ui/InfoDot'
 import { NumberField } from '../../../../src/ui/NumberField'
 import { useLength } from '../../../../src/app/useUnits'
@@ -30,7 +31,23 @@ export function WrapTool({
   onApply: () => void
   onDiscard: () => void
 }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      setWrapEdges: s.setWrapEdges,
+      setWrapGap: s.setWrapGap,
+      setWrapGrow: s.setWrapGrow,
+      wrapEdges: s.wrapEdges,
+      wrapGap: s.wrapGap,
+      wrapGrow: s.wrapGrow,
+      wrapMade: s.wrapMade,
+      wrapMessage: s.wrapMessage,
+      wrapOpen: s.wrapOpen,
+      wrapStage: s.wrapStage,
+      wrapStatus: s.wrapStatus,
+    })),
+  )
   const stale = useMeshTools(wrapStale)
   const len = useLength()
   const made = m.wrapMade

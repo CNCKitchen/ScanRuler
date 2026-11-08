@@ -206,6 +206,12 @@ try {
   })
   for (const [ok, name] of results) check(ok, name)
 
+  // Saving removed this page's checkpoint, so leave an unsaved edit behind for the reloaded page to offer.
+  await page.evaluate(async () => {
+    const { useStore } = await import('/src/state/store.ts')
+    useStore.setState({ showBackfaces: !useStore.getState().showBackfaces })
+  })
+  await waitStatus('Local checkpoint saved')
   await page.reload({ waitUntil: 'networkidle0' })
   await page.waitForSelector('[data-test="recovery-bar"]')
   const before = await page.$$eval('[data-test="recovery-bar"] option', (options) => options.length)

@@ -21,7 +21,7 @@ interface Search {
 const search: Record<keyof Search, JsonSchema> = {
   method: enumOf(['ray', 'sphere'] as ThicknessMethod[], 'ray: along the inward normal to the far wall (the shortest of a cone with coneRays). sphere: the largest sphere that fits at the point.'),
   maxThickness: num('The thickest wall searched for, mm.', { exclusiveMinimum: 0 }),
-  coneRays: int('ray: rays in the cone about the normal; 0 for the normal alone.', { minimum: 0 }),
+  coneRays: int('ray: rays in the cone about the normal; 0 for the normal alone.', { minimum: 0, maximum: 256 }),
   coneAngleDeg: num('ray: the cone’s half-angle, degrees.', { minimum: 0, maximum: 89 }),
   normalDeviationDeg: oneOf([num(undefined, { minimum: 0, maximum: 180 }), { type: 'null', description: 'Not checked.' }], 'How far the far wall may turn from facing back, degrees, or null for any.'),
 }

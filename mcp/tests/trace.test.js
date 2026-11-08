@@ -188,6 +188,15 @@ test('compact: a batch of one and scanruler_tools are traced, a queued batch too
   }
 })
 
+test('the pairing token is not written to a trace, though the help on connecting gives it', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'scanruler-trace-'))
+  const trace = createTrace(dir, { args: true, secrets: [TOKEN] })
+  trace.write({ ev: 'call', tool: 'demo_read', args: { q: TOKEN }, head: `unavailable: No ScanRuler page is connected. Enter port 7317 and token ${TOKEN}.` })
+  const written = await readFile(trace.file, 'utf8')
+  assert.equal(written.includes(TOKEN), false)
+  assert.match(JSON.parse(written).head, /and token \[redacted\]\.$/)
+})
+
 test('no trace without a directory', () => {
   assert.equal(createTrace(''), null)
   assert.equal(createTrace(undefined), null)

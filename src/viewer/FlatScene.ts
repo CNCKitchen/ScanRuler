@@ -970,13 +970,24 @@ export class FlatScene {
     this.container.appendChild(div)
     this.bandDiv = div
     const move = (ev: PointerEvent) => this.layoutBand(ev.clientX, ev.clientY)
-    const up = (ev: PointerEvent) => {
+    const stop = () => {
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', up)
+      document.removeEventListener('pointercancel', cancel)
+    }
+    const up = (ev: PointerEvent) => {
+      stop()
       this.finishBand(ev.clientX, ev.clientY, ev)
+    }
+    // A gesture the browser takes over selects nothing: left listening, the
+    // band would box-select at whatever release came next, anywhere.
+    const cancel = () => {
+      stop()
+      this.dropBand()
     }
     document.addEventListener('pointermove', move)
     document.addEventListener('pointerup', up)
+    document.addEventListener('pointercancel', cancel)
     this.layoutBand(e.clientX, e.clientY)
   }
 

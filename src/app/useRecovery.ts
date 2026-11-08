@@ -17,7 +17,7 @@ import { projectSections } from './projectSections'
 import { watchUnsaved } from './project'
 import { useShell } from '../state/shellStore'
 import { ProjectClient } from '../core/project/projectClient'
-import { RecoveryStorage, type CheckpointInfo } from './recoveryStorage'
+import { RecoveryStorage, staleCheckpoints, type CheckpointInfo } from './recoveryStorage'
 import { ProjectSnapshotCache, type ProjectSnapshot } from './projectSnapshot'
 
 type Snapshot = ProjectSnapshot
@@ -46,6 +46,7 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
   const saved = useRef<string | null>(null)
   const hadContent = useRef(false)
   const refresh = useRef(() => {})
+  const forgetCheckpoint = useRef(() => {})
   const storage = useRef<RecoveryStorage | null>(null)
   const [state, setState] = useState({ dirty: false, status: '', available: [] as CheckpointInfo[], working: false })
   const update = (patch: Partial<typeof state>) => setState((s) =>
@@ -62,7 +63,12 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
     const reportError = (error: unknown) => {
       if (!disposed) update({ status: `Local recovery unavailable: ${error instanceof Error ? error.message : String(error)}. Use Save Project.` })
     }
-    void db.left().then((available) => { if (!disposed) update({ available }) }, reportError)
+    // What closed pages left behind, less what is too old or too many to keep.
+    void db.left().then(async (rows) => {
+      const stale = new Set(staleCheckpoints(rows, Date.now()))
+      for (const id of stale) await db.remove(id)
+      if (!disposed) update({ available: rows.filter((row) => !stale.has(row.id)) })
+    }).catch(reportError)
 
     // What was last found, for a question asked while the session is busy.
     let dirty = false
@@ -118,6 +124,7 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
       scheduleInspect()
     }
     refresh.current = scheduleInspect
+    forgetCheckpoint.current = () => { checkpointKey = '' }
     // Zustand stores use immutable updates; watch only project fields. Picking,
     // progress and pointer motion must not serialize a large measurement set.
     const watch = <T extends object>(store: { subscribe: (fn: (s: T, prev: T) => void) => () => void }, keys: (keyof T)[], notify = changed) =>
@@ -156,23 +163,35 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
       document.removeEventListener('visibilitychange', visibility)
       window.removeEventListener('beforeunload', beforeUnload)
       refresh.current = () => {}
+      forgetCheckpoint.current = () => {}
       storage.current = null
       release()
       db.close()
     }
   }, [cache])
 
-  const markSaved = (snapshot: Snapshot) => { saved.current = cache.key(snapshot); refresh.current() }
+  const markSaved = (snapshot: Snapshot) => {
+    saved.current = cache.key(snapshot)
+    refresh.current()
+    // Saved work needs no checkpoint: a later change writes a new one, even
+    // back to a state checkpointed before, since the slot is gone.
+    forgetCheckpoint.current()
+    const db = storage.current
+    void db?.remove(db.id).catch(() => {})
+  }
   const restored = () => { saved.current = null; update({ available: [] }); refresh.current() }
   const restore = async (id: string) => {
-    if (!storage.current || callbacks.current.blocked()) return
+    const db = storage.current
+    if (!db || callbacks.current.blocked()) return
     update({ working: true })
     let worker: ProjectClient | null = null
     try {
-      const { manifest, members } = await storage.current.read(id)
+      const { manifest, members } = await db.read(id)
       worker = new ProjectClient()
       const bytes = await worker.pack(manifest, members)
       await callbacks.current.open(new File([bytes as BlobPart], 'recovered.scanruler'))
+      // The work is this page's now, checkpointed in this page's own slot.
+      await db.remove(id).catch(() => {})
     } catch (error) {
       update({ status: `Recovery failed: ${error instanceof Error ? error.message : String(error)}` })
     } finally { worker?.dispose(); update({ working: false }) }

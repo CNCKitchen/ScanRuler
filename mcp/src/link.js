@@ -21,11 +21,23 @@ const HOSTED_ORIGINS = ['https://scanruler.com', 'https://www.scanruler.com']
 
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]'])
 
+/** The origin of a URL given to --allow-origin, as a browser sends it in
+ *  its Origin header: a trailing slash, a path or an uppercase host would
+ *  otherwise never match. Null for a value that is not a URL. */
+export function originOf(url) {
+  try {
+    const { origin } = new URL(url)
+    return origin === 'null' ? null : origin
+  } catch {
+    return null
+  }
+}
+
 /** Whether a page from `origin` may connect. A connection without an Origin
  *  is not from a browser page; the token alone decides for it. */
 export function originAllowed(origin, extra = []) {
   if (!origin) return true
-  if (HOSTED_ORIGINS.includes(origin) || extra.includes(origin)) return true
+  if (HOSTED_ORIGINS.includes(origin) || extra.some((url) => originOf(url) === origin)) return true
   try {
     const url = new URL(origin)
     return (url.protocol === 'http:' || url.protocol === 'https:') && LOOPBACK.has(url.hostname)
@@ -99,12 +111,15 @@ export class Asker extends EventEmitter {
 
   /** Ask the page something; resolves with its result, rejects with its
    *  `{ code, message }`. `binaryPath` names bytes in the request that go as
-   *  a binary frame; `onProgress` hears the page's progress lines. */
-  request(message, binaryPath, onProgress) {
+   *  a binary frame; `onProgress` hears the page's progress lines. With
+   *  `timeoutMs`, an answer not come by then is given up on — rejected with
+   *  code timeout and no longer waited for: a frozen tab still answers the
+   *  heartbeat, so its link stays up while nothing it is asked comes back. */
+  request(message, binaryPath, onProgress, timeoutMs) {
     const ws = this.socket
     if (!ws || ws.readyState !== ws.OPEN) return Promise.reject({ code: 'unavailable', message: 'No ScanRuler page is connected.' })
     const id = this.nextId++
-    return new Promise((resolve, reject) => {
+    const asked = new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress })
       try {
         for (const frame of encode({ id, ...message }, binaryPath)) ws.send(frame)
@@ -113,14 +128,24 @@ export class Asker extends EventEmitter {
         reject({ code: 'internal', message: e.message })
       }
     })
+    if (timeoutMs === undefined) return asked
+    let timer
+    const late = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject({ code: 'timeout', message: `The ScanRuler page did not answer within ${Math.round(timeoutMs / 100) / 10} s; its tab may be frozen, or busy with something long.` })
+      }, Math.max(0, timeoutMs))
+    })
+    return Promise.race([asked, late]).finally(() => clearTimeout(timer))
   }
 
   /** Run a command on the page. `binaryKey` is the input field holding a
    *  file's bytes, if one does; `job` the job the run is part of, which the
    *  page keeps its outcome under (session.recent); `deferred`, that more
-   *  changes follow straight after it, which build once after the last. */
-  run(name, input, binaryKey, onProgress, job, deferred = false) {
-    return this.request({ method: 'run', name, input, ...(job ? { job } : {}), ...(deferred ? { deferred: true } : {}) }, binaryKey ? `input.${binaryKey}` : undefined, onProgress)
+   *  changes follow straight after it, which build once after the last;
+   *  `timeoutMs`, how long its answer is waited for, as request takes it. */
+  run(name, input, binaryKey, onProgress, job, deferred = false, timeoutMs) {
+    return this.request({ method: 'run', name, input, ...(job ? { job } : {}), ...(deferred ? { deferred: true } : {}) }, binaryKey ? `input.${binaryKey}` : undefined, onProgress, timeoutMs)
   }
 
   /** Resolves true once a page is connected, false after `timeoutMs`. */
@@ -263,6 +288,10 @@ export class PageLink extends Asker {
     if (this.socket && this.socket.readyState === this.socket.OPEN) {
       return refuse(CLOSE.taken, 'Another ScanRuler tab is connected to this agent already — close the connection there first.')
     }
+    // A page still closing is replaced; its close comes after and is then
+    // not this link's, so what it was asked is turned down here, or it would
+    // wait for an answer that never comes.
+    if (this.socket) this.dropPending('The ScanRuler page closed the connection before it answered.')
     this.socket = ws
     const { token: _token, ...page } = hello
     this.page = { ...page, origin: origin ?? null, commands: Array.isArray(hello.commands) ? hello.commands : [] }

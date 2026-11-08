@@ -198,7 +198,7 @@ const settings: Command<{ range?: number; maxDistance?: number; bands?: number |
   input: obj({
     range: readingInput.range,
     maxDistance: readingInput.maxDistance,
-    bands: nullable(int(undefined, { minimum: 2 }), 'Stepped colours, or null for smooth.'),
+    bands: nullable(int(undefined, { minimum: 2, maximum: 256 }), 'Stepped colours, or null for smooth.'),
     tolerance: readingInput.tolerance,
     facingDeg: nullable(num(undefined, { minimum: 1, maximum: 90 }), 'Facing limit, degrees, or null.'),
     colormap: enumOf(

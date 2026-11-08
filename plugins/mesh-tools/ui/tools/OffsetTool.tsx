@@ -2,6 +2,7 @@
 // Offset: the surface moved along its normals, the whole part or a marked
 // region, by a distance either way.
 
+import { useShallow } from 'zustand/react/shallow'
 import { useLength } from '../../../../src/app/useUnits'
 import { useMark } from '../../../../src/state/markStore'
 import { InfoDot } from '../../../../src/ui/InfoDot'
@@ -21,7 +22,19 @@ export function OffsetTool({
   onOffset: () => void
   onClear: () => void
 }) {
-  const m = useMeshTools()
+  // Only what the panel reads: the whole store would render it again on
+  // every write to it, the cut preview's while its offset is dragged.
+  const m = useMeshTools(
+    useShallow((s) => ({
+      editing: s.editing,
+      offsetDirection: s.offsetDirection,
+      offsetDistance: s.offsetDistance,
+      offsetScope: s.offsetScope,
+      setOffsetDirection: s.setOffsetDirection,
+      setOffsetDistance: s.setOffsetDistance,
+      setOffsetScope: s.setOffsetScope,
+    })),
+  )
   const marked = useMark((s) => s.count)
   const regional = m.offsetScope === 'marked'
   const expand = m.offsetDirection === 'expand'

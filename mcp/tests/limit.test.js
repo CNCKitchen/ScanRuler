@@ -75,7 +75,7 @@ after(async () => {
 })
 
 /** A copy of the server on its own port, the fake page connected to it. */
-async function copy({ answerWithinMs = LIMIT_MS } = {}) {
+async function copy({ answerWithinMs = LIMIT_MS, answers = answer } = {}) {
   const link = new PageLink({ token: TOKEN })
   const http = httpServer({})
   link.attach(http)
@@ -84,7 +84,7 @@ async function copy({ answerWithinMs = LIMIT_MS } = {}) {
   const [a, b] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: 'test', version: '0.0.0' })
   await Promise.all([server.connect(a), client.connect(b)])
-  const { page } = await fakePage(http.address().port, { token: TOKEN, commands: COMMANDS, answer })
+  const { page } = await fakePage(http.address().port, { token: TOKEN, commands: COMMANDS, answer: answers })
   let closed = false
   const close = async () => {
     if (closed) return
@@ -100,7 +100,7 @@ async function copy({ answerWithinMs = LIMIT_MS } = {}) {
     const text = r.content[0].text
     return { error: r.isError === true, text, json: r.isError ? null : JSON.parse(text), images: r.content.filter((c) => c.type === 'image') }
   }
-  return { client, call, page, close }
+  return { client, call, page, close, link }
 }
 
 /** scanruler_wait for a job, called again while it says running. */
@@ -281,5 +281,39 @@ test('--answer-within 0 holds a call to its end', async () => {
   const one = await copy({ answerWithinMs: 0 })
   assert.deepEqual((await one.call('demo_update', { n: 3, ms: LIMIT_MS + 100 })).json, { n: 3 })
   assert.equal((await one.call('scanruler_status')).json.server.answerWithin, null)
+  await one.close()
+})
+
+test('an answer limit too long for a timer still waits; a wait with a timeout its schema does not take is refused', async () => {
+  const one = await copy({ answerWithinMs: 1e10 })
+  assert.deepEqual((await one.call('demo_update', { n: 4, ms: 150 })).json, { n: 4 }, 'not queued at once')
+  await one.close()
+  const two = await copy({ answerWithinMs: 0 })
+  const { job } = (await two.call('demo_update', { n: 5, ms: 150, wait: false })).json
+  // Past the schema's 600 s, not a number, or not above zero: refused
+  // before any timer is set, rather than waiting no time at all.
+  for (const timeoutSeconds of [1e10, 'soon', -1]) {
+    const refused = await two.call('scanruler_wait', { for: 'job', job, timeoutSeconds })
+    assert.equal(refused.error, true, `timeoutSeconds ${timeoutSeconds}`)
+    assert.match(refused.text, /^invalid_input: timeoutSeconds/)
+  }
+  const waited = await two.call('scanruler_wait', { for: 'job', job, timeoutSeconds: 600 })
+  assert.equal(waited.json.state, 'done')
+  await two.close()
+})
+
+test('a page that never answers: a read, a wait for idle and a wait for a job of another copy answer within the limit, and nothing is left waiting', async () => {
+  const one = await copy({ answerWithinMs: 300, answers: () => new Promise(() => {}) })
+  for (const [name, args] of [
+    ['session_state', {}],
+    ['scanruler_wait', { for: 'idle', timeoutSeconds: 1 }],
+    ['scanruler_wait', { for: 'job', job: 'j9-zzzz', timeoutSeconds: 1 }],
+  ]) {
+    const at = Date.now()
+    const r = await Promise.race([one.call(name, args), new Promise((resolve) => setTimeout(() => resolve('still waiting'), 2000))])
+    assert.notEqual(r, 'still waiting', `${name} ${JSON.stringify(args)}`)
+    assert.ok(Date.now() - at < 1000, `${name} answered after ${Date.now() - at} ms`)
+  }
+  assert.equal(one.link.pending.size, 0)
   await one.close()
 })

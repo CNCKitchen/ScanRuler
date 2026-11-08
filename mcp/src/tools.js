@@ -68,14 +68,20 @@ const inlineIn = {
  *  noise the agent pays for — 0.9483828176573491 in place of 0.948383. */
 const DIGITS = 6
 const STEP = 1e6
+/** The coarsest step a number is given to, however large: a coordinate
+ *  far from the origin, as a scanner's frame puts it, is fed back as a
+ *  point, and six digits of 12345.678 would move it by a fifth of a
+ *  millimetre. */
+const FINEST_KEPT = 1e4
 
 const tidy = (v) => {
-  const r = Number(v.toPrecision(DIGITS))
+  const r = Math.abs(v) >= 10 ** (DIGITS - 4) && Math.abs(v) < 9e9 ? Math.round(v * FINEST_KEPT) / FINEST_KEPT : Number(v.toPrecision(DIGITS))
   return Math.abs(r) < 9e9 ? Math.round(r * STEP) / STEP || 0 : r
 }
 
 /** An answer as the agent reads it: JSON, every number that is not whole
- *  kept to DIGITS significant digits and no finer than a millionth — 1e-17,
+ *  kept to DIGITS significant digits, or four decimals past a hundred,
+ *  and no finer than a millionth — 1e-17,
  *  a zero's rounding error, is 0. Whole numbers — ids, indices, counts —
  *  are as they were. An `exact` answer is one whose numbers are handed
  *  back as inputs — a plane's frame, say — and keeps every digit:
@@ -397,6 +403,16 @@ export async function batchedPicture(result, args, { cwd, outDir, folder }) {
   }
 }
 
+/** A name the page gave a file, made one this computer's file system takes
+ *  as a plain file name. A colon on Windows would write the bytes to a
+ *  hidden stream and leave an empty file, and a device name such as CON
+ *  is no file at all, so reserved characters become `_` and a device name
+ *  is prefixed with one. */
+export const safeFileName = (name) => {
+  const plain = String(name).replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '') || 'file'
+  return /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(plain) ? `_${plain}` : plain
+}
+
 /** Write a returned file where the call asked, or into `outDir`; the result
  *  then says where, in place of the bytes. A file path given is written,
  *  over one there; a folder — one there, or a path ending in a separator —
@@ -405,7 +421,7 @@ export async function batchedPicture(result, args, { cwd, outDir, folder }) {
 export async function saveFileResult(result, args, { cwd, outDir }) {
   const file = result?.file
   if (!file || !(file.bytes instanceof Uint8Array)) return result
-  const name = basename(String(file.name ?? 'file'))
+  const name = safeFileName(String(file.name ?? 'file').split(/[\\/]/).pop())
   const given = args?.path ? absolute(String(args.path), cwd) : null
   const folder = given === null ? outDir : /[\\/]$/.test(String(args.path)) || (await stat(given).catch(() => null))?.isDirectory() ? given : null
   let target
@@ -413,7 +429,15 @@ export async function saveFileResult(result, args, { cwd, outDir }) {
   else {
     target = given
     await mkdir(dirname(target), { recursive: true })
-    await writeFile(target, file.bytes)
+    // A picture comes from a tool marked read-only, which a client may run
+    // without asking, so it never replaces a file that is there.
+    const picture = String(file.mimeType ?? '').startsWith('image/')
+    try {
+      await writeFile(target, file.bytes, picture ? { flag: 'wx' } : undefined)
+    } catch (e) {
+      if (picture && e?.code === 'EEXIST') throw { code: 'invalid_input', message: `${target} is already there and a picture is not written over a file: give a new path, or a folder.` }
+      throw e
+    }
   }
   return { ...result, file: { name: file.name, mimeType: file.mimeType, size: file.bytes.byteLength, path: target } }
 }

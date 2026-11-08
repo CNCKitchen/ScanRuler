@@ -114,6 +114,15 @@ export function nameProblem(name: string, others: readonly Parameter[], self?: n
 export function evaluateParameters(parameters: readonly Parameter[]): ParameterTable {
   const byName = new Map<string, Parameter>()
   for (const p of parameters) if (!byName.has(p.name)) byName.set(p.name, p)
+  // Parameters by their name in lower case, in table order: a name can
+  // clash only with those, so a long table is not searched once a name.
+  const byLowerName = new Map<string, Parameter[]>()
+  for (const p of parameters) {
+    const key = p.name.toLowerCase()
+    const same = byLowerName.get(key)
+    if (same) same.push(p)
+    else byLowerName.set(key, [p])
+  }
   const readings = new Map<number, ParameterReading>()
   const visiting: Parameter[] = []
   const looped = new Map<number, string>()
@@ -129,7 +138,7 @@ export function evaluateParameters(parameters: readonly Parameter[]): ParameterT
     }
     visiting.push(p)
     let reading: ParameterReading
-    const problem = nameProblem(p.name, parameters, p.id)
+    const problem = nameProblem(p.name, byLowerName.get(p.name.toLowerCase()) ?? [], p.id)
     if (problem) reading = { id: p.id, name: p.name, kind: p.kind, value: null, error: problem }
     else {
       const scope: Scope = (name) => {

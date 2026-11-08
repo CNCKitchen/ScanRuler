@@ -1,6 +1,6 @@
 {
-  "app": "0.9.6",
-  "saved": "2026-11-07T18:56:12.064Z",
+  "app": "0.9.7",
+  "saved": "2026-11-08T08:56:04.596Z",
   "commands": [
     {
       "name": "align.auto",
@@ -591,7 +591,8 @@
             "oneOf": [
               {
                 "type": "integer",
-                "minimum": 2
+                "minimum": 2,
+                "maximum": 256
               },
               {
                 "type": "null",
@@ -4576,7 +4577,8 @@
           "coneRays": {
             "type": "integer",
             "description": "ray: rays in the cone about the normal; 0 for the normal alone.",
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 256
           },
           "coneAngleDeg": {
             "type": "number",
@@ -4628,7 +4630,8 @@
           "coneRays": {
             "type": "integer",
             "description": "ray: rays in the cone about the normal; 0 for the normal alone.",
-            "minimum": 0
+            "minimum": 0,
+            "maximum": 256
           },
           "coneAngleDeg": {
             "type": "number",

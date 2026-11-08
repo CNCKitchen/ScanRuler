@@ -5,7 +5,7 @@ import { useFlat } from '../src/state/flatStore'
 import { useDeviation } from '../src/state/deviationStore'
 import { useThickness } from '../src/state/thicknessStore'
 import { useShell } from '../src/state/shellStore'
-import { beginHistoryGroup, endHistoryGroup, clearHistory, configureHistory, historyAction, historyAsync, installHistory, undo, redo, useHistory } from '../src/state/historyStore'
+import { beginHistoryGroup, endHistoryGroup, clearHistory, configureHistory, historyAction, historyAsync, installHistory, registerHistory, undo, redo, useHistory } from '../src/state/historyStore'
 import { frameKey, type SectionFrame } from '../src/core/section/frame'
 
 const m = () => useStore.getState(), f = () => useFlat.getState(), d = () => useDeviation.getState()
@@ -226,6 +226,52 @@ describe('project history', () => {
     await redo()
     expect([...scope!]).toEqual([3])
     expect(d().probes).toHaveLength(0)
+  })
+})
+
+describe('async steps and edit groups', () => {
+  it('keeps an async step out of the edit group open while it runs', async () => {
+    const s0 = m()
+    beginHistoryGroup()
+    historyAction('3D Measure: user edit', () => useStore.setState({ nextNumber: s0.nextNumber + 1 }))
+    await historyAsync('Agent: fit element', async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      useStore.setState({ nextDimensionId: s0.nextDimensionId + 7 })
+    })
+    endHistoryGroup()
+    expect(h().past.map((e) => e.label)).toEqual(['3D Measure: user edit', 'Agent: fit element'])
+  })
+})
+
+describe('history section keys', () => {
+  it('refuses a key the app or another participant already holds', () => {
+    const section = (key: string) => ({ key, capture: () => null, apply: () => {} })
+    expect(() => registerHistory({ sections: [section('measure')] })).toThrow(/share the key "measure"/)
+    const stop = registerHistory({ sections: [section('mine')] })
+    try {
+      expect(() => registerHistory({ sections: [section('mine')] })).toThrow(/share the key "mine"/)
+    } finally { stop() }
+  })
+})
+
+describe('a failing participant', () => {
+  it('puts the scan back when a participant fails before a step', async () => {
+    const older = { name: 'older' }, newer = { name: 'newer' }
+    let scan: object = older
+    unconfigure()
+    unconfigure = configureHistory({
+      getScan: () => scan,
+      beforeRestore: async (patch) => { if ('scan' in patch) scan = patch.scan as object },
+    })
+    const stop = registerHistory({ beforeRestore: async () => { throw new Error('worker gone') } })
+    try {
+      historyAction('Mesh: edit', () => { scan = newer; useStore.setState({ nextNumber: m().nextNumber + 1 }) })
+      const number = m().nextNumber
+      await undo()
+      expect(scan).toBe(newer)
+      expect(m().nextNumber).toBe(number)
+      expect(h().past).toHaveLength(1)
+    } finally { stop() }
   })
 })
 

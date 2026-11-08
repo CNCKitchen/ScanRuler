@@ -54,6 +54,34 @@ describe('project input validation', () => {
     manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'intersection', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
     expect(() => validateManifest(manifest)).not.toThrow()
   })
+  it.each([
+    ['thickness', 'coneRays', 1e9],
+    ['thickness', 'coneRays', -1],
+    ['thickness', 'coneRays', 2.5],
+    ['thickness', 'method', 'bogus'],
+    ['thickness', 'maxThickness', -5],
+    ['deviation', 'range', 0],
+    ['deviation', 'tolerance', -1],
+    ['deviation', 'bands', 1e9],
+    ['deviation', 'bands', 'x'],
+    ['deviation', 'targetSide', 7],
+    ['flat', 'edgeSensitivity', -3],
+    ['flat', 'turns', 2.5],
+    ['flat', 'datum', 'x'],
+    ['deviation', 'pairs', [1]],
+    ['thickness', 'normalDeviationDeg', 'x'],
+  ])('rejects %s.%s = %j', (part, key, value) => {
+    const manifest = project()
+    manifest[part][key] = value
+    expect(() => validateManifest(manifest)).toThrow('Malformed project')
+  })
+  it('accepts the settings in their ranges', () => {
+    const manifest = project()
+    Object.assign(manifest.thickness, { coneRays: 12, method: 'sphere', bands: 8, normalDeviationDeg: 30 })
+    Object.assign(manifest.deviation, { bands: null, targetSide: -1, pairs: [{ scan: [0, 0, 0], nominal: [1, 2, 3] }] })
+    Object.assign(manifest.flat, { turns: 3, datum: null })
+    expect(() => validateManifest(manifest)).not.toThrow()
+  })
   it.each([0, -1, 1.5])('rejects unsupported schema %s', (version) => {
     expect(() => validateManifest({ ...project(), schemaVersion: version })).toThrow('schema version')
   })
@@ -79,6 +107,18 @@ describe('project input validation', () => {
   it('bounds expansion before decompressing a member', () => {
     const compressed = zipSync({ 'large.bin': new Uint8Array(100_000) })
     expect(() => unpackProject(compressed, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
+  })
+  it('bounds a stored member that declares no uncompressed size', () => {
+    // A stored member yields its compressed bytes whatever size it declares,
+    // so an archive saying 0 must not slip past the limits.
+    const manifest = strToU8(JSON.stringify({ app: 'ScanRuler', schemaVersion: 1, pad: 'x'.repeat(200_000) }))
+    const zip = zipSync({ 'project.json': [manifest, { level: 0 }] })
+    const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength)
+    for (let i = 0; i + 4 <= zip.byteLength; i++) {
+      if (dv.getUint32(i, true) === 0x04034b50) dv.setUint32(i + 22, 0, true)
+      if (dv.getUint32(i, true) === 0x02014b50) dv.setUint32(i + 24, 0, true)
+    }
+    expect(() => unpackProject(zip, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
   })
   it('bounds the manifest and rejects unsafe member names', () => {
     const bytes = packProject(project(), [])

@@ -115,6 +115,45 @@ describe('a command that never finishes', () => {
     expect(useHistory.getState().past.map((p) => p.label)).toEqual(['Agent: hang', 'Agent: bump'])
   })
 
+  it('lets the next change wait for one given up on that finishes late', async () => {
+    const late: Command = {
+      name: 'late',
+      title: 'Late',
+      description: 'Changes the session after its time.',
+      input: obj({}),
+      // Given up on at 40 ms, it lands at 60 — within the one more 40 ms the
+      // queue waits for it. Inside its time and its grace by margins wider
+      // than a timer tick (about 16 ms on Windows), so the order holds on
+      // every system.
+      timeoutMs: 40,
+      run: async () => {
+        await new Promise((r) => setTimeout(r, 60))
+        useStore.setState((s) => ({ nextDimensionId: s.nextDimensionId + 1 }))
+      },
+    }
+    const slow: Command = {
+      name: 'slow',
+      title: 'Slow',
+      description: 'Adds one, a little later.',
+      input: obj({}),
+      run: async () => {
+        await new Promise((r) => setTimeout(r, 60))
+        useStore.setState((s) => ({ nextNumber: s.nextNumber + 1 }))
+      },
+    }
+    const offLate = registerCommands('later', [late, slow])
+    try {
+      const gaveUp = runCommand('later.late').catch((e: CommandError) => e)
+      const next = runCommand('later.slow')
+      expect(((await gaveUp) as CommandError).code).toBe('timeout')
+      await next
+      const step = useHistory.getState().past.find((p) => p.label === 'Agent: slow')!
+      // The late change landed before the next began, not inside its step.
+      expect(step.after.measure!.nextDimensionId).toBe(step.before.measure!.nextDimensionId)
+      expect(step.after.measure!.nextNumber).toBe(step.before.measure!.nextNumber + 1)
+    } finally { offLate() }
+  })
+
   it('answers a read that never finishes with timeout too', async () => {
     const e = await runCommand('test.look').catch((x: CommandError) => x)
     expect((e as CommandError).code).toBe('timeout')
