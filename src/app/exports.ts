@@ -240,7 +240,7 @@ export async function buildScanPointCloud(scene: SceneManager | null, format: Cl
   const bytes =
     format === 'ply'
       ? new Uint8Array(buildPointCloudPly(positions, normals, transform, `ScanRuler point cloud - ${stem}`))
-      : textBytes(buildPointCloudXyz(positions, normals, transform))
+      : buildPointCloudXyz(positions, normals, transform)
   const points = positions.length / 3
   return {
     name,

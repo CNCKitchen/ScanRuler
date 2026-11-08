@@ -88,24 +88,45 @@ export function buildPointCloudPly(
   return buffer
 }
 
+/** Lines encoded at a time: each piece's text stays far below the longest
+ *  string a browser will make. */
+const XYZ_PIECE = 1 << 16
+
 /**
  * Build an XYZ text file: one point per line, `x y z` to a tenth of a micron
  * and, when normals are given, `nx ny nz` after them. Lines end in a plain
- * newline; every point-cloud reader takes that.
+ * newline; every point-cloud reader takes that. Written as bytes a piece at
+ * a time, not as one string: a scan of ten million points is past half a
+ * gigabyte of text, more than a string can hold.
  */
 export function buildPointCloudXyz(
   positions: Float32Array,
   normals: Float32Array | null,
   transform: Rigid | null,
-): string {
+): Uint8Array {
   const count = Math.floor(positions.length / 3)
   const { xyz, nrm } = posed(positions, normals, transform)
-  const lines = new Array<string>(count)
-  for (let i = 0; i < count; i++) {
-    const j = i * 3
-    let line = `${xyz[j].toFixed(4)} ${xyz[j + 1].toFixed(4)} ${xyz[j + 2].toFixed(4)}`
-    if (nrm) line += ` ${nrm[j].toFixed(5)} ${nrm[j + 1].toFixed(5)} ${nrm[j + 2].toFixed(5)}`
-    lines[i] = line
+  const encoder = new TextEncoder()
+  const pieces: Uint8Array[] = []
+  let size = 0
+  for (let from = 0; from < count; from += XYZ_PIECE) {
+    const to = Math.min(count, from + XYZ_PIECE)
+    let text = ''
+    for (let i = from; i < to; i++) {
+      const j = i * 3
+      text += `${xyz[j].toFixed(4)} ${xyz[j + 1].toFixed(4)} ${xyz[j + 2].toFixed(4)}`
+      if (nrm) text += ` ${nrm[j].toFixed(5)} ${nrm[j + 1].toFixed(5)} ${nrm[j + 2].toFixed(5)}`
+      text += '\n'
+    }
+    const bytes = encoder.encode(text)
+    pieces.push(bytes)
+    size += bytes.length
   }
-  return lines.join('\n') + '\n'
+  const out = new Uint8Array(size)
+  let at = 0
+  for (const piece of pieces) {
+    out.set(piece, at)
+    at += piece.length
+  }
+  return out
 }
