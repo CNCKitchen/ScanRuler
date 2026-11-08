@@ -120,5 +120,33 @@ const undone = await draft()
 check(undone.history === before - 1 && (undone.kinds.horizontal ?? 0) + (undone.kinds.vertical ?? 0) === 0, 'undo takes the aligned refit back whole')
 check(undone.pieces > 0, 'and the chains stay fitted by the pieces that came back')
 
+// ---- typed figures, a key at a time ----------------------------------------------
+// The tolerance took each keystroke alone, and "0.0" on the way to 0.05 is
+// not above 0: the field cleared under the hand (issue 81).
+await click(page, '[data-test=sketch-fit-options]')
+await page.waitForSelector('[data-test=fit-options]')
+const typeKeys = async (sel, text) => {
+  await page.focus(sel)
+  await page.$eval(sel, (el) => (el.value = ''))
+  await page.type(sel, text, { delay: 30 })
+}
+await typeKeys('[data-test=sketch-tolerance]', '0.05')
+check((await page.$eval('[data-test=sketch-tolerance]', (el) => el.value)) === '0.05', 'a tolerance of 0.05 can be typed a key at a time')
+await page.keyboard.press('Enter')
+await sleep(1500)
+const tolerance = await page.evaluate(() => window.__re.store.getState().sketchDraft.tolerance)
+check(Math.abs(tolerance - 0.05) < 1e-9, `Enter sets it to 0.05 (${tolerance})`)
+if (await page.$eval('[data-test=fit-align-degrees]', (el) => el.disabled)) {
+  await click(page, '[data-test=fit-align]')
+  await sleep(1000)
+}
+await typeKeys('[data-test=fit-align-degrees]', '0.5')
+check((await page.$eval('[data-test=fit-align-degrees]', (el) => el.value)) === '0.5', 'the angle within 0.5° can be typed a key at a time')
+await page.keyboard.press('Enter')
+await sleep(1500)
+check((await page.evaluate(() => JSON.parse(localStorage.getItem('scanruler.fitoptions') ?? '{}').alignDegrees)) === 0.5, 'Enter sets it to 0.5°')
+await page.keyboard.press('Escape')
+await sleep(200)
+
 await page.evaluate(() => localStorage.removeItem('scanruler.fitoptions'))
 await finish(browser, consoleErrors)

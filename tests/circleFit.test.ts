@@ -150,3 +150,53 @@ describe('fitCircle2d', () => {
     expect(fit!.r).toBeCloseTo(30, 6)
   })
 })
+
+describe('fitCircle2d on a partial arc', () => {
+  // The fixed-point refinement stopped after 100 steps, far short of the
+  // best circle on a short arc: a 30° arc of R10 read 9.84 (issue 34).
+  /** A `deg` arc of R10 about (100, 50), its points alternately `off`
+   *  outside and inside the circle. */
+  function zigzagArc(deg: number, off: number, n = 400) {
+    const u: number[] = []
+    const v: number[] = []
+    for (let i = 0; i < n; i++) {
+      const t = ((deg * Math.PI) / 180) * (i / (n - 1))
+      const r = 10 + (i % 2 === 0 ? off : -off)
+      u.push(100 + r * Math.cos(t))
+      v.push(50 + r * Math.sin(t))
+    }
+    return { u, v }
+  }
+
+  it('reads the radius of a 30° and a 10° arc whose points scatter evenly about it', () => {
+    for (const deg of [30, 10]) {
+      const { u, v } = zigzagArc(deg, 0.05)
+      const c = fitCircle2d(u, v)!
+      expect(c.r, `${deg}°`).toBeCloseTo(10, 2)
+      expect(Math.hypot(c.cu - 100, c.cv - 50), `${deg}°`).toBeLessThan(0.01)
+    }
+  })
+
+  it('stops where the sum of squared distances is least', () => {
+    const rand = mulberry32(5)
+    const u: number[] = []
+    const v: number[] = []
+    for (let i = 0; i < 300; i++) {
+      const t = (Math.PI / 6) * rand()
+      const r = 10 + (rand() - 0.5) * 0.2
+      u.push(r * Math.cos(t))
+      v.push(r * Math.sin(t))
+    }
+    const c = fitCircle2d(u, v)!
+    // The gradient of Σ(dᵢ − r)²: zero at the least.
+    let gr = 0, gu = 0, gv = 0
+    for (let i = 0; i < u.length; i++) {
+      const d = Math.hypot(u[i] - c.cu, v[i] - c.cv)
+      const e = d - c.r
+      gr += e
+      gu += (e * (u[i] - c.cu)) / d
+      gv += (e * (v[i] - c.cv)) / d
+    }
+    expect(Math.hypot(gr, gu, gv)).toBeLessThan(1e-8)
+  })
+})

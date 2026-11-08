@@ -16,7 +16,7 @@ import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
 import { ProjectClient } from '../core/project/projectClient'
-import { PROJECT_EXTENSION, projectStem, rigidFromJson } from '../core/project/manifest'
+import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
 import { saveFile } from './exports'
 import {
   blankManifest,
@@ -34,8 +34,19 @@ import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
 
-export const isProjectFile = (name: string) =>
-  name.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`)
+/** A project by its name: `.scanruler`, or that with a count a browser
+ *  put after it (isProjectName). */
+export const isProjectFile = (name: string) => isProjectName(name)
+
+/** A project by what it holds, for a file whose name says nothing a project
+ *  or a model would: a renamed or oddly saved project still opens. */
+export const holdsProject = async (file: File): Promise<boolean> => {
+  try {
+    return startsAsProject(new Uint8Array(await file.slice(0, 64).arrayBuffer()))
+  } catch {
+    return false
+  }
+}
 
 export function useProject({
   sources,

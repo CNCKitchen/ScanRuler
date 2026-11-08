@@ -1648,6 +1648,7 @@ export default function App() {
                 s.setNavScheme(schemeById(useStore.getState().navScheme))
                 s.setViewTheme(sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark))
                 s.setSectionLineWidth(usePrefs.getState().sectionLines)
+                s.setMarkSize(usePrefs.getState().markSize)
               }}
               onPick={handlePick}
               onHover={handleHover}

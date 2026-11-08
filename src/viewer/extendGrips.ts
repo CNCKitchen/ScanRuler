@@ -160,6 +160,8 @@ export class ExtendGrips {
   /** The view the grips held on the screen were last fitted to: what a
    *  pixel was worth, and which way the camera looked. */
   private pixel = 0
+  /** The operator's factor on the sizes held on the screen (markSize.ts). */
+  private markScale = 1
   private viewTurn = new THREE.Quaternion()
   /** What was last reported through onActiveSide, so it is only said when it
    *  changes. */
@@ -356,6 +358,16 @@ export class ExtendGrips {
     this.ctx.invalidate()
   }
 
+  /** The operator's factor on the arrows, bars and gizmo held on the
+   *  screen. */
+  setMarkSize(scale: number): void {
+    if (!(scale > 0) || scale === this.markScale) return
+    this.markScale = scale
+    for (const h of this.handles) if (h.screen || h.bar) this.fitToScreen(h)
+    if (this.field) this.placeField()
+    this.ctx.invalidate()
+  }
+
   followView(): void {
     const pixel = this.ctx.worldPerPixel()
     const zoomed = pixel !== this.pixel
@@ -380,14 +392,14 @@ export class ExtendGrips {
    *  point. */
   private fitToScreen(h: ExtendGrip): void {
     if (h.bar) {
-      const thick = Math.max(EDGE_BAR_PX * this.pixel, 1e-5)
-      h.mesh.scale.set(Math.max(h.bar.span, EDGE_BAR_MIN_PX * this.pixel), thick, thick)
+      const thick = Math.max(EDGE_BAR_PX * this.markScale * this.pixel, 1e-5)
+      h.mesh.scale.set(Math.max(h.bar.span, EDGE_BAR_MIN_PX * this.markScale * this.pixel), thick, thick)
       return
     }
     if (!h.screen) return
-    const size = Math.max(h.screen.size * this.pixel, 1e-5)
+    const size = Math.max(h.screen.size * this.markScale * this.pixel, 1e-5)
     h.mesh.scale.setScalar(size)
-    if (!h.ring) h.mesh.position.copy(h.position).addScaledVector(h.dir, h.screen.standoff * this.pixel + size / 2)
+    if (!h.ring) h.mesh.position.copy(h.position).addScaledVector(h.dir, h.screen.standoff * this.markScale * this.pixel + size / 2)
   }
 
   private rebuild(): void {

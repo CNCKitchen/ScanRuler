@@ -17,13 +17,27 @@ export interface MeshGap {
   length: number
 }
 
+/** A key for the undirected edge between vertices a and b of a mesh of
+ *  `n` vertices: the lower times n plus the higher, exact while n² stays
+ *  under 2^53 (94 million vertices). The lower times 2^32 was not past
+ *  vertex 2^21: edges ran into each other on scans over 2.1 M vertices. */
+export const edgeKey = (n: number) => (a: number, b: number) => (a < b ? a * n + b : b * n + a)
+
+/** The number of vertices a mesh's triangles name: one past the highest. */
+function vertexCount(indices: Uint32Array): number {
+  let n = 0
+  for (let i = 0; i < indices.length; i++) if (indices[i] >= n) n = indices[i] + 1
+  return n
+}
+
 /** The gaps of a welded mesh — rims of open edges joined through their
  *  vertices — largest first, at most `maxGaps` of them. */
 export function meshGaps(positions: Float32Array | Float64Array, indices: Uint32Array, maxGaps = 3): MeshGap[] {
   // A directed edge a→b counted; an undirected edge with one triangle on
   // it alone is open.
   const seen = new Map<number, number>()
-  const key = (a: number, b: number) => (a < b ? a * 4_294_967_296 + b : b * 4_294_967_296 + a)
+  const n = Math.max(positions.length / 3, vertexCount(indices))
+  const key = edgeKey(n)
   for (let t = 0; t + 2 < indices.length; t += 3) {
     for (let k = 0; k < 3; k++) {
       const a = indices[t + k]
@@ -34,10 +48,10 @@ export function meshGaps(positions: Float32Array | Float64Array, indices: Uint32
     }
   }
   const open: [number, number][] = []
-  for (const [e, n] of seen) {
-    if (n !== 1) continue
-    const a = Math.floor(e / 4_294_967_296)
-    open.push([a, e - a * 4_294_967_296])
+  for (const [e, count] of seen) {
+    if (count !== 1) continue
+    const a = Math.floor(e / n)
+    open.push([a, e - a * n])
   }
   if (open.length === 0) return []
   // Rims joined through shared vertices: union-find over the open edges'
@@ -113,7 +127,7 @@ export interface RimLoop {
  *  read by the caller. */
 export function rimLoops(indices: Uint32Array): RimLoop[] {
   const seen = new Map<number, number>()
-  const key = (a: number, b: number) => (a < b ? a * 4_294_967_296 + b : b * 4_294_967_296 + a)
+  const key = edgeKey(vertexCount(indices))
   for (let t = 0; t + 2 < indices.length; t += 3) {
     for (let k = 0; k < 3; k++) {
       const a = indices[t + k]

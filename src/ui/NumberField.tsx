@@ -7,7 +7,7 @@
 // display units: the field converts both ways, writes the unit itself, and
 // takes step and min in millimetres like the value.
 
-import { useRef, type ReactNode } from 'react'
+import { useRef, type InputHTMLAttributes, type ReactNode } from 'react'
 import { useUnits } from '../app/useUnits'
 import { fromDisplay, lengthInputText, lengthStep, toDisplay, unitWord, type DisplayUnits } from '../core/units'
 import { InfoDot } from './InfoDot'
@@ -45,6 +45,54 @@ export function lengthField(units: DisplayUnits): FieldUnits {
 export function useFieldUnits(kind: 'length' | undefined, unit: string | undefined): FieldUnits {
   const units = useUnits()
   return kind === 'length' ? lengthField(units) : plain(unit ?? '')
+}
+
+/**
+ * The bare input of a number committed on blur or Enter, for a field laid
+ * out by its caller. A field that takes each keystroke and clamps or drops
+ * what it cannot hold yet throws away a half-typed figure: "0.0" on the way
+ * to 0.05 is not above 0, "1" on the way to 12 sides is under 3, and the
+ * text snapped back under the hand (issue 81). This holds whatever is typed
+ * and hands it over once: `onCommit` gets the figure as typed, in the units
+ * shown, or null where the field was emptied. Text left as `value` showed it
+ * commits nothing. `value` null shows the field empty.
+ */
+export function NumberInput({
+  value,
+  text = String,
+  onCommit,
+  ...input
+}: {
+  value: number | null
+  /** How the value is written in the field; plain by default. */
+  text?: (value: number) => string
+  onCommit: (typed: number | null) => void
+  'data-test'?: string
+} & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'defaultValue' | 'onChange' | 'onBlur' | 'type'>) {
+  const shown = value === null ? '' : text(value)
+  return (
+    <input
+      {...input}
+      type="number"
+      defaultValue={shown}
+      key={shown}
+      onBlur={(e) => {
+        const typed = e.target.value.trim()
+        if (typed !== shown) {
+          const v = Number(typed)
+          if (typed === '') onCommit(null)
+          else if (Number.isFinite(v)) onCommit(v)
+        }
+        // As NumberField: the text the store did not take goes back to
+        // what it holds; a commit it took re-keys the input over this.
+        e.target.value = shown
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+        input.onKeyDown?.(e)
+      }}
+    />
+  )
 }
 
 export function NumberField({

@@ -18,8 +18,8 @@ import { AGENT_STATUS, useAgentLink } from '../commands/agentLink'
 import { Icon, type IconName } from './icons'
 import { IMAGE_ACCEPT, SCAN_ACCEPT, isImageFile, isModelFile, isTextureFile } from '../core/formats'
 import { bundleFiles } from '../app/scanFiles'
-import { PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
-import { isProjectFile } from '../app/useProject'
+import { PROJECT_ACCEPT, PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
+import { holdsProject, isProjectFile } from '../app/useProject'
 import { APP_VERSION } from '../version'
 import type { RecoveryStatus } from '../app/useRecovery'
 
@@ -185,13 +185,19 @@ export function TopBar({
         onOpenImage(file)
       } else if (isModelFile(file.name)) onOpenScan(file)
       else
-        useStore
-          .getState()
-          .setError(
-            isTextureFile(file.name)
-              ? `${file.name} is part of a textured scan — open it together with its OBJ (select the OBJ, the .mtl and the image at once).`
-              : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, STEP, PNG or JPEG.`,
-          )
+        // A project saved under a name the browser made up opens by what it
+        // holds.
+        void holdsProject(file).then((project) =>
+          project
+            ? onOpenProject(file)
+            : useStore
+                .getState()
+                .setError(
+                  isTextureFile(file.name)
+                    ? `${file.name} is part of a textured scan — open it together with its OBJ (select the OBJ, the .mtl and the image at once).`
+                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, STEP, PNG or JPEG.`,
+                ),
+        )
     }
     // Allow re-picking the same file.
     if (openRef.current) openRef.current.value = ''
@@ -267,7 +273,7 @@ export function TopBar({
       <input
         ref={openRef}
         type="file"
-        accept={`.${PROJECT_EXTENSION},${SCAN_ACCEPT},${IMAGE_ACCEPT}`}
+        accept={`${PROJECT_ACCEPT},${SCAN_ACCEPT},${IMAGE_ACCEPT}`}
         multiple
         hidden
         data-test="project-input"

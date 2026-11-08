@@ -922,6 +922,12 @@ export function useSceneSync({
     sceneRef.current?.setViewTheme(sceneTheme(viewTheme, dark))
   }, [viewTheme, dark])
 
+  // How large the points and grips held on the screen are drawn.
+  const markSize = usePrefs((s) => s.markSize)
+  useEffect(() => {
+    sceneRef.current?.setMarkSize(markSize)
+  }, [markSize])
+
   // How heavy the section cuts are drawn — the operator's, like the scheme.
   const sectionLines = usePrefs((s) => s.sectionLines)
   useEffect(() => {

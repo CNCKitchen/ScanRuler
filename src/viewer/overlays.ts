@@ -38,7 +38,13 @@ const CENTRE_PX = 4
 const OUTLINE_PX = 2
 const PROBE_DOT_PX = 4
 const ANGLE_REACH_PX = 64
-const LABEL_LIFT_PX = 18
+/** How far a point's or a line's pin stands clear of the ball or rod, up
+ *  the screen, and the height a pin is taken for until it has been laid
+ *  out — two lines of text and its padding. Lifted by a fixed 18 px along
+ *  the part's Y, a pin sat on its point whenever the view looked down Y,
+ *  and its lower half covered the point from any other (issue 47). */
+const LABEL_GAP_PX = 6
+const LABEL_HEIGHT_PX = 36
 /** The tube of a circle element, and of the rims on the ends of a cylinder's
  *  ghost, as radii. As a share of the circle's radius, a poor first fit metres
  *  across drew rims wider than the feature being measured. */
@@ -131,6 +137,8 @@ const OCCLUSION_SLACK = 0.004
 const _pinWorld = new THREE.Vector3()
 const _pinNdc = new THREE.Vector3()
 const _pinCoords = new THREE.Vector2()
+const _viewUp = new THREE.Vector3()
+const _partTurn = new THREE.Quaternion()
 
 /** The geometry a shape mesh had built for itself alone — the unit shapes are
  *  shared and long-lived, but a cone's frustum is per-element and must go when
@@ -184,6 +192,13 @@ export class Overlays {
   /** What sizes the marks held in pixels on screen, called as the zoom changes,
    *  kept per group so a group rebuilt takes its own along. */
   private overlayHeld: (() => void)[] = []
+  /** The pins lifted up the screen, placed again as the view turns. */
+  private overlayLifted: (() => void)[] = []
+  /** Up the screen, in the part's frame: what overlayLifted lift along. */
+  private viewUp = new THREE.Vector3(0, 1, 0)
+  /** The factor on every size held in pixels (Settings → Points and
+   *  grips; markSize.ts). */
+  private markScale = 1
   private previewHeld: (() => void)[] = []
   private probeHeld: (() => void)[] = []
   /** The pinned readings on the part, kept so a turn of the camera can put
@@ -279,6 +294,7 @@ export class Overlays {
     for (const fn of this.overlayCleanup) fn()
     this.overlayCleanup = []
     this.overlayHeld = []
+    this.overlayLifted = []
     this.overlayGroup.clear()
     this.overlayPickables = []
     this.shellMaterials.clear()
@@ -604,8 +620,15 @@ export class Overlays {
     return new THREE.TorusGeometry(1, this.px(tubePx) / Math.max(radius, 1e-5), tubeSides, sides)
   }
 
-  /** What `pixels` of the screen are worth on the part at this zoom. */
+  /** What `pixels` of a mark's size are worth on the part at this zoom, the
+   *  operator's factor on them taken. */
   private px(pixels: number): number {
+    return this.screenPx(pixels * this.markScale)
+  }
+
+  /** What `pixels` of the screen are worth on the part at this zoom, as
+   *  they are: for the text a pin holds, which the factor does not grow. */
+  private screenPx(pixels: number): number {
     return Math.max(pixels * (this.worldPerPixel || this.ctx.modelRadius() / 400), 1e-5)
   }
 
@@ -634,15 +657,45 @@ export class Overlays {
     }
   }
 
-  /** Float a pin off the spot it is about, by its feature's offset. */
+  /** Float a pin off the spot it is about, by its feature's offset. A
+   *  point or a line has no size to be lifted by: its pin goes up the
+   *  screen, its lower edge clear of the ball or rod, at every zoom and
+   *  every turn of the view. */
   private placeLabel(label: CSS2DObject, at: Vec3, fit: FitData): void {
-    const place = () => {
-      const off = this.labelOffset(fit)
-      label.position.set(at[0] + off[0], at[1] + off[1], at[2] + off[2])
+    if (fit.kind === 'point' || fit.kind === 'line') {
+      const place = () => {
+        const half = (label.element.offsetHeight || LABEL_HEIGHT_PX) / 2
+        const lift = this.px(fit.kind === 'point' ? POINT_PX : LINE_PX) + this.screenPx(LABEL_GAP_PX + half)
+        label.position.set(at[0] + this.viewUp.x * lift, at[1] + this.viewUp.y * lift, at[2] + this.viewUp.z * lift)
+      }
+      this.hold(this.overlayHeld, place)
+      this.overlayLifted.push(place)
+      return
     }
-    // Lifted by pixels only where it has no size to be lifted by.
-    if (fit.kind === 'point' || fit.kind === 'line') this.hold(this.overlayHeld, place)
-    else place()
+    const off = this.labelOffset(fit)
+    label.position.set(at[0] + off[0], at[1] + off[1], at[2] + off[2])
+  }
+
+  /** Follow the view's turn: the pins lifted up the screen (placeLabel)
+   *  are placed again when up the screen points another way across the
+   *  part. Called every frame; a no-op on the frames the view did not
+   *  turn. */
+  followView(): void {
+    const { camera, partGroup } = this.ctx
+    _viewUp.set(0, 1, 0).applyQuaternion(camera.quaternion)
+    _viewUp.applyQuaternion(partGroup.getWorldQuaternion(_partTurn).invert())
+    if (_viewUp.distanceToSquared(this.viewUp) < 1e-12) return
+    this.viewUp.copy(_viewUp)
+    if (this.overlayLifted.length === 0) return
+    for (const place of this.overlayLifted) place()
+    this.ctx.invalidate()
+  }
+
+  /** The operator's factor on every mark held at a size on the screen. */
+  setMarkSize(scale: number): void {
+    if (!(scale > 0) || scale === this.markScale) return
+    this.markScale = scale
+    this.resized()
   }
 
   /** Shell mesh of an element: a sphere, a tube along the axis, the measured
@@ -802,7 +855,8 @@ export class Overlays {
       const lift = (fit.majorRadius + fit.minorRadius) * 1.1
       return [out.x * lift, out.y * lift, out.z * lift]
     }
-    if (fit.kind === 'point' || fit.kind === 'line') return [0, this.px(LABEL_LIFT_PX), 0]
+    // A point's and a line's pin goes up the screen instead (placeLabel).
+    if (fit.kind === 'point' || fit.kind === 'line') return [0, 0, 0]
     const lift = Math.max(fit.extentU, fit.extentV) * 0.12
     return [fit.normal[0] * lift, fit.normal[1] * lift, fit.normal[2] * lift]
   }
@@ -1080,6 +1134,12 @@ export class Overlays {
   setPixelScale(worldPerPixel: number): void {
     if (!(worldPerPixel > 0) || worldPerPixel === this.worldPerPixel) return
     this.worldPerPixel = worldPerPixel
+    this.resized()
+  }
+
+  /** Every mark held in pixels sized again — for a new zoom, or a new
+   *  factor on the sizes. */
+  private resized(): void {
     const r = this.pickMarkerRadius()
     for (const dot of this.pickMarkerDots) dot.scale.setScalar(r)
     for (const list of [this.overlayHeld, this.previewHeld, this.probeHeld]) for (const size of list) size()
@@ -1093,7 +1153,7 @@ export class Overlays {
    *  current zoom, falling back to a fraction of the part before the first
    *  frame has said what a pixel is worth. */
   private pickMarkerRadius(): number {
-    const r = this.worldPerPixel * PICK_MARKER_PX
+    const r = this.worldPerPixel * PICK_MARKER_PX * this.markScale
     return r > 0 ? r : Math.max(this.ctx.modelRadius() * 0.009, 1e-5)
   }
 

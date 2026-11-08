@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useUnits } from '../../../src/app/useUnits'
-import { lengthField } from '../../../src/ui/NumberField'
+import { lengthField, NumberInput } from '../../../src/ui/NumberField'
 import type { SketchChains } from '../app/useReverseWorkspace'
 import { DEFAULT_FIT_OPTIONS, type FitOptions } from '../core/fitOptions'
 import { useRePrefs } from '../state/rePrefs'
@@ -123,21 +123,20 @@ export function FitOptionsModal({ open, onClose, chainsOf }: { open: boolean; on
       <div className="setting">
         <label htmlFor="fit-tolerance">Fit tolerance</label>
         <span className="unitfield">
-          <input
+          <NumberInput
             id="fit-tolerance"
-            type="number"
             step={field.step(0.01)}
             min="0"
             data-test="sketch-tolerance"
             placeholder="auto"
-            value={tolerance === null ? '' : field.text(tolerance)}
-            onChange={(e) => {
-              const v = field.read(Number(e.target.value))
-              useReverse.getState().setSketchTolerance(e.target.value === '' || !(v > 0) ? null : v)
-            }}
-            onBlur={() => refit(options)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') refit(options)
+            value={tolerance}
+            text={field.text}
+            onCommit={(typed) => {
+              // Committed whole, on blur or Enter: each keystroke taken alone
+              // cleared "0.0" on the way to 0.05.
+              const v = typed === null ? null : field.read(typed)
+              useReverse.getState().setSketchTolerance(v === null || !(v > 0) ? null : v)
+              refit(options)
             }}
           />
           <i>{field.word}</i>
@@ -160,18 +159,16 @@ export function FitOptionsModal({ open, onClose, chainsOf }: { open: boolean; on
       <div className="setting indent">
         <label htmlFor="fit-align-degrees">Within</label>
         <span className="unitfield">
-          <input
+          <NumberInput
             id="fit-align-degrees"
-            type="number"
             min="0.5"
             max="10"
             step="0.5"
             data-test="fit-align-degrees"
             disabled={!options.alignAxes}
             value={options.alignDegrees}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              if (v > 0) change({ alignDegrees: v })
+            onCommit={(v) => {
+              if (v !== null && v > 0 && v !== options.alignDegrees) change({ alignDegrees: v })
             }}
           />
           <i>°</i>

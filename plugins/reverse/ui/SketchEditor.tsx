@@ -32,6 +32,7 @@ import { dimensionKind } from '../core/parameters'
 import { Icon } from '../../../src/ui/icons'
 import { KeyIcon, type KeyIconName } from './reIcons'
 import { InfoDot } from '../../../src/ui/InfoDot'
+import { NumberInput } from '../../../src/ui/NumberField'
 import { NameField } from '../../../src/ui/RefSelect'
 import { useLength } from '../../../src/app/useUnits'
 import type { LengthPresets } from '../../../src/core/units'
@@ -704,14 +705,15 @@ export function SketchEditor({ chainsOf }: { chainsOf: () => SketchChains | null
       {draft.tool === 'polygon' && (
         <label className="kv" data-test="sketch-polygon-sides" title="How many sides the polygon has — three and up">
           <span className="name">Sides</span>
-          <input
-            type="number"
+          <NumberInput
             min={3}
             max={POLYGON_MAX_SIDES}
             step={1}
             value={polygonSides}
             data-test="sketch-polygon-sides-input"
-            onChange={(e) => useRePrefs.getState().setPolygonSides(Number(e.target.value))}
+            onCommit={(v) => {
+              if (v !== null) useRePrefs.getState().setPolygonSides(v)
+            }}
           />
         </label>
       )}

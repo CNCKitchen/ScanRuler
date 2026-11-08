@@ -474,6 +474,8 @@ export class SceneManager {
         // has not.
         this.overlays.setPixelScale(this.viewport.worldPerPixel())
         this.sections.setPixelScale(this.viewport.worldPerPixel())
+        // A point's pin stands up the screen, so it follows a turn too.
+        this.overlays.followView()
         // Pins on the far side of the part go away as it turns, if asked to;
         // a no-op unless the view moved.
         this.overlays.updateProbeOcclusion()
@@ -2047,6 +2049,14 @@ export class SceneManager {
   /** The finished sections, drawn on the part in their colours. */
   setSections(items: readonly SectionOverlayItem[], visible: boolean): void {
     this.sections.setSections(items, visible)
+  }
+
+  /** How large the marks held on the screen are drawn — points, picked
+   *  spots, the arrows and bars on an element being made, the section
+   *  gizmo — as a factor (Settings → Points and grips). */
+  setMarkSize(scale: number): void {
+    this.overlays.setMarkSize(scale)
+    this.grips.setMarkSize(scale)
   }
 
   /** How heavy the section cuts are drawn, in pixels (Settings → Lines). */

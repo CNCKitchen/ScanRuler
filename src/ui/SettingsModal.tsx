@@ -18,6 +18,7 @@ import { useHintPrefs } from '../state/hintStore'
 import { UI_THEMES, usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import { LINE_MAX, LINE_MIN, LINE_STEP } from '../viewer/lineWidths'
+import { MARK_SIZE_MAX, MARK_SIZE_MIN, MARK_SIZE_STEP } from '../viewer/markSize'
 import { SCHEMES, schemeById } from '../viewer/navSchemes'
 import {
   SPACE_MOUSE_SPEED_MAX,
@@ -29,6 +30,7 @@ import {
 } from '../viewer/spaceMouse'
 import { VIEW_THEMES, themeById } from '../viewer/viewThemes'
 import { useDismiss } from './useDismiss'
+import { NumberInput } from './NumberField'
 
 /** The puck's six motions by 3Dconnexion's names, in the order its trainer
  *  walks through them. */
@@ -93,6 +95,8 @@ export function SettingsModal() {
   const colormap = usePrefs((s) => s.colormap)
   const setColormap = usePrefs((s) => s.setColormap)
   const sectionLines = usePrefs((s) => s.sectionLines)
+  const markSize = usePrefs((s) => s.markSize)
+  const setMarkSize = usePrefs((s) => s.setMarkSize)
   const setSectionLines = usePrefs((s) => s.setSectionLines)
   const sheetLines = usePrefs((s) => s.sheetLines)
   const setSheetLines = usePrefs((s) => s.setSheetLines)
@@ -448,6 +452,28 @@ export function SettingsModal() {
           </small>
         </div>
         <div className="setting">
+          <label htmlFor="marksize">Points and grips</label>
+          <div className="range">
+            <input
+              id="marksize"
+              data-test="mark-size"
+              type="range"
+              min={MARK_SIZE_MIN}
+              max={MARK_SIZE_MAX}
+              step={MARK_SIZE_STEP}
+              value={markSize}
+              onChange={(e) => setMarkSize(Number(e.target.value))}
+            />
+            <output htmlFor="marksize">{markSize.toFixed(2)}×</output>
+          </div>
+          <small>
+            How large the marks that keep their size on the screen are drawn on the part: points,
+            picked spots, the arrows and bars on an element being made, and the section's handle.
+            Larger is easier to see and take hold of on a big screen; elements with a size of their
+            own, such as cylinders and planes, keep it.
+          </small>
+        </div>
+        <div className="setting">
           <label htmlFor="edgelines">2D edges</label>
           <div className="range">
             <input
@@ -501,14 +527,17 @@ export function SettingsModal() {
         </label>
         <div className="setting">
           <label htmlFor="agentport">Port</label>
-          <input
+          <NumberInput
             id="agentport"
             data-test="agent-port"
-            type="number"
             min={1}
             max={65535}
             value={agentPort}
-            onChange={(e) => setAgentPort(Number(e.target.value))}
+            onCommit={(v) => {
+              // A port outside 1–65535 is left as it was, not put back to
+              // the default.
+              if (v !== null && Number.isInteger(v) && v >= 1 && v <= 65535) setAgentPort(v)
+            }}
           />
           <label htmlFor="agenttoken">Token</label>
           <input

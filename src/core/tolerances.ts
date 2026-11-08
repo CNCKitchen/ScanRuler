@@ -242,7 +242,8 @@ function orientedOf(fit: FitData | undefined): Oriented | null {
  * it (an axis feature), and the value is how far the feature spreads across
  * that zone. The angle is unsigned, as on a drawing: the feature's direction
  * is folded onto the datum's side first, so a face at 150° reads as one at
- * 30°, and the ideal is turned from the datum *towards* the feature.
+ * 30°, and the ideal is turned from the datum *towards* the feature. The
+ * basic angle is folded the same way: 150° is 30°.
  */
 function orientation(
   label: string,
@@ -256,10 +257,14 @@ function orientation(
   if (!feature || !datum) return invalid(label, 'A reference is missing.')
 
   const f = dot(feature.dir, datum.dir) < 0 ? scale(feature.dir, -1) : feature.dir
+  // Directions folded onto one side lie within 90° of each other: so does
+  // the basic angle, folded.
+  const turn = ((basic % 180) + 180) % 180
+  const folded = turn > 90 ? 180 - turn : turn
   // A plane against a plane, or an axis against an axis, sit at the basic
   // angle by their own directions; mixed pairs are a quarter turn off it —
   // an axis parallel to a plane is perpendicular to the plane's normal.
-  const rho = (feature.kind === datum.kind ? basic : 90 - basic) * DEG
+  const rho = (feature.kind === datum.kind ? folded : 90 - folded) * DEG
   const hinge = normalize(cross(datum.dir, f)) ?? orthoBasis(datum.dir)[0]
   const ideal = rotate(datum.dir, hinge, rho)
   // A plane spreads across its zone along the ideal normal; an axis across
