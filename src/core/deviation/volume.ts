@@ -1335,13 +1335,36 @@ function dilateInto(from: Uint8Array, into: Uint8Array, cx: number, cy: number, 
 }
 
 /** For each triangle of a surface's tree order, its index in the mesh it
- *  was built from: the tree reorders its triangles, and reports them so. */
-function originalTriangles(indices: Uint32Array, surface: NominalSurface): Int32Array {
-  const key = (a: number, b: number, c: number) => `${a},${b},${c}`
-  const at = new Map<string, number>()
-  for (let t = 0; t < indices.length / 3; t++) at.set(key(indices[t * 3], indices[t * 3 + 1], indices[t * 3 + 2]), t)
-  const out = new Int32Array(surface.triangleCount)
+ *  was built from: the tree reorders its triangles, and reports them so.
+ *  The tree keeps each triangle's corners in their order, so a triangle is
+ *  found again by its three corners: filed under its first, then matched on
+ *  the other two. Typed arrays throughout — a Map keyed per triangle stops
+ *  at 2^24 entries, and a reference that large must still be read. */
+export function originalTriangles(indices: Uint32Array, surface: Pick<NominalSurface, 'index' | 'triangleCount'>): Int32Array {
+  const count = Math.floor(indices.length / 3)
+  let n = 0
+  for (let i = 0; i < count * 3; i++) if (indices[i] >= n) n = indices[i] + 1
+  const start = new Uint32Array(n + 1)
+  for (let t = 0; t < count; t++) start[indices[t * 3] + 1]++
+  for (let v = 0; v < n; v++) start[v + 1] += start[v]
+  const filed = new Int32Array(count)
+  const fill = start.slice(0, n)
+  for (let t = 0; t < count; t++) filed[fill[indices[t * 3]]++] = t
+  const out = new Int32Array(surface.triangleCount).fill(-1)
   const s = surface.index
-  for (let f = 0; f < surface.triangleCount; f++) out[f] = at.get(key(s[f * 3], s[f * 3 + 1], s[f * 3 + 2])) ?? -1
+  for (let f = 0; f < surface.triangleCount; f++) {
+    const a = s[f * 3]
+    if (a >= n) continue
+    const b = s[f * 3 + 1]
+    const c = s[f * 3 + 2]
+    for (let i = start[a]; i < start[a + 1]; i++) {
+      const t = filed[i]
+      // Taken: a triangle twice over in the mesh is matched once each.
+      if (t < 0 || indices[t * 3 + 1] !== b || indices[t * 3 + 2] !== c) continue
+      out[f] = t
+      filed[i] = -1
+      break
+    }
+  }
   return out
 }
