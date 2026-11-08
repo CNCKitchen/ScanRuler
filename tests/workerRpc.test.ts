@@ -4,6 +4,7 @@ import { WorkerRpc } from '../src/core/workerRpc'
 import { MeshWorkerClient } from '../src/core/workerClient'
 import { EdgeClient } from '../src/core/flat/edgeClient'
 import { tick } from './helpers'
+import { useTaskActivity } from '../src/state/taskActivity'
 
 class FakeWorker {
   static instances: FakeWorker[] = []
@@ -18,9 +19,54 @@ class FakeWorker {
   answer(type = 'ok'): void { this.onmessage?.({ data: { type, requestId: this.messages.at(-1)!.requestId } }) }
   crash(): void { this.onerror?.({ message: 'test failure', preventDefault() {} }) }
 }
-afterEach(() => { vi.unstubAllGlobals(); FakeWorker.instances = [] })
+afterEach(() => { vi.unstubAllGlobals(); FakeWorker.instances = []; useTaskActivity.setState({ tasks: {} }) })
 
 describe('worker lifecycle', () => {
+  it('reports queued work, numeric progress and independent completion across workers', async () => {
+    const worker = new FakeWorker(), other = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Mesh worker', (data) => (data as { type: string }).type === 'progress')
+    const second = new WorkerRpc(() => other as unknown as Worker, 'CAD worker')
+    const one = rpc.request({ requestId: 1 })
+    const two = second.request({ requestId: 1 })
+    expect(Object.values(useTaskActivity.getState().tasks)).toHaveLength(2)
+    worker.onmessage!({ data: { type: 'progress', text: 'Measuring', fraction: 0.42 } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual({ text: 'Measuring', percent: 42 })
+    worker.onmessage!({ data: { type: 'progress', text: 'Finalizing' } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual({ text: 'Finalizing', percent: null })
+    worker.answer()
+    await one
+    expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'CAD worker', percent: null }])
+    other.answer()
+    await two
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    rpc.dispose()
+    second.dispose()
+  })
+
+  it('keeps timed-out worker work visible until its late reply or termination', async () => {
+    const worker = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Test worker')
+    await expect(rpc.request({ requestId: 1 }, [], 5)).rejects.toThrow('did not answer')
+    expect(Object.values(useTaskActivity.getState().tasks)).toHaveLength(1)
+    worker.answer()
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    rpc.dispose()
+  })
+
+  it('does not settle a request on progress when the worker has no custom event handler', async () => {
+    const worker = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Test worker')
+    let settled = false
+    const pending = rpc.request({ requestId: 1 }).then(() => { settled = true })
+    worker.onmessage!({ data: { requestId: 1, type: 'progress', text: 'Preparing', percent: 20 } })
+    await tick()
+    expect(settled).toBe(false)
+    expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'Preparing', percent: 20 }])
+    worker.answer()
+    await pending
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    rpc.dispose()
+  })
   it('rejects every pending job on a crash and rejects future jobs until restarted', async () => {
     const worker = new FakeWorker()
     const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Test worker')
@@ -29,6 +75,7 @@ describe('worker lifecycle', () => {
     worker.crash()
     await Promise.all([first, second])
     expect(worker.terminated).toBe(true)
+    expect(useTaskActivity.getState().tasks).toEqual({})
     await expect(rpc.request({ requestId: 3 })).rejects.toThrow('unavailable')
   })
   it('settles unreadable replies and cleans up synchronous clone failures', async () => {
@@ -40,6 +87,7 @@ describe('worker lifecycle', () => {
     rpc.restart()
     worker.postMessage = () => { throw new Error('cannot clone') }
     await expect(rpc.request({ requestId: 2 })).rejects.toThrow('cannot clone')
+    expect(useTaskActivity.getState().tasks).toEqual({})
     rpc.dispose()
   })
   it('restores the mesh before retrying a measurement, sharing one recovery between callers', async () => {
