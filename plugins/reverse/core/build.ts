@@ -679,25 +679,23 @@ export class Builder {
     let off = 0
     for (const perSpan of [undefined, ...GRID_RETRIES]) {
       const grid = gridOf(fit, perSpan)
+      const min = [Infinity, Infinity, Infinity]
+      const max = [-Infinity, -Infinity, -Infinity]
+      grid.points.forEach((x, i) => {
+        min[i % 3] = Math.min(min[i % 3], x)
+        max[i % 3] = Math.max(max[i % 3], x)
+      })
+      const chord = meshDeflection(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]))
+      const triangles = meshTriangles(fit, chord)
+      if (triangles > SURFACE_TRIANGLES) {
+        // units-ok: build message, also the agent's answer
+        throw new Error(`The surface would mesh to about ${Math.round(triangles / 1000)} k triangles at its ${chord} mm chord, more than ${SURFACE_TRIANGLES / 1000} k — it bends too often for its size. Fit a coarser net, or smooth it more.`)
+      }
+
       const face = k.surfaceThrough(grid.points, grid.rows, grid.cols)
       area = gridArea(grid)
       off = k.surfaceArea(face) / area
-      if (!(off > GRID_AREA_SLACK)) {
-        const min = [Infinity, Infinity, Infinity]
-        const max = [-Infinity, -Infinity, -Infinity]
-        grid.points.forEach((x, i) => {
-          min[i % 3] = Math.min(min[i % 3], x)
-          max[i % 3] = Math.max(max[i % 3], x)
-        })
-        const chord = meshDeflection(Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]))
-        const triangles = meshTriangles(fit, chord)
-        if (triangles > SURFACE_TRIANGLES) {
-          k.release(face)
-          // units-ok: build message, also the agent's answer
-          throw new Error(`The surface would mesh to about ${Math.round(triangles / 1000)} k triangles at its ${chord} mm chord, more than ${SURFACE_TRIANGLES / 1000} k — it bends too often for its size. Fit a coarser net, or smooth it more.`)
-        }
-        return face
-      }
+      if (!(off > GRID_AREA_SLACK)) return face
       k.release(face)
     }
     // units-ok: build message, also the agent's answer.
