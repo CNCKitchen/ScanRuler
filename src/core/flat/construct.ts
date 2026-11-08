@@ -13,6 +13,7 @@ import {
   fitLinePoints,
   fitLineRegion,
   flatPoint,
+  withFlatCircleZone,
 } from './fit'
 import { flatRefLine, flatRefPoint, type FlatRefRole } from './refs'
 import { fitSplinePoints } from './spline'
@@ -259,9 +260,9 @@ export function evaluateFlatPicks(
       return fitLinePoints(points)
     case 'flat-circle-pick':
     case 'flat-circle-seed':
-      return fitCirclePoints(points)
+      return withFlatCircleZone(fitCirclePoints(points), points)
     case 'flat-arc-pick':
-      return fitArcPoints(points)
+      return withFlatCircleZone(fitArcPoints(points), points)
     case 'flat-line-edge':
       return fitLineRegion(points)
     case 'flat-circle-edge':

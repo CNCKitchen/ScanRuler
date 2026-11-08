@@ -6,8 +6,8 @@ import { fitPlaneClipped } from '../src/core/fit/plane'
 import { fitSphereClipped } from '../src/core/fit/sphere'
 import { fitCylinderClipped } from '../src/core/fit/cylinder'
 import type { CircleFit, Plane, PlaneFit, Vec3 } from '../src/core/types'
-import { circleFromPoints } from '../src/core/fit/circle'
-import { fitCirclePoints } from '../src/core/flat/fit'
+import { circleFromPoints, withCircleZone } from '../src/core/fit/circle'
+import { evaluateFlatPicks } from '../src/core/flat/construct'
 import { liftFlatFit } from '../src/core/section/lift'
 import { scaleFit } from '../src/core/scanScale'
 import { evaluateTolerance } from '../src/core/tolerances'
@@ -139,7 +139,7 @@ describe('the minimum zone', () => {
     const picks: Vec3[] = []
     for (let i = 0; i < 24; i++) picks.push(at(10, (i / 24) * 2 * Math.PI))
     for (let i = 0; i < 12; i++) picks.push(at(10.04, -0.4 + (i / 11) * 0.8), at(10, -0.4 + (i / 11) * 0.8))
-    const fit = circleFromPoints(picks)
+    const fit = withCircleZone(circleFromPoints(picks), picks)
     expect(fit.normal[1] * n[1] + fit.normal[2] * n[2]).toBeCloseTo(1, 6)
     expect(fit.formError!).toBeGreaterThan(0.0405)
     expect(fit.zoneWidth!).toBeCloseTo(0.04, 5)
@@ -155,7 +155,8 @@ describe('the minimum zone', () => {
       const a = -0.4 + (i / 11) * 0.8
       pts.push([10.04 * Math.cos(a), 10.04 * Math.sin(a)], [10 * Math.cos(a), 10 * Math.sin(a)])
     }
-    const flat = fitCirclePoints(pts)
+    const flat = evaluateFlatPicks('flat-circle-pick', pts)
+    if (flat.kind !== 'circle') throw new Error('not a circle')
     expect(flat.zoneWidth!).toBeCloseTo(0.04, 5)
     const lifted = liftFlatFit({ origin: [0, 0, 3], normal: [0, 0, 1], basisU: [1, 0, 0], basisV: [0, 1, 0] }, flat)
     expect(lifted.zoneWidth).toBe(flat.zoneWidth)

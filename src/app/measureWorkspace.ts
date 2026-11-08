@@ -11,7 +11,7 @@ import type { RefObject } from 'react'
 import { creationMethod } from '../core/elements/construct'
 import { elementKindInfo } from '../core/elements/kinds'
 import { fitWindow } from '../core/elements/extend'
-import { circleFromPoints } from '../core/fit/circle'
+import { circleFromPoints, withCircleZone } from '../core/fit/circle'
 import type { FitGuide } from '../core/fit/guide'
 import { baseSeedPlane } from '../core/symmetry'
 import type { ElementKind, FitTold, Vec3 } from '../core/types'
@@ -140,7 +140,7 @@ export function measureWorkspace({ clientRef, sceneRef }: MeasureDeps) {
   const runPickFit = (points: Vec3[]) => {
     clearPreviewShapeOnly()
     try {
-      const fit = circleFromPoints(points)
+      const fit = withCircleZone(circleFromPoints(points), points)
       useStore.getState().resolveDraft({ ...fit, region: new Uint32Array(0) })
     } catch (e) {
       useStore.getState().failDraft(e instanceof Error ? e.message : String(e))

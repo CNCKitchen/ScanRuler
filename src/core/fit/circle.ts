@@ -104,9 +104,6 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     my + cu * u[1] + cv * v[1],
     mz + cu * u[2] + cv * v[2],
   ]
-  // The picks are not kept with the element, so their circularity as the
-  // narrowest pair of concentric circles in the plane is taken now.
-  const zone = minimumZone(Float64Array.from(points.flat()), { kind: 'circle', center, normal })
   return {
     kind: 'circle',
     center,
@@ -118,6 +115,15 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     formError: maxR - minR,
     residualMin: minR,
     residualMax: maxR,
-    ...(zone ? { zoneWidth: zone.width } : {}),
   }
+}
+
+/** The circle with its circularity as the minimum zone of the points it
+ *  was fitted through — the narrowest pair of concentric circles in its
+ *  plane — for an element: the picks are not kept with it, so the zone is
+ *  taken now. Apart from circleFromPoints, which runs in loops that only
+ *  want the circle. */
+export function withCircleZone(fit: CircleFit, points: Vec3[]): CircleFit {
+  const zone = minimumZone(Float64Array.from(points.flat()), { kind: 'circle', center: fit.center, normal: fit.normal })
+  return zone ? { ...fit, zoneWidth: zone.width } : fit
 }

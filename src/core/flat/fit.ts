@@ -111,19 +111,25 @@ function circleWithResiduals(points: readonly Vec2[], what: string) {
     if (e > eMax) eMax = e
     sumSq += e * e
   }
-  // The circularity a tolerance reads: the narrowest pair of concentric
-  // circles that holds the points, from the fit's centre.
-  const flat = new Float64Array(n * 3)
-  for (let i = 0; i < n; i++) {
-    flat[i * 3] = pu[i]
-    flat[i * 3 + 1] = pv[i]
+  return { fit, sigma: Math.sqrt(sumSq / n), formError: eMax - eMin }
+}
+
+/** A circle or an arc with its circularity as the minimum zone of the
+ *  points it was fitted through, for an element on the sheet — what a form
+ *  tolerance on it, lifted into the part, reads. Apart from the fits
+ *  themselves, which the segmenters run many times over. */
+export function withFlatCircleZone<F extends FlatCircleFit | FlatArcFit>(fit: F, points: readonly Vec2[]): F {
+  const flat = new Float64Array(points.length * 3)
+  for (let i = 0; i < points.length; i++) {
+    flat[i * 3] = points[i][0]
+    flat[i * 3 + 1] = points[i][1]
   }
-  const zone = minimumZone(flat, { kind: 'circle', center: [fit.cu, fit.cv, 0], normal: [0, 0, 1] })
-  return { fit, sigma: Math.sqrt(sumSq / n), formError: eMax - eMin, zoneWidth: zone?.width }
+  const zone = minimumZone(flat, { kind: 'circle', center: [fit.center[0], fit.center[1], 0], normal: [0, 0, 1] })
+  return zone ? { ...fit, zoneWidth: zone.width } : fit
 }
 
 export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
-  const { fit, sigma, formError, zoneWidth } = circleWithResiduals(points, 'circle')
+  const { fit, sigma, formError } = circleWithResiduals(points, 'circle')
   return {
     kind: 'circle',
     center: [fit.cu, fit.cv],
@@ -131,7 +137,6 @@ export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
     sigma,
     usedPoints: points.length,
     formError,
-    ...(zoneWidth !== undefined ? { zoneWidth } : {}),
   }
 }
 
@@ -212,7 +217,7 @@ export function fitCircleRegion(points: readonly Vec2[]): FlatCircleFit {
   const keep = consensus(points, (rand) => circleResiduals(points, rand))
   const inliers = points.filter((_, i) => keep[i])
   if (inliers.length < 12) throw new FitError('The region caught too few edge points for a circle.')
-  return fitCirclePoints(inliers)
+  return withFlatCircleZone(fitCirclePoints(inliers), inliers)
 }
 
 /** Arc through region-collected points, consensus first. */
@@ -221,11 +226,11 @@ export function fitArcRegion(points: readonly Vec2[]): FlatArcFit {
   const keep = consensus(points, (rand) => circleResiduals(points, rand))
   const inliers = points.filter((_, i) => keep[i])
   if (inliers.length < 12) throw new FitError('The region caught too few edge points for an arc.')
-  return fitArcPoints(inliers)
+  return withFlatCircleZone(fitArcPoints(inliers), inliers)
 }
 
 export function fitArcPoints(points: readonly Vec2[]): FlatArcFit {
-  const { fit, sigma, formError, zoneWidth } = circleWithResiduals(points, 'arc')
+  const { fit, sigma, formError } = circleWithResiduals(points, 'arc')
   const angles = points
     .map((p) => Math.atan2(p[1] - fit.cv, p[0] - fit.cu))
     .sort((a, b) => a - b)
@@ -247,6 +252,5 @@ export function fitArcPoints(points: readonly Vec2[]): FlatArcFit {
     sigma,
     usedPoints: points.length,
     formError,
-    ...(zoneWidth !== undefined ? { zoneWidth } : {}),
   }
 }
