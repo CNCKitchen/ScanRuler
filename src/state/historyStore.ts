@@ -21,7 +21,7 @@ export const pick = <T, K extends keyof T>(state: T, keys: readonly K[]): Pick<T
 
 function captureCore() {
   return {
-    measure: pick(useStore.getState(), ['elements', 'dimensions', 'sections', 'nextId', 'nextNumber', 'nextOfKind', 'nextDimensionId', 'nextOfDimGroup', 'nextSectionNumber', 'appliedAlignment', 'modelCenter']),
+    measure: pick(useStore.getState(), ['elements', 'dimensions', 'sections', 'nextId', 'nextNumber', 'nextOfKind', 'nextDimensionId', 'nextOfDimGroup', 'nextSectionNumber', 'appliedAlignment', 'scanScale', 'modelCenter']),
     flat: pick(useFlat.getState(), ['subject', 'sheets', 'pxPerMm', 'calSource', 'elements', 'nextId', 'nameCounts', 'dimensions', 'nextDimId', 'dimCounts', 'datum', 'counts', 'nextCountId', 'notes', 'nextNoteId', 'turns', 'mirror', 'splitAxes', 'edgeSensitivity', 'showEdges', 'snapToEdge', 'showGrid']),
     deviation: pick(useDeviation.getState(), ['source', 'align', 'globalAlign', 'pairs', 'localMaxDistance', 'targetId', 'targetSide', 'targetFacingDeg', 'mapFacingDeg', 'targetScope', 'scopeCount', 'showElement', 'range', 'rangeAuto', 'maxDistance', 'maxDistanceAuto', 'bands', 'tolerance', 'showHistogram', 'showNominal', 'showScan', 'showMap', 'mapOn', 'split', 'probes', 'nextProbeId']),
     thickness: pick(useThickness.getState(), ['method', 'maxThickness', 'maxThicknessAuto', 'coneRays', 'coneAngleDeg', 'normalDeviationDeg', 'low', 'high', 'scaleAuto', 'bands', 'limit', 'showHistogram', 'probes', 'nextProbeId']),
@@ -196,7 +196,7 @@ export function historyBlocked(): boolean {
   // nothing; a box with work in it does.
   return useHistory.getState().restoring || paused > 0 || hooks.blocked() || s.busy || f.imageBusy ||
     d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running' || t.status === 'running' ||
-    !!(draftHolds(s.draft) || dimHolds(s.dimDraft) || s.alignDraft || s.sectionDraft || flatDraftHolds(f.draft) || dimHolds(f.dimDraft) || f.tool.kind !== 'none') ||
+    !!(draftHolds(s.draft) || dimHolds(s.dimDraft) || s.alignDraft || s.scaleDraft || s.sectionDraft || flatDraftHolds(f.draft) || dimHolds(f.dimDraft) || f.tool.kind !== 'none') ||
     participants.some((p) => p.blocked?.())
 }
 

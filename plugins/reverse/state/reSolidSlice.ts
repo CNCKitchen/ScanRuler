@@ -11,7 +11,7 @@ import { dependentsOf, extentEndsOnPart, FULL_TURN_DEG, revolveMaxDeg, type Sket
 import { extentThroughPoint } from '../core/preview'
 import { findRegions } from '../core/regions'
 import { extrudeDraftReady, extrudePickEnd, revolveDraftReady, startingPitch } from './reDrafts'
-import { autoRegions, CLOSE_OTHERS, coilOf, hideSketches, nameFor, remember, withExprs, withoutCoil, withoutTarget } from './reFeatureHelpers'
+import { autoRegions, CLOSE_OTHERS, coilOf, hideSketches, nameFor, remember, sketchesTakenOn, withExprs, withoutCoil, withoutTarget } from './reFeatureHelpers'
 import { faceExtrudeOp } from './reSketchDraft'
 import type { ReState } from './reStore'
 import type { PreviewInfo } from './reTypes'
@@ -142,9 +142,10 @@ export const solidSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'extrude
     if (!d || !extrudeDraftReady(d)) return null
     if (d.featureId !== undefined) {
       const id = d.featureId
+      const taken = d.face ? [] : sketchesTakenOn(s.features.find((f) => f.id === id), { kind: 'extrude', sketchId: d.sketchId })
       set({
         ...remember(s),
-        features: s.features.map((f) => {
+        features: hideSketches(s.features, taken).map((f) => {
           if (f.id !== id || f.kind !== 'extrude') return f
           const { face: _face, direction: _direction, ...kept } = withoutTarget(f)
           void _face
@@ -245,9 +246,10 @@ export const solidSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'extrude
     if (!d || !revolveDraftReady(d)) return null
     if (d.featureId !== undefined) {
       const id = d.featureId
+      const taken = sketchesTakenOn(s.features.find((f) => f.id === id), { kind: 'revolve', sketchId: d.sketchId })
       set({
         ...remember(s),
-        features: s.features.map((f) =>
+        features: hideSketches(s.features, taken).map((f) =>
           f.id === id && f.kind === 'revolve'
             ? withExprs({ ...withoutCoil(withoutTarget(f)), name: d.name?.trim() || f.name, sketchId: d.sketchId!, regions: [...d.regions], axis: d.axis!, angleDeg: d.angleDeg, ...coilOf(d), op: d.op }, d.exprs)
             : f,

@@ -14,6 +14,14 @@ describe('Mesh Tools text in inches', () => {
     expect(typedLen(5)).toBe('5 mm')
   })
 
+  it('writes a reduction as the tolerance it held, or the figure it reached, rounded', () => {
+    const held = { kind: 'reduce', tolerance: 0.05, held: true, p999: 0.0412345, triangles: 2000 } as const
+    expect(scanEditText(held)).toBe('Reduced to within 0.05 mm')
+    expect(scanEditText({ ...held, held: false, p999: 0.154908642414225 })).toBe('Reduced to within 0.155 mm')
+    expect(scanEditText({ ...held, tolerance: 2.54 }, 'in')).toBe('Reduced to within 0.1 in')
+    expect(scanEditFigure(held)).toBe('−2,000 △')
+  })
+
   it('writes the list of edits in inches', () => {
     expect(scanEditText({ kind: 'pieces', minSize: 2.54, pieces: 3, triangles: 90 }, 'in')).toBe('Removed 3 islands under 0.1 in')
     expect(scanEditText({ kind: 'fill', maxSize: 5.08, mode: 'flat', holes: 1, triangles: 40 }, 'in')).toBe(

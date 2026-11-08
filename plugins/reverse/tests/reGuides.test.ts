@@ -12,6 +12,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { registerCoreCommands } from '../../../src/commands/core'
+import { GUIDES_READ_MOST } from '../../../src/commands/core/guide'
 import { listGuides } from '../../../src/commands/guides'
 import { listCommands, runCommand } from '../../../src/commands/registry'
 import { installPlugins } from '../../../src/plugins/registry'
@@ -84,16 +85,19 @@ describe('the Reverse engineer’s guides', () => {
         expect(file.text).toContain(s.text.slice(-200))
       }
     }
-    // The scan-to-CAD task's first read: both guides in one answer, their
+    // The scan-to-CAD task's first read: the two guides one answer each —
+    // together some 78 k characters, which a client cut off — their
     // measuring and building sections kept for their moments.
     const first = (await runCommand('guide.read', { topic: ['model', 'scan-to-cad'] })) as Read
-    expect(first.guides.map((g) => g.topic)).toEqual(['model', 'scan-to-cad'])
-    expect(first.next).toBeUndefined()
+    expect(first.guides.map((g) => g.topic)).toEqual(['model'])
+    expect(first.next).toEqual(['scan-to-cad'])
     expect(first.guides[0].later?.map((l) => l.section)).toEqual(['2. Building'])
-    expect(first.guides[1].later?.map((l) => l.section)).toEqual(['3. Measuring'])
-    expect(first.guides[1].text).toContain('\n### 4a. By archetype\n')
-    expect(first.note).toMatch(/model keeps "2\. Building" \(before the first feature is added[^)]*\) for later: read it when that moment comes, before the step it is for — guide_read \{ topic: "model", section: "2\. Building" \}\. scan-to-cad keeps "3\. Measuring" \(before the first measurement[^)]*\) for later/)
-    expect(JSON.stringify(first).length).toBeLessThanOrEqual(GUIDE_ANSWER_CAP)
+    expect(first.note).toMatch(/model keeps "2\. Building" \(before the first feature is added[^)]*\) for later: read it when that moment comes, before the step it is for — guide_read \{ topic: "model", section: "2\. Building" \}\. .*read it next — guide_read \{ topic: "scan-to-cad" \}/)
+    const then = (await runCommand('guide.read', { topic: first.next })) as Read
+    expect(then.guides.map((g) => g.topic)).toEqual(['scan-to-cad'])
+    expect(then.guides[0].later?.map((l) => l.section)).toEqual(['3. Measuring'])
+    expect(then.guides[0].text).toContain('\n### 4a. By archetype\n')
+    for (const a of [first, then]) expect(JSON.stringify(a).length).toBeLessThanOrEqual(GUIDES_READ_MOST)
   })
 
   it('send an agent to sections that exist', async () => {

@@ -66,10 +66,17 @@ describe('exprs on every kind with numbers', () => {
     const edited = await run<Added>('reverse.feature.update', { feature: 'Shoulder', set: { exprs: { 'plane.offset': 'z_cut + 1' } } })
     expect(edited.result?.status, edited.result?.message).toBe('ok')
     expect((await bodyOf(made.feature.id)).bounds.max[2]).toBeCloseTo(4, 3)
-    await run('reverse.parameter.set', { parameter: 'z_cut', expression: '6' })
+    // By name, as reverse.parameter.add names it.
+    await run('reverse.parameter.set', { name: 'z_cut', expression: '6' })
     expect((await bodyOf(made.feature.id)).bounds.max[2]).toBeCloseTo(7, 3)
     const listed = await run<{ plane: { offset: number }; exprs: Record<string, string> }>('reverse.feature.list', { feature: 'Shoulder' })
     expect(listed).toMatchObject({ plane: { offset: 7 }, exprs: { 'plane.offset': 'z_cut + 1' } })
+    // offset, as a sketch names its own, is the cut's plane.offset.
+    const short = await run<Added>('reverse.feature.update', { feature: 'Shoulder', set: { exprs: { offset: 'z_cut - 1' } } })
+    expect(short.result?.status, short.result?.message).toBe('ok')
+    expect((await bodyOf(made.feature.id)).bounds.max[2]).toBeCloseTo(5, 3)
+    expect(await run('reverse.feature.list', { feature: 'Shoulder' })).toMatchObject({ exprs: { 'plane.offset': 'z_cut - 1' } })
+    expect((await refused('reverse.parameter.set', { parameter: 'z_cut', name: 'z_cut', expression: '6' })).message).toMatch(/not both/)
     // A name in the number's place is refused with the way to write it.
     expect((await refused('reverse.feature.add', { feature: { kind: 'cutPlane', body: made.feature.id, plane: { kind: 'world', axis: 'z', offset: 'z_cut' } } })).message).toMatch(/exprs: \{ "plane\.offset": "z_cut" \}/)
   })

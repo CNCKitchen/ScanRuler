@@ -21,10 +21,12 @@ const tokens = (text: string) => Math.max(10, Math.round(text.length / 40) * 10)
 /** The most characters, as JSON, of guides one read answers whole when
  *  several are asked for: those that fit, in order — the first always —
  *  and the rest named in `next`, to read in the next call. An agent's
- *  client takes some 100 k characters of an answer (the server's cap for a
- *  guide is 90 k); a read past that is written to a file, which an agent
- *  starting a task may not open. */
-export const GUIDES_READ_MOST = 80_000
+ *  client may take no more than 25 000 tokens of an answer, and a guide's
+ *  marks and escapes run nearer three characters a token than four: an
+ *  80 k read of two guides was cut off (the server's cap for a guide is
+ *  70 k); a read past that is written to a file, which an agent starting a
+ *  task may not open. */
+export const GUIDES_READ_MOST = 60_000
 
 /** The marker under a `##` heading of a section read when its moment
  *  comes, not with the guide: `<!-- read when: before the first fit -->`. */
@@ -111,12 +113,23 @@ interface Served {
 
 /** A guide too long for one answer by itself: its opening and its `##`
  *  sections in order while they fit — the first whatever its size — and the
- *  headings of the rest, to be read a section at a time. */
+ *  headings of the rest, to be read a section at a time. A `##` section too
+ *  long by itself (a reference's command shapes) goes by its `###` parts. */
 function headOf(g: Served): Served {
   const lines = g.text.split('\n')
   const starts = lines.flatMap((line, i) => (/^## /.test(line) ? [i] : []))
   if (starts.length < 2) return g
-  const blocks = starts.map((s, k) => ({ heading: lines[s].slice(3).trim(), text: lines.slice(s, starts[k + 1] ?? lines.length).join('\n') }))
+  const blocks = starts.flatMap((s, k) => {
+    const end = starts[k + 1] ?? lines.length
+    const whole = { heading: lines[s].slice(3).trim(), text: lines.slice(s, end).join('\n') }
+    if (JSON.stringify(whole.text).length <= GUIDES_READ_MOST) return [whole]
+    const parts = lines.slice(s + 1, end).flatMap((line, i) => (/^### /.test(line) ? [s + 1 + i] : []))
+    if (parts.length === 0) return [whole]
+    return [
+      { heading: whole.heading, text: lines.slice(s, parts[0]).join('\n') },
+      ...parts.map((p, j) => ({ heading: lines[p].slice(4).trim(), text: lines.slice(p, parts[j + 1] ?? end).join('\n') })),
+    ]
+  })
   let text = lines.slice(0, starts[0]).join('\n')
   let taken = 0
   while (taken < blocks.length && (taken === 0 || JSON.stringify({ ...g, text: `${text}\n${blocks[taken].text}` }).length <= GUIDES_READ_MOST)) text += `\n${blocks[taken++].text}`

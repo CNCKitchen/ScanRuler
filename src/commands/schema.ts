@@ -106,6 +106,17 @@ function nameForId(schema: JsonSchema, key: string, path: string, value: unknown
   return `${path}: ${JSON.stringify(value)} is a name, and id takes a number — a name goes in name: give name: ${JSON.stringify(value)} in place of id`
 }
 
+/** Field names other schemas use for what this one calls otherwise. */
+const SAID_AS: Record<string, string> = { type: 'kind' }
+
+/** The field an unknown key is likely meant for, said before the list —
+ *  `type: "line"` where pieces take `kind` — or nothing. */
+function saidAs(key: string, schema: JsonSchema, value: unknown): string {
+  const meant = SAID_AS[key]
+  if (!meant || !schema.properties?.[meant]) return ''
+  return `${meant} takes it here (${meant}: ${JSON.stringify(value)}); `
+}
+
 /** `"true"` or `"false"` where a boolean fits and the string does not, as
  *  the boolean — some agents' clients send every value as a string. The
  *  value as it was otherwise. */
@@ -162,6 +173,10 @@ export function validate(schema: JsonSchema, value: unknown, path = 'input', wit
     }
     case 'number':
     case 'integer': {
+      // A list or an object where one number goes is a shape misread — a
+      // direction as a vector where it is an angle: the field's own words
+      // say what the number is.
+      if (typeof value === 'object' && value !== null && schema.description) return [`${path}: expected a finite number, not ${Array.isArray(value) ? 'a list' : 'an object'} — ${schema.description}`]
       if (typeof value !== 'number' || !Number.isFinite(value)) return [`${path}: expected a finite number`]
       if (schema.type === 'integer' && !Number.isInteger(value)) return [`${path}: expected a whole number`]
       if (schema.minimum !== undefined && value < schema.minimum) return [`${path}: must be at least ${schema.minimum}`]
@@ -202,7 +217,7 @@ export function validate(schema: JsonSchema, value: unknown, path = 'input', wit
           if (named) errors.push(named)
           else errors.push(...validate(prop, meant, `${path}.${key}`, names))
         }
-        else if (schema.additionalProperties === false) errors.push(`${path}.${key}: not a known field — the fields here: ${Object.keys(schema.properties ?? {}).join(', ') || 'none'}`)
+        else if (schema.additionalProperties === false) errors.push(`${path}.${key}: not a known field — ${saidAs(key, schema, v)}the fields here: ${Object.keys(schema.properties ?? {}).join(', ') || 'none'}`)
       }
       return errors
     }

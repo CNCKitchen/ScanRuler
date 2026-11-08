@@ -17,15 +17,14 @@ export function partName(name: string): string | undefined {
   return n === '' || /^\d+$/.test(n) || /^NAUO\d*$/i.test(n) || n.startsWith('=>') ? undefined : n
 }
 
-/** A #rgb or #rrggbb colour as the kernel takes it — linear 0–1 channels,
- *  which it writes into the STEP file as sRGB again, the #rrggbb given —
- *  or undefined for anything else. */
+/** A #rgb or #rrggbb colour as the kernel takes it — sRGB 0–1 channels,
+ *  written into the STEP file as they are — or undefined for anything
+ *  else. */
 export function stepColor(hex: string | undefined): [number, number, number] | undefined {
   const m = hex ? /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim()) : null
   if (!m) return undefined
   const h = m[1].length === 3 ? m[1].replace(/./g, (c) => c + c) : m[1]
-  const linear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4)
-  return [0, 2, 4].map((i) => linear(parseInt(h.slice(i, i + 2), 16) / 255)) as [number, number, number]
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255) as [number, number, number]
 }
 
 export const xyz = (v: Vec3): XYZ => ({ x: v[0], y: v[1], z: v[2] })

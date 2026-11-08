@@ -35,6 +35,16 @@ const ICONS = {
       <path className="i-a" d="M16 10.5V2.5M13.8 4.7 16 2.5l2.2 2.2" />
     </>
   ),
+  // A jumble of pieces, overlapping and loose, and one closed skin round
+  // them all.
+  wrapSkin: (
+    <>
+      <path className="i-g" d="M7 8h5v6H7Z" />
+      <circle className="i-g" cx="15" cy="10.5" r="3.5" />
+      <path className="i-g" d="M8 15.5h7v3H8Z" />
+      <path className="i-a" d="M3.5 12c0-5.5 3.5-8.5 9-8.5 5 0 8 3 8 7.5 0 5.5-3 9.5-8.5 9.5S3.5 17.5 3.5 12Z" />
+    </>
+  ),
   // A part cut open: a wall the same thickness all round a sealed hollow.
   shellSolid: (
     <>

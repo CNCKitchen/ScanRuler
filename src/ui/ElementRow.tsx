@@ -17,6 +17,7 @@ export function ElementRow({
   reading,
   selected,
   muted = false,
+  tone,
   editorOpen,
   editDisabled,
   testId = 'element-row',
@@ -43,6 +44,9 @@ export function ElementRow({
   /** Set aside for the moment — a feature after the one being edited,
    *  which the part is built without while the box is open. */
   muted?: boolean
+  /** Something wrong with what the row stands for, its name tinted so:
+   *  amber for a warning, red for a failure. */
+  tone?: 'warn' | 'error'
   /** True while anything is being assembled — the row keys stand down, since
    *  re-opening would throw away what is already in the box. */
   editorOpen: boolean
@@ -62,7 +66,7 @@ export function ElementRow({
   const canEdit = !editorOpen && !editDisabled
   return (
     <div
-      className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '') + (muted ? ' rolled' : '')}
+      className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '') + (muted ? ' rolled' : '') + (tone ? ` tone-${tone}` : '')}
       data-test={testId}
       data-rolled={muted ? 'true' : undefined}
       title={title}

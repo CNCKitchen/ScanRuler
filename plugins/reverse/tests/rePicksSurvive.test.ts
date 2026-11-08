@@ -348,5 +348,11 @@ describe('queries a feature keeps', () => {
     // A seam, one face meeting itself: not sharp; an open edge: sharp.
     expect(sharpBySurfaces({ ...e, faces: [11, 11] }, flat([0, 0, 1]))).toBe(false)
     expect(sharpBySurfaces({ ...e, faces: [11] }, flat([0, 0, 1]))).toBe(true)
+    // Half a degree off tangent — a profile fitted to points meeting its
+    // flat: not sharp at the default degree, sharp asked from a quarter.
+    const off = (Math.PI / 180) * 0.5
+    const halfDeg = (face: number) => (face === 11 ? flat([0, 0, 1])() : flat([0, Math.sin(off), Math.cos(off)])())
+    expect(sharpBySurfaces(e, halfDeg)).toBe(false)
+    expect(sharpBySurfaces(e, halfDeg, 0.25)).toBe(true)
   })
 })

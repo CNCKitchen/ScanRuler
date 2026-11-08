@@ -32,8 +32,8 @@ import { emptyHit, type ClosestHit } from '../../../src/core/deviation/surface'
 import { closedness } from './boolean'
 import { compactEdit, type EditedMesh } from './edit'
 import { compactMesh, round125 } from './reduce'
-import { vertexComponents } from '../../../src/core/geometry/unionFind'
-import { tetraVolume6 } from '../../../src/core/geometry/centroid'
+import { distanceTransform, FAR, JITTER } from './distanceGrid'
+import { dropSpecks, marchTetrahedra } from './marching'
 
 /** What the field is measured against: the nearest point of the part's
  *  surface, within a distance — NominalSurface. */
@@ -65,20 +65,10 @@ export function defaultWallThickness(bboxDiagonal: number): number {
  *  part is read on a coarser grid. */
 const MAX_POINTS = 12_000_000
 
-/** The grid's origin is moved off the part's own corner by these shares of
- *  a cell — a different one on each axis, so no column runs exactly through
- *  a vertex or along an edge of a mesh drawn on round numbers, a face's
- *  diagonal included: with the same share on X and Y, the columns on the
- *  grid's own diagonal run along it, cross nothing, and read as outside. */
-const JITTER = [0.381966, 0.2763932, 0.1458980]
-
 /** The inner wall is reduced to within this share of a cell of where the
  *  grid put it: lighter by an order of magnitude, its volume within a few
  *  parts in a thousand. */
 const REDUCE_SHARE = 1 / 16
-
-/** A distance the transform has not reached, in squared cells. */
-const FAR = 1e20
 
 /** Cavities smaller than this many cubic cells are left solid. */
 const MIN_CAVITY_CELLS = 8
@@ -198,8 +188,8 @@ export function hollowMesh(
   // ---- the wall: where the distance crosses the thickness ----------------------------
   onProgress?.('Hollowing — building the inner wall…')
   const wall = marchTetrahedra(field, nx, ny, nz, ox, oy, oz, h)
-  const kept = dropSpecks(wall.positions, wall.indices, MIN_CAVITY_CELLS * h * h * h)
-  if (kept.cavities === 0) {
+  const kept = dropSpecks(wall.positions, wall.indices, MIN_CAVITY_CELLS * h * h * h, 'in')
+  if (kept.pieces === 0) {
     throw new Error(
       // units-ok: built in the worker, also the agent's answer
       `Nothing to hollow — the part is nowhere thicker than twice the wall, ${round(2 * thickness)} mm. Take a thinner wall.`,
@@ -223,7 +213,7 @@ export function hollowMesh(
   const edited = compactEdit(all, out, vertexCount)
   return {
     ...edited,
-    report: { thickness, cell: h, cavities: kept.cavities, removed, volumeBefore, triangles: inner.indices.length / 3 },
+    report: { thickness, cell: h, cavities: kept.pieces, removed, volumeBefore, triangles: inner.indices.length / 3 },
   }
 }
 
@@ -332,226 +322,4 @@ function insideGrid(
     }
   }
   return inside
-}
-
-/**
- * The squared distance, in cells, from every grid point to the nearest one
- * at zero — in place, Felzenszwalb & Huttenlocher's transform one axis at a
- * time.
- */
-function distanceTransform(field: Float32Array, nx: number, ny: number, nz: number): void {
-  const n = Math.max(nx, ny, nz)
-  const f = new Float64Array(n)
-  const d = new Float64Array(n)
-  const v = new Int32Array(n)
-  const z = new Float64Array(n + 1)
-  const line = (start: number, stride: number, count: number) => {
-    let any = false
-    for (let q = 0; q < count; q++) {
-      f[q] = field[start + q * stride]
-      if (f[q] < FAR) any = true
-    }
-    if (!any) return
-    transform1d(f, count, d, v, z)
-    for (let q = 0; q < count; q++) field[start + q * stride] = d[q]
-  }
-  for (let k = 0; k < nz; k++) for (let j = 0; j < ny; j++) line(nx * (j + ny * k), 1, nx)
-  for (let k = 0; k < nz; k++) for (let i = 0; i < nx; i++) line(i + nx * ny * k, nx, ny)
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) line(i + nx * j, nx * ny, nz)
-}
-
-/** One line of the transform: the lower envelope of the parabolas rooted at
- *  each point's value. */
-function transform1d(f: Float64Array, n: number, d: Float64Array, v: Int32Array, z: Float64Array): void {
-  let k = 0
-  v[0] = 0
-  z[0] = -Infinity
-  z[1] = Infinity
-  for (let q = 1; q < n; q++) {
-    if (f[q] >= FAR) continue
-    if (f[v[k]] >= FAR) {
-      // Only far points so far: this one starts the envelope.
-      v[0] = q
-      k = 0
-      z[0] = -Infinity
-      z[1] = Infinity
-      continue
-    }
-    let s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k])
-    while (s <= z[k]) {
-      k--
-      s = (f[q] + q * q - (f[v[k]] + v[k] * v[k])) / (2 * q - 2 * v[k])
-    }
-    k++
-    v[k] = q
-    z[k] = s
-    z[k + 1] = Infinity
-  }
-  k = 0
-  for (let q = 0; q < n; q++) {
-    while (z[k + 1] < q) k++
-    const r = q - v[k]
-    d[q] = f[v[k]] >= FAR ? FAR : r * r + f[v[k]]
-  }
-}
-
-/** The six tetrahedra of a cube, Kuhn's: each runs from the cube's lowest
- *  corner to its highest along the edges in one order of the axes, so two
- *  cubes side by side cut their shared face the same way. Corners by bits —
- *  1 is +X, 2 +Y, 4 +Z. */
-const TETS: readonly (readonly [number, number, number, number])[] = [
-  [0, 1, 3, 7],
-  [0, 1, 5, 7],
-  [0, 2, 3, 7],
-  [0, 2, 6, 7],
-  [0, 4, 5, 7],
-  [0, 4, 6, 7],
-]
-
-/** A Float32Array or Uint32Array that grows as it is written. */
-class Grow<T extends Float32Array | Uint32Array> {
-  length = 0
-  constructor(public data: T) {}
-  push(x: number): void {
-    if (this.length === this.data.length) {
-      const bigger = new (this.data.constructor as { new (n: number): T })(this.data.length * 2)
-      bigger.set(this.data)
-      this.data = bigger
-    }
-    this.data[this.length++] = x
-  }
-  done(): T {
-    return this.data.slice(0, this.length) as T
-  }
-}
-
-/**
- * The surface where `field` crosses zero, by marching tetrahedra: one vertex
- * on each grid edge it crosses, shared by every triangle on that edge, and
- * every triangle facing the side where the field is positive.
- */
-function marchTetrahedra(
-  field: Float32Array,
-  nx: number,
-  ny: number,
-  nz: number,
-  ox: number,
-  oy: number,
-  oz: number,
-  h: number,
-): { positions: Float32Array; indices: Uint32Array } {
-  const plane = nx * ny
-  const total = plane * nz
-  const corner = [0, 1, nx, nx + 1, plane, plane + 1, plane + nx, plane + nx + 1]
-  const positions = new Grow(new Float32Array(1 << 16))
-  const indices = new Grow(new Uint32Array(1 << 16))
-  const onEdge = new Map<number, number>()
-  const px = (g: number) => ox + (g % nx) * h
-  const py = (g: number) => oy + (((g / nx) | 0) % ny) * h
-  const pz = (g: number) => oz + ((g / plane) | 0) * h
-
-  const vertexOn = (a: number, b: number): number => {
-    const key = a < b ? a * total + b : b * total + a
-    let id = onEdge.get(key)
-    if (id !== undefined) return id
-    const fa = field[a]
-    const fb = field[b]
-    const s = fa / (fa - fb)
-    id = positions.length / 3
-    positions.push(px(a) + s * (px(b) - px(a)))
-    positions.push(py(a) + s * (py(b) - py(a)))
-    positions.push(pz(a) + s * (pz(b) - pz(a)))
-    onEdge.set(key, id)
-    return id
-  }
-  // Emit a triangle facing `dx, dy, dz` — towards the positive side.
-  const emit = (a: number, b: number, c: number, dx: number, dy: number, dz: number) => {
-    const p = positions.data
-    const ux = p[b * 3] - p[a * 3], uy = p[b * 3 + 1] - p[a * 3 + 1], uz = p[b * 3 + 2] - p[a * 3 + 2]
-    const vx = p[c * 3] - p[a * 3], vy = p[c * 3 + 1] - p[a * 3 + 1], vz = p[c * 3 + 2] - p[a * 3 + 2]
-    const dot = (uy * vz - uz * vy) * dx + (uz * vx - ux * vz) * dy + (ux * vy - uy * vx) * dz
-    indices.push(a)
-    if (dot >= 0) {
-      indices.push(b)
-      indices.push(c)
-    } else {
-      indices.push(c)
-      indices.push(b)
-    }
-  }
-
-  const g = new Int32Array(8)
-  const pos: number[] = []
-  const neg: number[] = []
-  for (let k = 0; k < nz - 1; k++) {
-    for (let j = 0; j < ny - 1; j++) {
-      for (let i = 0; i < nx - 1; i++) {
-        const origin = i + nx * j + plane * k
-        let above = 0
-        for (let c = 0; c < 8; c++) {
-          g[c] = origin + corner[c]
-          if (field[g[c]] > 0) above++
-        }
-        if (above === 0 || above === 8) continue
-        for (const tet of TETS) {
-          pos.length = 0
-          neg.length = 0
-          for (const c of tet) (field[g[c]] > 0 ? pos : neg).push(g[c])
-          if (pos.length === 0 || neg.length === 0) continue
-          // Which way is out of the material: from the corners below zero
-          // to those above.
-          let dx = 0, dy = 0, dz = 0
-          for (const p of pos) {
-            dx += px(p) / pos.length
-            dy += py(p) / pos.length
-            dz += pz(p) / pos.length
-          }
-          for (const q of neg) {
-            dx -= px(q) / neg.length
-            dy -= py(q) / neg.length
-            dz -= pz(q) / neg.length
-          }
-          if (pos.length === 1 || neg.length === 1) {
-            const [lone, others] = pos.length === 1 ? [pos[0], neg] : [neg[0], pos]
-            emit(vertexOn(lone, others[0]), vertexOn(lone, others[1]), vertexOn(lone, others[2]), dx, dy, dz)
-          } else {
-            const a = vertexOn(pos[0], neg[0])
-            const b = vertexOn(pos[0], neg[1])
-            const c = vertexOn(pos[1], neg[1])
-            const d = vertexOn(pos[1], neg[0])
-            emit(a, b, c, dx, dy, dz)
-            emit(a, c, d, dx, dy, dz)
-          }
-        }
-      }
-    }
-  }
-  return { positions: positions.done(), indices: indices.done() }
-}
-
-/**
- * The inner wall's pieces — each the wall of one cavity — without those
- * enclosing less than `minVolume`: the triangles kept, and how many
- * cavities they wall.
- */
-function dropSpecks(positions: Float32Array, indices: Uint32Array, minVolume: number): { indices: Uint32Array; cavities: number } {
-  // The roots are only keys here, so which corner's root wins does not matter.
-  const { find } = vertexComponents(indices, positions.length / 3)
-  // Each piece's volume, from its triangles — negative, as it faces in.
-  const volume = new Map<number, number>()
-  for (let t = 0; t < indices.length; t += 3) {
-    const v = tetraVolume6(positions, indices[t] * 3, indices[t + 1] * 3, indices[t + 2] * 3)
-    const root = find(indices[t])
-    volume.set(root, (volume.get(root) ?? 0) + v / 6)
-  }
-  let cavities = 0
-  for (const v of volume.values()) if (-v >= minVolume) cavities++
-  const out = new Grow(new Uint32Array(Math.max(16, indices.length)))
-  for (let t = 0; t < indices.length; t += 3) {
-    if (-(volume.get(find(indices[t])) ?? 0) < minVolume) continue
-    out.push(indices[t])
-    out.push(indices[t + 1])
-    out.push(indices[t + 2])
-  }
-  return { indices: out.done(), cavities }
 }

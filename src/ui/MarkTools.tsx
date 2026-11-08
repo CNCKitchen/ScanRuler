@@ -14,6 +14,7 @@ import { brushRange, useMark, type MarkGesture } from '../state/markStore'
 import { useStore } from '../state/store'
 import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
+import { modLabel } from './platform'
 import { useLength } from '../app/useUnits'
 
 /** The marking modes, with plain navigation as one of them. A gesture takes
@@ -123,7 +124,8 @@ export function MarkTools({
           </p>
           <p>
             While a tool is live it takes both plain drags: left marks, right rubs out, and Alt
-            inverts either way. Shift-drag still orbits and the middle button is untouched.
+            inverts either way. With the brush, {modLabel}-drag draws a straight line. Shift-drag
+            still orbits and the middle button is untouched.
           </p>
           <p>
             <b>Navigate</b>, Esc, or clicking the live tool again hands the drags back to the camera;
@@ -139,6 +141,25 @@ export function MarkTools({
             <BrushNumber diameter={m.diameter} setDiameter={m.setDiameter} testId="mark-brush-diameter" />
           </label>
           <BrushSlider diameter={m.diameter} setDiameter={m.setDiameter} brush={brush} />
+          <label className="checkrow">
+            <input
+              type="checkbox"
+              data-test="mark-straight"
+              checked={m.straight}
+              onChange={(e) => m.setStraight(e.target.checked)}
+            />
+            <span>Straight lines</span>
+            <InfoDot title="Straight lines">
+              <p>
+                Each drag marks one straight line from where you press to where you let go. An outline
+                shows what it will take, and nothing is marked until you let go.
+              </p>
+              <p>
+                {modLabel}-drag does the same without this switch, and with the switch on it draws
+                freehand. The line is straight on the screen and lies on whatever surface is under it.
+              </p>
+            </InfoDot>
+          </label>
         </>
       )}
 
@@ -149,11 +170,12 @@ export function MarkTools({
           checked={m.backfaces}
           onChange={(e) => m.setBackfaces(e.target.checked)}
         />
-        <span>Mark faces pointing away too</span>
-        <InfoDot title="Faces pointing away">
+        <span>Mark through the part</span>
+        <InfoDot title="Mark through the part">
           <p>
-            Off, only surface turned towards you is taken, so a window dragged over a closed part
-            cannot quietly mark the far wall as well.
+            Off, only surface you can see is taken: it has to face you, and a window or lasso
+            takes only the surface in front, not what a nearer wall or rib hides behind it. A
+            window dragged over a closed part cannot quietly mark the far wall as well.
           </p>
           <p>
             On, the gesture goes straight through — useful for taking a whole rib or boss in one
@@ -211,6 +233,8 @@ export function markChipText(
   target: string,
   /** Where Escape leads from here, idle and with a gesture live. */
   escape: { idle: string; live: string },
+  /** The brush's straight-line switch. */
+  straight = false,
 ): string {
   const tally = count === 0 ? '' : ` · ${count.toLocaleString('en-US')} points marked`
   if (gesture === null) {
@@ -221,6 +245,8 @@ export function markChipText(
       ? `Drag a window over ${target}`
       : gesture === 'lasso'
         ? `Draw a lasso around ${target}`
-        : `Drag the brush over ${target}`
+        : straight
+          ? `Drag a straight line over ${target} · ${modLabel}-drag draws freehand`
+          : `Drag the brush over ${target} · ${modLabel}-drag draws a straight line`
   return `${verb}${tally} · right-drag rubs out · Shift-drag orbits · ${escape.live}`
 }

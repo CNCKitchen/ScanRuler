@@ -11,6 +11,7 @@ import type { BreakReport } from './breakSurface'
 import type { CutPreview, CutReport } from './cut'
 import type { FillMode, FillReport, HoleSurvey } from './fillHoles'
 import type { HollowReport } from './hollow'
+import type { MirrorMode, MirrorReport } from './mirror'
 import type { OffsetReport, OffsetSettings, ThickenReport, ThickenSide } from './offset'
 import type { PieceSurvey } from './pieces'
 import type { ReduceReport, ReduceSettings } from './reduce'
@@ -29,7 +30,9 @@ export type PieceCount = Omit<PieceSurvey, 'islandMask' | 'islandCentres'>
  *  triangle with all three corners in `vertices` (core/edit); Flip normals
  *  turns every triangle over, or with `vertices` those with all three
  *  corners in them (core/flip); Cut takes off
- *  everything on the side `normal` points to (core/cut); Fill holes closes
+ *  everything on the side `normal` points to (core/cut); Mirror reflects
+ *  the mesh across the plane, or with `symmetric` the side `normal` points
+ *  away from onto the side it points to (core/mirror); Fill holes closes
  *  every hole smaller across than `maxSize`, or with `at` only the one
  *  ringed there (core/fillHoles); Smooth, core/smooth; Boolean makes the
  *  mesh and the union of the solids — their triangles, in the scan's frame,
@@ -41,6 +44,7 @@ export type ScanEditRequest =
   | { type: 'delete-triangles'; triangles: Uint32Array; preview: DeleteMeshSnapshot }
   | { type: 'flip'; vertices?: Uint32Array }
   | { type: 'cut'; origin: Vec3; normal: Vec3; cap: boolean }
+  | { type: 'mirror'; origin: Vec3; normal: Vec3; mode: MirrorMode }
   | { type: 'fill-holes'; maxSize: number; mode: FillMode; at?: Vec3 }
   | { type: 'bridge'; settings: BridgeSettings }
   | { type: 'smooth'; settings: SmoothSettings }
@@ -54,6 +58,7 @@ export type MeshEditReport =
   | { kind: 'delete'; triangles: number }
   | { kind: 'flip'; triangles: number }
   | { kind: 'cut'; report: CutReport }
+  | { kind: 'mirror'; report: MirrorReport }
   | { kind: 'fill'; report: FillReport }
   | { kind: 'bridge'; report: BridgeReport }
   | { kind: 'smooth'; report: SmoothReport }
@@ -79,6 +84,9 @@ export interface ReduceResult {
   indices: Uint32Array
   /** Its corner slots, for drawing its edges — see geometry/wireSlots. */
   wireSlots: Uint8Array
+  /** Every vertex of the mesh reduced's number on it, −1 for one that was
+   *  collapsed away. */
+  vertexMap: Int32Array
   /** Signed distance from every scan vertex to the reduced surface, mm; NaN
    *  where a vertex is not part of it. */
   deviation: Float32Array
@@ -161,6 +169,9 @@ export interface MeshToolsOps {
   /** The mesh's size, bounds and closedness, and the volume it encloses
    *  when closed. Nothing changes. */
   describe: { payload: Record<string, never>; result: MeshFigures }
+  /** A copy of the mesh's triangles, in the frame it stands in — what Wrap
+   *  is worked out on, in a worker of its own. Nothing changes. */
+  triangles: { payload: Record<string, never>; result: { positions: Float32Array; indices: Uint32Array } }
   /** The vertices of the mesh a region holds, and how many it has. Nothing
    *  changes. */
   select: { payload: { region: MeshRegion }; result: { vertices: Uint32Array; vertexCount: number } }

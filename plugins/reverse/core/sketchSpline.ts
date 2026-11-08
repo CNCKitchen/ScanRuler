@@ -428,3 +428,40 @@ export function pointsAlong(fit: FlatSplineFit, points: readonly Vec2[], reach: 
   }
   return out
 }
+
+/** Past this, mm, a spline's swing beyond its points is said. */
+const OVERSHOOT_MM = 0.01
+
+/** Where a spline swings past its own points: a stretch between two fit
+ *  points, where the points either side run one way along u (or v) and
+ *  never back, that the curve leaves the two points' span of by more than
+ *  OVERSHOOT_MM — a corner table's curve bulging 0.05 mm past the edge the
+ *  last point lies on, a run of points on u = 0 dipping under it. The
+ *  worst stretch of each axis, worst first; none on a curve that keeps
+ *  within. A stretch over a turn of the points (a crest between two) is
+ *  not one: its curve goes past them as it should. */
+export function splineOvershoots(e: SketchSpline): { stretch: number; axis: 'u' | 'v'; mm: number; at: Vec2 }[] {
+  const fit = splineCurve(e)
+  const n = e.pts.length
+  const closed = isClosed(e)
+  const segments = splineSegmentsOf(e)
+  const worst = new Map<'u' | 'v', { stretch: number; axis: 'u' | 'v'; mm: number; at: Vec2 }>()
+  for (let k = 0; k < segments; k++) {
+    const around = [k - 1, k, k + 1, k + 2].filter((i) => closed || (i >= 0 && i < n)).map((i) => e.pts[((i % n) + n) % n])
+    for (const [axis, a] of [['u', 0], ['v', 1]] as const) {
+      const values = around.map((p) => p[a])
+      const steps = values.slice(1).map((x, i) => x - values[i])
+      if (!steps.every((d) => d >= 0) && !steps.every((d) => d <= 0)) continue
+      const p0 = e.pts[k][a]
+      const p1 = e.pts[(k + 1) % n][a]
+      const lo = Math.min(p0, p1)
+      const hi = Math.max(p0, p1)
+      for (let i = 1; i < 32; i++) {
+        const p = evalSpline(fit, k, i / 32)
+        const mm = Math.max(lo - p[a], p[a] - hi)
+        if (mm > OVERSHOOT_MM && mm > (worst.get(axis)?.mm ?? 0)) worst.set(axis, { stretch: k, axis, mm: Math.round(mm * 1e4) / 1e4, at: [Math.round(p[0] * 1e4) / 1e4, Math.round(p[1] * 1e4) / 1e4] })
+      }
+    }
+  }
+  return [...worst.values()].sort((x, y) => y.mm - x.mm)
+}

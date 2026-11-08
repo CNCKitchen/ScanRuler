@@ -152,6 +152,7 @@ export class PickScene {
       },
       invalidate: this.viewport.invalidate,
       claimDrag: (on) => this.viewport.nav.setPaintMode(on),
+      navigates: (e) => this.viewport.nav.navigates(e),
       requestHover: () => {
         this.hoverDirty = true
       },

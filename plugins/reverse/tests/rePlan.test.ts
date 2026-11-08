@@ -9,7 +9,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { boxMesh } from '../../../tests/helpers'
 import { refused, run, startHeadless, stlBytes, type Headless } from '../../../tests/commandKit'
-import { planRegionAt, planSection, planVerdict, usePlan } from '../app/rePlan'
+import { useStore } from '../../../src/state/store'
+import { planGate, planRegionAt, planSection, planVerdict, usePlan } from '../app/rePlan'
 import { createReverseSession, installCompareInDeviation, installReverseSession, type ReverseSession } from '../app/reSession'
 import { ReClient } from '../core/reClient'
 import { localKernel } from './reLocal'
@@ -48,6 +49,16 @@ describe('the session plan', () => {
     const second = await run<{ warning?: string; planWarning?: string }>('reverse.feature.add', { feature: block })
     expect(second.warning ?? '').not.toMatch(/no plan set|§2 Building/)
     expect(second.planWarning).toBeUndefined()
+  })
+
+  it('does not ask for a plan with no scan open: a part drawn from a drawing has none', () => {
+    const fileName = useStore.getState().fileName
+    useStore.setState({ fileName: '' })
+    try {
+      expect(planGate(createReverseSession({ sceneRef: { current: null }, kernel: () => new ReClient(localKernel()) }))).toBeNull()
+    } finally {
+      useStore.setState({ fileName })
+    }
   })
 
   it('sets the target by the archetype’s class, or as given, and ticks or skips regions', async () => {

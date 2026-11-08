@@ -143,7 +143,9 @@ function inside(q: Pt, p: readonly Pt[]): boolean {
 export interface LoopShape {
   points: Pt[]
   rounds: { at: number; radius: number; center: Pt }[]
-  arcs: { from: number; radius: number; center: Pt }[]
+  /** mid: the point halfway along the arc, which says which way it bulges
+   *  where the centre lies near its chord, as a slot's half-round end. */
+  arcs: { from: number; radius: number; center: Pt; mid: Pt }[]
   circle?: { center: Pt; radius: number; rms: number }
   /** The worst distance of the traced loop from the shape, mm, and where
    *  on the loop it is. */
@@ -235,6 +237,17 @@ function touch(a: Piece, b: Piece, tolerance: number): Pt | null {
   return Math.abs(Math.hypot(arc.center[0] - foot[0], arc.center[1] - foot[1]) - arc.radius) <= tolerance ? foot : null
 }
 
+/** A traced loop's steps evened out a little: each point with its two
+ *  neighbours, ¼ ½ ¼ round the loop. */
+export function smoothTrace(traced: readonly Pt[]): Pt[] {
+  const n = traced.length
+  return traced.map((p, i) => {
+    const a = traced[(i + n - 1) % n]
+    const b = traced[(i + 1) % n]
+    return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4]
+  })
+}
+
 /** The most thinned sides one line or arc may span. */
 const SPAN_MAX = 40
 
@@ -253,13 +266,7 @@ type Piece = { kind: 'line'; line: Line; from: number; to: number } | { kind: 'a
  */
 export function loopShape(traced: readonly Pt[], tolerance: number, cell: number): LoopShape {
   const n = traced.length
-  // The tracing's steps evened out a little: each point with its two
-  // neighbours.
-  const loop: Pt[] = traced.map((p, i) => {
-    const a = traced[(i + n - 1) % n]
-    const b = traced[(i + 1) % n]
-    return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4]
-  })
+  const loop = smoothTrace(traced)
   const fine = Math.max(tolerance / 2, 0.3 * cell)
   const whole = circleThrough(loop)
   if (whole && whole.rms <= fine && whole.max <= tolerance) {
@@ -396,8 +403,23 @@ export function loopShape(traced: readonly Pt[], tolerance: number, cell: number
     if (p.kind === 'line' && roundOn(k - 1)) continue
     const prev = at(k - 1)
     const met = p.kind === 'line' && prev.kind === 'line' ? meet(prev.line, p.line) : p.kind !== prev.kind ? touch(p, prev, tolerance) : null
-    if (p.kind === 'arc') arcs.push({ from: points.length, radius: p.circle.radius, center: p.circle.center })
+    if (p.kind === 'arc') {
+      const arc = pointsOf(p.from, p.to)
+      arcs.push({ from: points.length, radius: p.circle.radius, center: p.circle.center, mid: arc[arc.length >> 1] })
+    }
     points.push(met ?? ([...loop[(kept[(p.from + M) % M] ?? kept[0]) % n]] as Pt))
+  }
+  // Each arc's mid-point: halfway round from its start to its end the way
+  // the trace runs — the side its traced middle (held for now in mid) is
+  // on — put on its circle.
+  for (const a of arcs) {
+    const angle = (q: Pt) => Math.atan2(q[1] - a.center[1], q[0] - a.center[0])
+    const a0 = angle(points[a.from])
+    const turn = (x: number) => ((x % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+    const ccw = turn(angle(points[(a.from + 1) % points.length]) - a0)
+    const sweep = turn(angle(a.mid) - a0) < ccw ? ccw : ccw - 2 * Math.PI
+    const m = a0 + sweep / 2
+    a.mid = [a.center[0] + a.radius * Math.cos(m), a.center[1] + a.radius * Math.sin(m)]
   }
   // How far the traced loop strays from the shape drawn: its sides, a
   // round or an arc taken as its circle.

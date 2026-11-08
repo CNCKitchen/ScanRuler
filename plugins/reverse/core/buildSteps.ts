@@ -112,7 +112,8 @@ export type BuildStep =
   | { kind: 'extract'; id: number; name: string; primitive: Primitive; op: BodyOp; target?: number }
   | { kind: 'cutPlane'; id: number; name: string; body: number; plane: PlaneGeometry; keep: 1 | -1 }
   | { kind: 'mirror'; id: number; name: string; body: number; plane: PlaneGeometry | { face: FaceRef }; join: boolean }
-  | { kind: 'boolean'; id: number; name: string; op: BooleanOp; body: number; tool: number; keep?: boolean }
+  /** `tool` one body or several — see BooleanFeature. */
+  | { kind: 'boolean'; id: number; name: string; op: BooleanOp; body: number; tool: number | number[]; keep?: boolean }
   | { kind: 'draft'; id: number; name: string; body: number; neutral: PlaneGeometry | { face: FaceRef }; faces: FaceRef[]; facesWhere?: StoredPick<FaceRef>[]; angleRad: number; groups?: { faces: FaceRef[]; angleRad: number }[] }
   | { kind: 'moveFace'; id: number; name: string; body: number; faces: FaceRef[]; facesWhere?: StoredPick<FaceRef>[]; offset: number }
   | { kind: 'deleteFace'; id: number; name: string; body: number; faces: FaceRef[]; facesWhere?: StoredPick<FaceRef>[] }

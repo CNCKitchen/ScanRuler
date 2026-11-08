@@ -274,18 +274,39 @@ export async function withFiles(value, cwd) {
   if (Array.isArray(value)) return Promise.all(value.map((v) => withFiles(v, cwd)))
   if (!value || typeof value !== 'object' || value instanceof Uint8Array) return value
   const keys = Object.keys(value)
-  if (keys.length === 1 && keys[0] === '$file') {
+  if (keys.includes('$file') && keys.every((k) => k === '$file' || k === '$at')) {
     if (typeof value.$file !== 'string' || !value.$file) throw { code: 'invalid_input', message: '$file: give the path of a JSON file.' }
     const path = absolute(value.$file, cwd)
+    let data
     try {
-      return JSON.parse(await readFile(path, 'utf8'))
+      data = JSON.parse(await readFile(path, 'utf8'))
     } catch (e) {
       throw { code: 'invalid_input', message: `$file: ${path} could not be read as JSON (${e?.code === 'ENOENT' ? 'there is no such file' : e instanceof Error ? e.message : String(e)}).` }
     }
+    return value.$at === undefined ? data : pickAt(data, value.$at, path)
   }
   const out = {}
   for (const key of keys) out[key] = await withFiles(value[key], cwd)
   return out
+}
+
+/** The part of a file's JSON that `$at` names: keys and list indices
+ *  joined by dots ("result.loops.0.points"), a batch's answer read by the
+ *  index of its call ("results.2.result.loops"). */
+function pickAt(data, at, path) {
+  if (typeof at !== 'string') throw { code: 'invalid_input', message: '$at: give a path into the file’s JSON, keys and indices by dots — "loops.0.points".' }
+  let v = data
+  const passed = []
+  for (const key of at.split('.').filter((k) => k !== '')) {
+    const next = Array.isArray(v) ? (/^\d+$/.test(key) ? v[Number(key)] : undefined) : v && typeof v === 'object' ? v[key] : undefined
+    if (next === undefined) {
+      const here = Array.isArray(v) ? `a list of ${v.length}` : v && typeof v === 'object' ? `keys ${Object.keys(v).slice(0, 12).join(', ')}` : `a ${v === null ? 'null' : typeof v}`
+      throw { code: 'invalid_input', message: `$at: ${path} has nothing at "${[...passed, key].join('.')}" — ${passed.length ? `"${passed.join('.')}"` : 'its top'} holds ${here}.` }
+    }
+    passed.push(key)
+    v = next
+  }
+  return v
 }
 
 /** A file's kind by its extension, as scanruler_files lists it. */

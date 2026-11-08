@@ -25,9 +25,9 @@ import { sizeOf, threadFaceReading, threadProblem, threadSizes, type ThreadStand
 import { bodiesOfFeature } from '../state/reFeatureHelpers'
 import { settle } from '../state/reSketchDraft'
 import { type BodyInfo, type ExtrudeDraft, extrudeDraftReady, type FeatureDraft, type FeatureDraftKind, featureDraftReady, type RevolveDraft, revolveDraftReady, roundFaceLength, trimToleranceFor, useReverse } from '../state/reStore'
-import { allFeatures, axisOf, bodyAt, bodyFamilyNamed, bodyNamed, edgePicked, type EdgePickIn, edgesPicked, elementNamed, facePicked, type FacePickIn, facesPicked, type Json, mirrorPlaneOf, planeOf, re, type Ref, regionKeys, regionPickOf, sketchNamed, storedPicks } from './reCommandCore'
+import { allFeatures, axisOf, bodyAt, bodyFamilyNamed, bodyNamed, edgePicked, type EdgePickIn, edgesPicked, elementNamed, facePicked, type FacePickIn, facesPicked, featureNamed, type Json, largestInside, mirrorPlaneOf, planeOf, re, type Ref, regionKeys, regionPickOf, sketchNamed, storedPicks } from './reCommandCore'
 import type { ReverseSession } from './reSession'
-import { acceptOnDraft, draftOffsetDraft, fitDraftShared, type FittedOut, insetDraft, type InsetIn, type JunctionOut, madeOut, movedPieces, namedIds, type OffPiece, offPieceOut, overDraft, type PreparedFit, projectDraft, type ProjectedOut, type ProjectIn, putLanded, putSketch, type SharedOut, sketchOf } from './reSketchInput'
+import { acceptOnDraft, draftOffsetDraft, fitDraftShared, type FittedOut, givenOut, insetDraft, type InsetIn, type JunctionOut, madeOut, movedPieces, namedIds, type OffPiece, offPieceOut, overDraft, type PreparedFit, projectDraft, type ProjectedOut, type ProjectIn, putLanded, putSketch, type SharedOut, sketchOf } from './reSketchInput'
 
 /** A box with the expressions handed in written into it and every one of
  *  its numbers evaluated: an expression of null lets a field's go; a
@@ -46,7 +46,11 @@ function withExpressions<T extends { kind?: string; exprs?: ExprMap }>(before: T
   if (!given) return applyAll(next, kind)
   if (kind === 'extrude' && 'draftDeg' in given && 'taper' in given) invalid('exprs: give draftDeg or taper, not both — taper is −draftDeg.')
   const exprs = exprsFromCommand(kind, given)
-  for (const [path, expr] of Object.entries(exprs)) {
+  for (const [asked, expr] of Object.entries(exprs)) {
+    // A field named by its last part where one slot ends so — offset for a
+    // cut's plane.offset, as a sketch names its own — is that slot.
+    const tail = slots.filter((s) => s.path.endsWith(`.${asked}`))
+    const path = !slots.some((s) => s.path === asked) && tail.length === 1 ? tail[0].path : asked
     if (!slots.some((s) => s.path === path)) invalid(`exprs.${path}: no such field — this one has ${slots.map((s) => s.path).join(', ') || `none${noSlotsWhy(kind, next)}`}.`)
     if (expr === null) next = unlinkSlot(next, path)
     else if (typeof expr !== 'string' || expr.trim() === '') invalid(`exprs.${path}: an expression is a string.`)
@@ -239,7 +243,12 @@ function boxFields(s: ReverseSession, kind: FeatureDraftKind, input: Json, box: 
       break
     case 'boolean':
       if (has('op')) out.op = input.op
-      if (has('tool')) out.tool = bodyFamilyNamed(input.tool as Ref).id
+      if (has('tool')) {
+        // One body, or a list: the first in the box's Tool, the rest past it.
+        const tools = [...new Set((Array.isArray(input.tool) ? (input.tool as Ref[]) : [input.tool as Ref]).map((t) => bodyFamilyNamed(t).id))]
+        if (tools.length === 0) invalid('tool: name a body, or a list of them.')
+        Object.assign(out, { tool: tools[0], moreTools: tools.slice(1) })
+      }
       if (has('keep')) out.keep = input.keep
       break
     case 'sheet':
@@ -391,7 +400,7 @@ function notReady(d: FeatureDraft): string {
   if ('body' in d && d.body === null) return 'Name the body it works on.'
   if (d.kind === 'import') return 'An import takes its file through reverse.import.step.'
   if (d.kind === 'moveBody') return d.bodies.length === 0 ? 'Name the bodies it moves (bodies).' : 'The move moves nothing — give translate or rotate, or copy: true for a copy where it stands.'
-  if (d.kind === 'boolean' && d.body === d.tool) return 'A body cannot be combined with itself.'
+  if (d.kind === 'boolean' && (d.body === d.tool || (d.moreTools ?? []).includes(d.body!))) return 'A body cannot be combined with itself.'
   if (d.kind === 'draft' && ![d.angleDeg, ...(d.groups ?? []).map((g) => g.angleDeg)].every((a) => Math.abs(a) < 89)) return 'The draft needs an angle under 89°.'
   if (d.kind === 'chamfer' && d.mode === 'distanceAngle' && !(d.angleDeg > 0 && d.angleDeg < 90)) return 'The chamfer’s angle is between 0° and 90°.'
   if (d.kind === 'fillet' && (d.variable ?? []).some((v) => !(v.radius[0] > 0 && v.radius[1] > 0))) return 'An edge at a varying radius needs both its radii above zero.'
@@ -610,7 +619,7 @@ function sketchAngle(input: Json, plane: PlaneRef): void {
 const faceOutlineOf = (plane: PlaneRef): ProjectIn[] => (plane.kind === 'bodyFace' && !plane.offset ? [{ body: plane.body, face: plane.face as FacePickIn }] : [])
 
 /** A new feature through its box. */
-export function addFeature(s: ReverseSession, input: Json, prepared?: PreparedFit): { id: number; solve?: unknown; fitted?: FittedOut[]; projected?: ProjectedOut[]; skipped?: number; notProjected?: string; shared?: SharedOut[]; junctions?: JunctionOut[]; corners?: number; offPiece?: OffPiece[] } & Partial<ReturnType<typeof madeOut>> {
+export function addFeature(s: ReverseSession, input: Json, prepared?: PreparedFit): { id: number; largestInside?: string; solve?: unknown; fitted?: FittedOut[]; projected?: ProjectedOut[]; skipped?: number; notProjected?: string; shared?: SharedOut[]; junctions?: JunctionOut[]; corners?: number; offPiece?: OffPiece[] } & Partial<ReturnType<typeof madeOut>> {
   const r = re()
   switch (input.kind) {
     case 'sketch': {
@@ -687,6 +696,8 @@ export function addFeature(s: ReverseSession, input: Json, prepared?: PreparedFi
       const id = re().commitSketch()
       if (id === null) throw new CommandError('failed', 'The sketch could not be made.')
       const after = (re().features.find((x) => x.id === id) as SketchFeature | undefined)?.sketch
+      // Typed points read again on the sketch as it was made.
+      givenOut(fit, after)
       return {
         id,
         solve,
@@ -699,6 +710,7 @@ export function addFeature(s: ReverseSession, input: Json, prepared?: PreparedFi
         ...(fit?.shared ? { shared: fit.shared } : {}),
         ...(fit?.junctions ? { junctions: fit.junctions } : {}),
         ...(fit?.corners ? { corners: fit.corners } : {}),
+        ...(fit?.through ? { through: fit.through } : {}),
         ...(projected ? { projected: projected.projected, ...(projected.skipped > 0 ? { skipped: projected.skipped } : {}) } : {}),
         ...(notProjected ? { notProjected } : {}),
         ...offPieceOut(after),
@@ -717,14 +729,16 @@ export function addFeature(s: ReverseSession, input: Json, prepared?: PreparedFi
       }
       const id = commitExtrude(s, { ...input, sketchId: undefined, regions: undefined })
       if (input.face === undefined) keepRegionPick(id, input.regions)
-      return { id }
+      const hole = input.face === undefined ? largestInside(s, sketchNamed(input.sketchId as Ref), input.regions) : undefined
+      return { id, ...(hole ? { largestInside: hole } : {}) }
     }
     case 'revolve': {
       const sketch = sketchNamed(input.sketchId as Ref)
       r.startRevolve(sketch.id, regionKeys(s, sketch, input.regions), axisOf(input.axis as Json, sketch))
       const id = commitRevolve(s, { ...input, sketchId: undefined, regions: undefined, axis: undefined })
       keepRegionPick(id, input.regions)
-      return { id }
+      const hole = largestInside(s, sketch, input.regions)
+      return { id, ...(hole ? { largestInside: hole } : {}) }
     }
     default: {
       const kind = input.kind as FeatureDraftKind
@@ -881,9 +895,17 @@ function putOnPlane(to: { plane: PlaneRef; frame: SectionFrame }): { plane: stri
   return { plane: describePlaneRef(to.plane, { sections: store.sections, elements: store.elements }), ...(said.length > 0 ? { note: said.join(' ') } : {}) }
 }
 
+/** An extrude's or a revolve's regions given again as "largest" on an
+ *  edit: the warning when that took a ring's hole (largestInside). */
+function holeTaken(s: ReverseSession, f: Feature, pick: unknown): { largestInside?: string } {
+  const sketchId = (featureNamed(f.id) as { sketchId?: number | null }).sketchId
+  const hole = sketchId != null ? largestInside(s, sketchNamed(sketchId), pick) : undefined
+  return hole ? { largestInside: hole } : {}
+}
+
 /** A feature's box opened on it, what was handed in written over it, and
  *  committed: the panel's edit. */
-export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve?: unknown; inset?: unknown; routed?: Routed[] } & Partial<ReturnType<typeof madeOut>> & ReturnType<typeof showFeature> & Partial<ReturnType<typeof putOnPlane>> {
+export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve?: unknown; inset?: unknown; routed?: Routed[]; largestInside?: string } & Partial<ReturnType<typeof madeOut>> & ReturnType<typeof showFeature> & Partial<ReturnType<typeof putOnPlane>> {
   const r = re()
   const shown = set.visible !== undefined ? showFeature(f, set.visible === true) : {}
   if (set.suppressed !== undefined) r.setSuppressed([f.id], set.suppressed === true)
@@ -943,11 +965,11 @@ export function updateFeature(s: ReverseSession, f: Feature, set: Json): { solve
       r.editExtrude(f.id)
       if (fields.face !== undefined) invalid('An extrude keeps what it is pulled from — make a new one.')
       commitExtrude(s, fields)
-      return shown
+      return { ...shown, ...holeTaken(s, f, fields.regions) }
     case 'revolve':
       r.editRevolve(f.id)
       commitRevolve(s, fields)
-      return shown
+      return { ...shown, ...holeTaken(s, f, fields.regions) }
     case 'loft': {
       // A loft's numbers are its stations': the expressions go to them.
       const { exprs, ...others } = fields

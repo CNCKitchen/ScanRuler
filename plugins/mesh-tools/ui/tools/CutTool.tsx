@@ -16,8 +16,9 @@ export function CutTool({ ready, busy, onCut }: { ready: boolean; busy: boolean;
   const m = useMeshTools()
   const elements = useStore((s) => s.elements)
   const modelCenter = useStore((s) => s.modelCenter)
+  const modelSize = useStore((s) => s.modelSize)
   const options = providersFor(['plane', 'axis'], elements, undefined, SECTION_REF_KINDS)
-  const plane = cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, elements, modelCenter)
+  const plane = cutPlaneOf(m.cutRef, m.cutOffset, m.cutOffsetAuto, m.cutKeep, elements, modelCenter, undefined, 2 * modelSize)
   const axisName = isWorldAxis(m.cutRef) ? m.cutRef.toUpperCase() : null
   const parseRef = (v: string): SectionRef => (isWorldAxis(v) ? v : Number(v))
 

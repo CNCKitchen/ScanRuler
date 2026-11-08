@@ -5,7 +5,7 @@
 // fitted surface's region — is renumbered through the map, so it stays on the
 // same spots of the part (see useMeshWorkspace).
 
-import { round125 } from './reduce'
+import { round125 } from './round125'
 
 export interface EditedMesh {
   positions: Float32Array

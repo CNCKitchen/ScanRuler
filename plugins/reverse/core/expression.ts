@@ -153,8 +153,18 @@ const BINARY_POWER: Record<'+' | '-' | '*' | '/' | '^', number> = { '+': 10, '-'
 /** Unary minus binds under a power, so −2² is −4, and over a product. */
 const NEGATE_POWER = 25
 
+/** How deep an expression may nest, in parentheses, functions and signs:
+ *  far past anything typed, and short of the stack the parser and the
+ *  evaluation recurse on, which an expression from a file could exhaust. */
+const MAX_DEPTH = 200
+
+/** The longest expression read, in characters: a chain of operators is
+ *  evaluated as deep as it is long. */
+const MAX_LENGTH = 4000
+
 class Parser {
   private i = 0
+  private depth = 0
   constructor(private tokens: Token[]) {}
 
   parse(): Node {
@@ -178,6 +188,15 @@ class Parser {
   }
 
   private expression(minPower: number): Node {
+    if (++this.depth > MAX_DEPTH) throw new ExpressionError('nests too deeply', this.peek().at)
+    try {
+      return this.operators(minPower)
+    } finally {
+      this.depth--
+    }
+  }
+
+  private operators(minPower: number): Node {
     let left = this.prefix()
     for (;;) {
       const t = this.peek()
@@ -426,6 +445,7 @@ function call(n: Extract<Node, { kind: 'call' }>, scope: Scope): Value {
 /** Evaluate an expression against a scope, to whatever kind it comes out
  *  as. */
 export function evaluate(src: string, scope: Scope): Evaluated {
+  if (src.length > MAX_LENGTH) return { ok: false, error: `is longer than ${MAX_LENGTH} characters`, at: [0, src.length] }
   try {
     const node = new Parser(tokenize(src)).parse()
     const v = evaluateNode(node, scope)
@@ -433,6 +453,9 @@ export function evaluate(src: string, scope: Scope): Evaluated {
     return { ok: true, value: v.value, dim: v.dim }
   } catch (e) {
     if (e instanceof ExpressionError) return { ok: false, error: e.message, at: e.at }
+    // Parameters reading each other in a chain long enough to run out of
+    // stack: an error of the expression, not of the page.
+    if (e instanceof RangeError) return { ok: false, error: 'reads parameters too deeply to evaluate', at: [0, src.length] }
     throw e
   }
 }
