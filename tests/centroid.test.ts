@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { meshCentroid } from '../src/core/geometry/centroid'
-import { boxMesh } from './helpers'
+import { boxMesh, cylinderMesh } from './helpers'
 
 const SIZE = 20
 const GRID = 10
@@ -44,5 +44,30 @@ describe('mesh centroid', () => {
     // Five faces of six: the surface's centroid rises toward the top.
     expect(c.area[2]).toBeCloseTo(SIZE / 2 / 5, 4)
     expect(c.area[0]).toBeCloseTo(0, 6)
+  })
+
+  it('calls a tube open at both ends open, though its two ends cancel', () => {
+    // The wall alone: two openings facing opposite ways leave the signed
+    // volume the same from every origin.
+    const { positions, wallFraction } = cylinderMesh(10, 40, 48, 12)
+    const wall = positions.subarray(0, Math.round((positions.length / 9) * wallFraction) * 9)
+    const g = buildMeshGraph({ kind: 'soup', positions: wall })
+    const c = meshCentroid(g.positions, g.indices)
+    expect(c.closed).toBe(false)
+    expect(c.volume).toBeNull()
+  })
+
+  it('still calls the capped cylinder closed', () => {
+    const g = buildMeshGraph({ kind: 'soup', positions: cylinderMesh(10, 40, 48, 12).positions })
+    const c = meshCentroid(g.positions, g.indices)
+    expect(c.closed).toBe(true)
+    for (const k of [0, 1, 2]) expect(c.volume![k]).toBeCloseTo(0, 4)
+  })
+
+  it('lets a pinhole pass', () => {
+    // One small triangle of the box's side taken out.
+    const soup = boxMesh(SIZE, GRID)
+    const g = buildMeshGraph({ kind: 'soup', positions: soup.subarray(9) })
+    expect(meshCentroid(g.positions, g.indices).closed).toBe(true)
   })
 })
