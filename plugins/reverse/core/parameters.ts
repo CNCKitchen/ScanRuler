@@ -114,6 +114,25 @@ export function nameProblem(name: string, others: readonly Parameter[], self?: n
 export function evaluateParameters(parameters: readonly Parameter[]): ParameterTable {
   const byName = new Map<string, Parameter>()
   for (const p of parameters) if (!byName.has(p.name)) byName.set(p.name, p)
+  const nameGroups = new Map<string, { first: Parameter; firstWithDifferentId?: Parameter }>()
+  for (const p of parameters) {
+    const key = p.name.toLowerCase()
+    const group = nameGroups.get(key)
+    if (!group) nameGroups.set(key, { first: p })
+    else if (!group.firstWithDifferentId && group.first.id !== p.id) group.firstWithDifferentId = p
+  }
+  const nameProblems = new Map<Parameter, string | null>()
+  for (const p of parameters) {
+    let problem = nameProblem(p.name, [], p.id)
+    if (!problem) {
+      const group = nameGroups.get(p.name.toLowerCase())!
+      const clash = group.first.id === p.id ? group.firstWithDifferentId : group.first
+      if (clash) {
+        problem = nameProblem(p.name, [clash], p.id)
+      }
+    }
+    nameProblems.set(p, problem)
+  }
   const readings = new Map<number, ParameterReading>()
   const visiting: Parameter[] = []
   const looped = new Map<number, string>()
@@ -129,7 +148,7 @@ export function evaluateParameters(parameters: readonly Parameter[]): ParameterT
     }
     visiting.push(p)
     let reading: ParameterReading
-    const problem = nameProblem(p.name, parameters, p.id)
+    const problem = nameProblems.get(p) ?? null
     if (problem) reading = { id: p.id, name: p.name, kind: p.kind, value: null, error: problem }
     else {
       const scope: Scope = (name) => {
