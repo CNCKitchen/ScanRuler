@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assignDimensionRefs,
+  editBand,
   evaluateDimension,
   evaluateDimensions,
   judgeLimit,
@@ -503,6 +504,29 @@ describe('limits', () => {
     expect(v.allowance).toBe('nominal 90.00° +0.50° / −0.50°')
   })
 
+  it('passes a reading printed equal to its limit, and fails one a digit past it', () => {
+    // 12.0504 prints as 12.050: against a top of 12.050 it must not FAIL by
+    // "0.000 mm" (issue 34).
+    const band = { kind: 'band' as const, nominal: 12, plus: 0.05, minus: 0.05 }
+    const edge = judgeLimit(12.0504, band, 'mm')
+    expect(edge.pass).toBe(true)
+    expect(edge.alarm).toBeUndefined()
+    const past = judgeLimit(12.0506, band, 'mm')
+    expect(past.pass).toBe(false)
+    expect(past.alarm).toBe('0.001 mm over the upper limit')
+    expect(judgeLimit(11.9496, band, 'mm').pass).toBe(true)
+    expect(judgeLimit(0.10004, { kind: 'max', max: 0.1 }, 'mm').pass).toBe(true)
+    // Inches print four decimals: 0.00004 in past the limit rounds away,
+    // 0.0001 in does not.
+    const inch = { kind: 'max' as const, max: 2.54 }
+    expect(judgeLimit(2.54 + 0.00004 * 25.4, inch, 'mm', 'in').pass).toBe(true)
+    expect(judgeLimit(2.54 + 0.0001 * 25.4, inch, 'mm', 'in').pass).toBe(false)
+    // Degrees print two.
+    const angle = { kind: 'band' as const, nominal: 90, plus: 0.5, minus: 0.5 }
+    expect(judgeLimit(90.504, angle, '°').pass).toBe(true)
+    expect(judgeLimit(90.51, angle, '°').pass).toBe(false)
+  })
+
   it('rides along with the evaluated dimension, and only where there is a value', () => {
     const elements = [
       { id: 1, name: 'Sphere 1', fit: sphere([0, 0, 0], 1) },
@@ -604,5 +628,40 @@ describe('surface-to-surface ranges', () => {
     expect(r.range![1]).toBeCloseTo(10.2, 9)
     expect(r.detail).toMatch(/min 9\.900 · max 10\.200 mm/)
     expect(evaluateDimension('size-diameter', [sphere([0, 0, 0], 5)]).range).toBeUndefined()
+  })
+})
+
+describe('editBand', () => {
+  it('keeps a minus typed equal to the plus when the plus changes', () => {
+    // +0.1 / −0.05, then − typed 0.1 and + typed 0.2: the band must read
+    // +0.2 / −0.1, not ±0.2 (issue 34).
+    let band = editBand(undefined, { nominal: 12 })
+    band = editBand(band, { plus: 0.1 })
+    expect(band).toMatchObject({ plus: 0.1, minus: 0.1 })
+    band = editBand(band, { minus: 0.05 })
+    band = editBand(band, { minus: 0.1 })
+    band = editBand(band, { plus: 0.2 })
+    expect(band).toMatchObject({ nominal: 12, plus: 0.2, minus: 0.1 })
+  })
+
+  it('lets a blank minus follow the plus', () => {
+    let band = editBand(undefined, { nominal: 5 })
+    band = editBand(band, { plus: 0.1 })
+    band = editBand(band, { plus: 0.3 })
+    expect(band).toMatchObject({ plus: 0.3, minus: 0.3 })
+    // Typed, then emptied: it follows again.
+    band = editBand(band, { minus: 0.05 })
+    band = editBand(band, { minus: undefined })
+    band = editBand(band, { plus: 0.4 })
+    expect(band).toMatchObject({ plus: 0.4, minus: 0.4 })
+    expect(band?.minusTyped).toBeUndefined()
+  })
+
+  it('reads an older band with equal sides as symmetric, and an emptied nominal as no limit', () => {
+    const old = { kind: 'band' as const, nominal: 1, plus: 0.1, minus: 0.1 }
+    expect(editBand(old, { plus: 0.2 })).toMatchObject({ plus: 0.2, minus: 0.2 })
+    const lopsided = { kind: 'band' as const, nominal: 1, plus: 0.1, minus: 0.05 }
+    expect(editBand(lopsided, { plus: 0.2 })).toMatchObject({ plus: 0.2, minus: 0.05 })
+    expect(editBand(old, { nominal: undefined })).toBeUndefined()
   })
 })

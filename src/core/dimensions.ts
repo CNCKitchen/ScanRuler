@@ -25,7 +25,7 @@ import {
 } from './elements/refs'
 import { hasDiameter } from './elements/assumed'
 import { TOLERANCE_TYPES, evaluateTolerance, type ToleranceOptions } from './tolerances'
-import { fmtLen, unitWord, type DisplayUnits } from './units'
+import { fmtLen, fromDisplay, lengthDecimals, unitWord, type DisplayUnits } from './units'
 import {
   acuteAngle,
   add,
@@ -318,7 +318,45 @@ export function assignDimensionRefs(
  */
 export type Limit =
   | { kind: 'max'; max: number }
-  | { kind: 'band'; nominal: number; plus: number; minus: number }
+  | {
+      kind: 'band'
+      nominal: number
+      plus: number
+      minus: number
+      /** The minus was typed, not left blank to follow the plus — so a band
+       *  typed +0.1/−0.1 keeps its −0.1 when the plus changes. Absent on a
+       *  band from an older project or an agent: equal sides then read as
+       *  symmetric. */
+      minusTyped?: true
+    }
+
+export type BandLimit = Extract<Limit, { kind: 'band' }>
+
+/** Whether a band's minus follows its plus: left blank, the usual symmetric
+ *  tolerance. */
+export function bandFollows(band: BandLimit): boolean {
+  return !band.minusTyped && band.minus === band.plus
+}
+
+/** A band after one of its fields was typed. The nominal emptied takes the
+ *  limit off; the minus emptied follows the plus; a band whose minus
+ *  follows keeps following when the plus changes, and one typed keeps its
+ *  own, even when it equals the plus. */
+export function editBand(
+  band: BandLimit | undefined,
+  patch: { nominal?: number | undefined; plus?: number; minus?: number | undefined },
+): BandLimit | undefined {
+  const nominal = 'nominal' in patch ? patch.nominal : band?.nominal
+  if (nominal === undefined) return undefined
+  const plus = patch.plus ?? band?.plus ?? 0
+  if ('minus' in patch) {
+    return patch.minus === undefined
+      ? { kind: 'band', nominal, plus, minus: plus }
+      : { kind: 'band', nominal, plus, minus: patch.minus, minusTyped: true }
+  }
+  if (!band || bandFollows(band)) return { kind: 'band', nominal, plus, minus: plus }
+  return { kind: 'band', nominal, plus, minus: band.minus, minusTyped: true }
+}
 
 /** How a value stands to its limit — the numbers the row, the pin and the
  *  report all print. */
@@ -341,13 +379,21 @@ const inUnit = (v: number, unit: DimensionUnit, units: DisplayUnits): string =>
 const signedInUnit = (v: number, unit: DimensionUnit, units: DisplayUnits): string =>
   `${v >= 0 ? '+' : ''}${inUnit(v, unit, units)}`
 
-/** How a value stands to its limit, the figures written in `units`. */
+/** The last digit a value is shown to, in its own unit (mm or degrees). */
+const shownStep = (unit: DimensionUnit, units: DisplayUnits): number =>
+  unit === '°' ? 0.01 : fromDisplay(10 ** -lengthDecimals(3, units), units)
+
+/** How a value stands to its limit, the figures written in `units`. An
+ *  excess that rounds away at the digits shown is no excess: a reading
+ *  printed equal to its limit passes, rather than failing by "0.000 mm". */
 export function judgeLimit(raw: number, limit: Limit, unit: DimensionUnit, units: DisplayUnits = 'mm'): Verdict {
   const shown = (v: number): string => inUnit(v, unit, units)
   const signed = (v: number): string => signedInUnit(v, unit, units)
+  const half = shownStep(unit, units) / 2
+  const past = (excess: number): number => (Math.abs(excess) < half ? 0 : excess)
   if (limit.kind === 'max') {
     const deviation = raw - limit.max
-    const over = Math.max(0, deviation)
+    const over = past(Math.max(0, deviation))
     return {
       deviation,
       over,
@@ -360,7 +406,7 @@ export function judgeLimit(raw: number, limit: Limit, unit: DimensionUnit, units
   const hi = limit.nominal + limit.plus
   const lo = limit.nominal - limit.minus
   const deviation = raw - limit.nominal
-  const over = raw > hi ? raw - hi : raw < lo ? raw - lo : 0
+  const over = past(raw > hi ? raw - hi : raw < lo ? raw - lo : 0)
   return {
     deviation,
     over,

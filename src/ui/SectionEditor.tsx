@@ -7,7 +7,7 @@
 
 import { describeShadow } from '../core/section/shadow'
 import { useLength } from '../app/useUnits'
-import { useFieldUnits } from './NumberField'
+import { typedFigure, useFieldUnits } from './NumberField'
 import { cutSummary } from '../core/section/slice'
 import {
   isRadialRef,
@@ -200,8 +200,11 @@ export function SectionEditor({
             key={round(radial.angleDeg)}
             defaultValue={round(radial.angleDeg)}
             onBlur={(e) => {
-              const v = Number(e.target.value)
-              if (Number.isFinite(v) && v !== radial.angleDeg) setRef({ ...radial, angleDeg: v })
+              // Text left as shown commits nothing: the field rounds the
+              // angle, and tabbing through it would re-cut the plane there.
+              // Nor does an emptied field or a typo.
+              const v = typedFigure(e.target)
+              if (v !== null && e.target.value !== String(round(radial.angleDeg))) setRef({ ...radial, angleDeg: v })
               e.target.value = String(round(radial.angleDeg))
             }}
             onKeyDown={(e) => {
@@ -231,8 +234,8 @@ export function SectionEditor({
             onBlur={(e) => {
               // Text left as it was shown commits nothing: in inches it is
               // rounded, and committing it back would move the plane.
-              const v = u.read(Number(e.target.value))
-              if (e.target.value !== shownOffset && Number.isFinite(v)) setOffset(v)
+              const typed = typedFigure(e.target)
+              if (e.target.value !== shownOffset && typed !== null) setOffset(u.read(typed))
               e.target.value = shownOffset
             }}
             onKeyDown={(e) => {
@@ -254,8 +257,8 @@ export function SectionEditor({
               key={`play-${shownLen(params.play)}`}
               defaultValue={shownLen(params.play)}
               onBlur={(e) => {
-                const v = u.read(Number(e.target.value))
-                if (e.target.value.trim() !== '' && e.target.value !== shownLen(params.play) && Number.isFinite(v)) setShadow({ play: v })
+                const typed = typedFigure(e.target)
+                if (typed !== null && e.target.value !== shownLen(params.play)) setShadow({ play: u.read(typed) })
                 e.target.value = shownLen(shadowParams(useStore.getState().sectionDraft ?? {}).play)
               }}
               onKeyDown={(e) => {
@@ -274,8 +277,8 @@ export function SectionEditor({
               key={`tol-${shownLen(params.tolerance)}`}
               defaultValue={shownLen(params.tolerance)}
               onBlur={(e) => {
-                const v = u.read(Number(e.target.value))
-                if (e.target.value !== shownLen(params.tolerance) && Number.isFinite(v) && v > 0) setShadow({ tolerance: v })
+                const typed = typedFigure(e.target)
+                if (typed !== null && e.target.value !== shownLen(params.tolerance) && typed > 0) setShadow({ tolerance: u.read(typed) })
                 e.target.value = shownLen(shadowParams(useStore.getState().sectionDraft ?? {}).tolerance)
               }}
               onKeyDown={(e) => {
@@ -295,8 +298,8 @@ export function SectionEditor({
               key={`smooth-${params.smoothDeg}`}
               defaultValue={params.smoothDeg}
               onBlur={(e) => {
-                const v = Number(e.target.value)
-                if (e.target.value.trim() !== '' && Number.isFinite(v) && v >= 0) setShadow({ smoothDeg: v })
+                const v = typedFigure(e.target)
+                if (v !== null && v >= 0) setShadow({ smoothDeg: v })
                 e.target.value = String(shadowParams(useStore.getState().sectionDraft ?? {}).smoothDeg)
               }}
               onKeyDown={(e) => {

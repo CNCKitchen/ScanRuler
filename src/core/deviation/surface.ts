@@ -145,6 +145,8 @@ export class NominalSurface {
 
   private bvh: MeshBVH
   private faceNormal: Float32Array
+  /** 1 for a face of no area, left out of the pseudonormals. */
+  private degenerate: Uint8Array
   private vertexNormal: Float32Array
   private edgeNormal: Float32Array
   /** Unique edges in CSR form, bucketed by the smaller vertex index: bucket v
@@ -184,6 +186,7 @@ export class NominalSurface {
     this.bboxDiagonal = box.min.distanceTo(box.max)
 
     this.faceNormal = new Float32Array(this.triangleCount * 3)
+    this.degenerate = new Uint8Array(this.triangleCount)
     this.vertexNormal = new Float32Array(this.vertexCount * 3)
     this.buildFaceAndVertexNormals()
     const edges = this.buildEdgeTable()
@@ -219,14 +222,22 @@ export class NominalSurface {
       let ny = uz * vx - ux * vz
       let nz = ux * vy - uy * vx
       const len = Math.hypot(nx, ny, nz)
-      if (len > 1e-20) {
+      // A triangle of no area — three corners on a line, as tessellators
+      // leave along seams — has no normal of its own. Its stand-in (+Z) must
+      // not reach its corners' and edges' pseudonormals: at the middle corner
+      // it subtends 180° and would outweigh the real faces, turning the sign
+      // next to it (issue 34). Its sides are still sides of real faces.
+      const degenerate = !(len > 1e-20 && len > 1e-6 * Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz))
+      if (!degenerate) {
         nx /= len; ny /= len; nz /= len
       } else {
-        nz = 1
+        nx = 0; ny = 0; nz = 1
+        this.degenerate[f] = 1
       }
       this.faceNormal[f * 3] = nx
       this.faceNormal[f * 3 + 1] = ny
       this.faceNormal[f * 3 + 2] = nz
+      if (degenerate) continue
 
       // Vertex pseudonormal: weighted by the angle the face subtends there, so
       // the result is independent of how finely the surface is triangulated.
@@ -299,6 +310,7 @@ export class NominalSurface {
 
     const normals = new Float32Array(offsets[vcount] * 3)
     for (let f = 0; f < this.triangleCount; f++) {
+      if (this.degenerate[f]) continue
       const ia = idx[f * 3], ib = idx[f * 3 + 1], ic = idx[f * 3 + 2]
       const nx = this.faceNormal[f * 3]
       const ny = this.faceNormal[f * 3 + 1]

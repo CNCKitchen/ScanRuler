@@ -11,7 +11,7 @@ import { useStore } from '../state/store'
 import { Icon } from './icons'
 import { providersFor } from './RefSelect'
 import { PlaneRefOptions } from './SectionEditor'
-import { useFieldUnits } from './NumberField'
+import { typedFigure, useFieldUnits } from './NumberField'
 
 export function SectionViewKeys({ viewDirection }: { viewDirection: () => Vec3 }) {
   const ref = useSectionView((s) => s.ref)
@@ -63,8 +63,8 @@ export function SectionViewKeys({ viewDirection }: { viewDirection: () => Vec3 }
           onBlur={(e) => {
             // Text left as it was shown commits nothing: in inches it is
             // rounded, and committing it back would move the plane.
-            const v = u.read(Number(e.target.value))
-            if (e.target.value !== u.text(round(offset)) && Number.isFinite(v)) setOffset(v)
+            const typed = typedFigure(e.target)
+            if (e.target.value !== u.text(round(offset)) && typed !== null) setOffset(u.read(typed))
             e.target.value = u.text(round(useSectionView.getState().offset))
           }}
           onKeyDown={(e) => {

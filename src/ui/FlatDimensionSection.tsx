@@ -22,6 +22,7 @@ import { RefSelect } from './RefSelect'
 import { DimDraftHead } from './DimensionSection'
 import { sheetUnits } from '../core/flat/summary'
 import { useUnits } from '../app/useUnits'
+import { sheetFrame } from '../app/flatSheet'
 
 export function FlatDimensionSection({
   editorOpen,
@@ -51,7 +52,12 @@ export function FlatDimensionSection({
   const units = useUnits()
   const scaled = useFlat((s) => s.pxPerMm !== null)
   const su = sheetUnits(scaled ? 'mm' : 'px', units) // units-ok: the sheet's document unit, an id
-  const evaluated = useMemo(() => evaluateFlatDimensions(dimensions, elements, su), [dimensions, elements, su])
+  // ΔX and ΔY read along the alignment, as the coordinates do.
+  const pxPerMm = useFlat((s) => s.pxPerMm)
+  const datum = useFlat((s) => s.datum)
+  const mirror = useFlat((s) => s.mirror)
+  const frame = useMemo(() => sheetFrame({ pxPerMm, datum, mirror }), [pxPerMm, datum, mirror])
+  const evaluated = useMemo(() => evaluateFlatDimensions(dimensions, elements, su, frame), [dimensions, elements, su, frame])
 
   // Live preview of the dimension being built, once both slots hold something.
   const dimInfo = dimDraft ? flatDimensionTypeInfo(dimDraft.type) : null
@@ -59,7 +65,7 @@ export function FlatDimensionSection({
   if (dimDraft && dimInfo && dimDraft.refs.every((r) => r !== null)) {
     const fits = dimDraft.refs.map((id) => elements.find((e) => e.id === id)?.fit)
     dimPreview = fits.every((f): f is FlatFit => f !== undefined && f !== null)
-      ? evaluateFlatDimension(dimDraft.type, fits, su)
+      ? evaluateFlatDimension(dimDraft.type, fits, su, frame)
       : { label: dimInfo.label, invalid: 'A referenced element is unavailable.' }
   }
   const measurable = elements.filter((e) => e.fit).length

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from 'vitest'
-import { meshUnitsOf, mmPerUnit, unitsLabel } from '../src/core/meshUnits'
+import { fileScale, meshUnitsOf, mmPerUnit, unitsLabel } from '../src/core/meshUnits'
 import { usePrefs } from '../src/state/prefsStore'
 import { askMeshUnits, meshUnitsFor, useUnitsPrompt } from '../src/state/unitsPromptStore'
 import { tick } from './helpers'
@@ -66,5 +66,20 @@ describe('the units question', () => {
     useUnitsPrompt.getState().answer('m', false)
     await expect(second).resolves.toBe('m')
     expect(useUnitsPrompt.getState().request).toBeNull()
+  })
+})
+
+describe('fileScale', () => {
+  it('scales a mesh file by its units and its true-size factor', () => {
+    expect(fileScale('part.stl', 'in')).toBe(25.4)
+    expect(fileScale('part.obj', 'm', 0.5)).toBe(500)
+  })
+
+  it('leaves a STEP in the millimetres the kernel hands it over in', () => {
+    // An agent's units "in" made a STEP 25.4 times too big (issue 34).
+    expect(fileScale('part.step', 'in')).toBe(1)
+    expect(fileScale('PART.STP', 'cm')).toBe(1)
+    // A scan scaled to its true size keeps that factor.
+    expect(fileScale('scan.step', 'in', 1.02)).toBe(1.02)
   })
 })

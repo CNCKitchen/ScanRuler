@@ -239,11 +239,17 @@ export function closestFacingWay(
  * skin of a thin wall and not the other, as many points lie a wall away,
  * facing back at it, as lie on it, and only the ones on it say how the scan
  * is wound.
+ *
+ * Without `near` the scan sets its own: the distance a fifth of the voters
+ * lie within, which is the scan on the surface's own spread as long as more
+ * than a fifth of it lies there. An unweighted vote let a fixture or the
+ * far side of a wall, if enough of it was scanned, turn every reading the
+ * wrong way round (issue 34).
  */
 export function scanNormalsSign(
   surface: NominalSurface,
-  positions: Float32Array,
-  normals: Float32Array,
+  positions: Float32Array | Float64Array,
+  normals: Float32Array | Float64Array,
   transform: Rigid,
   { vertices, near }: { vertices?: ArrayLike<number>; near?: number } = {},
 ): 1 | -1 {
@@ -252,15 +258,24 @@ export function scanNormalsSign(
   const hit = emptyHit()
   const p = new Float64Array(3)
   const sn = new Float64Array(3)
-  let agreement = 0
+  const distances: number[] = []
+  const agreements: number[] = []
   for (let i = 0; i < n; i += step) {
     const v = vertices ? vertices[i] : i
     rigidApply(transform, positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2], p)
     if (!surface.closest(p[0], p[1], p[2], hit)) continue
     rigidRotate(transform, normals[v * 3], normals[v * 3 + 1], normals[v * 3 + 2], sn)
-    const weight = near ? 1 / (1 + (hit.distance / near) ** 2) : 1
-    agreement += weight * (sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz)
+    distances.push(hit.distance)
+    agreements.push(sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz)
   }
+  if (distances.length === 0) return 1
+  let scale = near
+  if (scale === undefined) {
+    const sorted = Float64Array.from(distances).sort()
+    scale = Math.max(sorted[Math.floor(sorted.length / 5)], surface.bboxDiagonal * 1e-5)
+  }
+  let agreement = 0
+  for (let i = 0; i < distances.length; i++) agreement += agreements[i] / (1 + (distances[i] / scale) ** 2)
   return agreement < 0 ? -1 : 1
 }
 

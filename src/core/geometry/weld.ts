@@ -21,18 +21,22 @@ export function weldTriangleSoup(
 
   for (let i = 0; i < vertCount; i++) {
     const j = i * 3
-    const bx = bits[j]
-    const by = bits[j + 1]
-    const bz = bits[j + 2]
+    // −0.0 and 0.0 are one coordinate with two bit patterns; compared raw
+    // they did not weld, and left a crack along the plane through zero
+    // (issue 34). Both are taken as +0.
+    const bx = bits[j] === NEG_ZERO ? 0 : bits[j]
+    const by = bits[j + 1] === NEG_ZERO ? 0 : bits[j + 1]
+    const bz = bits[j + 2] === NEG_ZERO ? 0 : bits[j + 2]
     let h = hash3(bx, by, bz) & mask
     for (;;) {
       const slot = table[h]
       if (slot === -1) {
         table[h] = outCount
         const o = outCount * 3
-        outPos[o] = soup[j]
-        outPos[o + 1] = soup[j + 1]
-        outPos[o + 2] = soup[j + 2]
+        // + 0 turns −0 into +0, so the bits kept match the ones compared.
+        outPos[o] = soup[j] + 0
+        outPos[o + 1] = soup[j + 1] + 0
+        outPos[o + 2] = soup[j + 2] + 0
         indices[i] = outCount
         outCount++
         break
@@ -51,6 +55,9 @@ export function weldTriangleSoup(
 
   return { positions: outPos.slice(0, outCount * 3), indices }
 }
+
+/** The bit pattern of −0.0 as a float32. */
+const NEG_ZERO = 0x80000000
 
 function hash3(a: number, b: number, c: number): number {
   let h = Math.imul(a, 0x9e3779b1)

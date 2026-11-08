@@ -70,7 +70,7 @@ import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { VolumeLayer } from './volumeLayer'
-import { clusterIndices, MotionLatch } from './lod'
+import { clusterIndices, MotionLatch, SlowMotion } from './lod'
 import type { VolumeDeviation } from '../core/deviation/volume'
 
 declare module 'three' {
@@ -482,6 +482,8 @@ export class SceneManager {
 
   /** The scan's coarse stand-in while the camera moves — see lod.ts. */
   private lodLatch = new MotionLatch()
+  /** Whether this scan turns slowly enough at full detail to want the proxy. */
+  private lodSlow = new SlowMotion()
   private lodCache: { geometry: THREE.BufferGeometry; position: ArrayLike<number>; index: ArrayLike<number>; proxy: THREE.Mesh | null } | null = null
   private lodShown: { proxy: THREE.Mesh; geometry: THREE.BufferGeometry } | null = null
 
@@ -3427,8 +3429,12 @@ export class SceneManager {
    *  once it settles — see lod.ts. The full mesh is kept, only not drawn:
    *  its draw range is emptied, so picks still go through it. */
   private stepLod(): void {
-    const moving = this.lodLatch.update(this.camera.matrixWorld.elements, performance.now())
-    const want = moving && this.mesh ? this.lodProxyFor(this.mesh) : null
+    const now = performance.now()
+    const moving = this.lodLatch.update(this.camera.matrixWorld.elements, now)
+    // Only once the full scan has been seen to turn slowly: on a machine
+    // that keeps up, the swap is a distraction for nothing.
+    const slow = this.mesh !== null && this.lodSlow.note(now, this.lodLatch.changed)
+    const want = moving && slow && this.mesh ? this.lodProxyFor(this.mesh) : null
     // `?? null`: with no proxy shown and none wanted, undefined against null
     // would count as a change and invalidate every frame.
     if (want === (this.lodShown?.proxy ?? null)) return
@@ -3459,7 +3465,14 @@ export class SceneManager {
     const c = this.lodCache
     if (c && c.geometry === geometry && c.position === position.array && c.index === index.array) return c.proxy
     this.dropLod()
-    const cut = clusterIndices(position.array as Float32Array, index.array as Uint32Array)
+    // The normals keep a thin wall's two skins apart — see clusterIndices.
+    const normal = geometry.getAttribute('normal')
+    const cut = clusterIndices(
+      position.array as Float32Array,
+      index.array as Uint32Array,
+      undefined,
+      normal ? (normal.array as Float32Array) : null,
+    )
     let proxy: THREE.Mesh | null = null
     if (cut) {
       const shell = new THREE.BufferGeometry()
@@ -3492,6 +3505,8 @@ export class SceneManager {
 
   private disposeMesh(): void {
     this.dropLod()
+    // A new scan is timed afresh.
+    this.lodSlow.reset()
     this.setEditedMesh(null)
     this.regions.detach()
     this.marking.meshDisposed()

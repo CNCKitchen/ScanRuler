@@ -5,6 +5,7 @@
 // results rather than throwing, so a broken reference never takes the panel
 // down. Every element acts as a point or a line (see flat/refs.ts).
 
+import type { FlatFrame } from './datum'
 import { flatRefLine, flatRefPoint, type FlatRefRole } from './refs'
 import type { FlatFit, Vec2 } from './types'
 import { acuteAngle2, dot2, footOnLine2, len2, scale2, sub2 } from './vec2'
@@ -113,13 +114,21 @@ const deg = (v: number): string => `${v.toFixed(2)}°`
 
 const invalid = (label: string, why: string): FlatDimensionValue => ({ label, invalid: why })
 
-function deltaDetail(a: Vec2, b: Vec2, su: SheetUnits): string {
+/** ΔX and ΔY from `a` to `b`, along the axes the sheet reads in: the
+ *  datum's when it is aligned — as every coordinate on it is — and the
+ *  document's otherwise. Read off the image axes they disagreed with the
+ *  aligned coordinates beside them, and ΔY ran the wrong way on a mirrored
+ *  sheet (issue 34). */
+function deltaDetail(a: Vec2, b: Vec2, su: SheetUnits, frame: FlatFrame | null): string {
+  const d = sub2(b, a)
+  const dx = frame ? d[0] * frame.xDir[0] + d[1] * frame.xDir[1] : d[0]
+  const dy = frame ? d[0] * frame.yDir[0] + d[1] * frame.yDir[1] : d[1]
   const f = (v: number) => {
     const s = sheetLength(v, su, 3, { bare: true })
     // A delta a hair under zero must not print as "-0.000".
     return Number(s) === 0 ? `+${s.replace('-', '')}` : v >= 0 ? `+${s}` : s
   }
-  return `ΔX ${f(b[0] - a[0])} · ΔY ${f(b[1] - a[1])} ${sheetWord(su)}`
+  return `ΔX ${f(dx)} · ΔY ${f(dy)} ${sheetWord(su)}`
 }
 
 /**
@@ -127,7 +136,13 @@ function deltaDetail(a: Vec2, b: Vec2, su: SheetUnits): string {
  * its references, in slot order. Lengths are written in `units`: the
  * display units on a sheet in millimetres, 'px' on one with no scale.
  */
-export function evaluateFlatDimension(type: string, fits: readonly FlatFit[], units: SheetUnits = 'mm'): FlatDimensionValue {
+export function evaluateFlatDimension(
+  type: string,
+  fits: readonly FlatFit[],
+  units: SheetUnits = 'mm',
+  /** The sheet's alignment, which ΔX and ΔY read along; see sheetFrame. */
+  frame: FlatFrame | null = null,
+): FlatDimensionValue {
   const mm = (v: number): string => sheetLength(v, units)
   switch (type) {
     case 'flat-dist-point-point': {
@@ -140,7 +155,7 @@ export function evaluateFlatDimension(type: string, fits: readonly FlatFit[], un
         value: mm(d),
         raw: d,
         segment: [a, b],
-        detail: deltaDetail(a, b, units),
+        detail: deltaDetail(a, b, units, frame),
       }
     }
 
@@ -247,13 +262,14 @@ export function evaluateFlatDimensions(
   elements: readonly FlatNamedGeometry[],
   /** What lengths are written in — see evaluateFlatDimension. */
   units: SheetUnits = 'mm',
+  frame: FlatFrame | null = null,
 ): EvaluatedFlat[] {
   return dims.map((dim) => {
     const els = dim.refs.map((id) => elements.find((e) => e.id === id))
     const title = els.map((e) => e?.name ?? '?').join(' → ')
     const fits = els.map((e) => e?.fit)
     const value = fits.every((f): f is FlatFit => f !== undefined && f !== null)
-      ? evaluateFlatDimension(dim.type, fits, units)
+      ? evaluateFlatDimension(dim.type, fits, units, frame)
       : {
           label: flatDimensionTypeInfo(dim.type).label,
           invalid: 'A referenced element is unavailable.',

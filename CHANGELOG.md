@@ -5,6 +5,66 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **A huge scan is drawn whole while it turns, unless it turns slowly**
+  (2026-11-08). The coarser copy 0.9.10 drew while the view moves, for every
+  scan of more than 400,000 triangles, made the part flicker between two
+  looks. It is now drawn only once the full scan has been seen to turn at
+  under 20 frames a second, and then for that scan until another is opened.
+- **No black specks on a huge scan while the view turns** (2026-11-08).
+  The coarser copy a scan of more than 400,000 triangles is drawn from while
+  the view moves (new in 0.9.10) showed black specks all over the part until
+  the view held still. On a thin wall it built triangles of one skin on
+  corners of the other, lit from inside the part, and elsewhere it turned
+  some triangles over. The copy now keeps the two sides of a wall apart and
+  every triangle facing the way the scan does.
+- **A reading shown equal to its limit passes** (2026-11-08, issue 34). A
+  value printed as 12.050 mm against a top limit of 12.050 mm could still
+  FAIL, by "0.000 mm", because the verdict judged the digits the screen
+  leaves off. An excess that rounds away at the digits shown (three in
+  millimetres, four in inches, two in degrees) now passes. Thanks to Jozkah.
+- **A minus tolerance typed equal to the plus stays put** (2026-11-08, issue
+  34). Typing − the same as + made the band read as symmetric, so the next
+  change to + dragged − along: +0.1 / −0.05, with − typed 0.1 and then +
+  typed 0.2, ended as ±0.2 and could pass a part that was out. A typed minus
+  is now kept as typed; one left empty still follows the plus. A typo in a
+  limit field goes back to the value held, instead of taking the limit or
+  the whole band off. Thanks to Jozkah.
+- **Emptying a number field no longer sets it to zero** (2026-11-08, issue
+  34). Clearing a field and leaving it committed 0: a section's offset or
+  angle, a shadow's play, an extended side. An emptied field, or one holding
+  a typo, now goes back to its value. Tabbing through the section's angle
+  no longer re-cuts the plane at the rounded figure. Thanks to Jozkah.
+- **The deviation map's sign holds against fixtures and far walls**
+  (2026-11-08, issue 34). Which way an open scan's normals point was settled
+  by a vote of all its points alike, so a fixture, or the far side of a
+  wall, scanned in large enough amounts turned every reading the wrong way
+  round. Points now vote by how close they lie to the reference.
+  Triangles of no area in the reference, as a CAD export leaves along a
+  seam, no longer turn the sign beside them. Thanks to Jozkah.
+- **An inside-out scan aligns** (2026-11-08, issue 34). A scan too open for
+  its winding to be settled could match nothing, or settle upside down on
+  the part's opposite faces, and still say "Aligned". The automatic best fit
+  now tries the scan wound both ways and keeps the one that places it, which
+  makes it about a sixth slower; a fit that matches no point says so instead
+  of reporting success. Thanks to Jozkah.
+- **A STEP opened with units asked comes in at its size** (2026-11-08, issue
+  34). A STEP states its own units and arrives in millimetres; opening one
+  with units "in", as an agent can, made it 25.4 times too big. Thanks to
+  Jozkah.
+- **Midplane of two tilted planes lies on their bisector** (2026-11-08,
+  issue 34). Between planes that are not parallel, the midplane passed
+  through the midpoint of the two patches, off the plane halfway between
+  them. Thanks to Jozkah.
+- **2D ΔX and ΔY follow the alignment** (2026-11-08, issue 34). On a sheet
+  aligned to a datum the point-to-point deltas still read along the image's
+  axes, unlike every coordinate beside them, and ΔY ran the wrong way on a
+  mirrored sheet. Thanks to Jozkah.
+- **STL files that write zero as −0 weld whole** (2026-11-08, issue 34).
+  −0.0 and 0.0 were taken for different corners, which left a crack along
+  every plane through zero. Thanks to Jozkah.
+
 ## 0.9.10 — 2026-11-08
 
 - **A bore's cone point exports as a clean mesh** (2026-11-08, pull request

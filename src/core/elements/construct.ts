@@ -535,8 +535,15 @@ export function evaluateConstruction(
       // Opposing faces have opposing normals; align B to A so the average
       // means something either way.
       const nb: Vec3 = dot(pa.normal, pb.normal) < 0 ? scale(pb.normal, -1) : pb.normal
-      const normal = normalize(add(pa.normal, nb))!
-      const center = mid(pa.center, pb.center)
+      // The plane every point of which lies as far from A as from B, on
+      // opposite sides: na·(x − ca) + nb·(x − cb) = 0. Its centre is the
+      // midpoint of the patch centres brought onto it — that midpoint itself
+      // lies on it only when the planes are parallel (issue 34).
+      const sum = add(pa.normal, nb)
+      const normal = normalize(sum)!
+      const m = mid(pa.center, pb.center)
+      const off = (dot(sum, m) - dot(pa.normal, pa.center) - dot(nb, pb.center)) / Math.hypot(...sum)
+      const center = addScaled(m, normal, -off)
       const u = normalize(addScaled(pa.basisU, normal, -dot(pa.basisU, normal)))
       const basisU = u ?? orthoBasis(normal)[0]
       const basisV = cross(normal, basisU)

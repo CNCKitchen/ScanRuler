@@ -7,7 +7,7 @@
 
 import { InfoDot } from './InfoDot'
 import { useLength } from '../app/useUnits'
-import { useFieldUnits } from './NumberField'
+import { typedFigure, useFieldUnits } from './NumberField'
 import { useStore } from '../state/store'
 import {
   extendedSpans,
@@ -165,8 +165,9 @@ function SideField({
         onBlur={(e) => {
           // Text left as it was shown commits nothing: in inches it is
           // rounded, and committing it back would move the edge.
-          const v = u.read(Number(e.target.value))
-          if (e.target.value !== shown && Number.isFinite(v)) onCommit(v)
+          // An emptied field or a typo commits nothing.
+          const typed = typedFigure(e.target)
+          if (e.target.value !== shown && typed !== null) onCommit(u.read(typed))
           // Rewrite the text either way: a commit the store clamps back to
           // the value already held re-renders nothing, and the rejected text
           // would otherwise stay. A changed value re-keys the input over this.

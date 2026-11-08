@@ -7,6 +7,7 @@ import {
 } from '../src/core/flat/dimensions'
 import { fitCirclePoints, fitLinePoints, flatPoint } from '../src/core/flat/fit'
 import { flatRoleOf } from '../src/core/flat/refs'
+import { datumFrame } from '../src/core/flat/datum'
 
 describe('the flat dimension table', () => {
   it('has unique ids and two slots everywhere', () => {
@@ -42,6 +43,24 @@ describe('point – point', () => {
     expect(v.detail).toContain('ΔX +9.000')
     expect(v.detail).toContain('ΔY +0.000') // never "-0.000", however the floats land
     expect(v.segment).toBeDefined()
+  })
+
+  it('reads the deltas along the datum, the way the coordinates read', () => {
+    // A datum along the sheet's diagonal: two points 10 apart along it read
+    // ΔX 10, ΔY 0 — not 7.071 and 7.071 in image axes (issue 34).
+    const frame = datumFrame({ originPx: [0, 0], xRefPx: [1, 1] }, null)
+    const a = flatPoint([2, 2])
+    const b = flatPoint([2 + 10 / Math.SQRT2, 2 + 10 / Math.SQRT2])
+    const v = evaluateFlatDimension('flat-dist-point-point', [a, b], 'mm', frame)
+    expect(v.detail).toContain('ΔX +10.000')
+    expect(v.detail).toContain('ΔY +0.000')
+    // Mirrored, the frame's +Y is a quarter turn the other way: a step up
+    // the sheet as scanned reads as a step down the frame.
+    const up = flatPoint([0, 5])
+    const plain = datumFrame({ originPx: [0, 0], xRefPx: [1, 0] }, null)
+    const mirrored = datumFrame({ originPx: [0, 0], xRefPx: [1, 0] }, null, true)
+    expect(evaluateFlatDimension('flat-dist-point-point', [flatPoint([0, 0]), up], 'mm', plain).detail).toContain('ΔY +5.000')
+    expect(evaluateFlatDimension('flat-dist-point-point', [flatPoint([0, 0]), up], 'mm', mirrored).detail).toContain('ΔY -5.000')
   })
 
   it('is invalid against a line', () => {

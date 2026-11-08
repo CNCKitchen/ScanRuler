@@ -6,7 +6,7 @@
 // millimetres and typed in the display units.
 
 import { useRef } from 'react'
-import type { DimensionFamily, DimensionUnit, Limit } from '../core/dimensions'
+import { bandFollows, editBand, type DimensionFamily, type DimensionUnit, type Limit } from '../core/dimensions'
 import { InfoDot } from './InfoDot'
 import { useFieldUnits } from './NumberField'
 
@@ -51,6 +51,12 @@ export function OptionalNumber({
         key={shown}
         onBlur={(e) => {
           const text = e.target.value.trim()
+          // A typo ("0.1.2", "1e") reads as empty to a number input: it goes
+          // back to what is held instead of taking the limit off.
+          if (e.target.validity.badInput) {
+            e.target.value = shown
+            return
+          }
           if (text === '') {
             onCommit(undefined)
             return
@@ -115,24 +121,7 @@ export function LimitFields({
     )
   }
   const band = limit?.kind === 'band' ? limit : undefined
-  const set = (patch: Partial<{ nominal: number | undefined; plus: number; minus: number | undefined }>) => {
-    const nominal = 'nominal' in patch ? patch.nominal : band?.nominal
-    if (nominal === undefined) {
-      onChange(undefined)
-      return
-    }
-    const plus = patch.plus ?? band?.plus ?? 0
-    // A minus left blank follows the plus: the usual symmetric tolerance. A
-    // band that was symmetric stays so when the plus changes; one typed
-    // asymmetric keeps its own minus.
-    const minus =
-      'minus' in patch
-        ? (patch.minus ?? plus)
-        : band && band.minus !== band.plus
-          ? band.minus
-          : plus
-    onChange({ kind: 'band', nominal, plus, minus })
-  }
+  const set = (patch: Parameters<typeof editBand>[1]) => onChange(editBand(band, patch))
   return (
     <>
       <label className="field">
@@ -178,7 +167,7 @@ export function LimitFields({
             />
             <b>−</b>
             <OptionalNumber
-              value={band.minus === band.plus ? undefined : band.minus}
+              value={bandFollows(band) ? undefined : band.minus}
               placeholder={fieldText(band.plus)}
               step={step}
               min={0}

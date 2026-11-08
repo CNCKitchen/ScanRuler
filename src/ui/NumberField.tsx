@@ -47,6 +47,17 @@ export function useFieldUnits(kind: 'length' | undefined, unit: string | undefin
   return kind === 'length' ? lengthField(units) : plain(unit ?? '')
 }
 
+/** The figure a number input holds as typed, or null when it holds none:
+ *  emptied, or text the browser can't read as a number ("0.1.2", "1e"),
+ *  which a number input reports as empty too. Number('') is 0, so reading
+ *  the value straight would commit a cleared field as zero. */
+export function typedFigure(input: HTMLInputElement): number | null {
+  const text = input.value.trim()
+  if (text === '' || input.validity.badInput) return null
+  const v = Number(text)
+  return Number.isFinite(v) ? v : null
+}
+
 /**
  * The bare input of a number committed on blur or Enter, for a field laid
  * out by its caller. A field that takes each keystroke and clamps or drops
@@ -78,10 +89,11 @@ export function NumberInput({
       key={shown}
       onBlur={(e) => {
         const typed = e.target.value.trim()
-        if (typed !== shown) {
-          const v = Number(typed)
+        // A typo goes back to what is held rather than reading as emptied.
+        if (typed !== shown && !e.target.validity.badInput) {
+          const v = typedFigure(e.target)
           if (typed === '') onCommit(null)
-          else if (Number.isFinite(v)) onCommit(v)
+          else if (v !== null) onCommit(v)
         }
         // As NumberField: the text the store did not take goes back to
         // what it holds; a commit it took re-keys the input over this.
@@ -145,8 +157,10 @@ export function NumberField({
           onBlur={(e) => {
             // Text left as it was shown commits nothing: in inches the shown
             // figure is rounded, and committing it back would move the value.
-            if (e.target.value !== shown) {
-              const v = u.read(Number(e.target.value))
+            // An emptied field or a typo commits nothing either.
+            const typed = typedFigure(e.target)
+            if (e.target.value !== shown && typed !== null) {
+              const v = u.read(typed)
               if (Number.isFinite(v) && v >= min) onCommit(v)
             }
             // Rewrite the text either way: when the store clamps the commit

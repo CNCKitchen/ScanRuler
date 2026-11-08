@@ -176,6 +176,23 @@ describe('plane constructions', () => {
     expect(Math.abs(p.normal[2])).toBeCloseTo(1, 9)
   })
 
+  it('puts the midplane of two tilted faces on their bisector', () => {
+    // A wedge: the bottom z = 0, the top tilted 20° about the Y axis through
+    // x = 0, its patch out at x = 30 (z ≈ 10.9). The patch centres' midpoint
+    // lies off the bisector; every point of the midplane must stand as far
+    // from one face as from the other (issue 34).
+    const t = (20 * Math.PI) / 180
+    const bottom = planeZ([5, 0, 0], [0, 0, -1], [1, 0, 0], [0, -1, 0])
+    const n: Vec3 = [-Math.sin(t), 0, Math.cos(t)]
+    const top = planeZ([30 * Math.cos(t), 0, 30 * Math.sin(t)], n, [Math.cos(t), 0, Math.sin(t)], [0, 1, 0])
+    const p = evaluateConstruction('plane-midplane', [top, bottom], [], SIZE) as PlaneFit
+    const dist = (q: PlaneFit, x: Vec3) => Math.abs(q.normal.reduce((s, c, i) => s + c * (x[i] - q.center[i]), 0))
+    for (const [u, v] of [[0, 0], [10, 0], [-8, 5], [3, -12]]) {
+      const x: Vec3 = [0, 1, 2].map((i) => p.center[i] + u * p.basisU[i] + v * p.basisV[i]) as Vec3
+      expect(dist(top, x)).toBeCloseTo(dist(bottom, x), 9)
+    }
+  })
+
   it('refuses a midplane between perpendicular planes', () => {
     const upright = planeZ([0, 0, 10], [0, 0, 1], [1, 0, 0], [0, 1, 0])
     const side = planeZ([5, 0, 5], [1, 0, 0], [0, 1, 0], [0, 0, 1])

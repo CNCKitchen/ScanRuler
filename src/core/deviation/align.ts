@@ -11,6 +11,7 @@
 import { symmetricEigen3 } from '../fit/linalg'
 import type { Vec3 } from '../types'
 import { absoluteOrientation } from './absoluteOrientation'
+import { scanNormalsSign } from './deviation'
 import { icpSteps, sampleScan, type IcpPool, type ScanSamples } from './icp'
 import { preAlignCandidates, principalFrame } from './prealign'
 import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
@@ -85,15 +86,49 @@ const FINE_ITERATIONS = 70
 /** Below this the two best starts are effectively tied. */
 const AMBIGUITY_MARGIN = 1.25
 
+/** Every `every`-th of the samples. */
+function thinned(samples: ScanSamples, every: number): ScanSamples {
+  const count = Math.ceil(samples.count / every)
+  const xyz = new Float64Array(count * 3)
+  const normals = samples.normals ? new Float64Array(count * 3) : null
+  for (let i = 0; i < count; i++) {
+    const j = i * every
+    xyz.set(samples.xyz.subarray(j * 3, j * 3 + 3), i * 3)
+    normals?.set(samples.normals!.subarray(j * 3, j * 3 + 3), i * 3)
+  }
+  return { xyz, normals, count }
+}
+
+/** The samples with their normals flipped. */
+function flipped(samples: ScanSamples): ScanSamples {
+  return samples.normals ? { ...samples, normals: samples.normals.map((v) => -v) } : samples
+}
+
+/**
+ * The samples with their normals pointing out of the material, as the
+ * reference's do, judged at `pose`. A scan too open for its winding to be
+ * settled on loading can come in inside-out, and then every pair fails the
+ * facing test: the fit matched nothing and still said "Aligned" (issue 34).
+ * Only asked where the pose is roughly right, which is where the vote holds.
+ */
+function outwardSamples(surface: NominalSurface, samples: ScanSamples, pose: Rigid): ScanSamples {
+  if (!samples.normals || samples.count === 0) return samples
+  return scanNormalsSign(surface, samples.xyz, samples.normals, pose) === 1 ? samples : flipped(samples)
+}
+
 function* fine(
   surface: NominalSurface,
-  samples: ScanSamples,
+  given: ScanSamples,
   start: Rigid,
   source: AlignSource,
   ambiguous: boolean,
   options: AlignOptions,
+  /** Settle the samples' winding at `start` first; the automatic fit has
+   *  settled it already. */
+  orient = true,
 ): Steps<AlignResult> {
   const { onProgress, onTransform } = options
+  const samples = orient ? outwardSamples(surface, given, start) : given
   const r = yield* icpSteps(surface, samples, start, {
     maxIterations: FINE_ITERATIONS,
     rejectMedianFactor: 3,
@@ -110,6 +145,11 @@ function* fine(
           }
         : undefined,
   })
+  if (r.matched === 0) {
+    throw new Error(
+      'No scan point found reference surface facing its way, so the scan was left where it was. Check that the scan and the reference are the same part, or pick a few point pairs to start from.',
+    )
+  }
   return {
     transform: r.transform,
     source,
@@ -165,17 +205,35 @@ export function* autoAlignSteps(
   // Screen all of them briefly, then spend real iterations only on the few
   // that are heading somewhere — 24 candidates run to convergence would cost
   // several times what the final fit does, for no better answer.
+  //
+  // Each start is screened with the scan wound both ways. A scan too open for
+  // its winding to be settled on loading can come in inside-out, and the
+  // facing test (normals not opposed) then drops every pair at the right
+  // pose — while a wrong one, the part turned over onto its opposite faces,
+  // matches part of it exactly. The fit took that and said "Aligned"
+  // (issue 34). The score is a mean over every sample, so the winding that
+  // places the whole scan wins. The other winding is screened on a quarter
+  // of the samples — the mean reads the same off a quarter, at a quarter of
+  // the cost, for a case that is rare.
+  const turned = coarse.normals ? flipped(coarse) : null
+  const windings = turned
+    ? [
+        { samples: coarse, screen: coarse },
+        { samples: turned, screen: thinned(turned, 4) },
+      ]
+    : [{ samples: coarse, screen: coarse }]
   const screened = []
   for (let i = 0; i < candidates.length; i++) {
     progress?.(`Aligning — screening start ${i + 1} of ${candidates.length}…`)
-    screened.push(
-      yield* icpSteps(surface, coarse, candidates[i], {
+    for (const { samples, screen } of windings) {
+      const r = yield* icpSteps(surface, screen, candidates[i], {
         maxIterations: SCREEN_ITERATIONS,
         rejectMedianFactor: 2.5,
         minNormalDot: 0,
         pool: options.pool,
-      }),
-    )
+      })
+      screened.push({ ...r, samples })
+    }
   }
   screened.sort((a, b) => a.score - b.score)
 
@@ -183,8 +241,10 @@ export function* autoAlignSteps(
   const scored = []
   for (let i = 0; i < shortlist.length; i++) {
     progress?.(`Aligning — trying start ${i + 1} of ${shortlist.length}…`)
-    scored.push(
-      yield* icpSteps(surface, coarse, shortlist[i].transform, {
+    const samples = shortlist[i].samples
+    scored.push({
+      samples,
+      ...(yield* icpSteps(surface, samples, shortlist[i].transform, {
         maxIterations: COARSE_ITERATIONS,
         rejectMedianFactor: 2.5,
         minNormalDot: 0,
@@ -195,8 +255,8 @@ export function* autoAlignSteps(
         onIteration: options.onTransform
           ? (it, d, m) => options.onTransform!(m, it, d)
           : undefined,
-      }),
-    )
+      })),
+    })
   }
   scored.sort((a, b) => a.score - b.score)
 
@@ -223,8 +283,10 @@ export function* autoAlignSteps(
       surface.bboxDiagonal * 0.01
 
   progress?.('Aligning — refining…')
-  const samples = sampleScan(scanPositions, scanNormals, fineCount)
-  return yield* fine(surface, samples, winner.transform, 'auto', ambiguous, options)
+  // The fine samples wound the way the winner was.
+  const sampled = sampleScan(scanPositions, scanNormals, fineCount)
+  const samples = winner.samples === coarse ? sampled : flipped(sampled)
+  return yield* fine(surface, samples, winner.transform, 'auto', ambiguous, options, false)
 }
 
 export interface PointPair {

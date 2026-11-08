@@ -53,7 +53,7 @@ export function flatReportInput(units: DisplayUnits = 'mm'): FlatReportInput {
     unit,
     units,
     elements: s.elements,
-    dimensions: evaluateFlatDimensions(s.dimensions, s.elements, sheetUnits(unit, units)),
+    dimensions: evaluateFlatDimensions(s.dimensions, s.elements, sheetUnits(unit, units), sheetFrame(s)),
     counts: s.counts,
     notes: s.notes,
   }

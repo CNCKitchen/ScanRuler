@@ -18,7 +18,7 @@ import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { VolumeDeviation } from './deviation/volume'
 import type { ElementTarget, MaterialSide } from './deviation/elementField'
-import { mmPerUnit, type MeshUnits } from './meshUnits'
+import { fileScale, type MeshUnits } from './meshUnits'
 import type { StepInfo } from './parsers/step'
 import type { SectionFrame } from './section/frame'
 import type { SectionCut } from './section/slice'
@@ -175,18 +175,18 @@ export class MeshWorkerClient {
         this.renderParity = false
         const { name, file, crease, transform, units, scale } = state.scan
         const buffer = await readSourceFile(file, name)
-        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') * (scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
+        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm', scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
       }
       if (state?.nominal) {
         const { name, file, units } = state.nominal
         const buffer = await readSourceFile(file, name)
-        await this.rpc.request({ type: 'load-nominal', requestId: this.nextId++, name, buffer, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
+        await this.rpc.request({ type: 'load-nominal', requestId: this.nextId++, name, buffer, scale: fileScale(name, units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
       }
       const channel: RestoreChannel = {
         loadStaged: async (name, bytes, crease, transform, units) => {
           const buffer = bytes.slice().buffer
           const id = this.nextId++
-          await this.rpc.request({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform: transform ?? undefined, scale: mmPerUnit(units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
+          await this.rpc.request({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm') } as Request, [buffer]) // units-ok: the file's own units, an id
           return id
         },
         call: async (plugin, op, payload) =>
@@ -217,13 +217,13 @@ export class MeshWorkerClient {
     const transfer: Transferable[] = [buffer, ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
     // `scale` on top of the units: the factor the scan was scaled by to its
     // true size (core/scanScale), read into it as the units are.
-    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: mmPerUnit(units) * scale, ...(companions ? { companions } : {}) }, transfer)
+    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: fileScale(name, units, scale), ...(companions ? { companions } : {}) }, transfer)
     return { id, mesh }
   }
 
   async prepareNominal(name: string, buffer: ArrayBuffer, units: MeshUnits = 'mm'): Promise<{ id: number; mesh: LoadedNominal }> {
     const id = this.nextId++
-    const mesh = await this.request<LoadedNominal>({ type: 'load-nominal', requestId: id, name, buffer, staged: true, scale: mmPerUnit(units) }, [buffer])
+    const mesh = await this.request<LoadedNominal>({ type: 'load-nominal', requestId: id, name, buffer, staged: true, scale: fileScale(name, units) }, [buffer])
     return { id, mesh }
   }
 

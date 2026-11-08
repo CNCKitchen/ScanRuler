@@ -67,11 +67,28 @@ describe('which way the scan is wound', () => {
   }
 
   it('is settled by the scan on the surface when the scan a wall away outvotes it', () => {
-    // Every point votes alike: half agree, half disagree, and the tie
-    // goes to "as wound".
-    expect(scanNormalsSign(block, positions, normals, identityRigid())).toBe(1)
-    // Weighted by nearness, the skin on the surface decides.
+    // Weighted by nearness, the skin on the surface decides: with a scale
+    // given, or with the one the scan sets itself.
     expect(scanNormalsSign(block, positions, normals, identityRigid(), { near: 0.1 })).toBe(-1)
+    expect(scanNormalsSign(block, positions, normals, identityRigid())).toBe(-1)
+  })
+
+  it('is not turned by a fixture that outnumbers the part', () => {
+    // A quarter of the scan on the top, wound inside-out; three quarters a
+    // fixture plate 3 mm above it, its normals pointing up. Counted alike,
+    // the fixture's agreement with the top's outward normal wins (issue 34).
+    const part = 200
+    const fixture = 600
+    const pos = new Float32Array((part + fixture) * 3)
+    const nor = new Float32Array((part + fixture) * 3)
+    for (let i = 0; i < part + fixture; i++) {
+      const x = -9 + (18 * (i % 20)) / 19
+      const y = -9 + (18 * (Math.floor(i / 20) % 10)) / 9
+      const onPart = i < part
+      pos.set([x, y, onPart ? 0.01 * Math.sin(i) : 3 + 0.01 * Math.cos(i)], i * 3)
+      nor.set([0, 0, onPart ? -1 : 1], i * 3)
+    }
+    expect(scanNormalsSign(block, pos, nor, identityRigid())).toBe(-1)
   })
 
   it('takes only the vertices it is given', () => {
@@ -96,5 +113,32 @@ describe('a surface’s cut in a section picture', () => {
     expect(asSurface.reading[0]).toBe(Gap.Outside)
     // Measured to all the same.
     expect(asSurface.distance[0]).toBeCloseTo(0.5, 6)
+  })
+})
+
+describe('a reference with triangles of no area', () => {
+  // A plate wound so its outside is below (normals −Z), its front edge along
+  // y = 0 through A, M and B, and two zero-area triangles lying along that
+  // edge, as a tessellator leaves on a seam. Their stand-in normal (+Z) once
+  // went into M's and the edges' pseudonormals, at 180° each, and turned the
+  // sign of a point read off M (issue 34).
+  const A = [-1, 0, 0], M = [0, 0, 0], B = [1, 0, 0], C = [1, 2, 0], D = [-1, 2, 0]
+  const positions = Float32Array.from([...A, ...M, ...B, ...C, ...D])
+  const real = [0, 4, 1, 1, 4, 3, 1, 3, 2]
+  const slivers = [0, 1, 2, 2, 1, 0]
+
+  it('reads the sign off the real faces only', () => {
+    const plate = new NominalSurface(positions, Uint32Array.from([...real, ...slivers]))
+    const hit = emptyHit()
+    // Above and in front of M: nearest M, on the inside of a plate whose
+    // outside is below.
+    expect(plate.closest(0, -0.2, 0.3, hit)).toBe(true)
+    expect(hit.signed).toBeLessThan(0)
+    // Off the middle of edge A–M, likewise.
+    expect(plate.closest(-0.5, -0.2, 0.3, hit)).toBe(true)
+    expect(hit.signed).toBeLessThan(0)
+    // Below it reads outside.
+    expect(plate.closest(0, -0.2, -0.3, hit)).toBe(true)
+    expect(hit.signed).toBeGreaterThan(0)
   })
 })
