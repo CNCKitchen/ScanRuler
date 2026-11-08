@@ -20,7 +20,7 @@ import { emptyHit } from '../../../src/core/deviation/surface'
 import type { Vec3 } from '../../../src/core/types'
 import { addScaled, cross, dot, len, normalize, scale, sub } from '../../../src/core/vec'
 import { frameKey, sketchFrameOn } from '../../../src/core/section/frame'
-import { bodyMaker, farReach, frameMap, ISLAND_IDS, islandId, liftPoint, liftRegions, loftProfile, moveProfiles, profileMiddle, profilesMeetAxis, profileSpan, routeSweepGeometry, sketchPieces, sweepPath, type BuildStep, type VariableEdge, type FaceProfile, type PlaneGeometry, type TrimPrimitive } from './features'
+import { bodyMaker, farReach, frameMap, ISLAND_IDS, islandId, liftPoint, liftRegions, loftProfile, moveProfiles, profileMiddle, profilesMeetAxis, profileSpan, routeSweepGeometry, sketchPieces, sweepPath, toolsOf, type BuildStep, type VariableEdge, type FaceProfile, type PlaneGeometry, type TrimPrimitive } from './features'
 import { grazingJoinsWords, lostPickWords, mendNearTangent, mendPoles, mendWords, type NearTangentJoin, openEndsWords, poleWords, profileAcrossAxis } from './profiles'
 import { foldWords, loftFoldRefusal, sectionsNormal } from './loftFold'
 import { composeHistory, rectangleLoop, type FaceHistory, type KernelMesh, type LoopPiece, type ReKernel, type Shape, type StepCheck, type StepLabel, type StepMend, type StepPart, type Tracked } from './kernel'
@@ -36,7 +36,7 @@ import { constrainCylinder, constrainPlane, cylinderPatch, planePatch, type Cons
 import { surfaceOfMeshes } from './liveMap'
 import { describeEdge, describeFace, edgeDistance, faceDistance, matchEdge, matchFace, matchTolerance, type MatchTolerance, splitEdges, tangentChain, type EdgeFingerprint, type FaceFingerprint } from './topo'
 import { livePicks, runStoredWhere, sharpBySurfaces, type StoredPick, whereWords } from './where'
-import { type Body, bodyBrief, type BodyCheck, type BodyStep, boxesMeet, type BuildResult, type BuildSteps, type BuiltBody, type Diagnosis, diagonalOf, type EdgeBrief, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type FilletTry, halton, type KeptBuild, type Look, meshBox, meshDeflection, type Overlap, pickEach, type PlacedSketch, type PrefixNode, type PreviewResult, type PreviewStep, type RoundTrip, type RoundTripFind, type SketchStep, type Snapshot, type SolidStep, SPLIT_SAMPLES, stepKeys, surfaceMeshDeflection, SURFACE_TRIANGLES, type OffScanReport, type SurfaceReport, type TrimReport } from './buildTypes'
+import { type Body, bodyBrief, type BodyCheck, type BodyStep, boxesMeet, type BuildResult, type BuildSteps, type BuiltBody, type Diagnosis, diagonalOf, type DrawnBody, type DrawnBuild, type EdgeBrief, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type FilletTry, halton, type KeptBuild, type Look, meshBox, meshDeflection, type Overlap, pickEach, type PlacedSketch, type PrefixNode, type PreviewResult, type PreviewStep, type RoundTrip, type RoundTripFind, type SketchStep, type Snapshot, type SolidStep, SPLIT_SAMPLES, stepKeys, surfaceMeshDeflection, SURFACE_TRIANGLES, type OffScanReport, type SurfaceReport, type TrimReport } from './buildTypes'
 import { cylinderSolid, primitiveSolid } from './primitives'
 import { extrudeUpTo, fuseAll, outlineOf, reachAlong, taperedPrism, taperLimitOf, taperRefusal, trimByPlanes } from './buildExtrude'
 import { NOTHING, noteRead, ReadMap, readsStand, ReadSet, replay, type StateName, type StepReads } from './buildReads'
@@ -44,6 +44,7 @@ import { objectsOf, readPart, type PartExport, type Tokens, writePart } from './
 import { diagnoseDraft, diagnoseOffset, diagnoseRound, diagnoseShell, faceMiddle, NO_AREA_MM2, roundDiagnosisBudget, shellDiagnosisBudget, withoutCallName } from './diagnose'
 import { thickenFolds, thickenWay, wallSaid } from './diagnoseThicken'
 import type { Thickened } from './kernelThicken'
+import type { BodyProbe, CutPiece } from './kernelProbe'
 import { angledAsk, referenceFaces, type SidedChamfer } from './chamferSides'
 import { sameSurface } from './kernelMath'
 import type { RawFace } from './kernelTypes'
@@ -59,7 +60,7 @@ import { cutElsewhereWords, cutsElsewhere } from './cutElsewhere'
 import { ScanPaths } from '../../../src/core/geometry/scanPath'
 import { type NetworkBodies, type NetworkReading, readNetwork } from './network'
 import { emptyReport, networkBody, networkGhost, type NetworkReport } from './networkBody'
-export { type BodyBrief, type BodyCheck, type BodyStep, type BuildResult, type BuildSteps, type BuiltBody, type Diagnosis, type EdgeBrief, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type FilletTry, type Overlap, type PreviewResult, type PreviewStep, type SketchStep, type SolidStep, stepKeys, type SurfaceReport, type TrimReport } from './buildTypes'
+export { type BodyBrief, type BodyCheck, type BodyStep, type BuildResult, type BuildSteps, type BuiltBody, type Diagnosis, type DrawnBody, type EdgeBrief, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type FilletTry, type Overlap, type PreviewResult, type PreviewStep, type SketchStep, type SolidStep, stepKeys, type SurfaceReport, type TrimReport } from './buildTypes'
 
 /** How far out of the face a hole drilled into one starts, mm. */
 const HOLE_LEAD_MM = 0.01
@@ -255,9 +256,11 @@ export class Builder {
     const played = end < 0 ? steps : steps.slice(0, end)
     for (const [i, s] of played.entries()) {
       if (s.kind !== 'boolean' || s.op === 'join' || bodyMaker(s.body) !== bodyMaker(body)) continue
-      const tool = bodyMaker(s.tool)
-      const makers = new Set([tool, ...played.slice(0, i).flatMap((o) => (o.kind !== 'boolean' && 'body' in o && o.body === s.tool ? [o.id] : []))])
-      if (makers.has(maker)) return { tool, by: s.id, op: s.op }
+      for (const t of toolsOf(s)) {
+        const tool = bodyMaker(t)
+        const makers = new Set([tool, ...played.slice(0, i).flatMap((o) => (o.kind !== 'boolean' && 'body' in o && o.body === t ? [o.id] : []))])
+        if (makers.has(maker)) return { tool, by: s.id, op: s.op }
+      }
     }
     return null
   }
@@ -277,7 +280,7 @@ export class Builder {
   /** What each body was handed to the viewport as, meshed and read, by the
    *  body — the same body in the next build is not meshed again. A copy
    *  goes out: the worker hands the buffers on rather than copy them. */
-  private shown = new WeakMap<Body, BuiltBody>()
+  private shown = new WeakMap<Body, DrawnBody>()
   /** This builder's mark on the keys it gives the bodies it meshes, and
    *  the count after it — see BuiltBody.key. */
   private readonly keyMark = Math.random().toString(36).slice(2, 8)
@@ -506,7 +509,7 @@ export class Builder {
    *  on; the shapes made are the caller's to release. */
   private reachingTools(ids: readonly number[], shape: Shape, into: string): { tools: Shape[]; made: Shape[] } | null {
     const k = this.kernel
-    const box = k.bounds(shape)
+    const box = k.extent(shape)
     const diagonal = Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2])
     const margin = 0.05 * diagonal + 1
     const points = k.mesh(shape, meshDeflection(diagonal) * 4).positions
@@ -834,7 +837,7 @@ export class Builder {
         if (!b.surface) out.push(k.mesh(b.shape, chord, 0.1))
         continue
       }
-      const bounds = k.bounds(b.shape)
+      const bounds = k.extent(b.shape)
       const diag = Math.hypot(bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1], bounds.max[2] - bounds.min[2])
       out.push(k.mesh(b.shape, meshDeflection(diag)))
     }
@@ -1257,10 +1260,26 @@ export class Builder {
   /** The bodies a Combine takes: its tool in every piece (familyOf), but
    *  the body it goes into. Two profiles apart, extruded together, are a
    *  body and a piece of it — moved to overlap, either is combined into
-   *  the other, and the piece is not its own tool. */
+   *  the other, and the piece is not its own tool. Of several tools, all
+   *  of them (toolGroups). */
   private toolFamily(step: Extract<BodyStep, { kind: 'boolean' }>): number[] {
-    const into = this.resolve(step.body)
-    return this.familyOf(step.tool).filter((id) => id !== into)
+    return this.toolGroups(step).flat()
+  }
+
+  /** A Combine's tools one by one, each in every piece — a piece an
+   *  earlier tool took, or the body, left out: what an intersect with
+   *  several tools keeps the common of, tool after tool. */
+  private toolGroups(step: Extract<BodyStep, { kind: 'boolean' }>): number[][] {
+    const taken = new Set([this.resolve(step.body)])
+    return toolsOf(step)
+      .map((t) =>
+        this.familyOf(t).filter((id) => {
+          if (taken.has(id)) return false
+          taken.add(id)
+          return true
+        }),
+      )
+      .filter((g) => g.length > 0)
   }
 
   /** The bodies a Combine goes into: its body in every piece, the one it
@@ -1271,6 +1290,25 @@ export class Builder {
     const into = this.resolve(step.body)
     const tools = new Set(this.toolFamily(step))
     return [into, ...this.familyOf(step.body).filter((id) => id !== into && !tools.has(id))]
+  }
+
+  /** A body intersected with several tools in turn — each tool's pieces
+   *  held as one for its turn — the history carried through them all, the
+   *  faces of every tool among it. */
+  private commonEach(body: Shape, tools: readonly (readonly Shape[])[]): Tracked {
+    const k = this.kernel
+    let current: Tracked = { shape: body, history: new Map() }
+    for (const pieces of tools) {
+      const held = pieces.length > 1 ? k.fuseAll(pieces) : null
+      try {
+        const next = k.commonTracked(current.shape, held ?? pieces[0])
+        if (current.shape !== body) k.release(current.shape)
+        current = { shape: next.shape, history: composeHistory(current.history, next.history) }
+      } finally {
+        if (held) k.release(held)
+      }
+    }
+    return current
   }
 
   /** A piece's share of the makers of its shape's faces. */
@@ -1288,8 +1326,8 @@ export class Builder {
    *  made. */
   private solidsNear(shape: Shape): [number, Body][] {
     const k = this.kernel
-    const box = k.bounds(shape)
-    return [...this.bodies.entries()].filter(([, b]) => !b.surface && boxesMeet(box, k.bounds(b.shape)))
+    const box = k.extent(shape)
+    return [...this.bodies.entries()].filter(([, b]) => !b.surface && boxesMeet(box, k.extent(b.shape)))
   }
 
   /** A step on a body that failed keeps the body it was given as its
@@ -1519,7 +1557,7 @@ export class Builder {
     const prints: F[] = [...rest]
     if (live.length > 0) {
       const t = this.topology(body, meshDeflection(this.diagonal(body)))
-      const sharp = () => this.sharpOn(body, t)
+      const sharp = (deg: number) => this.sharpOn(body, t, deg)
       for (const p of live) {
         const at = runStoredWhere(p.where, t, { name: body.name }, what, sharp, tol)
         if (at && at.length > 0) {
@@ -1545,15 +1583,15 @@ export class Builder {
 
   /** Whether each edge of a body, by its index in `t`, runs between faces
    *  that meet at an angle — read off the faces' surfaces, for a sharp
-   *  query the build runs again (where.ts sharpBySurfaces); each edge read
-   *  once. */
-  private sharpOn(body: Body, t: { edges: readonly EdgeInfo[] }): (i: number) => boolean {
+   *  query the build runs again (where.ts sharpBySurfaces), at more than
+   *  `deg` degrees; each edge read once. */
+  private sharpOn(body: Body, t: { edges: readonly EdgeInfo[] }, deg: number): (i: number) => boolean {
     const known = new Map<number, boolean>()
     const normals = (face: number, points: readonly Vec3[]) => this.kernel.faceNormals(body.shape, face, points)
     return (i) => {
       const e = t.edges[i]
       let sharp = known.get(e.hash)
-      if (sharp === undefined) known.set(e.hash, (sharp = sharpBySurfaces(e, normals)))
+      if (sharp === undefined) known.set(e.hash, (sharp = sharpBySurfaces(e, normals, deg)))
       return sharp
     }
   }
@@ -2227,14 +2265,13 @@ export class Builder {
         const all = topology.edges
         const picked = step.chain ? tangentChain(all, found.hashes, splitEdges(topology)) : found.hashes
         // The tangent chain of an edge at a varying radius stays out of the
-        // plain edges: the kernel rounds an edge's whole chain with it, so
-        // the plain round would take the varying edge before its own round
-        // — and the varying round takes the chain anyway.
+        // plain edges: the kernel rounds an edge's whole chain with it, and
+        // an edge of it not given runs between the radii given about it.
         const at = varying.length > 0 ? this.varyingEdges(step.body, varying, step.id) : []
         const theirs = new Set(at.length > 0 ? tangentChain(all, at, splitEdges(topology)) : [])
         const hashes = picked.filter((h) => !theirs.has(h))
         const merged = found.hashes.filter((h) => theirs.has(h) && !at.includes(h)).length
-        if (merged > 0) this.stepWarnings.push(`${merged} of the edges picked at the one radius ${merged === 1 ? 'lies' : 'lie'} on the tangent chain of an edge at a varying radius, and ${merged === 1 ? 'is' : 'are'} rounded with that edge.`)
+        if (merged > 0) this.stepWarnings.push(`${merged} of the edges picked at the one radius ${merged === 1 ? 'lies' : 'lie'} on the tangent chain of an edge at a varying radius, and ${merged === 1 ? 'runs' : 'run'} between the radii given on that chain — give ${merged === 1 ? 'it' : 'them'} a radius of ${merged === 1 ? 'its' : 'their'} own in variable to hold ${merged === 1 ? 'it' : 'them'} there.`)
         // The edges as they were, for the result to list: the round takes
         // them away.
         const brief = (h: number): EdgeBrief[] => {
@@ -2251,6 +2288,8 @@ export class Builder {
           const made = step.kind === 'fillet' ? k.filletTracked(body.shape, hashes, step.radius) : k.chamferTracked(body.shape, hashes, step.distance)
           return { ...made, edges }
         }
+        const chainOf = (h: number) => tangentChain(all, [h], splitEdges(topology))
+        radiusJump(varying, at, all, chainOf)
         return { ...this.roundVarying(step as Extract<BodyStep, { kind: 'fillet' }>, body, hashes, varying, at), edges: [...edges, ...at.flatMap(brief)] }
       }
       case 'hole': {
@@ -2303,26 +2342,37 @@ export class Builder {
         return { shape: joined.shape, history }
       }
       case 'boolean': {
-        if (this.resolve(step.tool) === this.resolve(step.body)) throw new Error('The body this one is combined with has gone into it already.')
-        const family = this.toolFamily(step)
+        const into0 = this.resolve(step.body)
+        const gone = toolsOf(step).find((t) => this.resolve(t) === into0)
+        if (gone !== undefined) throw new Error(toolsOf(step).length === 1 ? 'The body this one is combined with has gone into it already.' : `${this.bodies.get(into0)?.name ?? 'The body'} has taken in tool ${gone} already — a tool goes into it once.`)
+        const groups = this.toolGroups(step)
+        const family = groups.flat()
         const tools = family.map((id) => this.bodies.get(id)!)
         if (tools.length === 0) throw new Error('The body this one is combined with is gone, or failed to build.')
+        // Of several, each one there: a tool missing would be passed over.
+        const missing = toolsOf(step).filter((t) => this.familyOf(t).length === 0)
+        if (missing.length > 0) throw new Error(`${missing.length === 1 ? 'A tool' : 'Tools'} this one is combined with (${missing.join(', ')}) ${missing.length === 1 ? 'is' : 'are'} gone, or failed to build.`)
         // A sheet is trimmed by a solid, or sewn to another sheet.
         // A solid tool stays a body as it was, as with keep: a second sheet
         // is trimmed by the same outline prism. A sheet joined is sewn in.
+        if (body.surface && step.op === 'intersect' && groups.length > 1) throw new Error(`${body.name} is a sheet, trimmed inside one solid at a time — intersect it with each tool in a Combine of its own, or join the tools first.`)
         if (body.surface) return { ...this.combineSheet(step, body, tools), consumed: step.op === 'join' && !step.keep ? family : [] }
         const sheet = tools.find((t) => t.surface)
         if (sheet) throw new Error(`${sheet.name} is a sheet, and ${body.name} a solid — a solid is combined with solids. Cut a body with a sheet by Split, or close sheets into a solid by Trim; to trim the sheet by the solid, make the sheet the body.`)
         // The pieces as one tool, and the body's pieces as one body, held
-        // together for the operation alone.
-        const held = tools.length > 1 ? k.fuseAll(tools.map((t) => t.shape)) : null
+        // together for the operation alone. Several tools intersected are
+        // taken one after the other — the body inside all of them, not
+        // inside any — each in its pieces held as one.
+        const each = step.op === 'intersect' && groups.length > 1
+        const held = !each && tools.length > 1 ? k.fuseAll(tools.map((t) => t.shape)) : null
         const tool = held ?? tools[0].shape
         const others = this.bodyFamily(step).slice(1).map((id) => this.bodyBefore(step.id, id)).filter((b): b is Body => b !== undefined && !b.surface)
         const heldBody = others.length > 0 ? k.fuseAll([body.shape, ...others.map((b) => b.shape)]) : null
         const into: Body = heldBody ? { ...body, shape: heldBody } : body
         try {
-          const result =
-            step.op === 'join'
+          const result = each
+            ? this.commonEach(into.shape, groups.map((g) => g.map((id) => this.bodies.get(id)!.shape)))
+            : step.op === 'join'
               ? k.fuseTracked(into.shape, tool)
               : step.op === 'cut'
                 ? this.tookSomething(into, k.cutTracked(into.shape, tool), tools.length === 1 ? tools[0].name : 'The tool')
@@ -2487,15 +2537,6 @@ export class Builder {
     return found.hashes
   }
 
-  /**
-   * A fillet with edges at a varying radius: the edges at the one radius
-   * rounded first, as any fillet's, then each varying edge on its own —
-   * the kernel takes one at a time — found again on the shape the rounds
-   * before it left. The kernel tracks no history for a varying round, so
-   * its faces are traced by where they lie, as a draft's are; the
-   * histories are composed into one from the body as it stood. `first`:
-   * the varying edges' hashes on the body as it stood (varyingEdges).
-   */
   /** A round or a chamfer of many edges that leaves out what the kernel
    *  cannot do: the whole set first, then - where that fails - each tangent
    *  chain added in turn and kept where the body still comes out a closed
@@ -2555,34 +2596,17 @@ export class Builder {
     return { ...made, edges: kept.flatMap(brief), note }
   }
 
-  private roundVarying(step: Extract<BodyStep, { kind: 'fillet' }>, body: Body, hashes: readonly number[], varying: readonly VariableEdge[], first: readonly number[]): Tracked {
-    const k = this.kernel
-    let current: Tracked = hashes.length > 0 ? k.filletTracked(body.shape, hashes, step.radius) : { shape: body.shape, history: new Map() }
-    let origins = hashes.length > 0 ? this.propagate(current.shape, body.origins, current.history, step.id) : body.origins
-    try {
-      varying.forEach((v, i) => {
-        let hash = first[i]
-        if (current.shape !== body.shape) {
-          const t = this.topology({ name: body.name, shape: current.shape, origins }, 1)
-          const j = matchEdge(v.edge, t.edges.map((e) => e.fingerprint), matchTolerance(diagonalOf(this.kernel, current.shape)))
-          if (j === null)
-            throw new Error(
-              `An edge this fillet rounds at a varying radius is gone once its other edges are rounded (was: ${describeEdge(v.edge)}): one radius law per tangent chain; the kernel rounds the whole chain, and a plain round at its ends shortened or took the edge — round it in a fillet of its own, before the plain rounds.`,
-            )
-          hash = t.edges[j].hash
-        }
-        const before = k.faces(current.shape)
-        const next = k.filletVariable(current.shape, hash, v.radius[0], v.radius[1])
-        const history = this.geometricHistory(before, next)
-        origins = this.propagate(next, origins, history, step.id)
-        if (current.shape !== body.shape) k.release(current.shape)
-        current = { shape: next, history: composeHistory(current.history, history) }
-      })
-    } catch (e) {
-      if (current.shape !== body.shape) k.release(current.shape)
-      throw e
-    }
-    return current
+  /**
+   * A fillet with edges at radii of their own: every edge in one call to
+   * the kernel, the plain edges at the one radius and each varying edge
+   * from its first radius to its second — so the edges given on one
+   * tangent chain round as one, each at its own radii, and an edge of the
+   * chain not given runs between its neighbours'. `at`: the varying
+   * edges' hashes on the body as it stood (varyingEdges).
+   */
+  private roundVarying(step: Extract<BodyStep, { kind: 'fillet' }>, body: Body, hashes: readonly number[], varying: readonly VariableEdge[], at: readonly number[]): Tracked {
+    const edges = [...hashes.map((hash) => ({ hash, radius: step.radius })), ...varying.map((v, i) => ({ hash: at[i], radius: v.radius }))]
+    return this.kernel.filletRadii(body.shape, edges)
   }
 
   /**
@@ -3269,6 +3293,23 @@ export class Builder {
    * every body is in `all`, in brief.
    */
   build(steps: readonly BuildStep[], sketchOf: (id: number) => Sketch | undefined, reuse = false, output = true, have?: ReadonlyMap<number, string>): BuildResult {
+    const { results, keys, was } = this.playAll(steps, sketchOf, reuse)
+    if (!output) return { results, bodies: [], all: [], steps: this.lastSteps }
+    const out = this.output()
+    return { results: this.withChangesSaid(results, steps, keys, was), bodies: structuredClone(out.filter((b) => have?.get(b.id) !== b.key)), all: out.map(bodyBrief), steps: this.lastSteps }
+  }
+
+  /** A build for the page, as build with `reuse`: each body handed over as
+   *  soon as it can be drawn — meshed and measured, with its topology where
+   *  the build read it already. The rest, topologiesOf reads after. */
+  buildDrawn(steps: readonly BuildStep[], sketchOf: (id: number) => Sketch | undefined, have?: ReadonlyMap<number, string>): DrawnBuild {
+    const { results, keys, was } = this.playAll(steps, sketchOf, true)
+    const out = this.drawn()
+    return { results: this.withChangesSaid(results, steps, keys, was), bodies: structuredClone(out.filter((b) => have?.get(b.id) !== b.key)), all: out.map(bodyBrief), steps: this.lastSteps }
+  }
+
+  /** The steps played, or taken up, for build and buildDrawn. */
+  private playAll(steps: readonly BuildStep[], sketchOf: (id: number) => Sketch | undefined, reuse: boolean): { results: FeatureResult[]; keys: string[]; was: KeptBuild | null } {
     // The picks the last build found are this build's before; a step not
     // played again keeps what it had.
     this.stepsInPlay = steps
@@ -3291,9 +3332,7 @@ export class Builder {
     this.stand({ keys, states, reads })
     this.settleOffered()
     this.forgetParts(steps)
-    if (!output) return { results, bodies: [], all: [], steps: this.lastSteps }
-    const out = this.output()
-    return { results: this.withChangesSaid(results, steps, keys, was), bodies: structuredClone(out.filter((b) => have?.get(b.id) !== b.key)), all: out.map(bodyBrief), steps: this.lastSteps }
+    return { results, keys, was }
   }
 
   /** A build's results as they go out: a round or a chamfer that built in the
@@ -3375,7 +3414,14 @@ export class Builder {
    *  handed them out — for a caller that lost track of what it holds. */
   builtBodies(ids: readonly number[]): BuiltBody[] {
     const wanted = new Set(ids)
-    return structuredClone(this.output().filter((b) => wanted.has(b.id)))
+    return structuredClone(this.drawn().filter((b) => wanted.has(b.id)).map((b) => this.withTopology(b)))
+  }
+
+  /** The topology of the last build's bodies with these ids, by the key
+   *  each was handed over at — what buildDrawn left to read after. */
+  topologiesOf(ids: readonly number[]): { id: number; key: string; topology: BuiltBody['topology'] }[] {
+    const wanted = new Set(ids)
+    return structuredClone(this.drawn().filter((b) => wanted.has(b.id)).map((b) => ({ id: b.id, key: b.key, topology: this.withTopology(b).topology })))
   }
 
   /** The steps from `from` on played into `into`, the state after each
@@ -3836,6 +3882,9 @@ export class Builder {
       const combineAsk = (shape: Shape): GuardAsk | null => {
         // A sheet has no volume to hold a Combine of it to.
         if (step.kind !== 'boolean' || !volumes || body.surface) return null
+        // Several tools joined may overlap one another: held to a join's
+        // bounds, part by part — their sum is no tool's volume.
+        if (step.op === 'join' && toolsOf(step).length > 1) return { kind: 'join', parts: [...intoBodies, ...tools].map((b) => this.volumeOf(b.shape)), result: this.volumeOf(shape) }
         const kind = step.op === 'join' ? 'union' : step.op === 'cut' ? 'subtract' : 'intersect'
         let common: number | undefined
         if (kind !== 'intersect' && tools.length === 1 && intoBodies.length === 1 && performance.now() - started < IDENTITY_CHECK_MS) {
@@ -3944,8 +3993,27 @@ export class Builder {
   /** The bodies standing, as the viewport takes them: meshed, measured,
    *  their faces and edges read — a body handed over before as it was. */
   private output(): BuiltBody[] {
+    return this.drawn().map((b) => this.withTopology(b))
+  }
+
+  /** A body handed over with its topology, read now if the build did not:
+   *  kept with it, so it is handed over with it from then on. */
+  private withTopology(drawn: DrawnBody): BuiltBody {
+    const b = this.bodies.get(drawn.id)!
+    return Object.assign(drawn, { topology: drawn.topology ?? this.topology(b, this.chordOf(b)) })
+  }
+
+  /** The chord a body is drawn to — a fitted freeform surface's after its
+   *  size. */
+  private chordOf(b: Body): number {
+    return (b.fit ? surfaceMeshDeflection : meshDeflection)(this.diagonal(b))
+  }
+
+  /** The bodies standing, meshed and measured, with their topology where
+   *  it has been read — a body handed over before as it was. */
+  private drawn(): DrawnBody[] {
     const k = this.kernel
-    const bodies: BuiltBody[] = []
+    const bodies: DrawnBody[] = []
     for (const [id, b] of this.bodies) {
       const shown = this.shown.get(b)
       const look = this.looks.get(id)
@@ -3953,10 +4021,10 @@ export class Builder {
         bodies.push(shown)
         continue
       }
-      // A fitted freeform surface is drawn to a chord after its size.
-      const deflection = (b.fit ? surfaceMeshDeflection : meshDeflection)(this.diagonal(b))
+      const deflection = this.chordOf(b)
       const mesh = k.mesh(b.shape, deflection)
-      const built: BuiltBody = {
+      const topology = this.topologies.get(b)?.get(deflection)
+      const built: DrawnBody = {
         id,
         key: `${this.keyMark}.${++this.keysGiven}`,
         name: b.name,
@@ -3965,7 +4033,7 @@ export class Builder {
         faces: k.faceCount(b.shape),
         closed: b.surface ? false : k.isClosedSolid(b.shape),
         surface: Boolean(b.surface),
-        topology: this.topology(b, deflection),
+        ...(topology ? { topology } : {}),
         ...(look ? { label: look.label } : {}),
         triangles: mesh.indices.length / 3,
         box: meshBox(mesh),
@@ -4216,10 +4284,18 @@ export class Builder {
     for (const h of k.faceHashes(solid)) before.set(h, step.id)
     const combine = (): Tracked => (step.op === 'join' ? k.fuseTracked(target.shape, solid) : k.cutTracked(target.shape, solid))
     const parts = [this.volumeOf(target.shape), this.volumeOf(solid)]
+    const pieces = [k.solidCount(target.shape), k.solidCount(solid)]
     let combined: Tracked
     try {
       combined = this.guarded(combine, (result) => (step.op === 'join' ? { kind: 'join', parts, result } : { kind: 'cut', body: parts[0], result }), step.op === 'join' ? 'Joining' : 'The cut', [target, { name: step.name, shape: solid }])
       if (step.op === 'join') combined = this.withoutSlivers(combined, new Set(before.keys()), combine, (shape) => volumeRefusal({ kind: 'join', parts, result: this.volumeOf(shape) }) === null, 'join')
+      // A join on one body that meets none of it would stand beside it as a
+      // body of its own — refused, as a cut that takes nothing is (31_pleuel
+      // made a second body so, unseen).
+      if (step.op === 'join' && k.solidCount(combined.shape) >= pieces[0] + pieces[1]) {
+        k.release(combined.shape)
+        throw new Error(`${step.name} meets nothing of ${target.name} — joined, it would stand beside it as a body of its own. Check where it stands against the body and how far it reaches, or set the result to New body.`)
+      }
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e)
       fail(step.id, why.startsWith('The cut left no closed solid —') ? why.replace('The cut left no closed solid', 'The cut left no closed solid (did it take the whole body?)') : why)
@@ -4233,6 +4309,9 @@ export class Builder {
     this.stageBody(step.id, id, target)
     const bodies = this.settle(id, target.name, combined.shape, this.propagate(combined.shape, before, combined.history, step.id), step.id, false, [], step.op === 'cut')
     if (step.op === 'cut') this.saySplit('The cut', target.name, bodies, step.id)
+    // Some pieces of the solid meeting the body and some not: those stand
+    // apart, said on the row.
+    else if (bodies.length > pieces[0]) this.saySplit('The join', target.name, bodies, step.id)
     results.push({ id: step.id, status: 'ok', bodies })
   }
 
@@ -4356,7 +4435,7 @@ export class Builder {
    *  itself, which its own check passes. Each input is read for a fold. */
   private emptyIntersectWords(into: readonly Body[], tools: readonly Body[], tried: string): string {
     const k = this.kernel
-    if (!into.some((a) => tools.some((t) => boxesMeet(k.bounds(a.shape), k.bounds(t.shape))))) return 'The bodies do not overlap.'
+    if (!into.some((a) => tools.some((t) => boxesMeet(k.extent(a.shape), k.extent(t.shape))))) return 'The bodies do not overlap.'
     const read = [...into, ...tools].map((b) => {
       const folds = b.surface ? null : this.foldsOf(b)
       if (!folds) return `${b.name}: no faces of a smooth loft`
@@ -4584,7 +4663,7 @@ export class Builder {
     }
     const boxOf = (body: Body) => {
       let box = this.boxes.get(body)
-      if (!box) this.boxes.set(body, (box = k.bounds(body.shape)))
+      if (!box) this.boxes.set(body, (box = k.extent(body.shape)))
       return box
     }
     const started = performance.now()
@@ -4669,6 +4748,29 @@ export class Builder {
     })
   }
 
+  /** The bodies among `ids` cut by a plane, each body's section as the
+   *  kernel's own edges (ReKernel.sectionPieces): what
+   *  reverse.body.section reads. */
+  sectionPieces(ids: readonly number[], origin: Vec3, normal: Vec3, deflection: number): { id: number; pieces: CutPiece[] }[] {
+    return ids.map((id) => ({ id, pieces: this.kernel.sectionPieces(this.builtBody(id).shape, origin, normal, deflection) }))
+  }
+
+  /** Points and rays read against each of the bodies among `ids`
+   *  (ReKernel.probe): what reverse.body.probe reads. */
+  probe(ids: readonly number[], points: readonly Vec3[], rays: readonly { from: Vec3; dir: Vec3 }[]): BodyProbe[] {
+    return ids.map((id) => {
+      const body = this.builtBody(id)
+      return { id, solid: !body.surface, ...this.kernel.probe(body.shape, points, rays, !body.surface) }
+    })
+  }
+
+  /** A body of the last build, or why there is none. */
+  private builtBody(id: number) {
+    const body = this.bodyById(id)
+    if (!body) throw new Error(`There is no body ${id} — it did not build.`)
+    return body
+  }
+
   /** The STEP file exportStep wrote of these bodies, read back and held
    *  against them (ReKernel.verifyStep). */
   verifyStep(ids: readonly number[], text: string): StepCheck {
@@ -4691,5 +4793,31 @@ export class Builder {
     this.restore(null)
     this.previewedFile = null
     this.forgetParts([])
+  }
+}
+
+/** Where two edges a fillet rounds at radii of their own meet on one
+ *  tangent chain, the radius each gives there must be the one: a round's
+ *  radius cannot jump along a chain. A throw naming the first place it
+ *  would, and the two entries of `variable`. */
+function radiusJump(varying: readonly VariableEdge[], at: readonly number[], all: readonly EdgeInfo[], chainOf: (hash: number) => number[]): void {
+  const ends = at.map((h) => all.find((e) => e.hash === h)?.ends)
+  for (let i = 0; i < varying.length; i++) {
+    const chain = new Set(chainOf(at[i]))
+    for (let j = i + 1; j < varying.length; j++) {
+      const a = ends[i]
+      const b = ends[j]
+      if (!a || !b || !chain.has(at[j])) continue
+      for (const p of [0, 1] as const)
+        for (const q of [0, 1] as const) {
+          if (len(sub(a[p], b[q])) > 1e-3) continue
+          const ra = varying[i].radius[p]
+          const rb = varying[j].radius[q]
+          if (Math.abs(ra - rb) <= 1e-6) continue
+          const where = a[p].map((v) => +v.toFixed(3)).join(', ')
+          // units-ok: build message, also the agent's answer
+          throw new Error(`variable[${i}] and variable[${j}] meet on one tangent chain at (${where}) at R${+ra.toFixed(4)} and R${+rb.toFixed(4)}: a round's radius cannot jump along a chain — give both the same radius at that end, or leave one out to run between the radii about it.`)
+        }
+    }
   }
 }

@@ -15,6 +15,7 @@ import type { MarkGesture } from '../state/markStore'
 import { alignSlotPicks, picksItsPoints, sectionDraftReady, type AlignDraft, type DimensionDraft, type Draft, type Element, type Section, type SectionDraft } from '../state/store'
 import { dimensionRefsOf, isShadow } from '../state/sectionModel'
 import { markChipText } from '../ui/MarkTools'
+import type { ScaleDraft } from '../state/scaleModel'
 
 type DraftMode = CreationMethod['mode'] | null
 
@@ -30,8 +31,16 @@ export function openSlotHintOf(s: {
   elements: readonly Element[]
   /** The sections, which a dimension takes as planes. */
   sections?: readonly Section[]
+  /** The Scale part box, while one of its rows collects two points. */
+  scaleDraft?: ScaleDraft | null
 }): string | null {
   const { draft, draftMode, sectionDraft, alignDraft, dimDraft, elements } = s
+  const scaling = s.scaleDraft
+  if (!draft && scaling && scaling.pickRow !== null) {
+    const row = scaling.refs[scaling.pickRow]
+    const have = row?.kind === 'points' ? row.points.length : 0
+    return `Click the scan — ${have === 0 ? 'one end of the length' : 'its other end'} (point ${have + 1} of 2) · Esc to stop picking`
+  }
   if (!draft && sectionDraft) {
     if (!sectionDraft.axis)
       return 'Click the element to cut along — a plane, cylinder, cone, line or circle — or one of the XY, YZ, XZ planes, or choose in the panel'
@@ -98,16 +107,17 @@ export function paintHintOf(s: {
   draft: Draft | null
   painting: boolean
   markGesture: MarkGesture | null
+  markStraight: boolean
   markCount: number
   editingDraft: boolean
 }): string | null {
-  const { draft, painting, markGesture, markCount, editingDraft } = s
+  const { draft, painting, markGesture, markStraight, markCount, editingDraft } = s
   return !painting
     ? null
     : markChipText(markGesture, markCount, `the ${elementKindInfo(draft!.kind).noun}`, {
         idle: editingDraft ? 'Esc discards the changes' : 'Esc discards the element',
         live: 'Esc to navigate, twice to discard',
-      }) +
+      }, markStraight) +
       (draft!.status === 'ready'
         ? editingDraft
           ? ' · Enter or middle-click saves it'
@@ -147,8 +157,8 @@ export function stageHintOf(s: {
 /** The same tools mark two different things in the deviation workspace: the
  *  surface a local fine fit runs on, and the region an element map is
  *  restricted to. */
-export function markHintOf(s: { marking: boolean; markGesture: MarkGesture | null; markCount: number; source: string }): string | null {
-  const { marking, markGesture, markCount, source } = s
+export function markHintOf(s: { marking: boolean; markGesture: MarkGesture | null; markStraight: boolean; markCount: number; source: string }): string | null {
+  const { marking, markGesture, markStraight, markCount, source } = s
   return !marking
     ? null
     : markChipText(
@@ -159,5 +169,6 @@ export function markHintOf(s: { marking: boolean; markGesture: MarkGesture | nul
           idle: 'Esc closes',
           live: 'Esc to navigate, twice to close',
         },
+        markStraight,
       )
 }

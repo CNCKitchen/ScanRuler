@@ -12,6 +12,7 @@ import { isExtruded } from '../state/sectionModel'
 import { cutSummary } from '../core/section/slice'
 import { formatPrimary } from '../core/summary'
 import type { CloudFormat } from '../core/exportPointCloud'
+import type { ScaleReference } from '../core/scanScale'
 import type { Rigid } from '../core/deviation/rigid'
 import type { StepStyle } from '../core/exportStep'
 import type { ElementKind, SigmaPreset } from '../core/types'
@@ -68,6 +69,8 @@ export function Panel({
   onApplyAlignment,
   onApplyManual,
   onResetAlignment,
+  scaleRefusal,
+  onApplyScale,
   onExportStep,
   onExportMesh,
   onExportCloud,
@@ -110,6 +113,8 @@ export function Panel({
   /** Bake a typed-in move / rotate into the part. */
   onApplyManual: (m: Rigid) => void
   onResetAlignment: () => void
+  scaleRefusal: () => string | null
+  onApplyScale: (factor: number, references: ScaleReference[]) => void
   onExportStep: () => void
   /** Save the scan as an STL in the pose it is currently shown in. */
   onExportMesh: (format: MeshFormat) => void
@@ -205,6 +210,8 @@ export function Panel({
         onApplyAlignment={onApplyAlignment}
         onApplyManual={onApplyManual}
         onResetAlignment={onResetAlignment}
+        scaleRefusal={scaleRefusal}
+        onApplyScale={onApplyScale}
       />
 
       {sectionDraft === null && (

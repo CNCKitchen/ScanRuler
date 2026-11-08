@@ -343,6 +343,29 @@ export function useMeshWorkspace(session: MeshToolsSession) {
     }
   }, [shelling, holeSize, triangleCount, edits, copyVersion, clientRef])
 
+  // How many open edges the mesh has, looked at while Wrap is in hand and
+  // again for each version of it: a sheet wraps to nothing unless grown.
+  const wrapping = workspace === 'mesh' && tool === 'wrap' && fileName !== null && triangleCount > 0
+  useEffect(() => {
+    if (!wrapping) return
+    const client = meshToolsOf(clientRef.current!)
+    const scanVersion = client.scanVersion
+    const editedVersion = client.editedVersion
+    let stale = false
+    useMeshTools.getState().setWrapOpen(null)
+    client
+      .closedness()
+      .then((c) => {
+        if (!stale && scanVersion === client.scanVersion && editedVersion === client.editedVersion) useMeshTools.getState().setWrapOpen(c.open)
+      })
+      .catch(() => {
+        // A hint only; the wrap says what went wrong itself.
+      })
+    return () => {
+      stale = true
+    }
+  }, [wrapping, triangleCount, edits, copyVersion, clientRef])
+
   const holeSurveyVersion = useMeshTools((s) => s.holeSurveyVersion)
   useEffect(() => {
     const shown = sortingHoles && useMeshTools.getState().holeSurvey !== null
@@ -362,11 +385,12 @@ export function useMeshWorkspace(session: MeshToolsSession) {
   const cutCap = useMeshTools((s) => s.cutCap)
   const elements = useStore((s) => s.elements)
   const modelCenter = useStore((s) => s.modelCenter)
+  const modelSize = useStore((s) => s.modelSize)
   const cutting = workspace === 'mesh' && tool === 'cut' && fileName !== null
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene || !cutting) return
-    const plane = cutPlaneOf(cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter)
+    const plane = cutPlaneOf(cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter, undefined, 2 * modelSize)
     if (!plane) return
     // The slice's own stencil cap closes whatever the eye looks through, which
     // on an open scan is not what the cut will close.
@@ -376,7 +400,7 @@ export function useMeshWorkspace(session: MeshToolsSession) {
       scene.setSlicePlane(null)
       scene.setSliceCapped(true)
     }
-  }, [cutting, cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter, fileName, sceneRef])
+  }, [cutting, cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter, modelSize, fileName, sceneRef])
 
   // The cap is asked for a moment after the plane settles — an offset stepped
   // with the arrows asks once, not at every step — and it and what the panel
@@ -384,7 +408,7 @@ export function useMeshWorkspace(session: MeshToolsSession) {
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene || !cutting) return
-    const plane = cutPlaneOf(cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter)
+    const plane = cutPlaneOf(cutRef, cutOffset, cutOffsetAuto, cutKeep, elements, modelCenter, undefined, 2 * modelSize)
     if (!plane) {
       meshSceneOf(scene).setCutCap(null, null)
       return
@@ -410,7 +434,7 @@ export function useMeshWorkspace(session: MeshToolsSession) {
       stale = true
       clearTimeout(timer)
     }
-  }, [cutting, cutRef, cutOffset, cutOffsetAuto, cutKeep, cutCap, elements, modelCenter, triangleCount, edits, copyVersion, appliedAlignment, clientRef, sceneRef])
+  }, [cutting, cutRef, cutOffset, cutOffsetAuto, cutKeep, cutCap, elements, modelCenter, modelSize, triangleCount, edits, copyVersion, appliedAlignment, clientRef, sceneRef])
 
   useEffect(() => {
     const scene = sceneRef.current
@@ -421,6 +445,38 @@ export function useMeshWorkspace(session: MeshToolsSession) {
       useMeshTools.getState().setCutPreview(null)
     }
   }, [cutting, sceneRef])
+
+  // While Mirror is in hand the part is shown as the mirror would leave it:
+  // its mirror image across the plane drawn over it — or, to make it
+  // symmetric, the side to be replaced cut away and the mirror image of the
+  // side kept drawn in its place — and the plane outlined. The scene draws it
+  // again for each version of the mesh on show, and after the part moves.
+  const mirrorRef = useMeshTools((s) => s.mirrorRef)
+  const mirrorOffset = useMeshTools((s) => s.mirrorOffset)
+  const mirrorOffsetAuto = useMeshTools((s) => s.mirrorOffsetAuto)
+  const mirrorKeep = useMeshTools((s) => s.mirrorKeep)
+  const mirrorMode = useMeshTools((s) => s.mirrorMode)
+  const mirroring = workspace === 'mesh' && tool === 'mirror' && fileName !== null
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !mirroring) return
+    const plane = cutPlaneOf(mirrorRef, mirrorOffset, mirrorOffsetAuto, mirrorKeep, elements, modelCenter, undefined, 2 * modelSize)
+    if (!plane) return
+    const symmetric = mirrorMode === 'symmetric'
+    if (symmetric) {
+      // Left open where it is cut: the mirror image closes it.
+      scene.setSliceCapped(false)
+      scene.setSlicePlane(plane.frame)
+    }
+    meshSceneOf(scene).setMirrorPreview(plane.frame, symmetric)
+    return () => {
+      meshSceneOf(scene).setMirrorPreview(null)
+      if (symmetric) {
+        scene.setSlicePlane(null)
+        scene.setSliceCapped(true)
+      }
+    }
+  }, [mirroring, mirrorRef, mirrorOffset, mirrorOffsetAuto, mirrorKeep, mirrorMode, elements, modelCenter, modelSize, sceneRef])
 
   // ---- The edited copy -------------------------------------------------------------
 
@@ -454,10 +510,15 @@ export function useMeshWorkspace(session: MeshToolsSession) {
         useMeshTools.getState().setCopyDeviationStats(stats)
         const units = usePrefs.getState().units
         const added = stats.added > 0 ? `; ${((100 * stats.added) / values.length).toFixed(1)} % of it is surface an edit added` : ''
+        // Measured at the copy's own points, which a reduction leaves on the
+        // surface: the triangles between them can stray much further.
+        const reduced = useMeshTools.getState().pending.some((e) => e.kind === 'reduce')
+          ? ' Only at its own points: the triangles between them can stray further, which the reduction’s Accuracy view measures.'
+          : ''
         useStore
           .getState()
           .setStatus(
-            `The edited copy is within ${fmtLen(stats.maxAbs, units, 3)} of the scan in use, RMS ${fmtLen(stats.rms, units, 3)}${added}.`,
+            `The edited copy is within ${fmtLen(stats.maxAbs, units, 3)} of the scan in use, RMS ${fmtLen(stats.rms, units, 3)}${added}.${reduced}`,
           )
       })
       .catch((e: unknown) => {

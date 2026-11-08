@@ -2,13 +2,13 @@
 // The Mesh Tools workspace read out as plain JSON — its part of the
 // session's readout (`plugins.mesh` in session.state) and what its commands
 // answer with: the mesh it works on, the edits made, the settings each tool
-// stands at, the reduced mesh and the piece Trim to scan made, and the
-// solids on offer. Nothing per vertex: a region is a count, a map its
+// stands at, the reduced mesh, the wrap and the piece Trim to scan made, and
+// the solids on offer. Nothing per vertex: a region is a count, a map its
 // figures.
 
 import { useStore } from '../../../src/state/store'
 import type { Vec3 } from '../../../src/core/types'
-import { reductionStale, scanEditFigure, scanEditText, trimStale, useMeshTools, type ScanEdit } from '../state/meshStore'
+import { reductionStale, scanEditFigure, scanEditText, trimStale, useMeshTools, wrapStale, type ScanEdit } from '../state/meshStore'
 import type { TrimReport } from '../core/trimToScan'
 import { booleanSolids } from './booleanSolids'
 
@@ -21,7 +21,8 @@ const PLANE_OF_AXIS = { z: 'XY', x: 'YZ', y: 'XZ' } as const
 /** An edit as the list shows it: its line, its figure and what it holds. */
 export const editOut = (e: ScanEdit) => ({ ...e, text: scanEditText(e), figure: scanEditFigure(e) })
 
-/** What Cut is taken across: a coordinate plane by name, or an element. */
+/** What Cut or Mirror is taken across: a coordinate plane by name, or an
+ *  element. */
 function cutPlaneOut(ref: MeshState['cutRef']): string | { element: number; name: string | null } {
   if (typeof ref !== 'number') return PLANE_OF_AXIS[ref]
   return { element: ref, name: useStore.getState().elements.find((e) => e.id === ref)?.name ?? null }
@@ -34,12 +35,14 @@ function settingsOut(m: MeshState = useMeshTools.getState()) {
     reduce: { tolerance: m.tolerance, maxTriangles: m.maxTriangles },
     removeIslands: { size: m.pieceSize },
     cut: { plane: cutPlaneOut(m.cutRef), offset: m.cutOffsetAuto ? null : m.cutOffset, keep: m.cutKeep, cap: m.cutCap },
+    mirror: { plane: cutPlaneOut(m.mirrorRef), offset: m.mirrorOffsetAuto ? null : m.mirrorOffset, mode: m.mirrorMode, keep: m.mirrorKeep },
     fillHoles: { size: m.holeSize, patch: m.fillMode },
     smooth: { size: m.smoothSize, limit: m.smoothLimit, keepEdges: m.smoothEdges, scope: m.smoothScope },
     offset: { direction: m.offsetDirection, distance: m.offsetDistance, scope: m.offsetScope },
     boolean: { op: m.boolOp, solids: m.boolSolids },
     shell: { thickness: m.shellThickness, side: m.shellSide },
     trim: { body: m.trimSolid, offset: m.trimOffset, depth: m.trimDepth, flip: m.trimFlip },
+    wrap: { gap: m.wrapGap, grow: m.wrapGrow, edges: m.wrapEdges },
   }
 }
 
@@ -62,6 +65,35 @@ export function reductionOut(m: MeshState = useMeshTools.getState()) {
     backP999: r.backP999,
     backMax: r.backMax,
     stale: reductionStale(m),
+  }
+}
+
+/** The wrap on hand, as it was made — null with none. */
+export function wrapOut(m: MeshState = useMeshTools.getState()) {
+  const made = m.wrapMade
+  if (!made) return m.wrapStatus === 'running' ? { status: 'running' as const, stage: m.wrapStage } : null
+  const r = made.report
+  return {
+    status: m.wrapStatus === 'running' ? ('running' as const) : ('ready' as const),
+    gap: r.settings.gap,
+    grow: r.settings.grow,
+    edges: r.settings.edges,
+    shells: r.shells,
+    triangles: r.triangles,
+    vertices: r.vertices,
+    fromTriangles: r.inputTriangles,
+    dropped: r.dropped,
+    area: r.area,
+    bridgedArea: r.bridgedArea,
+    volumeBefore: made.volumeBefore,
+    volume: r.volume,
+    cell: r.cell,
+    coarsened: r.coarsened,
+    ...(r.fullGap !== null ? { fullGap: r.fullGap } : {}),
+    ...(r.settings.edges === 'sharp' ? { sharpEdges: r.sharpEdges, sharpCorners: r.sharpCorners } : {}),
+    stages: r.stages.map((s) => ({ stage: s.name, ms: Math.round(s.ms) })),
+    ...(r.warning ? { warning: r.warning } : {}),
+    stale: wrapStale(m),
   }
 }
 
@@ -103,6 +135,7 @@ export function partsOut() {
     scan: s.fileName ? { name: s.fileName, triangles: s.triangleCount, edits: m.edits.map(editOut) } : null,
     copy: m.copyTriangles !== null ? { triangles: m.copyTriangles, edits: m.pending.map(editOut) } : null,
     reduced: reductionOut(m),
+    wrap: wrapOut(m),
     piece: pieceOut(m),
     solids: solidsOut(),
     shown: { scan: m.shownScan, reduced: m.shownReduced, piece: m.shownPiece, bodies: m.shownBodies },
@@ -120,6 +153,7 @@ export function describeMesh() {
     settings: settingsOut(m),
     ...(m.message ? { reduceMessage: m.message } : {}),
     ...(m.trimMessage ? { trimMessage: m.trimMessage } : {}),
+    ...(m.wrapMessage ? { wrapMessage: m.wrapMessage } : {}),
   }
 }
 

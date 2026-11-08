@@ -736,9 +736,16 @@ export interface BooleanFeature extends FeatureFlags {
   name: string
   op: BooleanOp
   body: number
-  tool: number
+  /** One body, or several: joined all, or cut or intersected by each in
+   *  turn. A project from before several keeps one. */
+  tool: number | number[]
   keep?: boolean
   visible: boolean
+}
+
+/** A Combine's tools as a list, one or several. */
+export function toolsOf(f: { tool: number | readonly number[] }): number[] {
+  return typeof f.tool === 'number' ? [f.tool] : [...f.tool]
 }
 
 /** A sketch's pieces — an open chain, or a closed one — extruded as a
@@ -1139,7 +1146,7 @@ export function referencesOf(f: Feature): number[] {
     case 'extract':
       return f.target === undefined ? [] : [f.target]
     case 'boolean':
-      return [f.body, f.tool]
+      return [f.body, ...toolsOf(f)]
     case 'sheet':
       return [f.sketchId]
     case 'surface': {

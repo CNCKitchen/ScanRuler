@@ -402,8 +402,10 @@ export type FeatureDraft = { exprs?: ExprMap } & (
   | { kind: 'extract'; featureId?: number; name?: string; element: number | null; section: number | null; thickness: number; op: BodyOp }
   | { kind: 'cutPlane'; featureId?: number; name?: string; body: number | null; plane: PlaneRef | null; keep: 1 | -1 }
   | { kind: 'mirror'; featureId?: number; name?: string; body: number | null; plane: MirrorPlane | null; join: boolean; symmetry: SymmetryFinding }
-  /** `keep`: the tool stays a body of its own (BooleanFeature). */
-  | { kind: 'boolean'; featureId?: number; name?: string; op: BooleanOp; body: number | null; tool: number | null; keep: boolean }
+  /** `keep`: the tools stay bodies of their own (BooleanFeature).
+   *  `moreTools`: the tools past the first, joined with it, or cut or
+   *  intersected by in turn. */
+  | { kind: 'boolean'; featureId?: number; name?: string; op: BooleanOp; body: number | null; tool: number | null; moreTools?: number[]; keep: boolean }
   | { kind: 'sheet'; featureId?: number; name?: string; sketchId: number | null; from: number; to: number }
   | { kind: 'split'; featureId?: number; name?: string; body: number | null; tools: number[]; keep: SplitKeep; tolerance: number; overlap: number; within?: number }
   | { kind: 'loft'; featureId?: number; name?: string; sketches: number[]; ruled: boolean; op: BodyOp }

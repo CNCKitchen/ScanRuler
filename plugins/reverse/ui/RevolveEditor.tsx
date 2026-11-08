@@ -10,7 +10,7 @@ import { RefPicker } from '../../../src/ui/RefPicker'
 import { NameField } from '../../../src/ui/RefSelect'
 import type { AxisRef, SketchFeature } from '../core/features'
 import { revolveAngle, revolveDraftReady, useReverse } from '../state/reStore'
-import { AnalysisRow, Num, OpFields, PreviewLine, ProfilesField, useRegionCount } from './featureFields'
+import { AnalysisRow, BuildSays, Num, OpFields, PreviewLine, ProfilesField, useRegionCount } from './featureFields'
 
 export function RevolveEditor() {
   const draft = useReverse((s) => s.revolveDraft)
@@ -45,6 +45,7 @@ export function RevolveEditor() {
     <div className="draftbox" data-test="revolve-editor">
       <div className="sec-head">{draft.featureId !== undefined ? `Edit ${draft.name}` : coil ? 'New coil' : 'New revolve'}</div>
       {draft.featureId !== undefined && <NameField value={draft.name ?? ''} testId="revolve-name" onChange={(name) => set({ name })} />}
+      <BuildSays featureId={draft.featureId} />
       <label className="field">
         <span>Sketch</span>
         <select data-test="revolve-sketch" value={draft.sketchId ?? ''} onChange={(e) => set({ sketchId: e.target.value === '' ? null : Number(e.target.value), axis: null })}>

@@ -6,6 +6,8 @@
 // the cells on a slope (a fillet's ramp between tiers) left out first.
 // A grid here is row by row, row 0 at the low v, NaN where there is nothing.
 
+import { solveLinear } from '../fit/linalg'
+
 /** The grid's sums under a separable kernel, one along u and one along v:
  *  Σ ku(i)·kv(j)·values over the cells round each, with the empty cells
  *  counting nothing. */
@@ -145,6 +147,10 @@ export interface HeightLevel {
   share: number
   /** The grid box round its cells, [u, v] mm. */
   box: { min: [number, number]; max: [number, number] }
+  /** The plane fitted to its cells' heights as read (a warp taken out of
+   *  the values or not): where it stands over the middle of its cells,
+   *  [u, v, height] mm, and how much it rises per mm along u and along v. */
+  plane: { at: [number, number, number]; slope: [number, number] }
 }
 
 export interface LevelsResult {
@@ -161,11 +167,14 @@ export interface LevelsResult {
  *  of the cells (three at least) — a flat face fills a bin or two, a lean
  *  a run of them, and the few cells on a wall between two faces leave the
  *  bins between them thin, so the two stay apart. Each cell then joins the
- *  run its value lies in, or one a bin either side of it. Largest first. */
+ *  run its value lies in, or one a bin either side of it. Largest first.
+ *  Each level's plane is fitted to `raw` — the heights as read, where the
+ *  values have had a warp taken out — or to the values themselves. */
 export function heightLevels(
   values: Float32Array,
   grid: { cols: number; cell: number; u0: number; v0: number },
   gap: number,
+  raw: Float32Array = values,
 ): LevelsResult {
   let lo = Infinity
   let hi = -Infinity
@@ -229,6 +238,7 @@ export function heightLevels(
         c0 = Math.min(c0, c); c1 = Math.max(c1, c)
         r0 = Math.min(r0, r); r1 = Math.max(r1, r)
       }
+      const plane = planeOverCells(raw, m, grid)
       return {
         height: vs[Math.floor(vs.length / 2)],
         sigma,
@@ -237,10 +247,192 @@ export function heightLevels(
         area: m.length * cell * cell,
         share: m.length / count,
         box: { min: [u0 + c0 * cell, v0 + r0 * cell] as [number, number], max: [u0 + (c1 + 1) * cell, v0 + (r1 + 1) * cell] as [number, number] },
+        plane,
       }
     })
   levels.sort((a, b) => b.cells - a.cells)
   return { levels, gap: w, unassigned }
+}
+
+/** The plane h = a + b·(u − ū) + c·(v − v̄) through the given cells'
+ *  heights by least squares, ū, v̄ the middle of the cells. Level along a
+ *  way the cells do not spread (a single row or column, a cell alone). */
+function planeOverCells(
+  heights: Float32Array,
+  cells: readonly number[],
+  { cols, cell, u0, v0 }: { cols: number; cell: number; u0: number; v0: number },
+): HeightLevel['plane'] {
+  let n = 0, su = 0, sv = 0, sh = 0
+  for (const i of cells) {
+    const h = heights[i]
+    if (Number.isNaN(h)) continue
+    const c = i % cols
+    n++
+    su += u0 + (c + 0.5) * cell
+    sv += v0 + ((i - c) / cols + 0.5) * cell
+    sh += h
+  }
+  if (n === 0) return { at: [u0, v0, 0], slope: [0, 0] }
+  const [mu, mv, mh] = [su / n, sv / n, sh / n]
+  let uu = 0, uv = 0, vv = 0, uh = 0, vh = 0
+  for (const i of cells) {
+    const h = heights[i]
+    if (Number.isNaN(h)) continue
+    const c = i % cols
+    const du = u0 + (c + 0.5) * cell - mu
+    const dv = v0 + ((i - c) / cols + 0.5) * cell - mv
+    uu += du * du; uv += du * dv; vv += dv * dv
+    uh += du * (h - mh); vh += dv * (h - mh)
+  }
+  const det = uu * vv - uv * uv
+  if (det > 1e-9 * uu * vv) return { at: [mu, mv, mh], slope: [(uh * vv - vh * uv) / det, (vh * uu - uh * uv) / det] }
+  // A row or a column: the slope along it alone.
+  return { at: [mu, mv, mh], slope: uu >= vv ? [uu > 0 ? uh / uu : 0, 0] : [0, vh / vv] }
+}
+
+/** A warp taken out of a height map before its levels were gathered. */
+export interface Warp {
+  /** The surface's highest less its lowest over the cells counted, mm — a
+   *  lean counts too. */
+  rise: number
+  /** How far it bends away from the plane that fits it best, highest less
+   *  lowest, mm. */
+  bow: number
+  /** The height it was put back at: its median over the cells counted. */
+  base: number
+  /** The values with the surface taken out and `base` put back, NaN where
+   *  they are — what the levels were gathered from. */
+  flat: Float32Array
+}
+
+/** The steepest a surface taken out of a height map may lean anywhere over
+ *  it, degrees: a sheet's warp, a part not yet levelled — not a dome. */
+const WARP_MAX_DEG = 5
+/** The share of the map a level must hold to count as a level when the
+ *  levels with a warp taken out are weighed against those without. */
+const WARP_LEVEL_SHARE = 0.05
+/** The least cells a warp surface is fitted to. */
+const WARP_LEAST_CELLS = 30
+
+/** The quadratic surface h = k·[1, x, y, x², xy, y²] through the given
+ *  cells by least squares (x, y the cell's place scaled to −1…1 across the
+ *  grid), or, with `terms` 3, the plane k·[1, x, y]. Null when the cells
+ *  do not hold it. */
+function polyFit(heights: ArrayLike<number>, cells: readonly number[], cols: number, rows: number, terms: 3 | 6): Float64Array | null {
+  const a = new Float64Array(terms * terms)
+  const b = new Float64Array(terms)
+  const t = new Float64Array(6)
+  for (const i of cells) {
+    polyTerms(i, cols, rows, t)
+    const h = heights[i]
+    for (let p = 0; p < terms; p++) {
+      b[p] += t[p] * h
+      for (let q = 0; q < terms; q++) a[p * terms + q] += t[p] * t[q]
+    }
+  }
+  return cells.length >= 2 * terms ? solveLinear(terms, a, b) : null
+}
+
+function polyTerms(i: number, cols: number, rows: number, t: Float64Array): void {
+  const c = i % cols
+  const x = (c + 0.5 - cols / 2) / (cols / 2)
+  const y = ((i - c) / cols + 0.5 - rows / 2) / (rows / 2)
+  t[0] = 1; t[1] = x; t[2] = y; t[3] = x * x; t[4] = x * y; t[5] = y * y
+}
+
+const median = (xs: number[]): number => {
+  const s = xs.slice().sort((p, q) => p - q)
+  return s[Math.floor(s.length / 2)]
+}
+
+/**
+ * A height map's levels, read through a warp: gathered as the values are,
+ * and again with a smooth surface taken out — a quadratic fitted to the
+ * largest level's cells, the cells off it by more than 2.5 times their
+ * spread (or `gap`) dropped and the fit made again till it settles, so the
+ * surface follows the larger of two levels a warp has run together and not
+ * their mean. The second reading is kept when it holds more levels of a
+ * twentieth of the map or more than the first: a stamped sheet's bead
+ * crowns apart from the sheet, a warped plate's two steps. A surface that
+ * leans past WARP_MAX_DEG anywhere is no warp, and one that rises less
+ * than `gap` changes nothing; either way the levels are the first reading.
+ *
+ * `counted` are the values the levels are gathered from (sloped cells NaN),
+ * `all` every value — flattened too, for the ramps beside the levels.
+ */
+export function levelsThroughWarp(
+  counted: Float32Array,
+  all: Float32Array,
+  grid: { cols: number; rows: number; cell: number; u0: number; v0: number },
+  gap: number,
+): LevelsResult & { warp?: Warp } {
+  const plain = heightLevels(counted, grid, gap)
+  const top = plain.levels[0]
+  if (!top) return plain
+  const { cols, rows, cell } = grid
+  const start: number[] = []
+  const valued: number[] = []
+  for (let i = 0; i < counted.length; i++) {
+    const v = counted[i]
+    if (Number.isNaN(v)) continue
+    valued.push(i)
+    if (v >= top.range[0] && v <= top.range[1]) start.push(i)
+  }
+  if (start.length < WARP_LEAST_CELLS) return plain
+  // Fit, drop the cells far off it, fit again — till the cells kept stay.
+  const t = new Float64Array(6)
+  const at = (k: Float64Array, i: number) => {
+    polyTerms(i, cols, rows, t)
+    let s = 0
+    for (let p = 0; p < k.length; p++) s += k[p] * t[p]
+    return s
+  }
+  let use = start
+  let k = polyFit(counted, use, cols, rows, 6)
+  for (let pass = 0; pass < 10 && k; pass++) {
+    const res = start.map((i) => counted[i] - at(k!, i))
+    const mid = median(res)
+    const spread = 1.4826 * median(res.map((r) => Math.abs(r - mid)))
+    const keep = Math.max(2.5 * spread, gap)
+    const next = start.filter((_, j) => Math.abs(res[j] - mid) <= keep)
+    if (next.length < WARP_LEAST_CELLS) break
+    if (next.length === use.length) break
+    use = next
+    k = polyFit(counted, use, cols, rows, 6)
+  }
+  if (!k) return plain
+  // How it leans: x, y run −1…1 over cols·cell, rows·cell.
+  const perU = 2 / (cols * cell)
+  const perV = 2 / (rows * cell)
+  const surface = new Float64Array(counted.length)
+  for (let i = 0; i < surface.length; i++) surface[i] = at(k, i)
+  let lo = Infinity, hi = -Infinity, steepest = 0
+  for (const i of valued) {
+    lo = Math.min(lo, surface[i])
+    hi = Math.max(hi, surface[i])
+    polyTerms(i, cols, rows, t)
+    const gu = (k[1] + 2 * k[3] * t[1] + k[4] * t[2]) * perU
+    const gv = (k[2] + k[4] * t[1] + 2 * k[5] * t[2]) * perV
+    steepest = Math.max(steepest, Math.hypot(gu, gv))
+  }
+  if (hi - lo < gap || steepest > Math.tan((WARP_MAX_DEG * Math.PI) / 180)) return plain
+  const base = median(valued.map((i) => surface[i]))
+  const flatten = (v: Float32Array) => v.map((x, i) => (Number.isNaN(x) ? x : x - surface[i] + base))
+  const warped = heightLevels(flatten(counted), grid, gap, counted)
+  const substantial = (r: LevelsResult) => r.levels.filter((l) => l.share >= WARP_LEVEL_SHARE).length
+  if (substantial(warped) <= substantial(plain)) return plain
+  // The bend: the surface less the plane through it.
+  const p = polyFit(surface, valued, cols, rows, 3)
+  let blo = Infinity, bhi = -Infinity
+  if (p) {
+    for (const i of valued) {
+      polyTerms(i, cols, rows, t)
+      const r = surface[i] - (p[0] + p[1] * t[1] + p[2] * t[2])
+      blo = Math.min(blo, r)
+      bhi = Math.max(bhi, r)
+    }
+  }
+  return { ...warped, warp: { rise: hi - lo, bow: p ? bhi - blo : hi - lo, base, flat: flatten(all) } }
 }
 
 /** A run of sloped cells touching each other: its cells, the grid box

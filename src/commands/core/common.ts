@@ -26,6 +26,7 @@ export function requireMeasureFree(): void {
   if (draftHolds(s.draft)) open.push(s.draft!.editId !== undefined ? 'an element being edited' : `a ${s.draft!.kind} being made`)
   if (dimHolds(s.dimDraft)) open.push('a dimension being set up')
   if (s.alignDraft) open.push('the alignment being set up')
+  if (s.scaleDraft) open.push('the Scale part box')
   if (s.sectionDraft) open.push('a section being made')
   if (open.length) {
     throw new CommandError(

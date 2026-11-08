@@ -69,6 +69,13 @@ function openHalfEdges(he: HalfEdges): Uint8Array {
   return open
 }
 
+/** How many edges of the mesh no other triangle has, either way round. */
+export function openEdgeCount(indices: Uint32Array, vertexCount: number): number {
+  let n = 0
+  for (const open of openHalfEdges(halfEdges(indices, vertexCount))) n += open
+  return n
+}
+
 /** One rim. */
 export interface BoundaryLoop {
   /** Its vertices in the direction its open half-edges run: vertices[i] →

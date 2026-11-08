@@ -253,7 +253,15 @@ Decisions that moved while building, recorded here as the plan says:
 - **occt-wasm 5.0.0** is the pinned version (OCCT 8.0.1) — 5.7.1 since
   2026-10-13, the same OCCT: 5.0.0 built every two-shape boolean twice
   (the operation's constructor builds it, and `Build()` was called again),
-  which 5.5.1 fixed, and every join and cut took twice as long. The pin is
+  which 5.5.1 fixed, and every join and cut took twice as long. 5.15.0
+  since 2026-11-03, for its rounds at a radius of their own on each edge
+  in one call; 5.9.0 to 5.11 had measured extruded multi-span splines
+  wrong. 5.15.0 integrates a freeform face's area, centroid and volume to
+  about 1e-7 and its exact bounding box by subdivision, slowly: the kernel
+  keeps each face's area and centroid by hash and each shape's volume by
+  handle (ReKernel.faces, volumeOf), sizes go by the loose box
+  (ReKernel.extent), and the page draws a body before its faces are read
+  (Builder.buildDrawn, topologiesOf). The pin is
   exact on purpose, so a fix like that arrives only when someone bumps it:
   look at the wrapper's changelog now and then. The wasm is
   22 MB raw, 7 MB gzipped — not the 4.7 MB brotli the survey quoted; still

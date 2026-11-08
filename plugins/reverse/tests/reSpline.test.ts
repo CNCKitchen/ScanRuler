@@ -13,7 +13,7 @@ import { ReKernel } from '../core/kernel'
 import { findRegions, loopGeometry } from '../core/regions'
 import { resolveFeatures } from '../core/resolve'
 import { addConstraint, addEntity, anchorPoint, anchorsOf, emptySketch, entityOf, inferRelations, type Sketch, type SketchSpline } from '../core/sketch'
-import { bsplineAt, bsplineSamples, nearestOnSpline, splineAt, splineCurve, splineDirAt, splineEnd, splineScatter, splineStretch } from '../core/sketchSpline'
+import { bsplineAt, bsplineSamples, nearestOnSpline, splineAt, splineCurve, splineDirAt, splineEnd, splineOvershoots, splineScatter, splineStretch } from '../core/sketchSpline'
 import { solveSketch } from '../core/solver'
 import { DEFAULT_FIT_OPTIONS } from '../core/fitOptions'
 import { fitChain } from '../state/reSketchDraft'
@@ -293,5 +293,30 @@ describe('a spline in the part', () => {
     expect(result.bodies[0].faces).toBe(6)
     const step = builder.exportStep([result.bodies[0].id])
     expect(step).toMatch(/B_SPLINE_CURVE_WITH_KNOTS/)
+  })
+})
+
+describe('a spline swinging past its points', () => {
+  const spline = (pts: Vec2[], more: Partial<SketchSpline> = {}): SketchSpline => ({ id: 1, kind: 'spline', pts, ...more })
+
+  it('says the bulge past a corner table’s last point, held to run straight down there', () => {
+    // A phone's corner as a drawing tables it: the edge at u 84.10.
+    const corner: Vec2[] = [[66.8, 0], [71.66, -0.06], [76.42, -1], [80.48, -3.63], [83.1, -7.68], [84.08, -12.44], [84.1, -17.31]]
+    const held = splineOvershoots(spline(corner, { startDir: 0, endDir: -Math.PI / 2 }))
+    expect(held[0]).toMatchObject({ axis: 'u' })
+    expect(held[0].mm).toBeGreaterThan(0.01)
+    expect(held[0].at[0]).toBeGreaterThan(84.1)
+  })
+
+  it('says a dip under a run of points on one line', () => {
+    const barrel: Vec2[] = [[0, -1.56], [0, 0], [0, 1.56], [0.26, 3.32], [0.92, 3.92]]
+    const found = splineOvershoots(spline(barrel))
+    expect(found.find((o) => o.axis === 'u')?.at[0]).toBeLessThan(-0.01)
+  })
+
+  it('says nothing over a crest, nor on points that keep the curve within', () => {
+    const arch: Vec2[] = [0, 60, 120, 180].map((d) => [10 * Math.cos((d * Math.PI) / 180), 10 * Math.sin((d * Math.PI) / 180)])
+    expect(splineOvershoots(spline(arch))).toEqual([])
+    expect(splineOvershoots(spline([[0, 0], [1, 1], [2, 2], [3, 3]]))).toEqual([])
   })
 })

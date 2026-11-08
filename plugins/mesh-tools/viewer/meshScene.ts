@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The Mesh Tools workspace in the 3D viewport: the scan reduced for CAD, the
+// wrap Wrap made with its bridges tinted, the
 // islands Remove islands would take, the rims Fill holes would close — a
 // click on a hole's ring fills that hole — the cap a cut would close the
-// part with, the solids Boolean and Trim to scan are offered, and the piece
+// part with, the part's mirror image Mirror would make, the solids Boolean and Trim to scan are offered, and the piece
 // Trim to scan made. One layer of the SceneManager (src/viewer/sceneLayers.ts),
 // first in line: the rings are drawn through the part, so picked through it,
 // ahead of everything behind.
@@ -16,6 +17,7 @@ import { patchWireframe, setSurfaceOpacity } from '../../../src/viewer/surfaceMo
 import { CAP_SLOT, CapSet, cutColor, type CapPart } from '../../../src/viewer/sliceCap'
 import { clipTree } from '../../../src/viewer/clipTree'
 import { paintField, type Colormap, type FieldScale } from '../../../src/core/field/colormap'
+import type { SectionFrame } from '../../../src/core/section/frame'
 
 /** The islands a removal would take: a warning orange, unlit, so it stands
  *  off the scan's grey under every scheme. */
@@ -39,6 +41,15 @@ const PIECE_MATING_COLOR = 0x12a594
 /** The solids on offer that are not in hand: a slate that reads as there to
  *  be taken, not as an operation. */
 const SOLID_OFFER_COLOR = 0x8b95a3
+/** The mirror image Mirror would make, and the plane it is made across: a
+ *  violet none of the boolean's colours nor the markings' are. */
+const MIRROR_COLOR = 0x8e6bd8
+/** Where the wrap bridges an opening rather than lying on the part: an amber
+ *  that reads as surface made, not as a warning — and none of the
+ *  markings' colours. */
+const WRAP_BRIDGE_COLOR = 0xd9a441
+/** The wrap see-through, to show what of the part is inside it. */
+const WRAP_INSIDE_OPACITY = 0.28
 
 type BooleanOpColor = keyof typeof BOOLEAN_COLORS
 
@@ -62,6 +73,10 @@ export class MeshScene {
   private pieceGap: Float32Array | null = null
   /** Its edges are the point of it, so its mesh mode is always on. */
   private reducedWire = { uWire: { value: 1 } }
+  /** The wrap Wrap made, and which of its vertices bridge an opening — see
+   *  setWrapMesh. */
+  private wrap: THREE.Mesh | null = null
+  private wrapBridge: Uint8Array | null = null
   /** The islands Remove islands would take — see setIslands. */
   private islands: THREE.Group | null = null
   /** The rims Fill holes would close, and those it would leave — see
@@ -75,6 +90,15 @@ export class MeshScene {
   /** The cap a cut would close the part with, and the stretches of it that
    *  would stay open — see setCutCap. */
   private cutCap: THREE.Group | null = null
+  /** The part's mirror image Mirror would make, and the plane — see
+   *  setMirrorPreview. */
+  private mirror: THREE.Group | null = null
+  private mirrorImage: THREE.Mesh | null = null
+  private mirrorSymmetric = false
+  /** What setMirrorPreview asked for, and the mesh on show it was drawn
+   *  from: drawn again whenever another mesh is on show (see tick). */
+  private mirrorWanted: { frame: SectionFrame; symmetric: boolean } | null = null
+  private mirrorSource: Float32Array | null = null
   /** The solids Boolean can make one with the mesh, those in hand and the
    *  one under the cursor — see setBooleanSolids. */
   private booleanSolids: DrawnSolid[] = []
@@ -98,7 +122,11 @@ export class MeshScene {
   /** A click on one of the solids Boolean is offered, by its key. */
   onSolidPick: ((key: string) => void) | null = null
 
+  /** The viewport, for the mesh on show — see setMirrorPreview. */
+  private manager: SceneManager
+
   constructor(scene: SceneManager) {
+    this.manager = scene
     this.host = scene.layerHost()
     this.removeLayer = scene.addLayer(this.layer())
   }
@@ -141,6 +169,7 @@ export class MeshScene {
         return solid !== null
       },
       themeChanged: (theme) => {
+        if (this.mirrorImage && this.mirrorSymmetric) this.dressMirrorImage(this.mirrorImage.material as THREE.MeshStandardMaterial, theme)
         for (const child of this.cutCap?.children ?? []) {
           if (child instanceof THREE.Mesh) this.dressCutCap(child.material as THREE.MeshStandardMaterial, theme)
         }
@@ -155,6 +184,10 @@ export class MeshScene {
           applyFinish(skins, theme)
           applyFinish(mating, theme)
         }
+        if (this.wrap) {
+          applyFinish(this.wrap.material as THREE.MeshStandardMaterial, theme)
+          this.paintWrap(theme.nominal)
+        }
       },
       opacityChanged: (opacity) => {
         if (this.reducedMesh) setSurfaceOpacity(this.reducedMesh.material as THREE.MeshStandardMaterial, opacity)
@@ -165,17 +198,25 @@ export class MeshScene {
         this.sectionPlanes = section ? planes : null
         this.dressSection()
       },
-      tick: () => this.dressSection(),
+      tick: () => {
+        this.dressSection()
+        // The mesh on show changed under the mirror image — an edit landed,
+        // another scan opened: drawn again from the one now on show.
+        if (this.mirrorWanted && (this.manager.scanMesh()?.positions ?? null) !== this.mirrorSource) this.drawMirror()
+      },
       // The reduced mesh was made in the scan's frame and stays in it: it
       // moves with the scan, and the deviation measured between them is a
       // distance no rigid move changes. So do the islands marked on it.
       partMoved: (m) => {
-        for (const made of [this.reducedMesh, this.piece]) {
+        // Moved in place: the mirror image is drawn again on the next frame.
+        this.mirrorSource = null
+        for (const made of [this.reducedMesh, this.piece, this.wrap]) {
           if (!made) continue
           const geometry = made.geometry as THREE.BufferGeometry
           const at = geometry.getAttribute('position') as THREE.BufferAttribute
           rigidApplyToPoints(m, at.array as Float32Array)
           at.needsUpdate = true
+          if (geometry.getAttribute('normal')) geometry.computeVertexNormals()
           geometry.computeBoundingBox()
           geometry.computeBoundingSphere()
           geometry.disposeBoundsTree?.()
@@ -194,21 +235,25 @@ export class MeshScene {
       // islands, the rims and the cut marked on it, and a piece cut to it.
       scanReplaced: () => {
         this.disposeReduced()
+        this.disposeWrap()
         this.disposePiece()
         this.disposeIslands()
         this.disposeHoles()
         this.disposeCutCap()
+        this.disposeMirror()
         this.disposeBooleanSolids()
       },
       // An orbit pivots on the reduced mesh while it stands in for the scan,
       // and on the piece while it is shown.
-      navTargets: () => [this.reducedMesh, this.piece].filter((m): m is THREE.Mesh => m?.visible === true),
+      navTargets: () => [this.reducedMesh, this.piece, this.wrap].filter((m): m is THREE.Mesh => m?.visible === true),
       dispose: () => {
         this.disposeReduced()
+        this.disposeWrap()
         this.disposePiece()
         this.disposeIslands()
         this.disposeHoles()
         this.disposeCutCap()
+        this.disposeMirror()
         this.disposeBooleanSolids()
         this.caps.dispose()
         this.islandRing?.dispose()
@@ -224,12 +269,16 @@ export class MeshScene {
     const planes = this.sectionPlanes
     if (!planes && !this.sectionDressed) return
     this.sectionDressed = planes !== null
-    const roots = [this.reducedMesh, this.piece, this.islands, this.holes, this.holeHighlight, this.cutCap, ...this.booleanSolids.map((d) => d.group)]
+    const roots = [this.reducedMesh, this.piece, this.wrap, this.islands, this.holes, this.holeHighlight, this.cutCap, ...this.booleanSolids.map((d) => d.group)]
     for (const root of roots) if (root) clipTree(root, planes)
     const parts: CapPart[] = []
     // The reduced mesh stands in for the scan, and is cut in its colour.
     if (this.reducedMesh?.visible) parts.push({ mesh: this.reducedMesh, slot: CAP_SLOT.layers, color: cutColor(CAP_SLOT.scan) })
     if (this.piece?.visible) parts.push({ mesh: this.piece, slot: CAP_SLOT.layers + 1, color: cutColor(CAP_SLOT.layers) })
+    // The wrap stands for the part too, closed: cut in the scan's colour.
+    if (this.wrap?.visible && !(this.wrap.material as THREE.Material).transparent) {
+      parts.push({ mesh: this.wrap, slot: CAP_SLOT.layers + 2, color: cutColor(CAP_SLOT.scan) })
+    }
     this.caps.update(planes, parts, this.host.theme())
   }
 
@@ -278,6 +327,84 @@ export class MeshScene {
   setReducedVisible(visible: boolean): void {
     if (this.reducedMesh) this.reducedMesh.visible = visible
     this.host.invalidate()
+  }
+
+  /**
+   * The wrap Wrap made, or null to take it away: in the scan's frame like
+   * the reduced mesh, moving with it, smooth-shaded in the colour a model
+   * for CAD has — and where it bridges an opening, the vertices `bridge`
+   * marks, in amber, so the openings it closed show at a glance. Hidden
+   * until asked for (setWrapView).
+   */
+  setWrapMesh(mesh: { positions: Float32Array; indices: Uint32Array; bridge: Uint8Array } | null): void {
+    this.disposeWrap()
+    if (mesh) {
+      const theme = this.host.theme()
+      const geometry = new THREE.BufferGeometry()
+      // Its own copy: the scene moves what it draws with every alignment.
+      geometry.setAttribute('position', new THREE.BufferAttribute(mesh.positions.slice(), 3))
+      geometry.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(mesh.bridge.length * 3), 3, true))
+      geometry.setIndex(new THREE.BufferAttribute(mesh.indices.slice(), 1))
+      geometry.computeVertexNormals()
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+      geometry.computeBoundsTree()
+      const material = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, side: THREE.DoubleSide })
+      applyFinish(material, theme)
+      this.wrap = new THREE.Mesh(geometry, material)
+      this.wrapBridge = mesh.bridge.slice()
+      this.paintWrap(theme.nominal)
+      this.wrap.visible = false
+      this.host.partGroup.add(this.wrap)
+    }
+    this.host.invalidate()
+  }
+
+  /** Show the wrap — solid, or see-through over the part to show what is
+   *  inside it — or hide it with null. */
+  setWrapView(view: 'wrap' | 'inside' | null): void {
+    const wrap = this.wrap
+    if (!wrap) return
+    wrap.visible = view !== null
+    const material = wrap.material as THREE.MeshStandardMaterial
+    const through = view === 'inside'
+    if (material.transparent !== through) {
+      material.transparent = through
+      material.opacity = through ? WRAP_INSIDE_OPACITY : 1
+      material.depthWrite = !through
+      material.needsUpdate = true
+    }
+    this.host.invalidate()
+  }
+
+  /** The wrap's colours: the part's, and amber where it bridges. */
+  private paintWrap(nominal: number): void {
+    const wrap = this.wrap
+    const bridge = this.wrapBridge
+    if (!wrap || !bridge) return
+    const color = (wrap.geometry as THREE.BufferGeometry).getAttribute('color') as THREE.BufferAttribute
+    const rgb = color.array as Uint8Array
+    const on = new THREE.Color(nominal)
+    const off = new THREE.Color(WRAP_BRIDGE_COLOR)
+    for (let v = 0; v < bridge.length; v++) {
+      const c = bridge[v] ? off : on
+      rgb[v * 3] = Math.round(c.r * 255)
+      rgb[v * 3 + 1] = Math.round(c.g * 255)
+      rgb[v * 3 + 2] = Math.round(c.b * 255)
+    }
+    color.needsUpdate = true
+    this.host.invalidate()
+  }
+
+  private disposeWrap(): void {
+    this.wrapBridge = null
+    if (!this.wrap) return
+    const geometry = this.wrap.geometry as THREE.BufferGeometry
+    geometry.disposeBoundsTree?.()
+    geometry.dispose()
+    ;(this.wrap.material as THREE.Material).dispose()
+    this.host.partGroup.remove(this.wrap)
+    this.wrap = null
   }
 
   /** The reduced mesh as it now stands — every datum alignment made since it
@@ -643,6 +770,141 @@ export class MeshScene {
       this.host.partGroup.add(group)
     }
     this.host.invalidate()
+  }
+
+  /**
+   * The part as Mirror would leave it, shown over the part on screen — the
+   * scan, or the edited copy in its place: its mirror image across the plane
+   * through `frame`, and the plane itself, outlined. The mirror image is the
+   * mesh on show drawn again through a reflection — its own arrays, no copy
+   * of them — so it is the mesh the mirror will be made of. For the whole part
+   * it is drawn see-through over it. `symmetric` draws it solid, only on the
+   * side `frame`'s normal points to, the side to be replaced — which the
+   * slice cuts away from the part (SceneManager.setSlicePlane). Null takes it
+   * away. In scan coordinates, like a cut; set again after the part moves.
+   */
+  setMirrorPreview(frame: SectionFrame | null, symmetric = false): void {
+    this.mirrorWanted = frame ? { frame, symmetric } : null
+    this.drawMirror()
+  }
+
+  private drawMirror(): void {
+    this.disposeMirror()
+    const wanted = this.mirrorWanted
+    const shown = wanted ? this.manager.scanMesh() : null
+    this.mirrorSource = shown?.positions ?? null
+    if (!wanted || !shown) {
+      this.host.invalidate()
+      return
+    }
+    const { frame, symmetric } = wanted
+    const len = Math.hypot(...frame.normal)
+    if (!(len > 0)) return
+    const [nx, ny, nz] = frame.normal.map((c) => c / len)
+    const o = frame.origin
+    const d2 = 2 * (nx * o[0] + ny * o[1] + nz * o[2])
+    // p − 2((p − o)·n)n: a reflection, which the renderer draws with its
+    // winding turned round, so the image faces out as the part does.
+    const reflect = new THREE.Matrix4().set(
+      1 - 2 * nx * nx, -2 * nx * ny, -2 * nx * nz, d2 * nx,
+      -2 * ny * nx, 1 - 2 * ny * ny, -2 * ny * nz, d2 * ny,
+      -2 * nz * nx, -2 * nz * ny, 1 - 2 * nz * nz, d2 * nz,
+      0, 0, 0, 1,
+    )
+    const group = new THREE.Group()
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(shown.positions, 3))
+    geometry.setAttribute('normal', new THREE.BufferAttribute(shown.normals, 3))
+    geometry.setIndex(new THREE.BufferAttribute(shown.indices, 1))
+    let material: THREE.MeshStandardMaterial
+    if (symmetric) {
+      // Shaded by its faces: the normals on hand are the welded surface's,
+      // smoothed across the sharp edges the scan itself is drawn split at.
+      material = new THREE.MeshStandardMaterial({ flatShading: true })
+      this.dressMirrorImage(material, this.host.theme())
+      // Only on the side replaced: what lies in front of the plane, in world
+      // coordinates as every clipping plane is.
+      this.host.partGroup.updateMatrixWorld(true)
+      const world = this.host.partGroup.matrixWorld
+      const n = new THREE.Vector3(nx, ny, nz).transformDirection(world)
+      const at = new THREE.Vector3(...o).applyMatrix4(world)
+      material.clippingPlanes = [new THREE.Plane().setFromNormalAndCoplanarPoint(n, at)]
+    } else {
+      // Over the part, and through where the two coincide.
+      material = new THREE.MeshStandardMaterial({
+        color: MIRROR_COLOR,
+        flatShading: true,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+      })
+    }
+    const image = new THREE.Mesh(geometry, material)
+    image.matrixAutoUpdate = false
+    image.matrix.copy(reflect)
+    image.renderOrder = symmetric ? 0 : 3
+    // Not a part of the scan to be picked.
+    image.raycast = () => {}
+    group.add(image)
+
+    // The plane, a square a little wider than the part, about the point of
+    // it nearest the part's middle.
+    const c = this.host.modelCenter()
+    const off = (c[0] - o[0]) * nx + (c[1] - o[1]) * ny + (c[2] - o[2]) * nz
+    const mid = new THREE.Vector3(c[0] - off * nx, c[1] - off * ny, c[2] - off * nz)
+    const r = 1.15 * this.host.modelRadius()
+    const u = new THREE.Vector3(...frame.basisU).normalize().multiplyScalar(r)
+    const v = new THREE.Vector3(...frame.basisV).normalize().multiplyScalar(r)
+    const corners = [
+      mid.clone().sub(u).sub(v),
+      mid.clone().add(u).sub(v),
+      mid.clone().add(u).add(v),
+      mid.clone().sub(u).add(v),
+    ]
+    const fill = new THREE.Mesh(
+      new THREE.BufferGeometry().setFromPoints([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]),
+      new THREE.MeshBasicMaterial({ color: MIRROR_COLOR, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    fill.renderOrder = 4
+    fill.raycast = () => {}
+    group.add(fill)
+    const rim = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(corners),
+      new THREE.LineBasicMaterial({ color: MIRROR_COLOR, transparent: true, opacity: 0.8 }),
+    )
+    rim.renderOrder = 4
+    rim.raycast = () => {}
+    group.add(rim)
+
+    this.mirror = group
+    this.mirrorImage = image
+    this.mirrorSymmetric = symmetric
+    this.host.partGroup.add(group)
+    this.host.invalidate()
+  }
+
+  /** The mirror image made solid, for Symmetric: the surface's colour with a
+   *  touch of the mirror's violet in it, to say it is not the part's yet. */
+  private dressMirrorImage(material: THREE.MeshStandardMaterial, theme: ViewTheme): void {
+    setSurfaceColor(material.color, theme)
+    material.color.lerp(new THREE.Color(MIRROR_COLOR), 0.25)
+    applyFinish(material, theme)
+    material.needsUpdate = true
+  }
+
+  private disposeMirror(): void {
+    if (!this.mirror) return
+    for (const child of this.mirror.children as (THREE.Mesh | THREE.Line)[]) {
+      child.geometry.dispose()
+      ;(child.material as THREE.Material).dispose()
+    }
+    this.host.partGroup.remove(this.mirror)
+    this.mirror = null
+    this.mirrorImage = null
   }
 
   /** The cut face in the surface's colour, a shade under it — a cut face is

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The alignment group: the 3-2-1 datum editor, the manual move / rotate box,
-// and the buttons that open them.
+// the Scale part box (ScaleBox), and the buttons that open them.
 
 import { useMemo, useState } from 'react'
 import {
@@ -10,6 +10,7 @@ import {
   type AxisDir,
 } from '../core/alignment'
 import type { Rigid } from '../core/deviation/rigid'
+import { noTrueSize, type ScaleReference } from '../core/scanScale'
 import type { RefRole } from '../core/elements/refs'
 import {
   alignCenterOf,
@@ -21,6 +22,7 @@ import {
 import { InfoDot } from './InfoDot'
 import { providersFor } from './RefSelect'
 import { useLength } from '../app/useUnits'
+import { ScaleBox } from './ScaleBox'
 
 /** What the levelled direction becomes, said the way a person holds a part:
  *  which side of it the picked face is. The face's outward direction maps onto
@@ -143,6 +145,8 @@ export function AlignmentSection({
   onApplyAlignment,
   onApplyManual,
   onResetAlignment,
+  scaleRefusal,
+  onApplyScale,
 }: {
   /** Ask the scan for a proposal and open the editor on it. */
   onAutoAlign: () => void
@@ -154,6 +158,10 @@ export function AlignmentSection({
   /** Bake a typed-in move / rotate into the part. */
   onApplyManual: (m: Rigid) => void
   onResetAlignment: () => void
+  /** Why the scan cannot be scaled now, or null. */
+  scaleRefusal: () => string | null
+  /** Scale the scan to its true size. */
+  onApplyScale: (factor: number, references: ScaleReference[]) => void
 }) {
   const fileName = useStore((s) => s.fileName)
   const busy = useStore((s) => s.busy)
@@ -166,6 +174,12 @@ export function AlignmentSection({
   const setAlignmentAxis = useStore((s) => s.setAlignmentAxis)
   const beginAlignmentPick = useStore((s) => s.beginAlignmentPick)
   const undoAlignmentPick = useStore((s) => s.undoAlignmentPick)
+  const scaleDraft = useStore((s) => s.scaleDraft)
+  const scanScale = useStore((s) => s.scanScale)
+  const startScale = useStore((s) => s.startScale)
+  // Read on every draw: what refuses a scale lives in several stores.
+  const refusal = scaleDraft ? scaleRefusal() : null
+  const noSize = fileName ? noTrueSize(fileName, 2 * modelSize, scanScale !== null) : null
 
   // The manual move / rotate box: six typed-in numbers, NaN while a field is
   // empty. Purely local — it needs no viewport interaction.
@@ -226,9 +240,15 @@ export function AlignmentSection({
             <b>Move / rotate by numbers</b> applies a transform you already know instead. Both are
             baked into the part, and <b>Reset alignment</b> puts it back.
           </p>
+          <p>
+            <b>Scale part</b> makes the scan its true size — for a photogrammetry scan, which has none
+            of its own — from a length measured on it and the same length taken on the real part.
+          </p>
         </InfoDot>
       </div>
-      {alignDraft === null && manual !== null ? (
+      {alignDraft === null && scaleDraft !== null ? (
+        <ScaleBox refusal={refusal} onApply={onApplyScale} />
+      ) : alignDraft === null && manual !== null ? (
         <div className="draftbox">
           <div className="sec-head">
             Move / rotate part
@@ -311,6 +331,31 @@ export function AlignmentSection({
           >
             Move / rotate by numbers
           </button>
+          <button
+            className="block"
+            data-test="start-scale"
+            disabled={!fileName || busy}
+            onClick={() => {
+              setManual(null)
+              startScale()
+            }}
+          >
+            Scale part
+          </button>
+          {noSize && (
+            <p className="hint" data-test="scale-size-note">
+              {noSize.why === 'meshroom'
+                ? 'This looks like Meshroom’s output: photogrammetry gives a part no true size. '
+                : `This scan is ${len.fmt(2 * modelSize, 3)} across — ${noSize.why === 'small' ? 'small' : 'large'} for a part, so its units are likely off. `}
+              Scale it from a length measured on the real part.
+            </p>
+          )}
+          {scanScale && (
+            <p className="hint" data-test="scale-record">
+              Scaled ×{+scanScale.factor.toPrecision(6)}
+              {scanScale.references.length > 0 && ` from ${scanScale.references.map((r) => r.label).join(', ')}`}.
+            </p>
+          )}
           {appliedAlignment !== null && (
             <button
               className="block"

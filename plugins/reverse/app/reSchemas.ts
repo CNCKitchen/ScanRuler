@@ -87,7 +87,8 @@ export const whereIn: JsonSchema = {
       coaxial: obj({ at: vec3('A point on the axis, mm.'), dir: vec3('Its direction.'), within: num('mm the axis may stand off the line; 0.05 by default.', { exclusiveMinimum: 0 }) }, ['at', 'dir'], 'Round faces and circle edges on this axis (parallel within 1°, no seams): a bore, its rims and countersink.'),
       exclude: oneOf([arr(int(undefined, { minimum: 0 })), { type: 'object' }], 'Less these: their indices, or another query (as this one) — { madeBy: "Thread 1" }.'),
       optional: bool('As a pick: it may name nothing (picked lists it as missed) where it would fail the change otherwise.'),
-      sharp: bool('Edges only: those whose faces meet at an angle, not tangent — a round’s seams left out.'),
+      sharp: bool('Edges only: those whose faces meet at more than 1°, not tangent — a round’s seams left out, and a fitted profile’s that meets its faces a few tenths off tangent.'),
+      sharpDeg: num('With sharp: the angle the faces must meet at, degrees; 1 by default. Given alone it asks sharp too.', { exclusiveMinimum: 0, maximum: 90 }),
       sides: { type: 'object', description: 'Edges between the faces of two features: { madeBy: ["Blade", "Dish"] }.' },
       where: { type: 'object', description: 'The same terms nested once more, taken as given here.' },
     },
@@ -306,6 +307,15 @@ const shapeCommon = {
 /** A point of a shape: [u, v] on the sheet, or [x, y, z] with world. */
 const shapePoint = (description: string): JsonSchema => arr(num(), description, { minItems: 2, maxItems: 3 })
 
+/** A shape's sizes by expressions: `slots` the fields it takes. A name
+ *  given in place of one of `named` is refused with the way to write it
+ *  (schema.ts names). */
+const shapeExprs = (slots: string): JsonSchema =>
+  anyObject(
+    `Expressions for its sizes, by field: ${slots}. Each the parameters by name, arithmetic, units ("w", "d/2 + 0.5"): the shape is drawn at what it comes to, and held by a dimension of the sketch with that expression — the size follows the parameters on every rebuild, the number beside it may be left out. Not with fixed (that locks the pieces). Points take none: a world point lands on the sheet by a projection and a sketch's distances are unsigned, so no one dimension follows a coordinate — hold a point with a relation, distance { p, q: { datum }, expr }.`,
+  )
+const withNames = (schema: JsonSchema, slots: string[]): JsonSchema => ({ ...schema, names: { field: 'exprs', slots } })
+
 /** The shapes a sketch takes besides single pieces, each drawn as the
  *  panel's tool draws it — its pieces, and the relations that hold it. */
 const shapeIn = byKind(
@@ -320,6 +330,7 @@ const shapeIn = byKind(
         size: vec2('Its width along u and its height along v, mm — with center.'),
         angleDeg: num('Turned counter-clockwise about its centre (or about from), degrees; 0 (the default) keeps the sides level and upright.'),
         radius: num('Round the four corners to this radius, mm — a rounded rectangle, each round dimensioned. Half the shorter side at most; at that it is drawn as a slot along the longer side (its pieces and roles a slot’s, sides and ends, one end’s radius dimensioned), a circle when the sides are equal.', { exclusiveMinimum: 0 }),
+        exprs: shapeExprs('width (along u, unturned), height, radius — a width or height sets size, or moves to off from; with both, to or size may be left out'),
       },
       ['kind'],
       'Four sides, joined at the corners, level and upright (or parallel and square, turned). Its pieces: the four sides — bottom, right, top, left, as it lies unturned — then, about a centre, the two construction diagonals and the centre point; then, with a radius, the four rounds, from the corner where the first side ends.',
@@ -332,10 +343,11 @@ const shapeIn = byKind(
         to: shapePoint('The centre of the round at the other end.'),
         center: shapePoint('Its centre, [u, v] mm — with length, in place of from and to.'),
         length: num('Centre to centre of the two rounds, mm — with center.', { exclusiveMinimum: 0 }),
-        width: num('The width across, mm — the rounds’ diameter.', { exclusiveMinimum: 0 }),
+        width: num('The width across, mm — the rounds’ diameter. Or exprs.width.', { exclusiveMinimum: 0 }),
         angleDeg: num('Turned counter-clockwise, degrees, with center; 0 (the default) runs it along u.'),
+        exprs: shapeExprs('width, length — a length moves to along from → to, or sets it with center'),
       },
-      ['kind', 'width'],
+      ['kind'],
       'A slot: two straight sides and a half-round at each end, tangent where they meet and held equal. Its pieces: the side on the left going from → to, the round at to, the side back, the round at from.',
     ),
     obj(
@@ -347,8 +359,9 @@ const shapeIn = byKind(
         radius: num('The circle it is drawn about, mm: through the corners (inscribed), or touching the sides — half the width across flats (circumscribed).', { exclusiveMinimum: 0 }),
         fit: enumOf(['inscribed', 'circumscribed'], 'inscribed (the default): the corners on the circle; circumscribed: the sides touching it, as a hex nut is sized across flats.'),
         angleDeg: num('Where the first corner (inscribed) or the middle of the first side (circumscribed) lies, degrees counter-clockwise from +u; 0 by default.'),
+        exprs: shapeExprs('radius — on the circle it is sized on'),
       },
-      ['kind', 'center', 'sides', 'radius'],
+      ['kind', 'center', 'sides'],
       'A regular polygon: equal sides, its corners on a construction circle. Its pieces: the sides, then the circle through the corners, then — circumscribed — the circle inside, touching them, the one its size is dimensioned on.',
     ),
     obj(
@@ -374,7 +387,24 @@ const shapeIn = byKind(
       ['kind', 'center', 'a', 'b'],
       'An ellipse as one closed spline through points on it — no exact ellipse: the answer’s ellipses gives how far it lies off a true one (deviationMm). Its piece: the spline.',
     ),
-  ],
+    obj(
+      {
+        ...shapeCommon,
+        kind: kind('circle'),
+        center: shapePoint('Its centre, [u, v] mm.'),
+        radius: num('Its radius, mm. Or exprs.radius.', { exclusiveMinimum: 0 }),
+        exprs: shapeExprs('radius'),
+      },
+      ['kind', 'center'],
+      'A circle, as the piece is — placed by a world point (world) or sized by an expression (exprs.radius). Its piece: the circle.',
+    ),
+  ].map((s) => {
+    // A name in place of a size an expression may drive: refused with the
+    // way to write it.
+    const k = String(s.properties?.kind?.enum?.[0])
+    const named: Record<string, string[]> = { rectangle: ['radius'], slot: ['width', 'length'], polygon: ['radius'], circle: ['radius'] }
+    return named[k] ? withNames(s, named[k]) : s
+  }),
   'A shape drawn in one go.',
 )
 
@@ -441,7 +471,7 @@ export const facingIn = obj(
 )
 
 /** Lines and arcs fitted to the scan's outline on the sketch plane, as the
- *  panel's Fit all chains fits them. */
+ *  panel's Fit all chains fits them — or to points typed in. */
 export const fitIn = obj(
   {
     chains: oneOf(
@@ -454,6 +484,10 @@ export const fitIn = obj(
     ),
     within: withinIn('Fit only what of each chain lies in this box — one wall, one curve; each run in it is fitted as a chain of its own (fitted gives its run). min and max are [u, v] mm in the sketch’s own frame (reverse.plane.describe gives it); or world: { min, max }, [x, y, z] mm.'),
     level: num('mm along the sketch’s normal from its plane (out of a face is positive): the scan is cut there and its outline laid on this sketch — on parallel planes u and v are the same. Another level of a stacked part goes into the one sketch so (reverse.sketch.edit { add: { fit: { level } } }), each region then extruded to its height. Left out, the cut is at the plane — a hair (0.25 mm) inside a face of a body or of the scan. fitted names each chain’s level.'),
+    through: oneOf(
+      [bool('true: seen through in the band about the plane (or level).'), obj({ depth: arr(num(), '[from, to], mm along the sketch’s normal from its plane (out of a face is positive).', { minItems: 2, maxItems: 2 }) }, ['depth'])],
+      'A thin sheet seen through, square onto the plane, in place of the scan cut there — a stamped or bent sheet whose holes a cut parallel to it misses on its warp and beads: rays square to the plane meet the scan only within depth ([-1.5, 1.5] mm by default, about level where given), and the line between where they meet it and where they see through is traced — the sheet’s edge and every hole punched in it, each a closed chain, the largest first, its traced points the slice points. Cells are half the tolerance (0.2 by default), widened to keep 250000 (through.note; give within round the part to read finer). chains, within, closeGaps, detail, arcs, spline, share and accept work as on the cut; skin and facing are refused. fitted[].hole marks the holes; the answer’s through gives depth, cell, loops, holes and skipped (specks under three cells across, left out). Trap: depth must hold the whole sheet, warp and beads, and nothing behind it — a closed cage’s far wall in the band hides every hole, and sheet warped out of the band reads as a hole. A thick wall has no surface in the band: cut it instead.',
+    ),
     draftDeg: num('With level: the taper the extrude from this sketch will have, degrees, signed as its own draftDeg — positive, the sides lean in going away from the sketch plane. The wall cut at level lies level·tan(draftDeg) inside where the taper starts at the plane, so each closed chain fitted is moved out by that many mm and the extrude lands on the wall; a chain inside another, a hole of its region, moves the other way. A pocket to cut goes in a fit of its own, without the chain round it. The extrude goes the way level lies. The answer’s draftOffset gives the mm and each chain; where a chain cannot move (a spline, a branch, one that closes up) nothing moves, and it says why and the number.', { minimum: -45, maximum: 45 }),
     share: num('mm: before the outline is cut into pieces, every slice point this near a piece the sketch already holds — drawn, fitted or projected — and running its way (within 5°) goes to that piece: that wall is drawn already, and is not fitted again. A fitted piece takes the points beside its own and the solve refits it on both levels (moved says how far); a drawn or projected one takes none. What is left is fitted as open runs, each end landing on the piece it reaches — on its end, or held on it within it (junctions). shared gives each piece’s points and how far off they lay — the run-out between levels. 0.1 by default; give the part’s tolerance: steps under it are one surface. 0 fits every wall again.', { minimum: 0 }),
     skin: skinIn,
@@ -480,9 +514,14 @@ export const fitIn = obj(
       description:
         'Fit the run like this sketch, a station already made — for the stations of a loft: the run (the longest the fit keeps; give skin, facing or within so it is the profile’s) cut into the same pieces in the same order, its fitted lines and arcs each fitted to its own points under that piece’s id; its drawn pieces (a line across the base) copied at the same [u, v], the run’s ends run on to meet them; its relations among them copied, and its dimensions on drawn pieces. It takes the place of the cut: detail, alignAxes and joinCorners do nothing; arcs and spline are refused. fitted[].like says whether the run was taken from its far end (reversed).',
     },
+    points: oneOf(
+      [arr(vec2('[u, v] mm in the sketch.'), 'One chain, in order.', { minItems: 2 }), arr(arr(vec2('[u, v] mm in the sketch.'), '', { minItems: 2 }), 'Several chains, each in order.', { minItems: 1 })],
+      'Fit to these points in place of the scan — a profile read off a drawing’s table of points, no scan needed: [u, v] mm in the sketch’s own frame, one chain [[u, v], …] or several [[[u, v], …], …], each fitted as a chain of the cut is (arcs, spline, detail, alignAxes, joinCorners and accept as for it) on a smooth run through them, cut at tolerance (0.1 by default, a thousandth of the points’ span where that is more), and then settled on the points themselves, so seven points serve as well as a slice’s seven hundred. Corners typed as points come out rounded: draw a polyline (shapes) for them. An end within share of an end of a piece the sketch already has is joined to it — coincident, and tangent where the chain sets off within 20° of that piece’s way (two lines: collinear); junctions lists them. A free end whose point lies on a side of the box round the points (the last point at the largest u, a corner meeting the part’s flat side) and that the fit would carry past that side is held on its point running along it (fitted[].heldAlong). Per chain fitted gives the pieces (an arc’s r), maxDeviation and deviations ({ point, mm }, worst first) at the points given, and overshoot — how far the pieces run past the box round the points, past which side and where, false where they keep within it. chains, within, skin, facing, level, draftDeg, closeGaps, like and through read the scan and are refused with it.',
+    ),
+    closed: bool('With points: each chain a loop, its last point joined back to its first (a chain whose last point is its first closes so by itself).'),
   },
   [],
-  'Fit lines and arcs to the scan’s outline on the plane first, with their slice points behind them — a section’s own chains for a sketch on a section, the scan cut at the plane otherwise. The fitted pieces take ids from 1 — after the projected ones, where some are; entities, shapes and constraints given go on top of them, their ids clear of those, and may name them. The answer’s fitted lists each chain’s pieces by id and kind. reverse.section.fit reads the same pieces without making a sketch.',
+  'Fit lines and arcs to the scan’s outline on the plane first, with their slice points behind them — a section’s own chains for a sketch on a section, the scan cut at the plane otherwise, a thin sheet seen through it with through — or, with points, to points typed in (no scan needed): fit: { points: [[66.8, 0], [71.66, -0.06], [76.42, -1], [80.48, -3.63], [83.1, -7.68], [84.08, -12.44], [84.1, -17.31]], arcs: 3 } fits three tangent arcs to a drawing’s corner. The fitted pieces take ids from 1 — after the projected ones, where some are; entities, shapes and constraints given go on top of them, their ids clear of those, and may name them. The answer’s fitted lists each chain’s pieces by id and kind. reverse.section.fit reads the same pieces without making a sketch.',
 )
 
 export const sketchIn = obj(
@@ -490,7 +529,7 @@ export const sketchIn = obj(
     fit: fitIn,
     project: oneOf([projectIn, bool('false: a sketch on a face of a body starts without the face’s outline.')], `${projectIn.description} A sketch on a face of a body (plane { kind: "bodyFace" }, no offset) starts with that face’s outline projected, as the panel’s does — listed first under projected, its ids clear of those the sketch names — and a fit lands on it; its regions then include the face round what is drawn, so pick the extrude’s regions by a point ({ at }). project: false leaves it out. A sketch on a shadow section (plane { kind: "section" } of a shadow) starts the same way with the shadow’s outline — its lines, arcs and circles as the shadow was read, ends held coincident and rounded corners tangent, ids clear of those the sketch names; project: false leaves it out.`),
     entities: arr(entityIn, 'The pieces.'),
-    shapes: arr(shapeIn, 'Rectangles, rounded rectangles, slots, polygons, chains of lines and ellipses, each drawn as one — their pieces join the sketch as if listed in entities, and constraints may name them.'),
+    shapes: arr(shapeIn, 'Rectangles, rounded rectangles, slots, polygons, chains of lines, ellipses and circles, each drawn as one — their pieces join the sketch as if listed in entities, and constraints may name them. Sizes may follow parameters (exprs).'),
     constraints: arr(constraintIn, 'The relations and dimensions between them.'),
     patterns: arr(patternIn, 'Copies of pieces, made after the constraints are in.'),
     infer: bool('Add the relations a hand-drawn sketch would get (the default true): a coincidence where two ends meet, horizontal or vertical on a line lying exactly level or upright. false leaves the sketch with only what is given.'),
@@ -706,7 +745,7 @@ export const FEATURE_IN: Record<string, JsonSchema> = {
                 ),
               },
               ['edge', 'radius'],
-              'An edge rounded at a radius running evenly from the first to the second along it — rounded after the plain edges. One radius law per tangent chain: the kernel rounds the whole chain with the edge. Where plain rounds at its ends shorten it away, round it in a fillet of its own, before them.',
+              'An edge rounded at a radius running evenly from the first, at its first end, to the second — in one round with the plain edges. Several on one tangent chain give a radius that changes along it (R1.1 on the sides, R1.5 across the ends): equal where two meet, an edge of the chain not given running between the radii about it.',
             ),
           ],
           'An edge at radius, or { edge, radius: [start, end] } at a varying one.',
@@ -721,7 +760,7 @@ export const FEATURE_IN: Record<string, JsonSchema> = {
       exprs: exprsIn('radius'),
     },
     ['kind', 'body', 'edges'],
-    'Round edges, at one radius or at one varying along an edge.',
+    'Round edges, at one radius or at radii that change along a chain of edges.',
   ),
   chamfer: obj(
     {
@@ -763,7 +802,7 @@ export const FEATURE_IN: Record<string, JsonSchema> = {
   extract: obj({ kind: kind('extract'), name: nameIn, element: oneOf([int('The element’s id.'), str('The element’s name, whole, case aside.', { minLength: 1 })], 'A plane, cylinder, cone, sphere or torus element of 3D Measure, by id or name. Or section.'), section: oneOf([int('The section’s id.'), str('The section’s name, whole, case aside.', { minLength: 1 })], 'A shadow section (section.cut { kind: "shadow" }), by id or name: its outline — the lines and arcs it was read to, holes and all — stood up along its normal through the part’s thickness, the block it draws; the body follows the shadow when it is taken again. Or element.'), thickness: num('A plane’s slab, mm (2 by default). Not a shadow’s: it is as thick as the part.', { exclusiveMinimum: 0 }), op: enumOf(['new', 'join', 'cut'], 'new (the default), join or cut.'), exprs: exprsIn('thickness') }, ['kind'], 'A measured element, or a shadow section, as a body — element or section.'),
   cutPlane: obj({ kind: kind('cutPlane'), name: nameIn, body: bodyRef, plane: planeIn, keep: enumOf([1, -1], '1 keeps the side the plane’s normal points to, −1 the other.'), exprs: exprsIn('plane.offset — the plane’s offset, a coordinate plane’s coordinate: the cut follows the parameters it reads') }, ['kind', 'body', 'plane'], 'Cut a body at a plane.'),
   mirror: obj({ kind: kind('mirror'), name: nameIn, body: bodyRef, plane: mirrorPlaneIn, join: bool('Joined with the original (the default), or a body of its own.'), exprs: exprsIn('plane.offset — the plane’s offset, a coordinate plane’s coordinate; a face of the body has none') }, ['kind', 'body', 'plane'], 'Mirror a body.'),
-  boolean: obj({ kind: kind('boolean'), name: nameIn, op: enumOf(['join', 'cut', 'intersect'], 'For a sheet as the body: intersect keeps the sheet inside a solid tool, cut keeps it outside, join sews it to a sheet tool where the two meet edge to edge.'), body: bodyRef, tool: bodyRef, keep: bool('Keep the tool as a body of its own. With a sheet as the body, a solid tool stays a body whatever this says — one outline prism trims several sheets; a sheet joined goes into the result unless kept.') }, ['kind', 'op', 'body', 'tool'], 'Combine two bodies. A feature that made several bodies — a new extrude of four tabs — named as body or tool takes every piece. A sheet (a fitted surface, a sheet) as the body is trimmed before it is thickened: intersected with an outline prism, its ends stand square to the wall once thickened; two sheets trimmed to each other (split, keep scan) are joined into one, and thicken as one wall.'),
+  boolean: obj({ kind: kind('boolean'), name: nameIn, op: enumOf(['join', 'cut', 'intersect'], 'For a sheet as the body: intersect keeps the sheet inside a solid tool, cut keeps it outside, join sews it to a sheet tool where the two meet edge to edge.'), body: bodyRef, tool: oneOf([...bodyRef.oneOf!, arr(bodyRef, 'Several, each once.', { minItems: 1 })], 'A body by id or name, or a list of them: joined all at once, or cut or intersected by each in turn.'), keep: bool('Keep the tools as bodies of their own. With a sheet as the body, a solid tool stays a body whatever this says — one outline prism trims several sheets; a sheet joined goes into the result unless kept.') }, ['kind', 'op', 'body', 'tool'], 'Combine two bodies, or a body with several tools (tool: [a, b]). A feature that made several bodies — a new extrude of four tabs — named as body or tool takes every piece. A sheet (a fitted surface, a sheet) as the body is trimmed before it is thickened: intersected with an outline prism, its ends stand square to the wall once thickened; two sheets trimmed to each other (split, keep scan) are joined into one, and thicken as one wall.'),
   sheet: obj({ kind: kind('sheet'), name: nameIn, sketchId: featureRef('sketch'), from: num(), to: num(), exprs: exprsIn('from, to') }, ['kind', 'sketchId', 'from', 'to'], 'A sketch’s pieces extruded as a surface, to split a body with.'),
   split: obj(
     { kind: kind('split'), name: nameIn, body: bodyRef, tools: arr(bodyRef, 'The sheets or bodies cutting it.', { minItems: 1 }), keep: enumOf(['scan', 'largest', 'smallest', 'between'], 'Which pieces stay: those on the scan (the default; largest and smallest say nothing of the part), the largest, the smallest — by volume, a sheet’s by area — or between: those with a face on every tool, on one side of each — the wall between two fitted skins (tools: [outer, inner]), refused where the skins meet inside the body, and for a sheet.'), tolerance: num('mm', { exclusiveMinimum: 0 }), overlap: num('', { exclusiveMinimum: 0, maximum: 1 }), within: nullable(num('', { minimum: 0 }), 'mm. Cut within the freeform fitted surfaces’ regions: each trimmed to its region’s outline grown by this much before it cuts, the body outside the outlines left as it was — only what was fitted cuts, not the margin or the carrying on. For a band or a swage across a face the rest of the part keeps. Left out (null takes it off): the whole sheet, carried on to the body’s sides.'), exprs: exprsIn('tolerance, overlap') },

@@ -34,6 +34,8 @@ describe('command input schemas', () => {
     expect(validate(schema, { kind: 'plane' })).toEqual([])
     expect(validate(schema, {})).toEqual(['input.kind: required'])
     expect(validate(schema, { kind: 'plane', knd: 1 })).toEqual(['input.knd: not a known field — the fields here: kind, at'])
+    // type for kind, as other tools name it, is pointed at kind.
+    expect(validate(obj({ kind: str(), at: num() }), { type: 'plane' })).toEqual(['input.type: not a known field — kind takes it here (kind: "plane"); the fields here: kind, at'])
     expect(validate(schema, { kind: 'plane', at: { point: [0, 0] } })).toEqual(['input.at.point: expected at least 3 items'])
     expect(validate(schema, [1])).toEqual(['input: expected an object'])
     // An absent optional field is no field at all.
@@ -89,6 +91,8 @@ describe('command input schemas', () => {
     expect(validate(schema, { radius: 1, extent: { to: 'fit' } })).toEqual([])
     expect(validate(schema, { radius: 1, count: 'n' })).toEqual(['input.count: expected a finite number'])
     expect(validate(obj({ radius: num() }), { radius: 'r' })).toEqual(['input.radius: expected a finite number'])
+    // A vector where an angle goes is answered with what the number is.
+    expect(validate(obj({ dir: num('Radians from +u.') }), { dir: [1, 0] })).toEqual(['input.dir: expected a finite number, not a list — Radians from +u.'])
   })
 
   it('refuses a name given for an id that has a name beside it, saying where the name goes', () => {

@@ -12,8 +12,9 @@ import type { Vec3 } from '../../../src/core/types'
 import { WorkerRpc } from '../../../src/core/workerRpc'
 import type { Rigid } from '../../../src/core/deviation/rigid'
 import type { KernelMesh, StepCheck, StepLabel, StepMend } from './kernel'
-import type { BodyCheck, BuiltBody, EdgeInfo, FaceInfo, FeatureResult, FilletTries, Overlap, PreviewResult, PreviewStep } from './build'
+import type { BodyCheck, BuiltBody, DrawnBody, EdgeInfo, FaceInfo, FeatureResult, FilletTries, Overlap, PreviewResult, PreviewStep } from './build'
 import type { CompareDetail, PatchRequest } from './compareDetail'
+import type { BodyProbe, CutPiece } from './kernelProbe'
 import type { BuildStep } from './features'
 import type { ScanSide, SparseField } from './liveMap'
 import { isKernelEvent, type ReWorkerEvent } from './reEvents'
@@ -23,8 +24,9 @@ import type { Sketch } from './sketch'
 export interface BuildAnswer {
   results: FeatureResult[]
   /** Every body standing, in order — a body the build left as it was is
-   *  the very object the build before handed back, mesh and all. */
-  bodies: BuiltBody[]
+   *  the very object the build before handed back, mesh and all. One
+   *  without its topology yet has it read after (topologies). */
+  bodies: DrawnBody[]
   /** The ids of the bodies the worker handed over this time: the ones the
    *  build made or changed. */
   changed: number[]
@@ -103,7 +105,7 @@ export class ReClient {
    *  only the bodies it made, changed or took away. Kept from every
    *  answer, an overtaken one's too: the worker does not know which the
    *  page threw away. */
-  private held = new Map<number, BuiltBody>()
+  private held = new Map<number, DrawnBody>()
   /** What the builds this client asked for did with their steps, all told —
    *  played, or taken up from a state the kernel held — an overtaken
    *  build's too: the kernel did that work. */
@@ -251,6 +253,18 @@ export class ReClient {
     return { results: res.results, bodies: res.all.map((b) => this.held.get(b.id)!), changed }
   }
 
+  /** The topology of bodies a build handed over without it, by id, each
+   *  with the key it stands for — and given to the body held at that key,
+   *  so a build after that leaves it as it was hands it over with it. */
+  async topologies(ids: number[]): Promise<{ id: number; key: string; topology: BuiltBody['topology'] }[]> {
+    const res = await this.request<Extract<ReWorkerResponse, { type: 'topologies-ok' }>>({ type: 'topologies', requestId: this.nextId++, ids })
+    for (const t of res.topologies) {
+      const held = this.held.get(t.id)
+      if (held?.key === t.key) held.topology = t.topology
+    }
+    return res.topologies
+  }
+
   /** The ghost of a feature being set up: the solid its step would make,
    *  meshed. Null when a newer preview has been asked for since — a drag
    *  asks many times a second and only the last answer is worth drawing. */
@@ -342,6 +356,22 @@ export class ReClient {
     const requestId = this.nextId++
     const res = await this.request<Extract<ReWorkerResponse, { type: 'clearance-ok' }>>({ type: 'clearance', requestId, a, b }, [], READ_MS)
     return { gap: res.gap, overlap: res.overlap }
+  }
+
+  /** The given bodies cut by a plane, each one's section as the kernel's
+   *  own edges — see Builder.sectionPieces. */
+  async bodySection(bodyIds: number[], origin: Vec3, normal: Vec3, deflection: number): Promise<{ id: number; pieces: CutPiece[] }[]> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<ReWorkerResponse, { type: 'body-section-ok' }>>({ type: 'body-section', requestId, bodyIds, origin, normal, deflection }, [], READ_MS)
+    return res.bodies
+  }
+
+  /** Points and rays read against each of the given bodies — see
+   *  Builder.probe. */
+  async bodyProbe(bodyIds: number[], points: Vec3[], rays: { from: Vec3; dir: Vec3 }[]): Promise<BodyProbe[]> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<ReWorkerResponse, { type: 'body-probe-ok' }>>({ type: 'body-probe', requestId, bodyIds, points, rays }, [], READ_MS)
+    return res.bodies
   }
 
   /** Where the given bodies of the last build run into each other — see

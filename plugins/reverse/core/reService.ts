@@ -14,8 +14,9 @@ import { computeVertexNormals } from '../../../src/core/geometry/normals'
 import type { KernelMesh, ReKernel, StepCheck, StepLabel, StepMend } from './kernel'
 import type { ManifoldToplevel } from 'manifold-3d'
 import { isTrap } from './kernelOps'
+import type { BodyProbe, CutPiece } from './kernelProbe'
 import { trapEdgesText } from './trapEdges'
-import { Builder, stepKeys, type BodyBrief, type BodyCheck, type BuildSteps, type BuiltBody, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type Overlap, type PreviewResult, type PreviewStep } from './build'
+import { Builder, stepKeys, type BodyBrief, type BodyCheck, type BuildSteps, type BuiltBody, type DrawnBody, type EdgeInfo, type FaceInfo, type FeatureResult, type FilletTries, type Overlap, type PreviewResult, type PreviewStep } from './build'
 import { compareBodies, type CompareDetail, type PatchRequest } from './compareDetail'
 import type { BuildStep } from './features'
 import { DEFAULT_FACING_DEG, liveMap, liveMapReach, sheetTriangles, surfaceOfMeshes, type ScanSide, type SparseField } from './liveMap'
@@ -39,6 +40,8 @@ export type ReWorkerRequest =
   /** Bodies of the last build, whole, by id — for a page that holds
    *  another key for one than the build says it stands at. */
   | { type: 'bodies'; requestId: number; ids: number[] }
+  /** The topology of bodies a build handed over without it (buildDrawn). */
+  | { type: 'topologies'; requestId: number; ids: number[] }
   /** The solid one step would make on its own, meshed — the ghost of a
    *  feature being set up. Leaves the bodies as they are. */
   | { type: 'preview'; requestId: number; step: PreviewStep; sketch: Sketch | null; stepFiles?: [string, string][] }
@@ -49,6 +52,12 @@ export type ReWorkerRequest =
   | { type: 'export-step'; requestId: number; bodyIds: number[]; labels?: StepLabel[]; verify?: boolean }
   | { type: 'section-cut'; requestId: number; bodyIds: number[]; origin: Vec3; normal: Vec3; deflection: number }
   | { type: 'clearance'; requestId: number; a: number; b: number }
+  /** The given bodies of the last build cut by a plane, as the kernel's
+   *  own section edges — see Builder.sectionPieces. */
+  | { type: 'body-section'; requestId: number; bodyIds: number[]; origin: Vec3; normal: Vec3; deflection: number }
+  /** Points and rays read against the given bodies of the last build —
+   *  see Builder.probe. */
+  | { type: 'body-probe'; requestId: number; bodyIds: number[]; points: Vec3[]; rays: { from: Vec3; dir: Vec3 }[] }
   /** Where the given bodies of the last build run into each other — see
    *  Builder.overlaps — no new pair begun after `budget` milliseconds. */
   | { type: 'overlaps'; requestId: number; bodyIds: number[]; budget: number }
@@ -81,8 +90,10 @@ export type ReWorkerResponse =
   /** `bodies`: the ones the page did not hold, whole; `all`: every body
    *  standing, in brief, in order. `crashed`: every step the kernel has
    *  crashed on, by key, with what it said — for the page to keep. */
-  | { type: 'build-ok'; requestId: number; results: FeatureResult[]; bodies: BuiltBody[]; all: BodyBrief[]; steps: BuildSteps; crashed?: [string, string][] }
+  | { type: 'build-ok'; requestId: number; results: FeatureResult[]; bodies: DrawnBody[]; all: BodyBrief[]; steps: BuildSteps; crashed?: [string, string][] }
   | { type: 'bodies-ok'; requestId: number; bodies: BuiltBody[] }
+  /** Each body's topology with the key it was handed over at. */
+  | { type: 'topologies-ok'; requestId: number; topologies: { id: number; key: string; topology: BuiltBody['topology'] }[] }
   | { type: 'preview-ok'; requestId: number; preview: PreviewResult }
   /** A round, a chamfer or a shell whose preview failed, with where it
    *  failed — see Builder.diagnose. Any other failure is an error. */
@@ -91,6 +102,8 @@ export type ReWorkerResponse =
   | { type: 'step-ok'; requestId: number; text: string; check?: StepCheck; mended?: StepMend[] }
   | { type: 'section-cut-ok'; requestId: number; bodies: { id: number; polylines: Float32Array[] }[] }
   | { type: 'clearance-ok'; requestId: number; gap: number; overlap: number }
+  | { type: 'body-section-ok'; requestId: number; bodies: { id: number; pieces: CutPiece[] }[] }
+  | { type: 'body-probe-ok'; requestId: number; bodies: BodyProbe[] }
   | { type: 'overlaps-ok'; requestId: number; overlaps: Overlap[]; done: boolean }
   | { type: 'scan-ok'; requestId: number }
   | { type: 'map-ok'; requestId: number; field: SparseField }
@@ -114,12 +127,12 @@ export interface ReService {
 }
 
 /** The buffers of built bodies, handed over rather than copied. */
-function bodyBuffers(bodies: readonly BuiltBody[]): Transferable[] {
+function bodyBuffers(bodies: readonly DrawnBody[]): Transferable[] {
   const transfer: Transferable[] = []
   for (const body of bodies) {
     transfer.push(body.mesh.positions.buffer, body.mesh.normals.buffer, body.mesh.indices.buffer)
     if (body.mesh.faceHash) transfer.push(body.mesh.faceHash.buffer)
-    for (const e of body.topology.edges) transfer.push(e.polyline.buffer)
+    for (const e of body.topology?.edges ?? []) transfer.push(e.polyline.buffer)
   }
   return transfer
 }
@@ -225,7 +238,7 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
             // Shared out or not, the build below builds every step: what
             // the helpers did not do, it plays.
           }
-          const { results, bodies, all, steps } = b.build(toBuild, sketchOf, true, true, new Map(msg.have ?? []))
+          const { results, bodies, all, steps } = b.buildDrawn(toBuild, sketchOf, new Map(msg.have ?? []))
           return answer({ type: 'build-ok', requestId: msg.requestId, results, bodies, all, steps, ...crashedOut() }, bodyBuffers(bodies))
         } catch (e) {
           if (!isTrap(e) && kernel?.trapped == null) throw e
@@ -274,6 +287,10 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
       if (msg.type === 'bodies') {
         const bodies = b.builtBodies(msg.ids)
         return answer({ type: 'bodies-ok', requestId: msg.requestId, bodies }, bodyBuffers(bodies))
+      }
+      if (msg.type === 'topologies') {
+        const topologies = b.topologiesOf(msg.ids)
+        return answer({ type: 'topologies-ok', requestId: msg.requestId, topologies }, topologies.flatMap((t) => t.topology.edges.map((e) => e.polyline.buffer)))
       }
       if (msg.type === 'preview') {
         let preview: PreviewResult
@@ -378,6 +395,8 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
         }
         return answer({ type: 'reference-ok', requestId: msg.requestId, meshes }, transfer)
       }
+      if (msg.type === 'body-section') return answer({ type: 'body-section-ok', requestId: msg.requestId, bodies: b.sectionPieces(msg.bodyIds, msg.origin, msg.normal, msg.deflection) })
+      if (msg.type === 'body-probe') return answer({ type: 'body-probe-ok', requestId: msg.requestId, bodies: b.probe(msg.bodyIds, msg.points, msg.rays) })
       if (msg.type === 'clearance') return answer({ type: 'clearance-ok', requestId: msg.requestId, ...b.clearance(msg.a, msg.b) })
       if (msg.type === 'overlaps') {
         // A failed load is not kept: the next ask tries again.

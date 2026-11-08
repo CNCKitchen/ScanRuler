@@ -5,7 +5,7 @@
 // units; with none given, millimetres.
 
 import { unitWord, type DisplayUnits } from '../../../src/core/units'
-import { type ExtrudeExtent, type Feature } from '../core/features'
+import { type ExtrudeExtent, type Feature, toolsOf } from '../core/features'
 import { describePlaneRef } from '../core/resolve'
 import { threadName } from '../core/thread'
 import { describeEdgeIn, describeFaceIn } from '../core/topo'
@@ -119,8 +119,11 @@ export function bodyFeatureReading(f: Exclude<Feature, { kind: 'sketch' | 'extru
       return { text: `at ${describePlaneRef(f.plane, ctx, units)}`, title: `${names(f.body)} cut at the plane, the side ${f.keep > 0 ? 'along' : 'against'} its normal kept` }
     case 'mirror':
       return { text: `about ${f.plane.kind === 'face' ? faceText(f.plane.face) : describePlaneRef(f.plane, ctx, units)}${f.join ? ' · joined' : ''}`, title: `${names(f.body)} mirrored${f.join ? ' and joined with the source' : ' into a body of its own'}` }
-    case 'boolean':
-      return { text: `${f.op === 'join' ? 'Join' : f.op === 'cut' ? 'Cut' : 'Intersect'} ${names(f.tool)}${f.keep ? ' · kept' : ''}`, title: `${names(f.body)} ${f.op === 'join' ? 'joined with' : f.op === 'cut' ? 'cut by' : 'intersected with'} ${names(f.tool)}, ${f.keep ? 'which stays a body of its own' : 'which goes into it'}` }
+    case 'boolean': {
+      const tools = toolsOf(f).map(names).join(', ')
+      const one = toolsOf(f).length === 1
+      return { text: `${f.op === 'join' ? 'Join' : f.op === 'cut' ? 'Cut' : 'Intersect'} ${tools}${f.keep ? ' · kept' : ''}`, title: `${names(f.body)} ${f.op === 'join' ? 'joined with' : f.op === 'cut' ? 'cut by' : 'intersected with'} ${tools}${!one && f.op !== 'join' ? ' in turn' : ''}, ${f.keep ? `which stay${one ? 's' : ''} ${one ? 'a body' : 'bodies'} of ${one ? 'its' : 'their'} own` : `which go${one ? 'es' : ''} into it`}` }
+    }
     case 'sheet':
       return { text: `Surface · ${len(Math.abs(f.to - f.from))}`, title: `${names(f.sketchId)}'s pieces extruded as a surface from ${len(f.from)} to ${len(f.to)} along its normal — a cutter, not exported on its own` }
     case 'split':

@@ -261,9 +261,24 @@ export function curveMoved(was: SketchEntity, now: SketchEntity): number {
     const off = (p: Vec2) => Math.abs((p[0] - was.a[0]) * dy - (p[1] - was.a[1]) * dx) / l
     return Math.max(off(now.a), off(now.b))
   }
-  if (was.kind === 'arc' && now.kind === 'arc') return len2(sub2(was.c, now.c)) + Math.abs(was.r - now.r)
+  if (was.kind === 'arc' && now.kind === 'arc') {
+    // The new arc's points against the old circle, as a line's ends against
+    // the old line: a near-flat arc's centre swings millimetres while the
+    // curve itself hardly shifts (R115.6 to R119.9 read 8.6 mm by the
+    // centre, under 0.1 on the curve).
+    let far = 0
+    for (let i = 0; i <= ARC_SAMPLES; i++) {
+      const t = now.start + (i / ARC_SAMPLES) * now.sweep
+      const p: Vec2 = [now.c[0] + now.r * Math.cos(t), now.c[1] + now.r * Math.sin(t)]
+      far = Math.max(far, Math.abs(len2(sub2(p, was.c)) - was.r))
+    }
+    return far
+  }
   return retakeMoved(was, now)
 }
+
+/** How many spans an arc is sampled in for curveMoved. */
+const ARC_SAMPLES = 16
 
 /** The projectable nearest a sheet point within reach, or null. */
 export function projectableAt(candidates: readonly Projectable[], spot: Vec2, radius: number): Projectable | null {

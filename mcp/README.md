@@ -353,15 +353,21 @@ namespaces, only the tab's tools of those namespaces, or all but those — see
 - **Arguments from a file.** `{ "$file": path }` anywhere in a tool's
   arguments — an object of that one key — is replaced by the JSON the file
   holds: a long list of stations a script wrote need not pass through the
-  conversation.
-- **Relative paths** — a batch's `file`, `$file`, a file to open, an
-  output's `path` — are taken from the open scan's folder, or from the folder
+  conversation. With `"$at": "loops.0.points"` beside it, only the part of the
+  JSON at that path (keys and list indices by dots).
+- **Answers to a file.** A batch call with `to: "outline.json"` writes its
+  answer to that file, whole, and the batch's result says where and what the
+  answer holds — a long reading (an outline's loops, a height grid) fed on to
+  a later call by `$file` and `$at`, never carried through the conversation.
+  A file already there is replaced.
+- **Relative paths** — a batch's `file`, `$file`, a call's `to`, a file to
+  open, an output's `path` — are taken from the open scan's folder, or from the folder
   the server was started in while no scan is open; `scanruler_status` gives
   both (`server.relativeTo`, `server.cwd`). A picture or file written into a
   folder is numbered past one already there (`-2`, `-3`), never written over.
 - **Long answers.** An answer past what one carries (40 k characters; a
-  guide 90 k — several guides asked for together come while they fit about
-  80 k, the rest named in `next`) is written whole to a JSON file in
+  guide 70 k — several guides asked for together come while they fit about
+  60 k, the rest named in `next`) is written whole to a JSON file in
   `scanruler-work` in the open scan's folder — the server's own files, apart
   from the person's, where an agent that may only read there can open it —
   in the output folder (`--out`) while the scan open now was not opened from

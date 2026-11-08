@@ -34,6 +34,7 @@ import { featureNamed, type Json, planeInput, planeOf, ready, type Ref, sketchNa
 import { facingIn, featureRef, planeIn, skinIn, withinIn } from './reSchemas'
 import { type ReverseSession, reverseSession } from './reSession'
 import { chainsOn, cutSpanWords, sectionCut, sidedOf, sidedOn, sideRuleOf, withinOf } from './reSketchInput'
+import { throughBand, type ThroughIn, throughOn } from './reThrough'
 
 /** The pieces of a segmented chain as the answer gives them — placed into
  *  a sketch of their own, as the fit places them, and read back. */
@@ -158,7 +159,7 @@ function sketchCounting(sec: { id: number; frame: SectionFrame }) {
 /** A plane field of these commands: a coordinate plane by name, or a
  *  plane object as a sketch takes it — checked against planeIn when the
  *  command runs. */
-const planeField = (description: string) => oneOf([str('A coordinate plane by name: "XY", "YZ" or "XZ" ("ZX" too).', { minLength: 2 }), anyObject(description)])
+export const planeField = (description: string) => oneOf([str('A coordinate plane by name: "XY", "YZ" or "XZ" ("ZX" too).', { minLength: 2 }), anyObject(description)])
 
 /** A chain read as regular teeth (core/teeth.ts), as section.fit's
  *  periodic answer gives it: on the section's sheet, in the world, and the
@@ -223,7 +224,7 @@ const IRREGULAR_SHARE = 0.05
 
 const OFF_SKETCH_MM = 0.01
 
-export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: number; tolerance?: number; candidates?: boolean; brief?: boolean; net?: { angleDeg?: number; mm?: number }; limit?: number; arcs?: number; within?: unknown; periodic?: boolean; plane?: Json | string } & SideIn & ChainFilter> = {
+export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: number; tolerance?: number; candidates?: boolean; brief?: boolean; net?: { angleDeg?: number; mm?: number }; limit?: number; arcs?: number; within?: unknown; through?: ThroughIn; periodic?: boolean; plane?: Json | string } & SideIn & ChainFilter> = {
   name: 'fit',
   title: 'Fit lines and arcs to a section',
   description:
@@ -242,6 +243,10 @@ export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: num
       limit: int(`How many candidates per chain at most; ${CANDIDATE_LIMIT} by default.`, { minimum: 1 }),
       arcs: int('Each chain as this many arcs end to end, in place of the cut.', { minimum: 1, maximum: 8 }),
       within: withinIn('Only what of each chain lies in this box: min and max [u, v] mm on the section’s sheet (from the part’s centre, not a sketch’s [u, v]), or world: { min, max } in mm.'),
+      through: oneOf(
+        [bool('true: seen through ±1.5 mm about the section’s plane.'), obj({ depth: arr(num(), '[from, to], mm along the section’s normal from its plane.', { minItems: 2, maxItems: 2 }) }, ['depth'])],
+        'A thin sheet seen through, square onto the section, in place of its cut — the sheet’s edge and every hole in it traced where rays meet the scan within depth, each a closed chain (hole says which), as a sketch’s fit.through reads it; skin and facing are refused. through in the answer gives depth, cell, loops, holes and skipped.',
+      ),
       skin: skinIn,
       facing: facingIn,
       ...filterIn,
@@ -252,7 +257,7 @@ export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: num
     ['section'],
   ),
   readOnly: true,
-  run: async ({ section, chains: which, detail, tolerance, candidates = true, brief = false, net, limit, arcs, within, skin, facing, closeGaps, minLength, maxLength, closedOnly, maxChains = FIT_MAX_CHAINS, periodic = false, plane }) => {
+  run: async ({ section, chains: which, detail, tolerance, candidates = true, brief = false, net, limit, arcs, within, through, skin, facing, closeGaps, minLength, maxLength, closedOnly, maxChains = FIT_MAX_CHAINS, periodic = false, plane }) => {
     if (periodic && arcs !== undefined) invalid('periodic reads the chain as teeth, arcs as arcs end to end — give one of them.')
     if (plane !== undefined && !periodic) invalid('plane names the sketch periodic gives its profile for — give periodic: true, or leave plane out.')
     const sec = findSection(section)
@@ -268,19 +273,23 @@ export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: num
       sketch = f
     }
     const rule = sideRuleOf(skin, facing)
-    const cut = await sectionCut(sec.id)
+    // Seen through, the sheet's loops stand for the cut.
+    const seeing = through !== undefined && through !== false
+    if (seeing && rule) invalid('through sees the sheet square on, with no side to it — leave skin and facing out.')
+    const seen = seeing ? await throughOn(sec.frame, throughBand(through, undefined, 'through'), { tolerance, within: withinOf(within, 'within'), where: 'through' }) : null
+    const cut = seen ? null : await sectionCut(sec.id)
     // Teeth are told crest from trough by the material, where the cut says
     // which side it is on.
-    const sided = rule ? sidedOf(cut, sec.frame) : periodic ? sidedIfKnown(cut, sec.frame) : null
+    const sided = !cut ? null : rule ? sidedOf(cut, sec.frame) : periodic ? sidedIfKnown(cut, sec.frame) : null
     const side = rule && sided ? sideOf(sided, rule) : undefined
     const outward = periodic && sided ? new Map(sided.chains.flatMap((c, k) => c.map((p, i): [Vec2, Vec2] => [p, sided.normals[k][i]]))) : undefined
-    const all = sided ? sided.chains : chainsOfEdges(projectCut(cut, sec.frame))
+    const all = seen ? seen.chains : sided ? sided.chains : chainsOfEdges(projectCut(cut!, sec.frame))
     for (const c of which ?? []) if (!all[c]) throw new CommandError('not_found', `${sec.name} has no chain ${c} — it has ${all.length}${all.length > 0 ? ` (0 to ${all.length - 1})` : ''}.`)
     // Chains named are fitted whatever the filters say.
     const kept = which ? chainsKept(all, { closeGaps }) : chainsKept(all, { closeGaps, minLength, maxLength, closedOnly, maxChains })
     const picked = which ? [...new Set(which.map((c) => pickChain(kept.chains, c)))].map((i) => kept.chains[i]) : kept.chains
     const fitOne = (j: JoinedChain, chain: readonly Vec2[], run?: number) => {
-      const which = { ...chainName(j), ...(run !== undefined ? { run } : {}) }
+      const which = { ...chainName(j), ...(seen ? { hole: seen.holes[j.from[0]] } : {}), ...(run !== undefined ? { run } : {}) }
       if (periodic) {
         try {
           return { ...which, points: chain.length, periodic: periodicOut(readTeeth(chain, { outward: outward && chain.map((p) => outward.get(p)) }), sec.frame, sketch) }
@@ -305,7 +314,7 @@ export const sectionFit: Command<{ section: Ref; chains?: number[]; detail?: num
     const out = picked.flatMap((j) => (box || side ? runsKept(j.chain, { ...boxed, side }).map((r, k) => fitOne(j, r, k)) : [fitOne(j, j.chain)]))
     const span = chainsSpan(all)
     const bounds = span ? { min: span.min.map(round4), max: span.max.map(round4) } : null
-    return { section: { id: sec.id, name: sec.name }, plane: { origin: sec.frame.origin, normal: sec.frame.normal, basisU: sec.frame.basisU, basisV: sec.frame.basisV }, sketch: sketchCounting(sec), bounds, chains: out, ...kept.said }
+    return { section: { id: sec.id, name: sec.name }, plane: { origin: sec.frame.origin, normal: sec.frame.normal, basisU: sec.frame.basisU, basisV: sec.frame.basisV }, sketch: sketchCounting(sec), bounds, chains: out, ...kept.said, ...(seen ? { through: seen.through } : {}) }
   },
 }
 
@@ -505,7 +514,7 @@ function stackBox(w: { min?: Vec3; max?: Vec3; world?: { min: Vec3; max: Vec3 } 
 
 /** A plane as given, at an offset in place of its own: a coordinate plane
  *  at that coordinate, any other moved that far along its normal. */
-function planeAtOffset(s: ReverseSession, given: Json | string, offset: number): PlaneRef {
+export function planeAtOffset(s: ReverseSession, given: Json | string, offset: number): PlaneRef {
   const p = planeInput(given)
   if (p.kind === 'world') return { kind: 'world', axis: p.axis as 'x' | 'y' | 'z', offset }
   return planeOf(s, { ...p, offset })

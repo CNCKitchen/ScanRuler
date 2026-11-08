@@ -66,6 +66,7 @@ export function scanSwap({
       // An edit is a mesh of its own, colourless; the scan before it, on
       // undo, comes back with whatever came with it.
       await scanCompanions(source.name, source.bytes, source.companions ?? []),
+      source.scale ?? 1,
     )
     try {
       await client.commitImport({ scan: id })

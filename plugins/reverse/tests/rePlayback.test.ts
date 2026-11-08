@@ -71,7 +71,7 @@ describe('the playback', () => {
     const past = re().past
     const landed: { at: number; bodies: number; volume: number }[] = []
     const unsub = useReverse.subscribe((s, prev) => {
-      if (s.bodiesVersion !== prev.bodiesVersion && s.playback) landed.push({ at: s.features.length, bodies: s.bodies.length, volume: s.bodies[0]?.volume ?? 0 })
+      if (s.bodies !== prev.bodies && s.playback) landed.push({ at: s.features.length, bodies: s.bodies.length, volume: s.bodies[0]?.volume ?? 0 })
     })
     expect(startPlayback()).toBe(true)
     expect(re().playback).toEqual({ origin: 4, at: 0, playing: true })

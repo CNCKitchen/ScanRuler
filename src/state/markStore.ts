@@ -26,6 +26,9 @@ interface MarkState {
   /** The gesture takes marking away instead of laying it down. The right button
    *  always does, and Alt inverts either way. */
   erase: boolean
+  /** Each brush drag is a straight line from press to release. The platform's
+   *  modifier inverts this for one drag. */
+  straight: boolean
   /** Take surface facing away from the camera as well. Survives a session, as a
    *  property of the part being marked rather than of the marking. */
   backfaces: boolean
@@ -44,6 +47,7 @@ interface MarkState {
 
   setGesture: (g: MarkGesture | null) => void
   setErase: (v: boolean) => void
+  setStraight: (v: boolean) => void
   setBackfaces: (v: boolean) => void
   setDiameter: (mm: number) => void
   setCount: (n: number) => void
@@ -63,6 +67,7 @@ interface MarkState {
 export const useMark = create<MarkState>((set) => ({
   gesture: null,
   erase: false,
+  straight: false,
   backfaces: false,
   diameter: 2,
   count: 0,
@@ -70,11 +75,12 @@ export const useMark = create<MarkState>((set) => ({
 
   setGesture: (gesture) => set({ gesture }),
   setErase: (erase) => set({ erase }),
+  setStraight: (straight) => set({ straight }),
   setBackfaces: (backfaces) => set({ backfaces }),
   setDiameter: (diameter) => set({ diameter: Math.max(diameter, 2e-4) }),
   setCount: (count) => set({ count }),
   invert: () => set((s) => ({ inverts: s.inverts + 1 })),
-  reset: () => set({ gesture: null, erase: false, count: 0 }),
+  reset: () => set({ gesture: null, erase: false, straight: false, count: 0 }),
   sizeToModel: (modelSize) => set({ diameter: Math.max(modelSize * 0.08, 2e-3) }),
 }))
 
