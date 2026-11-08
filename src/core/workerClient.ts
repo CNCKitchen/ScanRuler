@@ -525,8 +525,8 @@ export class MeshWorkerClient {
    *  vertices; with `sheet`, whether it is a sheet — see geometry/sheet. */
   async scanQa(sample: number, rims: number, sheet?: { sample: number; apartSample: number }): Promise<Omit<Extract<WorkerResponse, { type: 'scan-qa-ok' }>, 'type' | 'requestId'>> {
     const requestId = this.nextId++
-    const { rims: r, noise, sheet: s } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims, ...(sheet ? { sheet } : {}) })
-    return { rims: r, noise, ...(s ? { sheet: s } : {}) }
+    const { rims: r, noise, tessellation, sheet: s } = await this.request<Extract<WorkerResponse, { type: 'scan-qa-ok' }>>({ type: 'scan-qa', requestId, sample, rims, ...(sheet ? { sheet } : {}) })
+    return { rims: r, noise, tessellation, ...(s ? { sheet: s } : {}) }
   }
 
   /** One open rim by its number among the scan's rims, longest first, as

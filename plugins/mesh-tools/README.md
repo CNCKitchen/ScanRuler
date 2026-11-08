@@ -13,10 +13,11 @@ tool's key again, puts it away — and they are of the two kinds the
 workspace has:
 
 - **Remove islands**, **Delete marked**, **Flip normals**, **Cut**,
-  **Mirror**, **Fill holes**, **Smooth**, **Shrink/expand**, **Boolean** and
+  **Mirror**, **Fill holes**, **Smooth**, **Densify**, **Shrink/expand**, **Boolean** and
   **Shell/hollow** edit a copy of the scan — the specks floating off it,
   what is not the part, a surface facing the wrong way, the
   base it stood on, the other hand of the part or the side it lost, the holes the scanner left, the scatter on it, the
+  long triangles of an STL exported from CAD, the
   spray it was scanned under, a bore it could not see to the bottom of, the
   inside a print does not need — which every workspace measures once it is
   taken into use.
@@ -330,6 +331,30 @@ so the smoothed patch runs into the scan around it without a seam. The fits
 still read the scan on both sides of the edge. **Escape** gives the camera
 its drags back without losing the marking; once smoothed, the marking goes,
 so the smoothed surface — and its **Deviation** — is in plain view.
+
+### Densify
+
+An STL exported from CAD is cut into as few triangles as hold its shape: a
+flat face is a fan of long, thin triangles from its edges, and a hole's wall
+a ring of slivers from rim to rim. Its vertices lie only on its edges and
+rims, none inside its faces, so a fit, a segmentation or a section that
+looks for points on a face finds none, and the noise read off small patches
+is the bend between facets — 1.6 mm on a bracket whose faces are exact.
+**Densify** cuts the triangles until no edge is longer than a length set.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Longest edge** | mm | No edge is left longer than this. Starts at a hundredth of the part's diagonal, on a round number — 0.5 mm on a part 75 mm across; halving it makes about four times the triangles. |
+
+Every edge longer than the length gets one vertex in its middle, shared by
+the two triangles on it, and each triangle is cut in two, three or four by
+how many of its edges were; the passes go on until none is too long. A new
+vertex lies on the facet it was cut from, so the surface is exactly where it
+was — a hole's wall still the facets CAD exported, not the circle — and the
+mesh stays as closed as it was: the cuts on the two sides of an edge meet.
+Over twenty million triangles it stops and asks for a longer edge. In 3D
+Measure's checks, `scan.qa` says when a mesh is such an export and too sparse
+(`tessellation`), with the length to densify it to.
 
 ### Shrink / expand
 
@@ -795,7 +820,7 @@ tools `mesh_cut` and so on, registered from the plugin's `install()`
 | `mesh.inspect` | the mesh the tools work on in figures — triangles, bounds, open edges, the volume it encloses — and its islands and holes at a size, the middle of each; with `deviation`, the copy measured against the scan in use |
 | `mesh.cut_preview` | what a cut at a plane would close, bridge and leave open |
 | `mesh.mark` | a region marked on the part as the window, brush and lasso mark it, for Delete marked, Flip normals, Smooth or Shrink / expand — to look at before the edit, or for the person to put right |
-| `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.offset`, `mesh.boolean`, `mesh.shell` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Shell hollows a closed part or thickens an open one, as the panel's does |
+| `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.densify`, `mesh.offset`, `mesh.boolean`, `mesh.shell` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Densify cuts the triangles down to `maxEdge`; Shell hollows a closed part or thickens an open one, as the panel's does |
 | `mesh.reduce`, `mesh.trim` | the reduced mesh and Trim to scan's piece, made beside the scan |
 | `mesh.apply_reduced` | the reduced mesh made the edited copy, one step of the undo history |
 | `mesh.wrap` | the wrap, made beside the scan — `gap`, and `grow`, `edges`, `tolerance` (how far its reduction may stray) — answering with its shells, triangles, what went inside it, the area bridged, the volume before and after and the time each step took; `preview: false` applies it at once |

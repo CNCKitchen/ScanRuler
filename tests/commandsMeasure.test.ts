@@ -14,7 +14,7 @@ import { registerStateSection } from '../src/commands/stateSections'
 import { useHistory } from '../src/state/historyStore'
 import { useShell } from '../src/state/shellStore'
 import { useStore } from '../src/state/store'
-import { boxMesh, icosphere } from './helpers'
+import { boxMesh, cylinderMesh, icosphere } from './helpers'
 import { refused, run, soupOf, startHeadless, stlBytes, undoLabels, type Headless } from './commandKit'
 
 type Vec3 = [number, number, number]
@@ -366,6 +366,8 @@ describe('alignment', () => {
     expect(auto.note).toMatch(/Squared to its largest face/)
     expect(auto.square.largest!.tiltDeg).toBeLessThan(0.01)
     expect(auto.square.axes.map((a) => a.axis).sort()).toEqual(['x', 'y', 'z'])
+    // A box's faces look out: nothing stands in front of the largest.
+    expect((auto as { largestInside?: unknown }).largestInside).toBeUndefined()
     expect(useStore.getState().alignDraft).toBeNull()
     const sym = await run<{ note?: string }>('align.symmetry')
     expect(sym.note).toMatch(/Settled on/)
@@ -373,6 +375,30 @@ describe('alignment', () => {
     await undo()
     await undo()
     expect(useStore.getState().appliedAlignment).toBeNull()
+  })
+})
+
+describe('align.auto on a housing whose largest flat face is inside it (issue 77)', () => {
+  it('says the face it squared to looks into the part — a rib’s wall, not a mating face', async () => {
+    // A tall round pot, 40 across and 60 high, with a rib 36 × 58 across its
+    // middle: the rib's sides (2088 mm² each) outdo the pot's flat ends.
+    const pot = cylinderMesh(20, 60, 96, 24).positions
+    const rib = boxMesh(2, 24)
+    for (let i = 0; i < rib.length; i += 3) {
+      rib[i] *= 18
+      rib[i + 1] *= 1
+      rib[i + 2] = rib[i + 2] * 29 - 1
+    }
+    const soup = new Float32Array(pot.length + rib.length)
+    soup.set(pot)
+    soup.set(rib, pot.length)
+    await run('scan.open', { bytes: stlBytes(soup), name: 'pot.stl', discard: true })
+    const auto = await run<{ square: { largest: { axis: string; area: number } }; largestInside?: { clearMm: number; note: string } }>('align.auto', { level: 'largest' })
+    expect(auto.square.largest.area).toBeGreaterThan(1500)
+    expect(auto.largestInside?.clearMm).toBeGreaterThan(15)
+    expect(auto.largestInside?.clearMm).toBeLessThan(20)
+    expect(auto.largestInside?.note).toMatch(/faces into the part.*an inside wall/)
+    await run('align.clear')
   })
 })
 

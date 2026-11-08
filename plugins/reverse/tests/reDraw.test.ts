@@ -96,8 +96,10 @@ describe('what two clicks dimension', () => {
     expect(dimensionFor(sketch, corner, null)).toBeNull()
   })
 
-  it('the middle of a piece picks the piece, its end the point', () => {
-    expect(dimPickAt(sketch, [5, 0.1], 0.5)).toEqual({ kind: 'piece', id: bottom })
+  it('a piece clicked along it picks the piece, its end the point — its very middle the middle, which alone stands for the piece', () => {
+    expect(dimPickAt(sketch, [3, 0.1], 0.5)).toEqual({ kind: 'piece', id: bottom })
+    expect(dimPickAt(sketch, [5, 0.1], 0.5)).toEqual({ kind: 'point', anchor: { entity: bottom, at: 'center' }, of: bottom })
+    expect(dimensionFor(sketch, dimPickAt(sketch, [5, 0.1], 0.5)!, null)).toMatchObject({ kind: 'length', entity: bottom })
     expect(dimPickAt(sketch, [50, 50], 0.5)).toBeNull()
   })
 })
@@ -181,7 +183,7 @@ describe('tools that take what is clicked', () => {
     drawL()
     const steps = s().sketchDraft!.history.length
     s().setSketchTool('dimension')
-    s().sketchClick([5, 0], 0.5, false)
+    s().sketchClick([3, 0], 0.5, false)
     expect(s().sketchDraft?.dimPick).toEqual({ kind: 'piece', id: 1 })
     const focus = s().sketchDraft!.dimFocus ?? 0
     s().sketchClick([4, -6], 0.5, false)
@@ -336,7 +338,9 @@ describe('tools that take what is clicked', () => {
     drawL()
     s().setSketchTool('dimension')
     s().sketchClick([10, 8], 0.5, false)
-    s().sketchClick([5, 0], 0.5, false)
+    // Along the line, off its middle: the middle itself is a point to
+    // measure to (reSketchRound.test.ts).
+    s().sketchClick([3, 0], 0.5, false)
     expect(s().sketchDraft?.sketch.constraints.find((c) => c.kind === 'distance')).toMatchObject({ q: { line: 1 }, value: 8 })
   })
 

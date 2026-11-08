@@ -29,8 +29,17 @@ export type ProjectionSource = { body: number; edge: EdgeFingerprint } | { sketc
 /** One of the two ends of a line, an arc or an open spline, the one point a
  *  point or a circle stands for (its centre), or a spline's fit point by its
  *  place among them (`p1`, `p2`, …) — an open spline's first and last are
- *  its ends, `a` and `b`; a closed one has fit points only, from `p0`. */
-export type AnchorAt = 'a' | 'b' | 'center' | `p${number}`
+ *  its ends, `a` and `b`; a closed one has fit points only, from `p0`. A
+ *  line's `center` is its middle. An arc's or a circle's quadrants, `q0` to
+ *  `q3`, are the points of its rim at 0°, 90°, 180° and 270° from the
+ *  sheet's +u — what CAD offers to hang a relation or a dimension on (see
+ *  pickPointsOf). */
+export type AnchorAt = 'a' | 'b' | 'center' | Quadrant | `p${number}`
+
+/** The four quadrant points of a round piece's rim, counter-clockwise from +u. */
+export type Quadrant = 'q0' | 'q1' | 'q2' | 'q3'
+export const QUADRANTS: readonly Quadrant[] = ['q0', 'q1', 'q2', 'q3']
+const isQuadrant = (at: AnchorAt): at is Quadrant => at === 'q0' || at === 'q1' || at === 'q2' || at === 'q3'
 
 export interface SketchLine {
   id: number
@@ -176,8 +185,11 @@ export type Constraint = { inferred?: boolean; place?: DimPlace } & (
   | { id: number; kind: 'length'; entity: number; value: number; expr?: string }
   /** Between two anchors, from an anchor to a line (perpendicular), or
    *  from an anchor to one of the part's coordinate planes — to the line
-   *  the plane cuts the sheet in (see datums.ts). */
-  | { id: number; kind: 'distance'; p: Anchor; q: Anchor | { line: number } | { datum: DatumPlane }; value: number; expr?: string }
+   *  the plane cuts the sheet in (see datums.ts). Between two anchors,
+   *  `axis` measures along the sheet's u ('x', a horizontal dimension: the
+   *  two points' ΔX) or v ('y', vertical: their ΔY) rather than straight
+   *  across — what a hole's pitch or offset is given by on a drawing. */
+  | { id: number; kind: 'distance'; p: Anchor; q: Anchor | { line: number } | { datum: DatumPlane }; value: number; expr?: string; axis?: DistanceAxis }
   | { id: number; kind: 'radius'; entity: number; value: number; expr?: string }
   /** A circle's or an arc's diameter — what a full circle is dimensioned
    *  by, as a drawing gives a hole or a boss; the solver holds the radius at
@@ -188,6 +200,16 @@ export type Constraint = { inferred?: boolean; place?: DimPlace } & (
 )
 
 export type ConstraintKind = Constraint['kind']
+
+/** The axis a distance between two points is measured along: 'x' the
+ *  sheet's u, 'y' its v. */
+export type DistanceAxis = 'x' | 'y'
+
+/** A distance between two points as measured along an axis, or straight
+ *  across without one. */
+export function distanceAlong(p: Vec2, q: Vec2, axis?: DistanceAxis): number {
+  return axis === 'x' ? Math.abs(q[0] - p[0]) : axis === 'y' ? Math.abs(q[1] - p[1]) : len2(sub2(q, p))
+}
 
 /** What a point or a line is held on: a line of the sketch, a round
  *  piece's rim, or a coordinate plane's line in the sheet. */
@@ -281,9 +303,10 @@ export function anchorPoint(e: SketchEntity, at: AnchorAt): Vec2 {
     case 'line':
       return at === 'b' ? e.b : at === 'a' ? e.a : [(e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2]
     case 'arc':
+      if (isQuadrant(at)) return arcPoint(e, (Number(at[1]) * Math.PI) / 2)
       return at === 'a' ? arcPoint(e, e.start) : at === 'b' ? arcPoint(e, e.start + e.sweep) : e.c
     case 'circle':
-      return e.c
+      return isQuadrant(at) ? arcPoint(e, (Number(at[1]) * Math.PI) / 2) : e.c
     case 'spline': {
       const i = splinePointIndex(e, at)
       if (i !== null) return e.pts[i]
@@ -305,6 +328,25 @@ export function anchorsOf(e: SketchEntity): AnchorAt[] {
     return ['a', 'b', ...e.pts.slice(1, -1).map((_, i) => `p${i + 1}` as AnchorAt)]
   }
   return ['center']
+}
+
+/** The points a piece offers to a relation or a dimension besides its
+ *  anchors (anchorsOf): a line's middle; an arc's centre; an arc's or a
+ *  circle's quadrants — an arc's only where its sweep reaches them and an
+ *  end does not stand there already. Picked and snapped to, never dragged
+ *  by: a middle or a quadrant moves with its piece. */
+export function pickPointsOf(e: SketchEntity): AnchorAt[] {
+  if (e.kind === 'line') return ['center']
+  if (e.kind === 'circle') return [...QUADRANTS]
+  if (e.kind !== 'arc') return []
+  const out: AnchorAt[] = ['center']
+  const two = 2 * Math.PI
+  for (const q of QUADRANTS) {
+    const along = (((Number(q[1]) * Math.PI) / 2 - e.start) % two + two) % two
+    // Within the sweep, and clear of both ends by a hair of a turn.
+    if (along > 1e-6 && along < e.sweep - 1e-6) out.push(q)
+  }
+  return out
 }
 
 /** The ends of a piece — a line's, an arc's or an open spline's two, where

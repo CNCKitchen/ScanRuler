@@ -203,6 +203,29 @@ describe('a bore that steps, and one a wrap closed', () => {
     expect((await run<Qa>('scan.qa', { axis: 'z' })).notes.join(' ')).not.toMatch(/Closed skin/)
   })
 
+  it('reads an STL exported from CAD as one, says when it is too sparse to fit on, and gives the edge to densify it to (issue 42)', async () => {
+    type Tess = Qa & { noise: { median: number; measured?: { median: number } }; tessellation?: { cad: boolean; sparse: boolean; spacing: number; densifyTo?: number } }
+    // A 40 mm box of 8 triangles a face: vertices on its edges and in the
+    // middle of each face, 20 mm apart.
+    await open(boxMesh(40, 2), 'sparse.stl')
+    const sparse = await run<Tess>('scan.qa', { axis: 'z' })
+    expect(sparse.tessellation).toMatchObject({ cad: true, sparse: true, densifyTo: 0.5 })
+    expect(sparse.noise.median).toBe(0)
+    const said = sparse.notes.join(' ')
+    expect(said).toMatch(/A CAD tessellation, not a scan — and a sparse one/)
+    expect(said).toMatch(/to edges of 0\.5 mm or less|mesh\.densify \{ maxEdge: 0\.5 \}/)
+    expect(said).not.toMatch(/Noisy surface|Closed skin/)
+    // Fine enough to fit on: a CAD tessellation, exact, nothing to densify.
+    await open(boxMesh(40, 100), 'dense.stl')
+    const dense = await run<Tess>('scan.qa', { axis: 'z' })
+    expect(dense.tessellation).toMatchObject({ cad: true, sparse: false })
+    expect(dense.tessellation?.densifyTo).toBeUndefined()
+    expect(dense.notes.join(' ')).toMatch(/no noise — a CAD tessellation/)
+    // A scan's scatter is no CAD facet.
+    await open(scattered(boxMesh(40, 100), 0.01), 'scanned.stl')
+    expect((await run<Tess>('scan.qa', { axis: 'z' })).tessellation).toBeUndefined()
+  })
+
   /** The soup with two of its triangles, far apart, taken out. */
   const pinholed = (soup: Float32Array) => {
     const kept = Array.from(soup)

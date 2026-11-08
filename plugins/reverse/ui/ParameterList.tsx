@@ -50,6 +50,13 @@ function TextCommit({ shown, testId, placeholder, label, mono, onCommit }: { sho
 }
 
 function ParameterRow({ p, focus }: { p: Parameter; focus: boolean }) {
+  // Pointed at, or a field of it being typed in: what it drives is lit in
+  // the feature list and on the part.
+  const lit = (on: boolean) => {
+    const s = useReverse.getState()
+    if (on) s.setParameterLit(p.id)
+    else if (s.parameterLit === p.id) s.setParameterLit(null)
+  }
   const reading = useReverse((s) => s.parameterTable.readings.find((r) => r.id === p.id))
   const [refusal, setRefusal] = useState<string | null>(null)
   const [noting, setNoting] = useState(false)
@@ -71,7 +78,30 @@ function ParameterRow({ p, focus }: { p: Parameter; focus: boolean }) {
   const shownExpression = parameterText(p.expression, p.kind, units)
   const takeExpression = (typed: string) => (typed === shownExpression.trim() ? p.expression : parameterExpression(typed, p.kind, units))
   return (
-    <div className={'kv parameter' + (problem ? ' bad' : '')} data-test="parameter-row" data-param={p.id} ref={nameRef}>
+    <div
+      className={'kv parameter' + (problem ? ' bad' : '') + (p.pinned ? ' pinned' : '')}
+      data-test="parameter-row"
+      data-param={p.id}
+      ref={nameRef}
+      onPointerEnter={() => lit(true)}
+      onPointerLeave={(e) => {
+        if (!e.currentTarget.contains(document.activeElement)) lit(false)
+      }}
+      onFocus={() => lit(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) lit(false)
+      }}
+    >
+      <button
+        className="x star"
+        tabIndex={-1}
+        data-test="parameter-pin"
+        aria-pressed={Boolean(p.pinned)}
+        title={p.pinned ? 'Important — listed first. Click to take the mark off' : 'Mark as important: listed first, with a star — a dimension to iterate on'}
+        onClick={() => tell(re.getState().setParameter(p.id, { pinned: !p.pinned }))}
+      >
+        {p.pinned ? '★' : '☆'}
+      </button>
       <TextCommit shown={p.name} testId="parameter-name" label="The parameter's name, as expressions use it" mono onCommit={(name) => tell(re.getState().setParameter(p.id, { name }))} />
       <select data-test="parameter-kind" aria-label="Kind" title={`What the parameter is: a length in ${units === 'in' ? 'inches' : 'millimetres'}, an angle in degrees, a whole number, or a plain number`} value={p.kind} onChange={(e) => tell(re.getState().setParameter(p.id, { kind: e.target.value as Parameter['kind'] }))}>
         {PARAMETER_KINDS.map((k) => (
@@ -111,7 +141,11 @@ function ParameterRow({ p, focus }: { p: Parameter; focus: boolean }) {
 }
 
 export function ParameterList() {
-  const parameters = useReverse((s) => s.parameters)
+  const all = useReverse((s) => s.parameters)
+  // The ones marked important first, each group in the order made.
+  const parameters = [...all.filter((p) => p.pinned), ...all.filter((p) => !p.pinned)]
+  // The list folded or gone under the pointer lets its lit row go.
+  useEffect(() => () => useReverse.getState().setParameterLit(null), [])
   const [open, setOpen] = useState(false)
   const [fresh, setFresh] = useState<number | null>(null)
   const add = () => {
@@ -135,6 +169,10 @@ export function ParameterList() {
             Numbers add and multiply as in a calculator, with <code>sin cos tan asin acos atan atan2 sqrt abs min max floor ceil round pow</code>, <code>pi</code> and{' '}
             <code>e</code>; angles are in degrees. A number may carry a unit — <code>1 in</code>, <code>2 cm</code>, <code>30 deg</code> — and one without takes the
             field's. Kinds are kept apart: a length and an angle cannot be added, and a length times a length is an area no field wants.
+          </p>
+          <p>
+            Pointing at a parameter, or typing in it, lights the features it drives in the list and their faces on the part. The ☆ marks one as important: it
+            is listed first, and the agent is told so.
           </p>
           <p>
             A plain number typed over a field that read a parameter lets the parameter go; so does dragging the field's grip. Renaming a parameter renames it in

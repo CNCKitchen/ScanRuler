@@ -35,6 +35,14 @@ const ICONS = {
       <path className="i-a" d="M16 10.5V2.5M13.8 4.7 16 2.5l2.2 2.2" />
     </>
   ),
+  // A long triangle, and the same cut into small ones by its edges'
+  // middles: what Densify does to a CAD export's facets.
+  densify: (
+    <>
+      <path className="i-g" d="M2.5 20.5 12 3.5l9.5 17Z" />
+      <path className="i-a" d="M7.25 12h9.5M12 20.5 7.25 12M12 20.5l4.75-8.5M9.6 16.25h4.8" />
+    </>
+  ),
   // A jumble of pieces, overlapping and loose, and one closed skin round
   // them all.
   wrapSkin: (

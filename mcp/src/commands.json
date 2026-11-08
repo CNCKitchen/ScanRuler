@@ -1,11 +1,11 @@
 {
-  "app": "0.9.8",
-  "saved": "2026-11-08T10:10:51.249Z",
+  "app": "0.9.9",
+  "saved": "2026-11-08T12:12:23.992Z",
   "commands": [
     {
       "name": "align.auto",
       "title": "Auto-align the part",
-      "description": "Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts. Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.",
+      "description": "Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts; largestInside when that face looks into the part (the scan stands in front of it: a rib’s wall, not a mating face — level on the mating face with align.datum). Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.",
       "input": {
         "type": "object",
         "properties": {
@@ -3729,7 +3729,7 @@
     {
       "name": "scan.qa",
       "title": "Check the scan before modelling",
-      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; near 0 is a CAD tessellation), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }), sheet where most of the area has a second skin facing back within reach mm (gauge { p5, p50, p95 }, twoSkins: that share), apart on such a part with flat walls (regions standing over reach mm off every main wall — tabs bent in, ribs, bosses: center, box, area mm², largest first) and notes, what looks wrong, plainly. Traps: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through; on a sheet, thickness reads the box across the part — the gauge is sheet.gauge. Changes nothing.",
+      "description": "One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: \"circle\", rim } makes it an element), noise (the median scatter of small plane fits, mm; 0 on a CAD tessellation), tessellation where the mesh is an STL exported from CAD (cad, its facets exactly flat; sparse where its vertices lie only on edges and rims, too far apart to fit on — densifyTo, the edge length to subdivide it to first, noise.measured the bends between facets that a fit would read), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }), sheet where most of the area has a second skin facing back within reach mm (gauge { p5, p50, p95 }, twoSkins: that share), apart on such a part with flat walls (regions standing over reach mm off every main wall — tabs bent in, ribs, bosses: center, box, area mm², largest first) and notes, what looks wrong, plainly. Traps: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through; on a sheet, thickness reads the box across the part — the gauge is sheet.gauge. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -4751,7 +4751,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -4766,6 +4766,9 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "map": {
                 "type": "boolean"
               }
             }
@@ -4944,7 +4947,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -4959,6 +4962,9 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "map": {
                 "type": "boolean"
               }
             }

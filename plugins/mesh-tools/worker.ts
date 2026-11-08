@@ -20,6 +20,7 @@ import { cutMesh, cutPreview } from './core/cut'
 import { mirrorMesh } from './core/mirror'
 import { fillHoles, surveyHoles } from './core/fillHoles'
 import { smoothMesh } from './core/smooth'
+import { densifyMesh } from './core/densify'
 import { booleanMesh, closedness } from './core/boolean'
 import { offsetMesh, thickenMesh } from './core/offset'
 import { hollowMesh } from './core/hollow'
@@ -182,6 +183,11 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
       const smoothed = smoothMesh(g.positions, g.indices, g.vertexCount, edit.settings, ctx.progress)
       result = smoothed
       report = { kind: 'smooth', report: smoothed.report }
+    } else if (edit.type === 'densify') {
+      ctx.progress('Densifying…')
+      const dense = densifyMesh(g.positions, g.indices, g.vertexCount, edit.maxEdge, ctx.progress)
+      result = dense
+      report = { kind: 'densify', report: dense.report }
     } else if (edit.type === 'offset') {
       const surface = () => ctx.surfaceOf(g, 'Preparing the surface to keep the move clear of it…')
       const moved = offsetMesh(g.positions, g.indices, g.vertexCount, edit.settings, ctx.progress, surface)

@@ -25,6 +25,7 @@ import type { Pull } from '../core/solver'
 import {
   arcThrough,
   type ConstraintKind,
+  type DistanceAxis,
   type EntityInput,
   type Sketch,
   type SketchPatternSpec,
@@ -174,7 +175,12 @@ export interface ReState {
    *  whole — nothing then changes; otherwise every expression that reads
    *  it is evaluated again, the features and the open editors follow, and
    *  the part rebuilds. A rename is written through every expression. */
-  setParameter: (id: number, patch: Partial<Pick<Parameter, 'name' | 'kind' | 'expression' | 'comment'>>) => string | null
+  setParameter: (id: number, patch: Partial<Pick<Parameter, 'name' | 'kind' | 'expression' | 'comment' | 'pinned'>>) => string | null
+  /** The parameter whose row is pointed at or being edited: the features
+   *  it drives lit in the list and their faces on the part, while it is.
+   *  Not saved, no step of the history. */
+  parameterLit: number | null
+  setParameterLit: (id: number | null) => void
   /** Refused, naming its readers, while anything reads it. */
   removeParameter: (id: number) => string | null
   /** The expression behind one number of the open editor's box, by slot
@@ -401,6 +407,10 @@ export interface ReState {
    *  number doubled or halved, an expression carried over with it; with
    *  one — Ø12 typed over an R — it takes that, in one step. */
   setDimensionForm: (id: number, form: 'radius' | 'diameter', value?: number, expr?: string | null) => void
+  /** A distance between two points measured another way: along the
+   *  sheet's u (its ΔX), along its v (ΔY), or straight across (null) — at
+   *  what the points measure that way now, the expression behind it kept. */
+  setDistanceAxis: (id: number, axis: DistanceAxis | null) => void
   /** The number of the dimension the Dimension tool has in hand confirmed —
    *  typed, or taken as it stands with Enter: the dimension is done, and
    *  the next click starts the next one rather than pairing with it. */
@@ -772,6 +782,8 @@ export const useReverse = create<ReState>()((set, get) => ({
   parameters: [],
   nextParameterId: 1,
   parameterTable: evaluateParameters([]),
+  parameterLit: null,
+  setParameterLit: (parameterLit) => set((s) => (s.parameterLit === parameterLit ? {} : { parameterLit })),
   addParameter: (kind = 'length') => {
     const s = get()
     const id = s.nextParameterId
@@ -797,7 +809,13 @@ export const useReverse = create<ReState>()((set, get) => ({
     if (patch.kind !== undefined) rest.kind = patch.kind
     if (patch.expression !== undefined) rest.expression = patch.expression
     if (patch.comment !== undefined) rest.comment = patch.comment
-    parameters = parameters.map((x) => (x.id === id ? { ...x, ...rest } : x))
+    parameters = parameters.map((x) => {
+      if (x.id !== id) return x
+      const next = { ...x, ...rest }
+      if (patch.pinned === true) next.pinned = true
+      else if (patch.pinned === false) delete next.pinned
+      return next
+    })
     if (parameters.every((x, i) => x === s.parameters[i])) return null
     const table = evaluateParameters(parameters)
     const mine = table.readings.find((r) => r.id === id)

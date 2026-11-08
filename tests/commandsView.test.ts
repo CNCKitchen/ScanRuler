@@ -19,7 +19,7 @@ import { useStore } from '../src/state/store'
 import { frameExtent, STANDARD_VIEWS, viewAcross, viewHalfHeight } from '../src/viewer/orthoViewport'
 import { refused, resetStores, run, startHeadless, undoLabels, type Headless } from './commandKit'
 // After the kit, which loads the commands in the order the app does.
-import { describeMapPainted, frameKeeper, type MapPainted } from '../src/commands/core/view'
+import { baseToggles, describeMapPainted, frameKeeper, type MapPainted } from '../src/commands/core/view'
 import { registerMapReport, type MapReport } from '../src/commands/mapReports'
 
 let headless: Headless
@@ -71,6 +71,23 @@ describe('the view', () => {
     }
     expect(viewToggles(base).has('bodies')).toBe(false)
     expect(pluginToggleKeys()).toEqual([])
+  })
+
+  it('has a map key in the Deviation workspace, its Map switch, as Reverse engineer has one (issue 42)', () => {
+    const scene = {} as Parameters<typeof baseToggles>[0]
+    useShell.getState().setWorkspace('deviation')
+    try {
+      const map = viewToggles(baseToggles(scene)).get('map')
+      expect(map?.description).toMatch(/deviation map/)
+      useDeviation.getState().setShowMap(true)
+      const applied = applyShow(viewToggles(baseToggles(scene)), { map: false }, (m) => new Error(m))
+      expect(useDeviation.getState().showMap).toBe(false)
+      applied.putBack()
+      expect(useDeviation.getState().showMap).toBe(true)
+    } finally {
+      useShell.getState().setWorkspace('measure')
+    }
+    expect(viewToggles(baseToggles(scene)).has('map')).toBe(false)
   })
 
   it('lists view.render, flat.render, section.render and scan.heightmap as the commands that answer with a picture', () => {

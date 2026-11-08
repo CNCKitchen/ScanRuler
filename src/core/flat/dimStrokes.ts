@@ -16,8 +16,12 @@ import { add2, dot2, len2, normalize2, scale2, sub2 } from './vec2'
 
 export type DimShape =
   /** A length or a distance: measured from `p` to `q`, the dimension line
-   *  `off` along `n` from them, the number `along` `d` from its middle. */
-  | { kind: 'linear'; p: Vec2; q: Vec2; d: Vec2; n: Vec2; off: number; along: number }
+   *  `off` along `n` from them, the number `along` `d` from its middle.
+   *  `lift`, where the points measured stand off the line through `p` and
+   *  `q` — a horizontal distance between two points not level, measured
+   *  along d from where each projects onto it — is how far along `n` each
+   *  stands, its extension line starting there. */
+  | { kind: 'linear'; p: Vec2; q: Vec2; d: Vec2; n: Vec2; off: number; along: number; lift?: [number, number] }
   /** A radius: the leader at `angle` about `c`, the number `reach` from the
    *  centre. `span` is the arc's own, for a leader that lands beside it. */
   | { kind: 'radius'; c: Vec2; r: number; angle: number; reach: number; span: { start: number; sweep: number } | null }
@@ -96,10 +100,13 @@ export function dimStrokes(shape: DimShape, px: number, textPx: number): DimStro
     const L = len2(sub2(q, p))
     const p1 = add2(p, scale2(n, off))
     const mid = add2(scale2(add2(p, q), 0.5), scale2(n, off))
-    if (Math.abs(off) > (EXT_GAP_PX + 1) * px) {
-      const s = Math.sign(off)
-      for (const from of [p, q]) lines.push([add2(from, scale2(n, s * EXT_GAP_PX * px)), add2(from, scale2(n, off + s * EXT_OVER_PX * px))])
-    }
+    const lift = shape.lift ?? [0, 0]
+    ;[p, q].forEach((from, i) => {
+      const reach = off - lift[i]
+      if (Math.abs(reach) <= (EXT_GAP_PX + 1) * px) return
+      const s = Math.sign(reach)
+      lines.push([add2(from, scale2(n, lift[i] + s * EXT_GAP_PX * px)), add2(from, scale2(n, off + s * EXT_OVER_PX * px))])
+    })
     // The arrows stand inside the stretch while they and the number fit
     // there; on a short one they point in at it from outside.
     const textInside = Math.abs(along) < L / 2

@@ -44,7 +44,7 @@ describe('a dimension to a coordinate plane', () => {
     const sketch = emptySketch()
     const line = addEntity(sketch, { kind: 'line', a: [0, 0], b: [10, 0] })
     // On the line: the piece. Off it, on u = −30: the plane.
-    expect(dimPickAt(sketch, [5, 0.1], 0.5, traces)).toEqual({ kind: 'piece', id: line })
+    expect(dimPickAt(sketch, [3, 0.1], 0.5, traces)).toEqual({ kind: 'piece', id: line })
     expect(dimPickAt(sketch, [-30.2, 9], 0.5, traces)).toEqual({ kind: 'datum', plane: 'yz' })
     expect(dimPickAt(sketch, [-25, 9], 0.5, traces)).toBeNull()
     const dim = dimensionFor(sketch, { kind: 'point', anchor: { entity: line, at: 'b' } }, { kind: 'datum', plane: 'yz' }, traces)

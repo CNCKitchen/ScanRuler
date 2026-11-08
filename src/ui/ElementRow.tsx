@@ -25,6 +25,7 @@ export function ElementRow({
   onToggleVisible,
   onDelete,
   eyeKey,
+  onHover,
 }: {
   name: string
   color: string
@@ -60,6 +61,9 @@ export function ElementRow({
   onDelete: () => void
   /** A key of the caller's own in the eye's place — see RowTools. */
   eyeKey?: ReactNode
+  /** The pointer onto the row (true) and off it (false) — the list's
+   *  hover, lit in the viewport. */
+  onHover?: (on: boolean) => void
 }) {
   // A double click on the row opens it too, as a feature row in a CAD
   // tree does — with the same standing down as the ✎ key.
@@ -71,6 +75,8 @@ export function ElementRow({
       data-rolled={muted ? 'true' : undefined}
       title={title}
       onDoubleClick={canEdit ? onEdit : undefined}
+      onPointerEnter={onHover ? () => onHover(true) : undefined}
+      onPointerLeave={onHover ? () => onHover(false) : undefined}
     >
       {icon || picture ? (
         <span className="kind" style={{ color }}>

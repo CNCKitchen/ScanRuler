@@ -301,6 +301,13 @@ export function useSceneSync({
   const alignDraft = useStore((s) => s.alignDraft)
   const scaleDraft = useStore((s) => s.scaleDraft)
   const sectionDraft = useStore((s) => s.sectionDraft)
+  // The row the pointer is over in the list: its element or section drawn
+  // and lit while it is, hidden or not (issue 75).
+  const peek = useStore((s) => s.peek)
+  // Only one hidden needs drawing anew; one shown is lit, no more.
+  const peekElement = peek?.kind === 'element' && elements.some((e) => e.id === peek.id && !e.visible) ? peek.id : null
+  const peekSection = peek?.kind === 'section' && sections.some((sec) => sec.id === peek.id && !sec.visible) ? peek.id : null
+  const shown = (e: { id: number; visible: boolean }) => e.visible || e.id === peekElement
   // Elements referenced by the dimension, construction, alignment or section
   // being built read as selected in the viewport, however they were chosen.
   const highlightIds = [
@@ -309,6 +316,7 @@ export function useSceneSync({
     ...(alignDraft ? [alignDraft.primary, alignDraft.secondary, alignDraft.origin] : []),
     sectionDraft?.ref ?? null,
   ].filter((r): r is number => typeof r === 'number')
+  if (peek?.kind === 'element') highlightIds.push(peek.id)
   const highlightKey = highlightIds.join(',')
   // What is open in an editor is drawn as the pending preview instead of as
   // itself, so the old geometry does not sit inside the new one.
@@ -320,7 +328,7 @@ export function useSceneSync({
     const items: OverlayElement[] = elements
       .filter((e) =>
         showElements
-          ? e.fit && e.visible && e.id !== editingElementId
+          ? e.fit && shown(e) && e.id !== editingElementId
           : // Only the kinds a deviation can be measured against: a point or a
             // line is not on offer here, so drawing it would invite a click
             // that cannot be answered.
@@ -416,7 +424,7 @@ export function useSceneSync({
     // surfaces they were fitted to.
     sceneRef.current?.setHiddenRegions(
       (elementsWorkspace && !elementsKeyHides
-        ? elements.filter((e) => !e.visible || e.id === editingElementId)
+        ? elements.filter((e) => !shown(e) || e.id === editingElementId)
         : elements
       ).map((e) => e.id),
     )
@@ -437,6 +445,7 @@ export function useSceneSync({
     editingElementId,
     editingDimensionId,
     units,
+    peekElement,
   ])
 
   useEffect(() => {
@@ -459,7 +468,7 @@ export function useSceneSync({
     const flat = { subject: flatSubject, elements: flatElements, sheets: flatSheets }
     sceneRef.current?.setSections(
       sections
-        .filter((sec) => sec.visible && sec.cut && sec.id !== editingSectionId)
+        .filter((sec) => (sec.visible || sec.id === peekSection) && sec.cut && sec.id !== editingSectionId)
         .map((sec) => ({
           id: sec.id,
           name: sec.name,
@@ -473,7 +482,7 @@ export function useSceneSync({
         })),
       showElements && !elementsKeyHides,
     )
-  }, [sections, editingSectionId, showElements, elementsKeyHides, flatSubject, flatElements, flatSheets])
+  }, [sections, editingSectionId, showElements, elementsKeyHides, flatSubject, flatElements, flatSheets, peekSection])
 
   // The name tags and readouts, the measure workspace's own switch: off, the
   // bodies, the cuts and the callout lines stay and only the text goes.

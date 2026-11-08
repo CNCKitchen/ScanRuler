@@ -52,7 +52,7 @@ const fitSchema = bool('Fit everything shown into the frame, keeping the directi
 /** The app's own toggles: what the scene draws of the session. The scan
  *  and the reference go through the Deviation workspace's own switches
  *  while it is on screen, so its effects do not put them straight back. */
-function baseToggles(scene: SceneManager): ViewToggle[] {
+export function baseToggles(scene: SceneManager): ViewToggle[] {
   const onDeviation = () => useShell.getState().workspace === 'deviation'
   return [
     {
@@ -70,15 +70,19 @@ function baseToggles(scene: SceneManager): ViewToggle[] {
     { key: 'sections', description: 'the sections cut through the scan', shown: () => scene.sectionsShown(), show: (on) => scene.setSectionsShown(on) },
     { key: 'elements', description: 'the measured elements and dimensions drawn on the part', shown: () => scene.elementsShown(), show: (on) => scene.setElementsShown(on) },
     { key: 'labels', description: 'the name tags and readouts over the part', shown: () => scene.labelsShown(), show: (on) => scene.setLabelsVisible(on) },
+    // The Deviation workspace's map, under the key Reverse engineer's map
+    // has, so the one call reads in both (issue 42): its Map switch — off,
+    // the bare surface, the map still measured.
+    { key: 'map', description: 'the deviation map painted on the part (the Deviation workspace’s Map switch)', applies: onDeviation, shown: () => useDeviation.getState().showMap, show: (on) => useDeviation.getState().setShowMap(on) },
   ]
 }
 
-const BASE_KEYS = ['scan', 'reference', 'sections', 'elements', 'labels']
+const BASE_KEYS = ['scan', 'reference', 'sections', 'elements', 'labels', 'map']
 
 const showSchema = (): JsonSchema => ({
   type: 'object',
   description:
-    'Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, and a workspace’s own (view.set lists every key standing now).',
+    'Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).',
   properties: Object.fromEntries(BASE_KEYS.map((k) => [k, bool()])),
 })
 

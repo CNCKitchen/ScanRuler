@@ -58,6 +58,7 @@ describe('the Mesh Tools part of a project', () => {
       mirror: { ref: 'x', offset: 0, offsetAuto: true, keep: 'plus', mode: 'whole' },
       fill: { size: 5, sizeAuto: true, mode: 'curved' },
       smooth: { size: 1, sizeAuto: true, limit: 0.2, limitAuto: true, keepEdges: true, scope: 'all' },
+      densify: { edge: 1, edgeAuto: true },
       boolean: { op: 'subtract' },
       offset: { distance: 0.1, direction: 'expand', scope: 'all' },
       shell: { thickness: 2, thicknessAuto: true, side: 'in' },
@@ -177,6 +178,7 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, scope: 'some' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'cut', plane: 3, removed: 1, capped: 0, open: 0 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, boolean: { op: 'xor' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, densify: { edge: 0, edgeAuto: false } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'boolean', op: 'subtract', solid: 2, removed: 1, added: 1, volume: 0 }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, offset: { ...json.mesh.offset, direction: 'up' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, offset: { ...json.mesh.offset, distance: -1 } } }))).toThrow(/Malformed/)

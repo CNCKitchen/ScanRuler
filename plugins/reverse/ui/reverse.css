@@ -679,11 +679,21 @@
    given, the full width; a refused edit says why on a line under that. */
 .kv.parameter {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: 3px 6px;
   padding: 4px 1px;
   border-bottom: 1px solid var(--line);
+}
+
+/* The star before the name: a parameter marked important, listed first. */
+.kv.parameter .star {
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.kv.parameter.pinned .star {
+  color: var(--amber);
 }
 
 .kv.parameter input[data-test='parameter-expression'],

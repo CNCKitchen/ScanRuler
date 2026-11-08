@@ -176,7 +176,7 @@ Example: `{ after: "Extrude 2" }`
 **`reverse_feature_clear`** `{ wait? }` — every feature out, one undo step; the parameters stay.
 Example: `{}`
 
-**`reverse_sketch_edit`** `{ sketch, add?: { fit?, project?, entities?, shapes?, constraints?, patterns?, infer?, rounds? }, remove?: { pieces?, constraints? }, set?: { <piece id>: fields }, name?, detail?, wait? }` — `set` moves pieces, ids and relations kept. Removals first, then a fit, then the rest, then `rounds: [{ a, b, radius? }]` (an arc tangent to a and b, the scan's radius unless given); answers `solve`, `moved` (`radii`: radii changed, `was`, `now`), `ids` (of pieces given no `id`), `offPiece` (ends slid past the piece they are held on), `warnings` (a picked region grew or took in another), `nearSketches` (pieces under 0.3 mm off another sketch's), `rounds: [{ arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held: "given" | "points" | "dimension", warning? }]` (`warning`: radius not read — under three points, or at the search's limit), the regions and the bodies changed — `detail: "none"` keeps `rounds`, `accept` and `moved`.
+**`reverse_sketch_edit`** `{ sketch, add?: { fit?, project?, entities?, shapes?, constraints?, patterns?, infer?, rounds? }, remove?: { pieces?, constraints? }, trim?: [{ piece, at: [u, v] }], set?: { <piece id>: fields }, name?, detail?, wait? }` — `set` moves pieces, ids and relations kept; `trim` takes away the stretch of a line, arc or circle around `at` up to the nearest pieces crossing it, as the panel's Trim (a middle stretch leaves two pieces held collinear; `trimmed` says what each did). Removals first, then trims, then a fit, then the rest, then `rounds: [{ a, b, radius? }]` (an arc tangent to a and b, the scan's radius unless given); answers `solve`, `moved` (`radii`: radii changed, `was`, `now`), `ids` (of pieces given no `id`), `offPiece` (ends slid past the piece they are held on), `warnings` (a picked region grew or took in another), `nearSketches` (pieces under 0.3 mm off another sketch's), `rounds: [{ arc, a, b, radius, sigma, nominal, off, sigmas, residual, points, held: "given" | "points" | "dimension", warning? }]` (`warning`: radius not read — under three points, or at the search's limit), the regions and the bodies changed — `detail: "none"` keeps `rounds`, `accept` and `moved`.
 Example: `{ sketch: "Plate outline", add: { constraints: [{ kind: "tangent", a: 3, b: 4 }] } }`
 
 Also: a round at the scan’s radius moves the slice points about the corner that a and b carried onto the arc and the solve fits it, tangencies held — a round a fit merged into its neighbours, put back in one call; `held: "dimension"`: too few points, held at the radius the search came to; `sigma` (mm) how well the points pin it. `remove.constraints` takes relations and dimensions by id. In `add` a pattern may repeat the sketch’s pieces; a piece without an `id`, a shape and a copy take free ones; an id a relation or dimension has is given a free one (`renumbered: { "70": 161 }`). A new end within 0.05 mm of one place other ends lie — and of no other — is moved onto it (`snapped: [{ piece, at, to, by, fixed? }]`), a `fixed` piece’s too: a gap that small is never meant.
@@ -260,7 +260,7 @@ Example: `{ path: "C:/parts/bracket_CAD.step" }`
 
 Also: `mended` names each part with `at`, `moved` (curve ends), `offMax` (mm), `gap`. `shells` counts each solid’s (a void is a shell of its own); `gap` is the largest and RMS distance between the body and its part read back; `freeEdges` give kind (free, nonManifold, inside), `meet` (faces meeting there), `in` (file or body), the body’s faces at its nearest edge, the first 12; `strayShells` each extra shell’s middle, face count, nearest face; a problem line names the first place and its makers. Loops are read on planes, cylinders, cones and tori only; OCCT’s own reader mends a `wrong` loop without a word.
 
-**`reverse_export_stl`** `{ bodies?, chord?, format?: "stl" | "3mf", path? }` — solids as one binary STL, 0.02 mm chord by default; a 3MF keeps each body an object of its own.
+**`reverse_export_stl`** `{ bodies?, resolution?: "draft" | "normal" | "fine" | "finest", chord?, angleDeg?, format?: "stl" | "3mf", path? }` — solids as one binary STL, as the panel's Export mesh (normal: 0.02 mm chord, 5.7°; fine for a print of curved faces); a 3MF keeps each body an object of its own. `note`: the part is under 2 mm across — its scan was in metres.
 Example: `{ chord: 0.01, path: "C:/parts/_scratch/model.stl" }`
 
 ### Reverse engineer: sections, planes, threads
@@ -292,13 +292,13 @@ Also: `minor` and `major` are the 5th and 95th percentile of the radius, each se
 
 ### Reverse engineer: parameters and notes
 
-**`reverse_parameter_add`** `{ name, expression, kind?: "length" | "angle" | "integer" | "number", comment? }` or `{ parameters: [{ name, expression, kind?, comment? }, …] }` — several in one step, in order; one refused adds none.
+**`reverse_parameter_add`** `{ name, expression, kind?: "length" | "angle" | "integer" | "number", comment?, pinned? }` or `{ parameters: [{ name, expression, kind?, comment?, pinned? }, …] }` — several in one step, in order; one refused adds none. `pinned`: marked important, listed first in the panel.
 Example: `{ parameters: [{ name: "t", expression: "6", comment: "measured 5.97–6.04" }, { name: "d_hole", expression: "6.6", comment: "M6 clearance; measured 6.58" }] }`
 
-**`reverse_parameter_set`** `{ parameter, expression?, kind?, comment?, wait? }` — every reader follows and the part rebuilds. Setting back a value built before replays nothing.
+**`reverse_parameter_set`** `{ parameter, expression?, kind?, comment?, pinned?, wait? }` — every reader follows and the part rebuilds. Setting back a value built before replays nothing.
 Example: `{ parameter: "t", expression: "6.2" }`
 
-**`reverse_parameter_list`** `{}` — the table with values and who reads each.
+**`reverse_parameter_list`** `{}` — the table with values and who reads each; `pinned` the ones the person marked important — ask before changing those.
 Example: `{}`
 
 **`reverse_note_list`** `{ note?, all? }` — open notes (or all, or one) with what each is on: a face or edge by index with `madeBy`, a corner, or the scan with `nearest`.
@@ -348,7 +348,7 @@ Example: `{ note: 4, reply: "Opened the slot to 8 mm as asked." }`
 | trim | `tools: [{ kind: "body", id: bodyRef } \| { kind: "element", id: n }]` | `tolerance`, `overlap` |
 | extract | `element` or `section` | `thickness` (a plane's slab), `op`. `section`: a shadow section (`section_cut { kind: "shadow" }`) stood up as its block — the outline's lines, arcs and holes through the part's thickness along the normal; it follows the shadow when that is taken again; a cut section is refused |
 
-**Constraints** (`constraints` in a sketch, `add.constraints` in `reverse_sketch_edit`) — a point is `{ entity, at }`, `at` one of `"a"`/`"b"` (a line's, arc's or open spline's start and end), `"center"`, `"p1"`… (a spline's fit points); a datum is `{ datum: "xy" | "yz" | "zx" }`, the line that coordinate plane cuts the sketch in; a dimension takes `value` or `expr` (a parameter's name):
+**Constraints** (`constraints` in a sketch, `add.constraints` in `reverse_sketch_edit`) — a point is `{ entity, at }`, `at` one of `"a"`/`"b"` (a line's, arc's or open spline's start and end), `"center"` (a line's middle; an arc's, circle's or point's centre), `"q0"`…`"q3"` (an arc's or circle's rim at 0°/90°/180°/270° from +u), `"p1"`… (a spline's fit points); a datum is `{ datum: "xy" | "yz" | "zx" }`, the line that coordinate plane cuts the sketch in; a dimension takes `value` or `expr` (a parameter's name):
 
 | kind | fields |
 |---|---|
@@ -359,7 +359,7 @@ Example: `{ note: 4, reply: "Opened the slot to 8 mm as asked." }`
 | collinear | `line`, `on: { line } \| { datum }` |
 | symmetric | `p`, `q`, `about: "x" \| "y" \| { line } \| { datum }` |
 | length, radius, diameter | `entity`, `value` \| `expr` |
-| distance | `p`, `q: point \| { line } \| { datum }`, `value` \| `expr` |
+| distance | `p`, `q: point \| { line } \| { datum }`, `value` \| `expr`; between two points `axis: "x" \| "y"` measures only ΔX or ΔY (a hole pitch) |
 | angle | `a`, `b` (lines), `value` \| `expr` (degrees) |
 
 Example: `[{ kind: "tangent", a: 3, b: 4 }, { kind: "pointOn", p: { entity: 2, at: "center" }, on: { datum: "zx" } }, { kind: "symmetric", p: { entity: 1, at: "a" }, q: { entity: 5, at: "b" }, about: { datum: "yz" } }, { kind: "radius", entity: 4, expr: "r_root" }]`
@@ -381,8 +381,12 @@ A sketch's pieces are [u, v] mm on its plane; world = origin + u·basisU + v·ba
 | Measured plane | `{ kind: "plane", id \| name, offset? }` | the sketch frame: zero at the world origin's foot, not the element's centre | read it | the element's normal | mm along it |
 | Through an axis | `{ kind: "radial", axis: { kind: "element", id \| name } \| { kind: "world", axis }, angleDeg, offset? }` | out along the radius | up the axis (toward the + end of the nearest coordinate axis) | u × v | mm along it |
 | Body face | `{ kind: "bodyFace", body, face, offset? }` | the coordinate axes flattened onto the face, as on the coordinate plane it is nearest to | | outward | mm out of the face |
+| Three points | `{ kind: "points", points: [p1, p2, p3], flip?, offset? }` (world [x, y, z]) | as on the coordinate plane it is nearest to | | (p2 − p1) × (p3 − p1), right hand; `flip` reverses | mm along it |
+| Point + normal | `{ kind: "oriented", point, normal, offset? }` | as above | | `normal` | mm along it |
+| Round face's axis | `{ kind: "faceAxis", body, face, through }` (a cylinder or cone; `through` a point off the axis) | out along the radius, towards `through` | up the axis | u × v | mm along it |
 
 - On a coordinate plane — and in a sketch on a section, or in `section_render { plane }` — the sheet's zero is the part's origin projected onto it.
+- **`points`, `oriented` and `faceAxis` work wherever a plane does** (a sketch's `plane`, `cutPlane`, `mirror`, `reverse_body_section`) — a compound chamfer is one `cutPlane` through three points, not a ruled loft. They are fixed where given (stored as `kind: "fitted"`) and follow no later edit; points in a line are refused.
 - **`up: "x" | "y" | "z"`** on a world, section, plane or body-face ref sets u = up × normal, so v runs up that axis on any standing plane, whichever way its normal points. A radial plane's angle: 0° is the next coordinate axis round (X about Z, Y about X, Z about Y), right-handed; 52° and 232° both have v up and u out. A sketch on a section cut `{ axis, angleDeg }` takes the old section rule: use `{ kind: "radial" }` or `up` for that frame.
 - **A section's own sheet counts from the part's centre**, not the origin: what `section_get`, `reverse_section_fit` and `section_render { section }` give in [u, v] is off a sketch's [u, v] by the centre. `reverse_section_fit` answers `sketch.add` — sketch [u, v] = sheet [u, v] + add — and every piece's `world` values; take those, never a sheet number typed into a sketch. A sketch with `fit` converts by itself.
 - **A sketch on a measured plane counts from the world origin's foot**, not the element's centre (75 mm away on the last mirror holder). Its answers, `reverse_plane_describe` and `reverse_section_outline` give `element: { centre: [u, v], box }`: draw about it; `farFromElement` means the pieces are misplaced. `scan_heightmap`/`scan_outline` on an element share the sketch's [u, v] (`flipped: true`: seen from behind).

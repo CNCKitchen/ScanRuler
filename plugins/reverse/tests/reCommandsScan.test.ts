@@ -281,6 +281,32 @@ describe('bodies looked over, exported and described', () => {
     expect((await refused('reverse.export.stl', { bodies: ['Nobody'] })).code).toBe('not_found')
   })
 
+  it('reverse.export.stl meshes as finely as the resolution says, the angle holding a small part, and says when a part is too small to be in millimetres (issue 89)', async () => {
+    type Stl = { triangles: number; chord: number; angleDeg: number; note?: string }
+    // A cylinder Ø20 × 10: its curve is what the resolution shows on.
+    await run('reverse.feature.add', { feature: { kind: 'sketch', name: 'Round', plane: 'XY', sketch: { entities: [{ kind: 'circle', c: [0, 0], r: 10 }] } } })
+    await run('reverse.feature.add', { feature: { kind: 'extrude', sketchId: 'Round', regions: 'all', extent: { kind: 'distance', from: 0, to: 10 }, op: 'new' } })
+    const counts: number[] = []
+    for (const resolution of ['draft', 'normal', 'fine', 'finest']) counts.push((await run<Stl>('reverse.export.stl', { resolution })).triangles)
+    for (let i = 1; i < counts.length; i++) expect(counts[i], String(counts)).toBeGreaterThan(counts[i - 1])
+    const normal = await run<Stl>('reverse.export.stl')
+    expect(normal).toMatchObject({ chord: 0.02, triangles: counts[1] })
+    expect(normal.angleDeg).toBeCloseTo(5.73, 2)
+    expect(normal.note).toBeUndefined()
+  })
+
+  it('reverse.export.stl says when a part is too small to be in millimetres, its facets set by the angle (issue 89)', async () => {
+    type Stl = { triangles: number; note?: string }
+    // Ø1 × 0.5, 1.5 mm across — a 1.5 m part scanned in metres and read as
+    // millimetres: a chord is coarse against it, the angle sets its facets,
+    // and it says so.
+    await run('reverse.feature.add', { feature: { kind: 'sketch', name: 'Speck', plane: 'XY', sketch: { entities: [{ kind: 'circle', c: [0, 0], r: 0.5 }] } } })
+    await run('reverse.feature.add', { feature: { kind: 'extrude', sketchId: 'Speck', regions: 'all', extent: { kind: 'distance', from: 0, to: 0.5 }, op: 'new' } })
+    const tiny = await run<Stl>('reverse.export.stl', { resolution: 'fine' })
+    expect(tiny.triangles).toBeGreaterThan((await run<Stl>('reverse.export.stl', { resolution: 'draft' })).triangles)
+    expect(tiny.note).toMatch(/most likely in metres/)
+  })
+
   it('reverse.body.describe finds edges and faces by a query, and lists them short', async () => {
     const body = await boxBody(20, 0)
     const all = await describeBody({ body: body.id })

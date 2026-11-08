@@ -165,6 +165,10 @@ interface AppState {
   /** The name tags and readouts on the part in 3D Measure — in the menu of
    *  the view bar's Elements key. */
   showLabels: boolean
+  /** The element or section whose row in the list the pointer is over: it
+   *  is drawn, lit, while it is — hidden or not — to find it on the part
+   *  (issue 75). Changes nothing else: not saved, no step of the history. */
+  peek: { kind: 'element' | 'section'; id: number } | null
   /** The scan put away — the view bar's Scan key, where no workspace holds
    *  the key itself. Not saved, and a new scan comes in shown. */
   scanHidden: boolean
@@ -407,6 +411,8 @@ interface AppState {
   setDraftKnownDiameter: (mm: number | undefined) => void
   setSelectMode: (mode: SelectMode) => void
   setShowLabels: (v: boolean) => void
+  /** The pointer over a row of the list, or off it (null). */
+  setPeek: (peek: { kind: 'element' | 'section'; id: number } | null) => void
   setScanHidden: (v: boolean) => void
   setElementsHidden: (v: boolean) => void
   setShowBackfaces: (v: boolean) => void
@@ -597,6 +603,7 @@ export const useStore = create<AppState>()((set, get) => ({
   settings: { method: 'gaussian', sigma: 3 },
   selectMode: 'auto',
   showLabels: true,
+  peek: null,
   showBackfaces: true,
   translucent: false,
   wireframe: false,
@@ -1811,6 +1818,7 @@ export const useStore = create<AppState>()((set, get) => ({
     }),
   setSelectMode: (selectMode) => set({ selectMode }),
   setShowLabels: (showLabels) => set({ showLabels }),
+  setPeek: (peek) => set((s) => (s.peek?.kind === peek?.kind && s.peek?.id === peek?.id ? {} : { peek })),
   setScanHidden: (scanHidden) => set({ scanHidden }),
   setElementsHidden: (elementsHidden) => set({ elementsHidden }),
   setShowBackfaces: (showBackfaces) => set({ showBackfaces }),

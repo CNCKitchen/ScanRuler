@@ -54,6 +54,9 @@ import type { SketchOverlayItem } from '../viewer/sketchOverlay'
 import type { VaryingEdgeEnds } from '../viewer/varyingEnds'
 import { sketchPalette } from '../viewer/sketchPalette'
 import { saveFile } from '../../../src/app/exports'
+import type { MeshFormat } from '../../../src/core/exportMesh'
+import { meshResolution, tinyPartNote } from '../core/meshResolution'
+import { drivenBy } from '../core/parameters'
 import { onScan } from '../../../src/app/scanEvents'
 import { createReverseSession, installReverseSession, meshDiagonal, stepFilesFor } from './reSession'
 import { offerSolids } from '../../../src/app/solids'
@@ -330,6 +333,7 @@ export function useReverseWorkspace({
   const draftPickKey = draftPick ? `${draftPick.mode}:${draftPick.bodies?.join(',') ?? '*'}` : null
   const toFaceExtent = useReverse((s) => (s.extrudeDraft?.extent.kind === 'toFace' ? s.extrudeDraft.extent : null))
   const pulledFace = useReverse((s) => s.extrudeDraft?.face ?? null)
+  const parameterLit = useReverse((s) => s.parameterLit)
   const toFaceOpen = toFaceExtent !== null
   // An extrude by numbers takes a click on the part for one of them: the
   // end in play is put through the point clicked (reStore.extrudeToPoint).
@@ -749,9 +753,18 @@ export function useReverseWorkspace({
         }
       }
     }
+    // The faces the parameter pointed at in the list shapes (issue 21): those
+    // the features it drives made — while no box is open, whose picks are
+    // lit the same way.
+    if (onReverse && !editorOpen && parameterLit !== null) {
+      const r = useReverse.getState()
+      const name = r.parameters.find((x) => x.id === parameterLit)?.name
+      const made = new Set(name ? drivenBy(name, r.parameters, r.features) : [])
+      for (const [bodyId, topology] of topologies) for (const f of topology.faces) if (made.has(f.fingerprint.origin)) faces.push({ bodyId, hash: f.hash })
+    }
     reSceneOf(scene).setBodyPicks(faces, edges, chain, corners)
     reSceneOf(scene).setVaryingEnds(varying, unitsShown)
-  }, [onReverse, editorOpen, selection, featureDraft, toFaceExtent, pulledFace, bodiesVersion, sceneRef, unitsShown])
+  }, [onReverse, editorOpen, selection, featureDraft, toFaceExtent, pulledFace, bodiesVersion, sceneRef, unitsShown, parameterLit])
 
   /** The feature the open editor would make, as a feature, or null while
    *  it is not complete enough to build — nothing picked, no axis yet. A
@@ -1377,6 +1390,44 @@ export function useReverseWorkspace({
     }
   }
 
+  /** The visible solid bodies as an STL or a 3MF, meshed as the panel's
+   *  resolution says (core/meshResolution) — for a printer, which meshes a
+   *  STEP to its own tolerance (issue 89). */
+  const exportMesh = async (format: MeshFormat) => {
+    const re = useReverse.getState()
+    const picked = re.bodies.filter((b) => b.visible && !b.surface)
+    if (picked.length === 0 || !session.client()) {
+      useStore.getState().setError('No visible solid body to export — build one first.')
+      return
+    }
+    const res = meshResolution(useRePrefs.getState().meshResolution)
+    const units = usePrefs.getState().units
+    try {
+      useStore.getState().setStatus(`Meshing the bodies, ${res.label.toLowerCase()} — ${fmtLen(res.chord, units)} and ${Math.round(res.angleDeg * 10) / 10}° at most…`)
+      const f = await session.meshFile(picked, res.chord, format, res.angleDeg)
+      if (!f) {
+        useStore.getState().setError('The bodies meshed to no triangle.')
+        return
+      }
+      saveFile(f.name, new Blob([f.bytes as BlobPart], { type: f.mimeType }))
+      const lo = [Infinity, Infinity, Infinity]
+      const hi = [-Infinity, -Infinity, -Infinity]
+      for (const b of picked) {
+        if (!b.box) continue
+        for (let k = 0; k < 3; k++) {
+          lo[k] = Math.min(lo[k], b.box.min[k])
+          hi[k] = Math.max(hi[k], b.box.max[k])
+        }
+      }
+      const tiny = tinyPartNote(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), (mm) => fmtLen(mm, units, 4))
+      const said = `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} exported to ${f.name}, ${f.triangles.toLocaleString('en-US')} triangles (${res.label}).`
+      if (tiny) useStore.getState().setError(`${said} ${tiny}`)
+      else useStore.getState().setStatus(said)
+    } catch (e) {
+      useStore.getState().setError(`Mesh export failed: ${message(e)}`)
+    }
+  }
+
   /** The visible solid bodies as a reference part for the Deviation
    *  workspace — or the bodies named, a sheet among them meshed too (it is
    *  read on its front under the map's facing limit) — see core/re/compare. Null, with the reason on the status
@@ -1502,6 +1553,7 @@ export function useReverseWorkspace({
     projectablesOf,
     regionPainted,
     exportStep,
+    exportMesh,
     compareReference,
   }
 }

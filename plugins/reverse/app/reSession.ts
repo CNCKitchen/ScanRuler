@@ -753,11 +753,12 @@ export function createReverseSession({
     return c.compare(bodyIds, range, spots, patches, within, far, side)
   }
 
-  /** The given solid bodies meshed to the chord — what a printer takes —
-   *  as one binary STL, or a 3MF with each body an object of its own under
-   *  its name, and how many triangles it holds. */
-  const meshFile = async (bodies: { id: number; name: string }[], chord: number, format: MeshFormat): Promise<(MeshFile & { name: string }) | null> => {
-    const meshes = await requireClient().referenceMeshes(bodies.map((b) => b.id), chord)
+  /** The given solid bodies meshed to the chord and the angle (degrees;
+   *  see core/meshResolution) — what a printer takes — as one binary STL,
+   *  or a 3MF with each body an object of its own under its name, and how
+   *  many triangles it holds. */
+  const meshFile = async (bodies: { id: number; name: string }[], chord: number, format: MeshFormat, angleDeg?: number): Promise<(MeshFile & { name: string }) | null> => {
+    const meshes = await requireClient().referenceMeshes(bodies.map((b) => b.id), chord, false, angleDeg !== undefined ? (angleDeg * Math.PI) / 180 : undefined, true)
     const parts = meshes.map((m, i) => ({ name: meshes.length === bodies.length ? bodies[i].name : `Body ${i + 1}`, positions: m.positions, indices: m.indices }))
     const file = buildMeshFile(format, parts, null, 'ScanRuler - bodies from Reverse engineer')
     return file && { ...file, name: `${exportStem('model')}-body.${file.extension}` }

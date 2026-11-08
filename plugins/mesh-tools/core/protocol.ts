@@ -16,6 +16,7 @@ import type { OffsetReport, OffsetSettings, ThickenReport, ThickenSide } from '.
 import type { PieceSurvey } from './pieces'
 import type { ReduceReport, ReduceSettings } from './reduce'
 import type { SmoothReport, SmoothSettings } from './smooth'
+import type { DensifyReport } from './densify'
 import type { TrimReport, TrimSettings } from './trimToScan'
 
 /** The plugin's id, which its worker part answers to. */
@@ -32,7 +33,8 @@ export type PieceCount = Omit<PieceSurvey, 'islandMask' | 'islandCentres'>
  *  the mesh across the plane, or with `symmetric` the side `normal` points
  *  away from onto the side it points to (core/mirror); Fill holes closes
  *  every hole smaller across than `maxSize`, or with `at` only the one
- *  ringed there (core/fillHoles); Smooth, core/smooth; Boolean makes the
+ *  ringed there (core/fillHoles); Smooth, core/smooth; Densify cuts the triangles
+ *  down to an edge length, the surface unchanged (core/densify); Boolean makes the
  *  mesh and the union of the solids — their triangles, in the scan's frame,
  *  and their names — one by `op` (core/boolean); Shrink / expand moves the
  *  surface along its normal (core/offset); Shell hollows a closed mesh
@@ -44,6 +46,7 @@ export type ScanEditRequest =
   | { type: 'mirror'; origin: Vec3; normal: Vec3; mode: MirrorMode }
   | { type: 'fill-holes'; maxSize: number; mode: FillMode; at?: Vec3 }
   | { type: 'smooth'; settings: SmoothSettings }
+  | { type: 'densify'; maxEdge: number }
   | { type: 'boolean'; op: BooleanOp; tools: BooleanTool[] }
   | { type: 'offset'; settings: OffsetSettings }
   | { type: 'hollow'; thickness: number }
@@ -57,6 +60,7 @@ export type MeshEditReport =
   | { kind: 'mirror'; report: MirrorReport }
   | { kind: 'fill'; report: FillReport }
   | { kind: 'smooth'; report: SmoothReport }
+  | { kind: 'densify'; report: DensifyReport }
   | { kind: 'boolean'; report: BooleanReport }
   | { kind: 'offset'; report: OffsetReport }
   | { kind: 'hollow'; report: HollowReport }

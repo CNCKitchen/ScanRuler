@@ -27,6 +27,23 @@ const RE_ICONS = {
       <circle className="i-adt" cx="19.5" cy="12" r="1.8" />
     </>
   ),
+  // A point of the sketch where two construction lines cross.
+  sketchPoint: (
+    <>
+      <path className="i-th i-ds" d="M4 12h16M12 4v16" />
+      <circle className="i-adt" cx="12" cy="12" r="2.6" />
+    </>
+  ),
+  // Trim: two lines crossing, the stretch beyond the crossing dashed away
+  // and the cutter's blue stroke where it is cut.
+  trim: (
+    <>
+      <path d="M3 15h7.5" />
+      <path className="i-th i-ds" d="M10.5 15H21" />
+      <path className="i-a" d="M10.5 4v16" />
+      <path className="i-a" d="M14.5 10.5l5 5M19.5 10.5l-5 5" />
+    </>
+  ),
   // Two lines of one length.
   equal: (
     <>

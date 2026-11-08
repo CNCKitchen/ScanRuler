@@ -36,7 +36,7 @@ import { arcsOfChain, chainsOfEdges, segmentChain } from '../core/segment'
 import { splineCurve, splineSamples } from '../core/sketchSpline'
 import { type BoxSide, deviationsAt, type HeldAlong, overshootOf } from '../core/pointsFit'
 import { fitPointsChain } from '../state/reSketchDraft'
-import { addConstraint, addEntity, addPolygon, anchorPoint, arcPoint, arcThrough, addRectangle, addRectangleCentre, addTurnedRectangle, type AnchorAt, anchorsOf, cloneSketch, type Constraint, constraintEntities, type ConstraintInput, type ConstraintKind, DIMENSION_KINDS, emptySketch, endsOf, type EntityInput, entityOf, inferRelations, patternPieces, POLYGON_MAX_SIDES, type PolygonFit, relationTakes, renumbered, type Sketch, type SketchArc, type SketchEntity, type SketchPatternSpec, type SketchSpline, splineJoint, splinePointIndex, TOUCH_MM } from '../core/sketch'
+import { addConstraint, addEntity, addPolygon, anchorPoint, arcPoint, arcThrough, addRectangle, addRectangleCentre, addTurnedRectangle, type AnchorAt, anchorsOf, cloneSketch, type Constraint, constraintEntities, type ConstraintInput, type ConstraintKind, DIMENSION_KINDS, emptySketch, endsOf, type EntityInput, entityOf, inferRelations, patternPieces, POLYGON_MAX_SIDES, type PolygonFit, QUADRANTS, relationTakes, renumbered, type Sketch, type SketchArc, type SketchEntity, type SketchPatternSpec, type SketchSpline, splineJoint, splinePointIndex, TOUCH_MM } from '../core/sketch'
 import { insetChains, insetKeeps, likeStation, runFactsWords, STATION_FOLD_HELP, stationFaults, type StationLoop, stationLoop } from '../core/stations'
 import { measureDimension, type Pull } from '../core/solver'
 import { bodyNamed, type EdgePickIn, edgesPicked, facePicked, type FacePickIn, type Json, re, type Ref, sketchNamed, topologyOf } from './reCommandCore'
@@ -48,7 +48,7 @@ const KEPT_ON_PIECES = ['points', 'scatter'] as const
 /** The points of a piece a constraint may name: its ends, and an arc's
  *  centre too, which the panel's own dimensions measure from (anchorPoint
  *  reads it; the snapping offers the ends alone). */
-const pointsOf = (e: SketchEntity): AnchorAt[] => (e.kind === 'arc' ? [...anchorsOf(e), 'center'] : anchorsOf(e))
+const pointsOf = (e: SketchEntity): AnchorAt[] => [...new Set([...anchorsOf(e), ...(e.kind === 'arc' ? (['center'] as AnchorAt[]) : []), ...(e.kind === 'line' ? (['center'] as AnchorAt[]) : []), ...(e.kind === 'arc' || e.kind === 'circle' ? QUADRANTS : [])])]
 
 /** "a line", "an arc". */
 const aPiece = (kind: string) => `${/^[aeiou]/.test(kind) ? 'an' : 'a'} ${kind}`
@@ -655,6 +655,7 @@ export function sketchOf(input: Json, frame: SketchFeature['frame'], stored?: Sk
       anchor(c.p, where)
       if ('entity' in c.q) anchor(c.q, where)
       else if ('line' in c.q) piece(c.q.line, where, ['line'])
+      if (c.axis !== undefined && !('entity' in c.q)) invalid(`${where}: axis measures between two points — q is ${'line' in c.q ? 'a line' : 'a coordinate plane'}, and a distance to it is square to it already.`)
     }
     // A dimension by its kind: one handed in with only an expression has
     // no value yet.
@@ -670,7 +671,7 @@ export function sketchOf(input: Json, frame: SketchFeature['frame'], stored?: Sk
             ? measureDimension(sketch, c.kind, e(c.entity))
             : c.kind === 'angle'
               ? measureDimension(sketch, 'angle', e(c.a), e(c.b))
-              : measureDimension(sketch, 'distance', c.p, c.q, datums)
+              : measureDimension(sketch, 'distance', c.p, c.q, datums, c.axis)
         if (measured === null) invalid(`${where}: give it a value — the pieces do not measure one.`)
         c.value = measured!
       }

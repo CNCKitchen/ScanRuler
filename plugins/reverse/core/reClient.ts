@@ -343,10 +343,12 @@ export class ReClient {
   }
 
   /** The given solid bodies of the last build, meshed to a chord — with
-   *  `sheets`, the sheets among them too. */
-  async referenceMeshes(bodyIds: number[], chord: number, sheets = false): Promise<KernelMesh[]> {
+   *  `sheets`, the sheets among them too; `angle`, radians a triangle may
+   *  turn round a curve (0.1 unless given); `fresh`, meshed at that
+   *  resolution whatever the viewport holds — for a file. */
+  async referenceMeshes(bodyIds: number[], chord: number, sheets = false, angle?: number, fresh = false): Promise<KernelMesh[]> {
     const requestId = this.nextId++
-    const res = await this.request<Extract<ReWorkerResponse, { type: 'reference-ok' }>>({ type: 'reference', requestId, bodyIds, chord, ...(sheets ? { sheets } : {}) }, [], HEAVY_MS)
+    const res = await this.request<Extract<ReWorkerResponse, { type: 'reference-ok' }>>({ type: 'reference', requestId, bodyIds, chord, ...(sheets ? { sheets } : {}), ...(angle !== undefined ? { angle } : {}), ...(fresh ? { fresh } : {}) }, [], HEAVY_MS)
     return res.meshes
   }
 

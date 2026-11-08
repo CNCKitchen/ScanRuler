@@ -241,6 +241,7 @@ export function parametersOut() {
       unit: UNITS[p.kind] ?? '',
       ...(reading?.error ? { error: reading.error } : {}),
       ...(p.comment ? { comment: p.comment } : {}),
+      ...(p.pinned ? { pinned: true } : {}),
       usedBy: users.map((u) => (u.kind === 'parameter' ? { parameter: u.name } : { feature: u.name, fields: fieldsReading(all.find((f) => f.id === u.id)!, p.name) })),
       ...(idle.has(p.id) && users.length > 0 ? { drivesNothing: true } : {}),
     }

@@ -3,7 +3,7 @@
 // and removed — a change rebuilding every feature that reads it.
 
 import { invalid } from '../../../src/commands/core/common'
-import { arr, obj, str, validate } from '../../../src/commands/schema'
+import { arr, bool, obj, str, validate } from '../../../src/commands/schema'
 import { type Command, CommandError } from '../../../src/plugins/api'
 import type { Feature } from '../core/features'
 import { evaluateParameters, nameProblem } from '../core/parameters'
@@ -53,7 +53,7 @@ function parameterAnswer(s: ReverseSession, ids: readonly number[], before: read
 export const parameterList: Command = {
   name: 'list',
   title: 'List the parameters',
-  description: 'The model’s parameters: name, kind (length mm, angle °, integer, number), the expression, what it comes to, why it has no value if it has none, and usedBy: the features reading it with the fields they read it in (a feature’s field path, or "dimension <id>" in a sketch) and the parameters reading it. usedBy empty, or drivesNothing, is a parameter no face follows: not a driver of the part.',
+  description: 'The model’s parameters: name, kind (length mm, angle °, integer, number), the expression, what it comes to, why it has no value if it has none, pinned for one the person marked important (listed first in the panel — ask before changing it, and name it in the report), and usedBy: the features reading it with the fields they read it in (a feature’s field path, or "dimension <id>" in a sketch) and the parameters reading it. usedBy empty, or drivesNothing, is a parameter no face follows: not a driver of the part.',
   input: obj({}),
   readOnly: true,
   run: async () => ({ parameters: parametersOut() }),
@@ -61,13 +61,14 @@ export const parameterList: Command = {
 
 type ParameterKindIn = 'length' | 'angle' | 'integer' | 'number'
 
-interface NewParameter { name: string; expression: string; kind?: ParameterKindIn; comment?: string }
+interface NewParameter { name: string; expression: string; kind?: ParameterKindIn; comment?: string; pinned?: boolean }
 
 const newParameter = {
   name: str('The name expressions use.', { minLength: 1 }),
   expression: str('Its value: a number, with a unit if you like ("12", "0.5 in"), or arithmetic over other parameters.', { minLength: 1 }),
   kind: parameterKind,
   comment: str('A note on what it is for.'),
+  pinned: bool('Marked important: listed first, with a star — a dimension the person will iterate on.'),
 }
 
 export const parameterAdd: Command<Partial<NewParameter> & { parameters?: NewParameter[] }> = {
@@ -106,10 +107,10 @@ export const parameterAdd: Command<Partial<NewParameter> & { parameters?: NewPar
     const valuesBefore = parameterValues()
     const ids = await change(() => {
       const made: number[] = []
-      for (const { name, expression, kind = 'length', comment } of wanted) {
+      for (const { name, expression, kind = 'length', comment, pinned } of wanted) {
         const id = re().addParameter(kind)
         made.push(id)
-        const why = re().setParameter(id, { name, expression, ...(comment ? { comment } : {}) })
+        const why = re().setParameter(id, { name, expression, ...(comment ? { comment } : {}), ...(pinned ? { pinned } : {}) })
         if (why) {
           for (const m of made) re().removeParameter(m)
           invalid(parameters ? `${name}: ${why}` : why)
@@ -121,14 +122,14 @@ export const parameterAdd: Command<Partial<NewParameter> & { parameters?: NewPar
   },
 }
 
-export const parameterSet: Command<{ parameter?: Ref; name?: string; expression?: string; kind?: ParameterKindIn; comment?: string }> = {
+export const parameterSet: Command<{ parameter?: Ref; name?: string; expression?: string; kind?: ParameterKindIn; comment?: string; pinned?: boolean }> = {
   name: 'set',
   title: 'Set a parameter',
   description:
-    'Give a parameter a new expression (or kind, or comment), as typing it into its row does: every sketch dimension and feature field that reads it follows, the sketches are solved again, and the part is rebuilt. The parameter by parameter (its name or id), or by name as reverse.parameter.add names it. Refused, with why, when the expression does not evaluate or would leave another parameter without a value. Returns the parameter, the other parameters whose value followed it, the features it changed and the bodies the rebuild changed.',
-  input: obj({ parameter: featureRef('parameter'), name: str('The parameter’s name, in place of parameter.', { minLength: 1 }), expression: str('The new expression.', { minLength: 1 }), kind: parameterKind, comment: str() }),
+    'Give a parameter a new expression (or kind, comment, or pinned — marked important, as its row’s star does), as typing it into its row does: every sketch dimension and feature field that reads it follows, the sketches are solved again, and the part is rebuilt. The parameter by parameter (its name or id), or by name as reverse.parameter.add names it. Refused, with why, when the expression does not evaluate or would leave another parameter without a value. Returns the parameter, the other parameters whose value followed it, the features it changed and the bodies the rebuild changed.',
+  input: obj({ parameter: featureRef('parameter'), name: str('The parameter’s name, in place of parameter.', { minLength: 1 }), expression: str('The new expression.', { minLength: 1 }), kind: parameterKind, comment: str(), pinned: bool('Marked important (true) or not.') }),
   label: ({ parameter, name, expression }) => `set ${typeof (parameter ?? name) === 'string' ? (parameter ?? name) : `parameter ${parameter}`}${expression !== undefined ? ` = ${expression}` : ''}`,
-  run: async ({ parameter, name, expression, kind, comment }) => {
+  run: async ({ parameter, name, expression, kind, comment, pinned }) => {
     if (parameter !== undefined && name !== undefined) invalid('Give the parameter by parameter or by name, not both — reverse.parameter.rename renames it.')
     if (parameter === undefined && name === undefined) invalid('parameter: required — the parameter to set, by its name or id (name: takes it too).')
     const p = parameterNamed((parameter ?? name)!)
@@ -136,7 +137,7 @@ export const parameterSet: Command<{ parameter?: Ref; name?: string; expression?
     const bodiesBefore = bodyRows(reverseSession())
     const valuesBefore = parameterValues()
     await change(() => {
-      const why = re().setParameter(p.id, { ...(expression !== undefined ? { expression } : {}), ...(kind ? { kind } : {}), ...(comment !== undefined ? { comment } : {}) })
+      const why = re().setParameter(p.id, { ...(expression !== undefined ? { expression } : {}), ...(kind ? { kind } : {}), ...(comment !== undefined ? { comment } : {}), ...(pinned !== undefined ? { pinned } : {}) })
       if (why) invalid(`${p.name}: ${why}.`)
     })
     return parameterAnswer(session(), [p.id], before, bodiesBefore, valuesBefore)

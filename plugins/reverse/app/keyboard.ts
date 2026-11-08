@@ -23,6 +23,7 @@ const SKETCH_TOOL_KEYS: Record<string, SketchTool> = {
   c: 'circle',
   s: 'spline',
   f: 'fillet',
+  t: 'trim',
 }
 
 /** What the open editor would create on Enter or a middle click — the

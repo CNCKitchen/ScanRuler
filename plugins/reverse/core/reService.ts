@@ -83,7 +83,7 @@ export type ReWorkerRequest =
   /** The given solid bodies of the last build meshed to a chord, for the
    *  Deviation workspace to measure against — see compare.ts. With
    *  `sheets`, the sheets among them too. */
-  | { type: 'reference'; requestId: number; bodyIds: number[]; chord: number; sheets?: boolean }
+  | { type: 'reference'; requestId: number; bodyIds: number[]; chord: number; sheets?: boolean; /** Radians a triangle may turn round a curve; 0.1 by default. */ angle?: number; /** Meshed afresh at that resolution — for a file. */ fresh?: boolean }
 
 export type ReWorkerResponse =
   | { type: 'init-ok'; requestId: number; version: string }
@@ -387,7 +387,7 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
       if (msg.type === 'reference') {
         // A sheet is meshed as a solid is when it is asked for: meshes()
         // leaves sheets out of a reference, which has an inside.
-        const meshes = msg.sheets ? msg.bodyIds.flatMap((id) => b.meshById(id, msg.chord)?.mesh ?? []) : b.meshes(msg.bodyIds, msg.chord)
+        const meshes = msg.sheets ? msg.bodyIds.flatMap((id) => b.meshById(id, msg.chord, msg.angle)?.mesh ?? []) : b.meshes(msg.bodyIds, msg.chord, msg.angle, msg.fresh)
         const transfer: Transferable[] = []
         for (const m of meshes) {
           transfer.push(m.positions.buffer, m.normals.buffer, m.indices.buffer)

@@ -147,6 +147,8 @@ export class FlatScene {
   private dimStrokeCleanup: (() => void)[] = []
   private draftGroup = new THREE.Group()
   private draftCleanup: (() => void)[] = []
+  private guideGroup = new THREE.Group()
+  private guideCleanup: (() => void)[] = []
   /** Fitted geometry and callouts draw as screen-space fat lines (a WebGL
    *  LineBasicMaterial is one pixel whatever it asks for). Every such
    *  material needs the canvas size; this is the one copy they all read.
@@ -361,6 +363,47 @@ export class FlatScene {
     this.viewport.scene.add(this.dimensionGroup)
     this.viewport.scene.add(this.dimStrokeGroup)
     this.viewport.scene.add(this.draftGroup)
+    this.viewport.scene.add(this.guideGroup)
+  }
+
+  /** Guide lines a tool draws over the sheet while the cursor moves, each in
+   *  its own colour: a sketch's dashed tracking lines from a point it can be
+   *  placed level with, the stretch a trim would take, lit. Dashes are
+   *  sized in screen pixels at the zoom they are drawn at — the caller draws
+   *  them again as the cursor moves. Empty clears them. */
+  setGuides(guides: readonly { points: readonly Vec2[]; color: string; dashed?: boolean; width?: number }[]): void {
+    for (const dispose of this.guideCleanup) dispose()
+    this.guideCleanup = []
+    this.guideGroup.clear()
+    const px = this.unitsPerScreenPx()
+    for (const g of guides) {
+      if (g.points.length < 2) continue
+      const width = g.width ?? 1.5
+      const mat = new LineMaterial({
+        color: new THREE.Color(g.color).getHex(),
+        linewidth: width * this.fatLines.scale,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false,
+        worldUnits: false,
+        dashed: Boolean(g.dashed),
+        dashSize: 6 * px,
+        gapSize: 4 * px,
+      })
+      const letGo = this.fatLines.track(mat, width)
+      const geo = new LineGeometry()
+      geo.setPositions(g.points.flatMap((p) => [p[0], p[1], 0.22]))
+      const line = new Line2(geo, mat)
+      line.computeLineDistances()
+      line.renderOrder = 5
+      this.guideGroup.add(line)
+      this.guideCleanup.push(() => {
+        letGo()
+        mat.dispose()
+        geo.dispose()
+      })
+    }
+    this.viewport.invalidate()
   }
 
   /** The measured dimensions on the sheet: a callout line with its value for
@@ -1920,6 +1963,7 @@ export class FlatScene {
     this.setFlatElements([])
     this.setFlatDimensions([])
     this.setDraftMarks([], null)
+    this.setGuides([])
     this.setEdgeChains(null)
     this.dropBox()
     this.edgeMaterial.dispose()

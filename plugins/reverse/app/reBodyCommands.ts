@@ -22,6 +22,8 @@ import { meshFaultOut } from '../core/kernelMesh'
 import type { KernelMesh } from '../core/kernelTypes'
 import type { StepCheck, StepEdge, StepFace, StepMend, StepShell } from '../core/kernel'
 import { meshDeflection, type RoundTrip } from '../core/buildTypes'
+import { MESH_RESOLUTIONS, meshResolution, type MeshResolution, tinyPartNote } from '../core/meshResolution'
+import { fmtLen } from '../../../src/core/units'
 import { DEFAULT_FACING_DEG, liveMapReach, type ScanSide, type SideCounts } from '../core/liveMap'
 import { roundFaceIsBoss } from '../core/thread'
 import { useRePrefs } from '../state/rePrefs'
@@ -992,27 +994,48 @@ export const step: Command<{ bodies?: Ref[]; verify?: boolean }> = {
   },
 }
 
-/** How far a triangle may stand off a curved face in a mesh for printing,
- *  millimetres, unless told otherwise. */
-const STL_CHORD_MM = 0.02
+/** The bodies' box across, mm, and the note a part under 2 mm across
+ *  earns — a scan in metres read as millimetres (issue 89). */
+function noteOnSize(bodies: readonly { box?: { min: Vec3; max: Vec3 } }[]): { note?: string } {
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  for (const b of bodies) {
+    if (!b.box) continue
+    for (let k = 0; k < 3; k++) {
+      lo[k] = Math.min(lo[k], b.box.min[k])
+      hi[k] = Math.max(hi[k], b.box.max[k])
+    }
+  }
+  const note = tinyPartNote(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), (mm) => fmtLen(mm, 'mm', 4))
+  return note ? { note } : {}
+}
 
-export const stl: Command<{ bodies?: Ref[]; chord?: number; format?: MeshFormat }> = {
+export const stl: Command<{ bodies?: Ref[]; resolution?: MeshResolution['id']; chord?: number; angleDeg?: number; format?: MeshFormat }> = {
   name: 'stl',
   title: 'Export the bodies as a mesh',
   description:
-    'The bodies as one binary STL in millimetres — or, format 3mf, a 3MF with each body an object of its own — for printing or for a mesh tool — the visible solid ones by default, meshed to the chord: how far a triangle may stand off a curved face, 0.02 mm by default (finer is larger). A sheet or a fitted surface is left out. Returns the file’s bytes, the name the panel would save it under and how many triangles it holds.',
-  input: obj({ bodies: arr(bodyRef, 'The bodies; the visible solid ones by default.', { minItems: 1 }), chord: num('mm; 0.02 by default.', { exclusiveMinimum: 0, maximum: 1 }), format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.') }),
+    'The bodies as one binary STL in millimetres — or, format 3mf, a 3MF with each body an object of its own — for printing or for a mesh tool — the visible solid ones by default, meshed as the panel’s Export mesh resolution says: draft (chord 0.1 mm, 15°), normal (the default: 0.02 mm, 5.7°), fine (0.005 mm, 2.5°) or finest (0.001 mm, 1°) — the chord how far a triangle may stand off a curved face, the angle how far round a curve one may turn, which is what holds a small part; chord and angleDeg set either alone. Finer is larger. A sheet or a fitted surface is left out. Returns the file’s bytes, the name the panel would save it under, how many triangles it holds, and a note when the part is under 2 mm across — a scan in metres read as millimetres.',
+  input: obj({
+    bodies: arr(bodyRef, 'The bodies; the visible solid ones by default.', { minItems: 1 }),
+    resolution: enumOf(MESH_RESOLUTIONS.map((r) => r.id), 'draft, normal (the default), fine or finest.'),
+    chord: num('mm, over the resolution’s.', { exclusiveMinimum: 0, maximum: 1 }),
+    angleDeg: num('Degrees, over the resolution’s.', { exclusiveMinimum: 0, maximum: 45 }),
+    format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.'),
+  }),
   readOnly: true,
   long: true,
   returnsFile: true,
   timeoutMs: 600_000,
-  run: async ({ bodies, chord = STL_CHORD_MM, format = 'stl' }) => {
+  run: async ({ bodies, resolution, chord: chordIn, angleDeg: angleIn, format = 'stl' }) => {
+    const step = meshResolution(resolution)
+    const chord = chordIn ?? step.chord
+    const angleDeg = angleIn ?? step.angleDeg
     const s = await ready()
     const picked = bodies ? bodies.map(bodyNamed) : re().bodies.filter((b) => b.visible && !b.surface)
     const sheet = picked.find((b) => b.surface)
     if (sheet) invalid(`${sheet.name} is a surface — a mesh export is of solids.`)
     if (picked.length === 0) throw new CommandError('invalid_state', 'There is no visible solid body to export — build one first.')
-    const f = await s.meshFile(picked, chord, format).catch((e) => {
+    const f = await s.meshFile(picked, chord, format, angleDeg).catch((e) => {
       throw new CommandError('failed', `Mesh export failed: ${errorMessage(e)}`)
     })
     if (!f) throw new CommandError('failed', 'The bodies meshed to no triangle.')
@@ -1020,7 +1043,9 @@ export const stl: Command<{ bodies?: Ref[]; chord?: number; format?: MeshFormat 
       file: { name: f.name, mimeType: f.mimeType, bytes: f.bytes },
       bodies: picked.map((b) => ({ id: b.id, name: b.name })),
       chord,
+      angleDeg: Math.round(angleDeg * 100) / 100,
       triangles: f.triangles,
+      ...noteOnSize(picked),
       status: `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} as one ${MESH_FORMAT_LABEL[format]} of ${f.triangles} triangles.`,
     }
   },

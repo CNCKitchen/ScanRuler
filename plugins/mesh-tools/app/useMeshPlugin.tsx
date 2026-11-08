@@ -111,7 +111,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => tools.watch(), [tools])
   const { reduceField, reduceRgb, copyField, copyRgb } = tools
   const {
-    runReduce, applyReduction, discardReduction, removeIslands, deleteMarked, flipScan, cutScan, mirrorScan, fillScanHoles, smoothScan, offsetScan, shellScan, booleanScan, trimScan,
+    runReduce, applyReduction, discardReduction, removeIslands, deleteMarked, flipScan, cutScan, mirrorScan, fillScanHoles, smoothScan, densifyScan, offsetScan, shellScan, booleanScan, trimScan,
     wrap, cancelWrap, applyWrap, discardWrap, adoptEditedCopy, discardEditedCopy,
   } = useMeshWorkspace(tools)
   // The units on screen: the maps' figures and the status lines of the
@@ -303,6 +303,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
         onMirror={() => void mirrorScan({ units })}
         onFillHoles={() => void fillScanHoles(undefined, { units })}
         onSmooth={() => void smoothScan(undefined, { units })}
+        onDensify={() => void densifyScan({ units })}
         onOffset={() => void offsetScan(undefined, { units })}
         onShell={(mode) => void shellScan(mode, { units })}
         onWrap={() => void wrap(units)}

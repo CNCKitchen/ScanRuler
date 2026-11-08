@@ -20,6 +20,7 @@ import { defaultTolerance, type ReduceReport, type ReduceSettings } from '../cor
 import { defaultMinPiece } from '../core/pieces'
 import { defaultHoleSize, type FillMode, type HoleSurvey } from '../core/fillHoles'
 import { defaultSmoothLimit, defaultSmoothSize } from '../core/smooth'
+import { densifyEdgeFor } from '../../../src/core/geometry/scanQa'
 import type { CopyDeviationStats } from '../core/edit'
 import type { BooleanOp } from '../core/boolean'
 import { defaultWallThickness } from '../core/hollow'
@@ -36,7 +37,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
 
 /** The tool in hand. */
-export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'mirror' | 'holes' | 'smooth' | 'offset' | 'boolean' | 'trim' | 'shell' | 'wrap'
+export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'mirror' | 'holes' | 'smooth' | 'densify' | 'offset' | 'boolean' | 'trim' | 'shell' | 'wrap'
 
 /** What the viewport shows of a reduction: the reduced mesh with its
  *  triangles drawn, the scan painted with how far the reduced mesh strays
@@ -103,6 +104,9 @@ export type ScanEdit =
        *  mesh. */
       region?: number
     }
+  /** The triangles cut until no edge was longer than maxEdge, mm; the
+   *  vertices it added and the triangles there are now. */
+  | { kind: 'densify'; maxEdge: number; added: number; triangles: number }
   | {
       kind: 'boolean'
       op: BooleanOp
@@ -170,7 +174,7 @@ export type ScanEdit =
 export const MESH_SETTINGS = [
   'tolerance', 'toleranceAuto', 'maxTriangles', 'pieceSize', 'pieceSizeAuto', 'cutRef', 'cutOffset', 'cutOffsetAuto', 'cutKeep',
   'cutCap', 'mirrorRef', 'mirrorOffset', 'mirrorOffsetAuto', 'mirrorKeep', 'mirrorMode', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
-  'smoothEdges', 'offsetScope', 'offsetDirection', 'offsetDistance', 'boolOp', 'boolSolids', 'trimSolid', 'trimOffset', 'trimDepth',
+  'smoothEdges', 'densifyEdge', 'densifyEdgeAuto', 'offsetScope', 'offsetDirection', 'offsetDistance', 'boolOp', 'boolSolids', 'trimSolid', 'trimOffset', 'trimDepth',
   'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide', 'wrapGap', 'wrapGapAuto', 'wrapGrow', 'wrapEdges',
 ] as const
 
@@ -362,6 +366,11 @@ interface MeshState {
   smoothLimitAuto: boolean
   smoothEdges: boolean
 
+  // ---- Densify -----------------------------------------------------------------------
+  /** No edge longer than this, mm — to start, a hundredth of the part. */
+  densifyEdge: number
+  densifyEdgeAuto: boolean
+
   // ---- Shrink / expand -------------------------------------------------------------
   offsetScope: SmoothScope
   offsetDirection: OffsetDirection
@@ -507,6 +516,7 @@ interface MeshState {
   setSmoothSize: (v: number) => void
   setSmoothLimit: (v: number) => void
   setSmoothEdges: (on: boolean) => void
+  setDensifyEdge: (v: number) => void
   setOffsetScope: (scope: SmoothScope) => void
   setOffsetDirection: (direction: OffsetDirection) => void
   setOffsetDistance: (v: number) => void
@@ -633,6 +643,9 @@ export const useMeshTools = create<MeshState>()((set) => ({
   smoothLimitAuto: true,
   smoothEdges: true,
 
+  densifyEdge: 1,
+  densifyEdgeAuto: true,
+
   offsetScope: 'all',
   offsetDirection: 'expand',
   offsetDistance: 0.1,
@@ -743,6 +756,7 @@ export const useMeshTools = create<MeshState>()((set) => ({
   setSmoothLimit: (v) => set({ smoothLimit: Math.max(1e-4, v), smoothLimitAuto: false }),
 
   setSmoothEdges: (smoothEdges) => set({ smoothEdges }),
+  setDensifyEdge: (v) => set({ densifyEdge: Math.max(1e-3, v), densifyEdgeAuto: false }),
 
   setOffsetScope: (offsetScope) => set({ offsetScope }),
 
@@ -834,6 +848,7 @@ export const useMeshTools = create<MeshState>()((set) => ({
       ...(s.holeSizeAuto ? { holeSize: defaultHoleSize(bboxDiagonal) } : {}),
       ...(s.smoothSizeAuto ? { smoothSize: defaultSmoothSize(bboxDiagonal, edgeLength) } : {}),
       ...(s.smoothLimitAuto ? { smoothLimit: defaultSmoothLimit(bboxDiagonal) } : {}),
+      ...(s.densifyEdgeAuto ? { densifyEdge: densifyEdgeFor(bboxDiagonal) } : {}),
       ...(s.shellThicknessAuto ? { shellThickness: defaultWallThickness(bboxDiagonal) } : {}),
       ...(s.wrapGapAuto ? { wrapGap: defaultWrapGap(bboxDiagonal) } : {}),
     })),
@@ -923,6 +938,8 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return `Filled ${count(e.holes)} hole${e.holes === 1 ? '' : 's'} under ${len(e.maxSize)}${e.mode === 'flat' ? ', flat' : ''}`
     case 'smooth':
       return `Smoothed bumps under ${len(e.size)}${e.region ? ' in a marked region' : ''}, within ${len(e.limit)}`
+    case 'densify':
+      return `Densified to edges under ${len(e.maxEdge)}`
     case 'boolean':
       return e.op === 'subtract' ? `Took ${e.solid} out` : e.op === 'add' ? `Added ${e.solid}` : `Kept what ${e.solid} shares`
     case 'offset':
@@ -955,6 +972,8 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
       return `+${count(e.triangles)} △`
     case 'smooth':
       return `≤ ${fmtLen(e.maxMove, units, 3)}`
+    case 'densify':
+      return `${count(e.triangles)} △`
     case 'boolean':
       return `${e.volume >= 0 ? '+' : '−'}${fmtVol(Math.abs(e.volume), units, 1)}`
     case 'offset':

@@ -17,11 +17,36 @@ import type { Vec2 } from '../../../src/core/flat/types'
 import { add2, dot2, len2, normalize2, perp2, scale2, sub2 } from '../../../src/core/flat/vec2'
 import type { DimShape } from '../../../src/core/flat/dimStrokes'
 import { traceFoot, traceOf, type DatumTrace } from './datums'
-import { anchorPoint, entityOf, lineDir, sketchBounds, type Constraint, type DimPlace, type Sketch } from './sketch'
+import { anchorPoint, entityOf, lineDir, sketchBounds, type Constraint, type DimPlace, type DistanceAxis, type Sketch } from './sketch'
 
 export type Dimension = Extract<Constraint, { value: number }>
 
 export { dimStrokes, type DimShape, type DimStrokes } from '../../../src/core/flat/dimStrokes'
+
+/** Where a distance between two points is pulled to by the hand, as CAD
+ *  reads it: square above or below the two, within their span along u, it
+ *  measures along u ('x', their ΔX); beside them, within their span along v,
+ *  along v ('y'); anywhere else straight across (undefined). Two points level
+ *  offer no ΔY to pull to, two upright no ΔX. */
+export function distanceAxisAt(p: Vec2, q: Vec2, at: Vec2): DistanceAxis | undefined {
+  const [x0, x1] = p[0] <= q[0] ? [p[0], q[0]] : [q[0], p[0]]
+  const [y0, y1] = p[1] <= q[1] ? [p[1], q[1]] : [q[1], p[1]]
+  const tiny = 1e-6 * Math.max(1, x1 - x0 + (y1 - y0))
+  const inX = at[0] >= x0 && at[0] <= x1
+  const inY = at[1] >= y0 && at[1] <= y1
+  if (inX && !inY && x1 - x0 > tiny) return 'x'
+  if (inY && !inX && y1 - y0 > tiny) return 'y'
+  return undefined
+}
+
+/** The two anchors' points a distance between two points runs between, or
+ *  null for any other dimension. */
+export function distanceEnds(c: Dimension, sketch: Sketch): [Vec2, Vec2] | null {
+  if (c.kind !== 'distance' || !('entity' in c.q)) return null
+  const p = entityOf(sketch, c.p.entity)
+  const q = entityOf(sketch, c.q.entity)
+  return p && q ? [anchorPoint(p, c.p.at), anchorPoint(q, c.q.at)] : null
+}
 
 /** The two points a length or a distance is measured between. */
 function measuredPoints(c: Dimension, sketch: Sketch, datums: readonly DatumTrace[]): [Vec2, Vec2] | null {
@@ -105,6 +130,18 @@ export function dimShape(c: Dimension, sketch: Sketch, datums: readonly DatumTra
   }
   const ends = measuredPoints(c, sketch, datums)
   if (!ends) return null
+  if (c.kind === 'distance' && c.axis && 'entity' in c.q) {
+    // Along an axis: the line through the first point, along u or v, the
+    // second point brought onto it square — its extension line standing
+    // off by however far it lies off the first's level.
+    const [a, b] = ends
+    const k = c.axis === 'x' ? 0 : 1
+    const sign = b[k] - a[k] < 0 ? -1 : 1
+    const d: Vec2 = c.axis === 'x' ? [sign, 0] : [0, sign]
+    const n = perp2(d)
+    const q: Vec2 = c.axis === 'x' ? [b[0], a[1]] : [a[0], b[1]]
+    return { kind: 'linear', p: a, q, d, n, off: place ? place.off : 0, along: place ? place.along : 0, lift: [0, dot2(sub2(b, q), n)] }
+  }
   const d = normalize2(sub2(ends[1], ends[0]))
   if (!d) return null
   const n = perp2(d)

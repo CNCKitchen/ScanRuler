@@ -2,6 +2,7 @@
 // The left faceplate: everything the operator sets, and every number the tool
 // reports. Controls at the top, readouts below, in the order the work happens.
 
+import { useEffect } from 'react'
 import { draftHolds, useStore, type SelectMode } from '../state/store'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { usePulse } from '../app/useHints'
@@ -154,6 +155,15 @@ export function Panel({
   const cloudFormat = useStore((s) => s.cloudFormat)
   const setCloudFormat = useStore((s) => s.setCloudFormat)
   const toggleElementVisible = useStore((s) => s.toggleElementVisible)
+  // A row the pointer is over is drawn and lit on the part while it is,
+  // hidden or not; leaving it lets go only of its own.
+  const peekRow = (on: boolean, kind: 'element' | 'section', id: number) => {
+    const s = useStore.getState()
+    if (on) s.setPeek({ kind, id })
+    else if (s.peek?.kind === kind && s.peek.id === id) s.setPeek(null)
+  }
+  // The list put away under the pointer lets go of the row it was over.
+  useEffect(() => () => useStore.getState().setPeek(null), [])
   const setAllElementsVisible = useStore((s) => s.setAllElementsVisible)
   const toggleSectionVisible = useStore((s) => s.toggleSectionVisible)
   const setAllSectionsVisible = useStore((s) => s.setAllSectionsVisible)
@@ -357,6 +367,7 @@ export function Panel({
               editDisabled={el.status === 'fitting'}
               onEdit={() => onEditElement(el.id)}
               onToggleVisible={() => toggleElementVisible(el.id)}
+              onHover={(on) => peekRow(on, 'element', el.id)}
               onDelete={() => onDelete(el.id)}
             />
           ))}
@@ -414,6 +425,7 @@ export function Panel({
                 editorOpen={editorOpen}
                 onEdit={() => onEditSection(sec.id)}
                 onToggleVisible={() => toggleSectionVisible(sec.id)}
+                onHover={(on) => peekRow(on, 'section', sec.id)}
                 onDelete={() => onDeleteSection(sec.id)}
               />
             )

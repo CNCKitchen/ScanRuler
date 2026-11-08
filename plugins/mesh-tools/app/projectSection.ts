@@ -52,6 +52,8 @@ export interface MeshPart {
   }
   fill?: { size: number; sizeAuto: boolean; mode: 'curved' | 'flat' }
   smooth?: { size: number; sizeAuto: boolean; limit: number; limitAuto: boolean; keepEdges: boolean; scope?: 'all' | 'marked' }
+  /** Densify's longest edge. Absent before the tool existed. */
+  densify?: { edge: number; edgeAuto: boolean }
   /** What Boolean does with the solid. Absent before the tool existed. */
   boolean?: { op: 'subtract' | 'add' | 'intersect' }
   /** Shrink / expand's and Shell's settings. Absent before the tools
@@ -84,6 +86,7 @@ export type ScanEditJson =
   | { kind: 'mirror'; mode: 'whole' | 'symmetric'; plane: string; triangles: number }
   | { kind: 'fill'; maxSize: number; mode: 'curved' | 'flat'; holes: number; triangles: number }
   | { kind: 'smooth'; size: number; limit: number; maxMove: number; region?: number }
+  | { kind: 'densify'; maxEdge: number; added: number; triangles: number }
   | { kind: 'boolean'; op: 'subtract' | 'add' | 'intersect'; solid: string; removed: number; added: number; volume: number }
   | { kind: 'offset'; distance: number; maxMove: number; region?: number }
   | { kind: 'reduce'; tolerance: number; held: boolean; p999: number; triangles: number }
@@ -163,6 +166,12 @@ function validateMeshPart(raw: unknown): MeshPart {
     if ((s.size as number) <= 0 || (s.limit as number) <= 0) invalid('mesh.smooth')
     if (s.scope !== undefined && s.scope !== 'all' && s.scope !== 'marked') invalid('mesh.smooth.scope')
   }
+  if (x.densify !== undefined) {
+    const d = object(x.densify, 'mesh.densify')
+    fields(d, 'edge', 'number', 'mesh.densify')
+    fields(d, 'edgeAuto', 'boolean', 'mesh.densify')
+    if (!((d.edge as number) > 0)) invalid('mesh.densify.edge')
+  }
   if (x.boolean !== undefined) {
     const b = object(x.boolean, 'mesh.boolean')
     if (!BOOLEAN_OPS.includes(b.op as string)) invalid('mesh.boolean.op')
@@ -217,6 +226,8 @@ function validateMeshPart(raw: unknown): MeshPart {
       } else if (edit.kind === 'smooth') {
         fields(edit, 'size limit maxMove', 'number', where)
         if (edit.region !== undefined && typeof edit.region !== 'number') invalid(`${where}.region`)
+      } else if (edit.kind === 'densify') {
+        fields(edit, 'maxEdge added triangles', 'number', where)
       } else if (edit.kind === 'boolean') {
         fields(edit, 'solid', 'string', where)
         fields(edit, 'removed added volume', 'number', where)
@@ -267,6 +278,8 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
       return { kind: e.kind, maxSize: e.maxSize, mode: e.mode, holes: e.holes, triangles: e.triangles }
     case 'smooth':
       return { kind: e.kind, size: e.size, limit: e.limit, maxMove: e.maxMove, ...(e.region !== undefined ? { region: e.region } : {}) }
+    case 'densify':
+      return { kind: e.kind, maxEdge: e.maxEdge, added: e.added, triangles: e.triangles }
     case 'boolean':
       return { kind: e.kind, op: e.op, solid: e.solid, removed: e.removed, added: e.added, volume: e.volume }
     case 'offset':
@@ -318,6 +331,7 @@ function meshPartState(p: MeshPart): Partial<ReturnType<typeof useMeshTools.getS
           ...(p.smooth.scope ? { smoothScope: p.smooth.scope } : {}),
         }
       : {}),
+    ...(p.densify ? { densifyEdge: p.densify.edge, densifyEdgeAuto: p.densify.edgeAuto } : {}),
     ...(p.boolean ? { boolOp: p.boolean.op } : {}),
     ...(p.offset ? { offsetDistance: p.offset.distance, offsetDirection: p.offset.direction, offsetScope: p.offset.scope } : {}),
     ...(p.shell ? { shellThickness: p.shell.thickness, shellThicknessAuto: p.shell.thicknessAuto, shellSide: p.shell.side } : {}),
@@ -352,6 +366,7 @@ export const meshSection: ProjectSection<MeshPart> = {
         keepEdges: x.smoothEdges,
         scope: x.smoothScope,
       },
+      densify: { edge: x.densifyEdge, edgeAuto: x.densifyEdgeAuto },
       boolean: { op: x.boolOp },
       offset: { distance: x.offsetDistance, direction: x.offsetDirection, scope: x.offsetScope },
       shell: { thickness: x.shellThickness, thicknessAuto: x.shellThicknessAuto, side: x.shellSide },

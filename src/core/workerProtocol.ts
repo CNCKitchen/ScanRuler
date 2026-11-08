@@ -14,7 +14,7 @@ import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, TextureNote, Vec3 } from './types'
 import type { ObjCompanions } from './parsers/objTexture'
 import type { FitGuide } from './fit/guide'
-import type { RayGrid, RimCircle, ScanRim } from './geometry/scanQa'
+import type { RayGrid, RimCircle, ScanRim, Tessellation } from './geometry/scanQa'
 import type { SheetReading } from './geometry/sheet'
 import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseReport, CreaseSetting } from './geometry/crease'
@@ -322,7 +322,7 @@ export type WorkerResponse =
   /** Per ray, the coordinate of its first hit along the axis, NaN for none;
    *  asked for, the corners and weights of where it landed. */
   | { type: 'heights-ok'; requestId: number; values: Float32Array; corners?: Uint32Array; weights?: Float32Array }
-  | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number }; sheet?: SheetReading }
+  | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number }; tessellation: Tessellation; sheet?: SheetReading }
   /** The rim's loop in order, null past the last rim. */
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }
   /** A plugin's answer. */

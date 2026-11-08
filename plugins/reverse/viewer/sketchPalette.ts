@@ -41,6 +41,11 @@ export interface SketchPalette {
   dot: string
   /** The callout lines of the dimensions. */
   dimension: number
+  /** The dashed tracking lines a drawn point is placed level or upright
+   *  along. */
+  track: string
+  /** The stretch a trim would take away, under the cursor. */
+  trim: string
 }
 
 const DARK: SketchPalette = {
@@ -58,6 +63,8 @@ const DARK: SketchPalette = {
   region: '#3cb371',
   dot: '#ffffff',
   dimension: 0xe8edf2,
+  track: '#5ad1e6',
+  trim: '#ff5c5c',
 }
 
 const LIGHT: SketchPalette = {
@@ -75,6 +82,8 @@ const LIGHT: SketchPalette = {
   region: '#1f8a4c',
   dot: '#14181d',
   dimension: 0x14181d,
+  track: '#0b8aa0',
+  trim: '#d32f2f',
 }
 
 export function sketchPalette(dark: boolean): SketchPalette {

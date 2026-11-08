@@ -14,9 +14,10 @@ import { int, type JsonSchema, oneOf } from '../../../src/commands/schema'
 import { errorMessage } from '../../../src/commands/types'
 import { round3 } from '../../../src/core/round'
 import type { Vec2 } from '../../../src/core/flat/types'
-import { RADIAL_AXIS_KINDS, type WorldAxis, worldAxisDir } from '../../../src/core/section/frame'
+import { RADIAL_AXIS_KINDS, radialFrame, type SectionFrame, type WorldAxis, worldAxisDir } from '../../../src/core/section/frame'
+import { frameOfPlane, planeFromNormal, planeThroughAxis, planeThroughPoints } from '../core/planeDefs'
 import type { FitData, Vec3 } from '../../../src/core/types'
-import { cross } from '../../../src/core/vec'
+import { addScaled, cross } from '../../../src/core/vec'
 import { type Command, CommandError, runningChange } from '../../../src/plugins/api'
 import { useShell } from '../../../src/state/shellStore'
 import { useStore } from '../../../src/state/store'
@@ -783,6 +784,29 @@ export function planeOf(s: ReverseSession, given: Json | string): PlaneRef {
       upOn(placed.frame.normal)
       const basisU = upU(up, placed.frame.normal)!
       return { ...placed, frame: { ...placed.frame, basisU, basisV: cross(placed.frame.normal, basisU) } }
+    }
+    case 'points':
+    case 'oriented': {
+      const plane = p.kind === 'points' ? planeThroughPoints(p.points as Vec3[], Boolean(p.flip)) : planeFromNormal(p.point as Vec3, p.normal as Vec3)
+      if (typeof plane === 'string') invalid(`${p.kind === 'points' ? 'points' : 'normal'}: ${plane}`)
+      const { normal } = plane as { origin: Vec3; normal: Vec3 }
+      upOn(normal)
+      const frame = frameOfPlane(plane as { origin: Vec3; normal: Vec3 }, (p.offset as number | undefined) ?? 0, up ? (upU(up, normal) ?? undefined) : undefined)!
+      const at = (v: Vec3) => `(${v.map((x) => round3(x)).join(', ')})`
+      const label = p.kind === 'points' ? `the plane through ${(p.points as Vec3[]).map(at).join(', ')}` : `the plane through ${at(p.point as Vec3)} square to ${at(normal)}`
+      return { kind: 'fitted', frame, label }
+    }
+    case 'faceAxis': {
+      const body = bodyNamed(p.body as Ref)
+      const face = facePicked(s, body, p.face as FacePickIn).fingerprint
+      if ((face.kind !== 'cylinder' && face.kind !== 'cone') || !face.center) invalid(`That face of ${body.name} is a ${face.kind}, with no axis — a cylinder or a cone face has one.`)
+      const axis = { origin: face.center!, dir: face.dir }
+      const made = planeThroughAxis(axis, (p.through as Vec3 | undefined) ?? null, (a) => radialFrame(a, 0))
+      if (typeof made === 'string') invalid(`through: ${made}`)
+      const frame = made as SectionFrame
+      const off = (p.offset as number | undefined) ?? 0
+      const r = face.radius !== undefined ? ` R${round3(face.radius)}` : ''
+      return { kind: 'fitted', frame: off ? { ...frame, origin: addScaled(frame.origin, frame.normal, off) } : frame, label: `the plane through the axis of ${body.name}’s ${face.kind}${r}` }
     }
     default:
       return invalid(`A plane of kind “${String(p.kind)}” cannot be given.`)

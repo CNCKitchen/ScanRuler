@@ -829,14 +829,30 @@ export class Builder {
    *  skipped. With a `chord` the solids alone are meshed, to that chord
    *  and a tighter angle: the reference a report is measured against,
    *  where a sheet has no inside and the viewport's chord is too coarse. */
-  meshes(ids: readonly number[], chord?: number): KernelMesh[] {
+  /** A shape meshed to a chord and an angle as asked, coarser than the
+   *  viewport's too: OCCT keeps a shape's finer mesh when asked for a
+   *  coarser one, so a copy is meshed and let go (issue 89). The copy's
+   *  faces are not the body's: its triangles name none of them. */
+  private meshFresh(shape: Shape, chord: number, angle: number): KernelMesh {
+    const copy = this.kernel.copy(shape)
+    try {
+      return this.kernel.mesh(copy, chord, angle)
+    } finally {
+      this.kernel.release(copy)
+    }
+  }
+
+  /** The bodies meshed: to `chord` and `angle` when given — `fresh` for a
+   *  file, at that resolution whatever the viewport holds (meshFresh) — or
+   *  as the viewport has them. */
+  meshes(ids: readonly number[], chord?: number, angle = 0.1, fresh = false): KernelMesh[] {
     const k = this.kernel
     const out: KernelMesh[] = []
     for (const id of ids) {
       const b = this.bodyById(id)
       if (!b) continue
       if (chord !== undefined) {
-        if (!b.surface) out.push(k.mesh(b.shape, chord, 0.1))
+        if (!b.surface) out.push(fresh ? this.meshFresh(b.shape, chord, angle) : k.mesh(b.shape, chord, angle))
         continue
       }
       const bounds = k.extent(b.shape)
@@ -3273,10 +3289,10 @@ export class Builder {
 
   /** A body of the last build by id with its mesh — to a chord, if one is
    *  given — or null for a body that is not there. */
-  meshById(id: number, chord?: number): { id: number; mesh: KernelMesh } | null {
+  meshById(id: number, chord?: number, angle = 0.1): { id: number; mesh: KernelMesh } | null {
     const b = this.bodyById(id)
     if (!b) return null
-    const mesh = chord !== undefined ? this.kernel.mesh(b.shape, chord, 0.1) : this.meshes([id])[0]
+    const mesh = chord !== undefined ? this.kernel.mesh(b.shape, chord, angle) : this.meshes([id])[0]
     return mesh ? { id: this.resolve(id), mesh } : null
   }
 

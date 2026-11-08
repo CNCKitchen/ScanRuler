@@ -49,7 +49,7 @@ import { workerPlugins } from './workerPlugins'
 import type { WorkerContext } from './workerPluginApi'
 import type { MeshBVH } from 'three-mesh-bvh'
 import { reply } from './workerRpc'
-import { firstHits, firstHitsAt, localNoise, scanRim, scanRims } from './geometry/scanQa'
+import { firstHits, firstHitsAt, localNoise, scanRim, scanRims, tessellationOf } from './geometry/scanQa'
 import { sheetReading, type SheetReading } from './geometry/sheet'
 import { rimLoops, type RimLoop } from './geometry/openEdges'
 import { DEFAULT_VOLUME_BETA, volumeDeviation } from './deviation/volume'
@@ -599,12 +599,13 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       } else {
         const rims = scanRims(graph.positions, scanLoops(graph), msg.rims)
         const noise = localNoise(graph, msg.sample)
+        const tessellation = tessellationOf(graph, msg.sample)
         let sheet: SheetReading | undefined
         if (msg.sheet) {
           if (!scanSolid) scanSolid = buildSolidIndex(graph.positions, graph.indices)
           sheet = sheetReading(graph, scanSolid, { ...msg.sheet, noise: noise.median })
         }
-        post({ type: 'scan-qa-ok', requestId: msg.requestId, rims, noise, ...(sheet ? { sheet } : {}) })
+        post({ type: 'scan-qa-ok', requestId: msg.requestId, rims, noise, tessellation, ...(sheet ? { sheet } : {}) })
       }
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
