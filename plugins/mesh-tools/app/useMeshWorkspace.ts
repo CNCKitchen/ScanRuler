@@ -8,7 +8,7 @@
 // the commands share; this hands the panel the session's, and a click on a
 // hole's ring the hole it rings.
 import { meshSceneOf } from '../viewer/meshScene'
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { meshToolsOf } from '../core/meshClient'
 import { summarizeCopyDeviation } from '../core/edit'
 import { reductionScale } from '../core/reduce'
@@ -493,10 +493,16 @@ export function useMeshWorkspace(session: MeshToolsSession) {
   // ---- The edited copy -------------------------------------------------------------
 
   // Mesh Tools shows the copy in the scan's place; every other workspace the
-  // scan it measures. Before anything is painted on either — the effects of
-  // the scene's own sync run after these.
+  // scan it measures. Before anything is painted on either: the scene's own
+  // sync (app/SceneSync.tsx) is a child of the Workbench this runs in, and a
+  // child's effects run ahead of its parent's, so as a plain effect this
+  // would swap after the paint — the map of the workspace coming laid on the
+  // copy going, and the scan coming back bare. A layout effect runs ahead of
+  // every plain effect in the commit, wherever it sits in the tree. It only
+  // trades a few objects (SceneManager.swapSlots) and reads nothing the
+  // browser lays out or paints.
   const copyTriangles = useMeshTools((s) => s.copyTriangles)
-  useEffect(() => {
+  useLayoutEffect(() => {
     sceneRef.current?.showEdited(workspace === 'mesh' && copyTriangles !== null)
   }, [workspace, copyTriangles, copyVersion, sceneRef])
 

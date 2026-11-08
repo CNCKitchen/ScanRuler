@@ -10,6 +10,7 @@
 // quietly holds the mouse hostage in one workspace but not the other is worse
 // than either behaviour on its own.
 
+import { useShallow } from 'zustand/react/shallow'
 import { brushRange, useMark, type MarkGesture } from '../state/markStore'
 import { useStore } from '../state/store'
 import { Icon, type IconName } from './icons'
@@ -88,7 +89,24 @@ export function MarkTools({
   /** Rub out the whole marking. */
   onClear: () => void
 }) {
-  const m = useMark()
+  // Everything the controls draw, and not `inverts`: that is a request counter for the
+  // viewport that holds the marking, bumped on every Invert and drawn by nobody here.
+  const m = useMark(
+    useShallow((s) => ({
+      backfaces: s.backfaces,
+      count: s.count,
+      diameter: s.diameter,
+      erase: s.erase,
+      gesture: s.gesture,
+      invert: s.invert,
+      setBackfaces: s.setBackfaces,
+      setDiameter: s.setDiameter,
+      setErase: s.setErase,
+      setGesture: s.setGesture,
+      setStraight: s.setStraight,
+      straight: s.straight,
+    })),
+  )
   const modelSize = useStore((s) => s.modelSize)
   const brush = brushRange(modelSize)
   const len = useLength()

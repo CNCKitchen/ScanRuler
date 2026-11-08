@@ -307,7 +307,7 @@ export class NotePins {
   /** A pin's badge centre on the screen, in client pixels. */
   private badgeCentre(pin: Pin): { x: number; y: number } {
     const p = pin.badge.getWorldPosition(new THREE.Vector3()).project(this.host.camera())
-    const r = this.host.canvas.getBoundingClientRect()
+    const r = this.host.canvasRect()
     const off = (BADGE_OFFSET + 0.5) * badgePx(pin)
     return { x: r.left + ((p.x + 1) / 2) * r.width + off, y: r.top + ((1 - p.y) / 2) * r.height - off }
   }

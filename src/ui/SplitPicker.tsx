@@ -9,6 +9,7 @@
 // selected means the whole scan, which is what nearly every part wants.
 
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import * as THREE from 'three'
 import { PickScene, type PickMarker } from '../viewer/PickScene'
 import { schemeById } from '../viewer/navSchemes'
@@ -164,7 +165,23 @@ function Half({
 /** The scan half's second line: what the left button does on it, and what has
  *  been selected so far. */
 function PickTools({ onClear }: { onClear: () => void }) {
-  const m = useMark()
+  // The same slice MarkTools draws: `inverts` is nothing this strip shows.
+  const m = useMark(
+    useShallow((s) => ({
+      backfaces: s.backfaces,
+      count: s.count,
+      diameter: s.diameter,
+      erase: s.erase,
+      gesture: s.gesture,
+      invert: s.invert,
+      setBackfaces: s.setBackfaces,
+      setDiameter: s.setDiameter,
+      setErase: s.setErase,
+      setGesture: s.setGesture,
+      setStraight: s.setStraight,
+      straight: s.straight,
+    })),
+  )
   const modelSize = useStore((s) => s.modelSize)
   const brush = brushRange(modelSize)
   const short = m.count > 0 && m.count < MIN_LOCAL_POINTS
@@ -274,6 +291,8 @@ export function SplitPicker({
   onClearSelection: () => void
   onCancel: () => void
 }) {
+  // The picker's own slice: the store is also written on every map repaint,
+  // probe and band change, and none of those is drawn here.
   const {
     pairs,
     pendingScan,
@@ -283,7 +302,18 @@ export function SplitPicker({
     alignStatus,
     alignStopping,
     alignMessage,
-  } = useDeviation()
+  } = useDeviation(
+    useShallow((s) => ({
+      addPickPoint: s.addPickPoint,
+      alignMessage: s.alignMessage,
+      alignStatus: s.alignStatus,
+      alignStopping: s.alignStopping,
+      clearPairs: s.clearPairs,
+      pairs: s.pairs,
+      pendingScan: s.pendingScan,
+      undoPair: s.undoPair,
+    })),
+  )
   const markCount = useMark((s) => s.count)
   const markGesture = useMark((s) => s.gesture)
   const len = useLength()

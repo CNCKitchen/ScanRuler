@@ -219,6 +219,10 @@ export interface MarkingContext {
    *  costs nothing per vertex. */
   setPaintColor(rgb: [number, number, number]): void
   invalidate(): void
+  /** Run the viewport's frames again, if they had stopped: a stroke's
+   *  positions are queued for the next frame to land, and a stroke carried
+   *  off the canvas wakes nothing there. */
+  wake(): void
   /** Take the plain drags off the camera while a gesture is live. */
   claimDrag(on: boolean): void
   /** Whether a press is a camera gesture under the scheme in force: a modifier
@@ -230,6 +234,10 @@ export interface MarkingContext {
   /** How many vertices the marking covers, reported when a gesture ends. */
   onPaintChange(count: number): void
 }
+
+/** How many dabs a stroke may hold for a tree still being built — see
+ *  SurfaceMarking.dab. A couple of seconds of a fast stroke. */
+const HELD_DABS_MAX = 4096
 
 export class SurfaceMarking {
   private paint: PaintBrush | null = null
@@ -246,6 +254,10 @@ export class SurfaceMarking {
    *  reports up to a thousand moves a second, each dab is a raycast plus a BVH
    *  sweep, and nothing between two frames is ever seen anyway. */
   private strokeQueue: { x: number; y: number; erase: boolean }[] = []
+  /** Dabs laid while the scan's tree was still on its way from off the
+   *  thread, as the rays they were cast along — laid when it lands; see
+   *  dab and treeLanded. */
+  private heldDabs: { ray: THREE.Ray; erase: boolean }[] = []
   private paintSphere = new THREE.Sphere()
   /** Scratch for the per-triangle brush test, which runs thousands of times
    *  per stroke and must not allocate. */
@@ -395,6 +407,7 @@ export class SurfaceMarking {
       this.paintLast = null
       this.pendingDab = null
       this.strokeQueue.length = 0
+      this.heldDabs.length = 0
       this.paintErasing = false
       this.brushRing.visible = false
       this.endMarquee()
@@ -403,7 +416,12 @@ export class SurfaceMarking {
     }
     // Switching gesture mid-session leaves the marking alone but takes the
     // footprint of the old one off the part, and abandons anything in flight.
-    if (gesture !== 'brush') this.brushRing.visible = false
+    if (gesture !== 'brush') {
+      this.brushRing.visible = false
+      // Dabs held for a tree still on its way were laid by the brush: another
+      // gesture, or none, does not lay them later at whatever size is set then.
+      this.heldDabs.length = 0
+    }
     if (gesture === null) {
       this.painting = false
       this.paintLast = null
@@ -436,6 +454,7 @@ export class SurfaceMarking {
    */
   setPaintedVertices(vertices: Uint32Array, colorHex: string): void {
     if (!this.ctx.mesh()) return
+    this.heldDabs.length = 0
     this.ctx.setPaintColor(colorToRgb(colorHex))
     if (!this.ctx.regions.setPaintedVertices(vertices)) return
     const attr = this.ctx.paintAttr()
@@ -446,6 +465,7 @@ export class SurfaceMarking {
 
   /** Rub out the whole marking. */
   clearPaint(): void {
+    this.heldDabs.length = 0
     if (!this.ctx.regions.clearPaint()) return
     const attr = this.ctx.paintAttr()
     if (attr) attr.needsUpdate = true
@@ -502,17 +522,62 @@ export class SurfaceMarking {
    */
   private dab(clientX: number, clientY: number, erase: boolean): void {
     const mesh = this.ctx.mesh()
-    const brush = this.paint
-    if (!mesh || !brush || !this.ctx.paintAttr()) return
-
+    if (!mesh || !this.paint || !this.ctx.paintAttr()) return
+    const geometry = mesh.geometry as THREE.BufferGeometry
     this.ctx.setPickRay(clientX, clientY)
-    const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
-    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
+    if (!geometry.getIndex()) return
+    // The sweep needs the tree; without it — still being built off the
+    // thread — the ray would go through every triangle for nothing. The dab
+    // is held instead, as the ray it is cast along, and laid when the tree
+    // lands (treeLanded): a view turned meanwhile does not move it.
+    if (!geometry.boundsTree) {
+      if (this.heldDabs.length < HELD_DABS_MAX) this.heldDabs.push({ ray: this.ctx.raycaster.ray.clone(), erase })
+      return
+    }
+    // A tree that came by another way than landing — the scan laid out
+    // again over a tree of its own — lays what was held first.
+    if (this.heldDabs.length > 0) this.layHeldDabs()
+    this.dabAlongRay(erase)
+  }
 
+  /** The scan's tree has landed from off the thread: lay the dabs held for
+   *  it, and report them as a gesture's end would if the gesture is over. */
+  treeLanded(): void {
+    if (this.heldDabs.length === 0) return
+    const geometry = this.ctx.mesh()?.geometry as THREE.BufferGeometry | undefined
+    // Another part's tree, the scan's still out.
+    if (!geometry?.boundsTree) return
+    this.layHeldDabs()
+    const attr = this.ctx.paintAttr()
+    if (attr) attr.needsUpdate = true
+    this.ctx.invalidate()
+    if (!this.painting) this.ctx.onPaintChange(this.ctx.regions.paintCount)
+  }
+
+  private layHeldDabs(): void {
+    const held = this.heldDabs
+    this.heldDabs = []
+    const ray = this.ctx.raycaster.ray
+    const was = ray.clone()
+    for (const d of held) {
+      ray.copy(d.ray)
+      this.dabAlongRay(d.erase)
+    }
+    ray.copy(was)
+  }
+
+  /** The dab along the pick ray as it is set — see dab. */
+  private dabAlongRay(erase: boolean): void {
+    const mesh = this.ctx.mesh()
+    const brush = this.paint
+    if (!mesh || !brush) return
     const geometry = mesh.geometry as THREE.BufferGeometry
     const bvh = geometry.boundsTree
     const index = geometry.getIndex()
     if (!bvh || !index) return
+
+    const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
+    if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
     const idx = index.array as ArrayLike<number>
     const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
 
@@ -803,6 +868,12 @@ export class SurfaceMarking {
     // gets.
     this.flushPendingDab()
     this.strokeQueue.push({ x: e.clientX, y: e.clientY, erase: erasing })
+    this.ctx.wake()
+  }
+
+  /** Whether a stroke has positions buffered for the next frame to land. */
+  strokePending(): boolean {
+    return this.strokeQueue.length > 0
   }
 
   /** Land the dabs for every position a stroke buffered since the last frame.
@@ -952,6 +1023,7 @@ export class SurfaceMarking {
     this.painting = false
     this.paintLast = null
     this.strokeQueue.length = 0
+    this.heldDabs.length = 0
     this.endMarquee()
   }
 

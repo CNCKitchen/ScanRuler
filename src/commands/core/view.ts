@@ -25,7 +25,7 @@ import { arr, bool, enumOf, int, num, obj, oneOf, vec3, type JsonSchema } from '
 import { publicWorkspace } from '../state'
 import { CommandError, type Command } from '../types'
 import { applyShow, settleShown, viewToggles, whyNotShown, type ShowApplied, type ViewToggle } from '../viewToggles'
-import { nextFrame, waitFor } from './common'
+import { mapSettledOrMeasuring, nextFrame, waitFor } from './common'
 
 const VIEWS: readonly StandardView[] = ['iso', 'iso-front-left', 'iso-rear-left', 'iso-rear-right', 'top', 'bottom', 'front', 'rear', 'left', 'right']
 
@@ -324,6 +324,14 @@ const render: Command<{ width?: number; height?: number; view?: StandardView; vi
         await nextFrame(scene)
       }
       await sectioned(scene, section)
+      // The map in the picture, and what is said of it, is the one measured
+      // for what the view was just told, not the one before it. Only the
+      // deviation workspace pictures it, and the wait shares the picture's
+      // budget: past it, the picture is taken with the map said to be still
+      // being measured (describeMapPainted) rather than not taken at all.
+      if (useShell.getState().workspace === 'deviation') {
+        await mapSettledOrMeasuring(scene, Math.max(0, SHOW_WAIT_MS - (Date.now() - started)))
+      }
       const pictured = views ? await sheetOfViews(scene, views, width, height, show) : await picture(scene, width, height, view, show)
       // A sheet of views fits each; otherwise only fit: true does.
       const framed = framing(scaleOf(scene), frame, Boolean(views) || (!frame && fit === true))
@@ -438,6 +446,7 @@ export function describeMapPainted(painted: MapPainted): Record<string, unknown>
   const none = (mapWhy: string) => ({ map: null, mapWhy })
   if (!d.showMap) return none('the map switch is off — deviation.settings { show: true } puts it on.')
   if (d.source === 'element') {
+    if (d.elementStatus === 'running') return none('the map against the element is still being measured — ask again in a moment.')
     if (d.elementStatus !== 'ready') return none('no map against an element is measured — deviation.set_target measures one.')
   } else {
     if (!d.nominalName) return none('no reference part is open — deviation.open_reference, then deviation.align.')

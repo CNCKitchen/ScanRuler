@@ -48,6 +48,7 @@ import type { Vec3 } from '../../../src/core/types'
 import { SECTION_LINE_DEFAULT } from '../../../src/viewer/lineWidths'
 import { LineWidthRegistry } from '../../../src/viewer/lineWidthRegistry'
 import { pinLabel } from '../../../src/viewer/pinLabel'
+import { sparingRays } from '../../../src/viewer/bvh'
 import { modHeld } from '../../../src/ui/platform'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
 import type { SceneLayer, SceneLayerHost } from '../../../src/viewer/sceneLayers'
@@ -789,7 +790,7 @@ export class NetworkLayer {
   private projector(): (p: ArrayLike<number>, i?: number) => { x: number; y: number } {
     const camera = this.host.camera()
     const e = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(this.host.partGroup.matrixWorld).elements
-    const r = this.host.canvas.getBoundingClientRect()
+    const r = this.host.canvasRect()
     return (p, i = 0) => {
       const x = p[i], y = p[i + 1], z = p[i + 2]
       const w = e[3] * x + e[7] * y + e[11] * z + e[15]
@@ -1016,7 +1017,10 @@ export class NetworkLayer {
       const ev = latest
       latest = null
       if (!ev) return
-      const on = this.host.pickScan(ev.clientX, ev.clientY)
+      // A frame's test, like the hover: while the scan's tree is still on
+      // its way it meets nothing, and what is dragged stays where it was —
+      // see bvh.ts sparingRays.
+      const on = sparingRays(() => this.host.pickScan(ev.clientX, ev.clientY))
       if (!on) return
       const at = on.point
       const h = hit

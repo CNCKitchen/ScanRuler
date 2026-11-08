@@ -23,12 +23,14 @@ import { creaseSetting } from '../core/geometry/crease'
 import { useThickness } from '../state/thicknessStore'
 import type { SceneManager } from '../viewer/SceneManager'
 import type { SourceFiles } from './project'
+import { readSourceFile } from '../core/sourceFile'
 import { scanRemapped, scanRemeasure, scanSwapped, scanSwapping } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { scanCompanions } from './scanFiles'
 
-/** A scan as the session holds it: its file's bytes, their units, and the
- *  files that came with it. */
+/** A scan as the session holds it: its file, its units, and the files that
+ *  came with it. An edited version is new bytes, kept as a file of its own
+ *  with `new Blob([bytes])`. */
 export type ScanSource = NonNullable<SourceFiles['scan']>
 
 export function scanSwap({
@@ -57,15 +59,17 @@ export function scanSwap({
    */
   const swapScan = async (source: ScanSource, transform: Rigid | null): Promise<void> => {
     const client = clientRef.current!
+    const buffer = await readSourceFile(source.file, source.name)
+    // An edit is a mesh of its own, colourless; the scan before it, on
+    // undo, comes back with whatever came with it.
+    const companions = await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? [])
     const { id, mesh } = await client.prepareScan(
       source.name,
-      source.bytes.slice().buffer,
+      buffer,
       creaseSetting(useStore.getState()),
       transform ?? undefined,
       source.units ?? 'mm', // units-ok: the file's own units, an id
-      // An edit is a mesh of its own, colourless; the scan before it, on
-      // undo, comes back with whatever came with it.
-      await scanCompanions(source.name, source.bytes, source.companions ?? []),
+      companions,
       source.scale ?? 1,
     )
     try {

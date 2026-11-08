@@ -6,7 +6,7 @@
 // section.cut taking { axis, angleDeg } end to end on a scanned cylinder.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { collectProject, prepareProjectState } from '../src/app/project'
-import { packProject, unpackProject } from '../src/core/project/archive'
+import { packProject, readMembers, unpackProject } from '../src/core/project/archive'
 import { frameKey, radialFrame, sectionRefName, type SectionFrame } from '../src/core/section/frame'
 import type { SectionCut } from '../src/core/section/slice'
 import type { CylinderFit, Vec3 } from '../src/core/types'
@@ -135,10 +135,10 @@ describe('a section through an axis in the store', () => {
     expect(sec.frame).toEqual(before)
   })
 
-  it('comes back from a project file with its axis and angle', () => {
+  it('comes back from a project file with its axis and angle', async () => {
     const id = made(52)
     const { manifest, members } = collectProject(sources(), null, '0.1.0')
-    const back = unpackProject(packProject(manifest, members))
+    const back = unpackProject(packProject(manifest, await readMembers(members)))
     useStore.setState({ sections: [] })
     prepareProjectState(back.manifest, back.members)()
     const sec = useStore.getState().sections.find((s) => s.id === id)!

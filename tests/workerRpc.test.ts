@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkerRpc } from '../src/core/workerRpc'
 import { MeshWorkerClient } from '../src/core/workerClient'
+import { unreadableSource } from '../src/core/sourceFile'
 import { EdgeClient } from '../src/core/flat/edgeClient'
 import { tick } from './helpers'
 import { useTaskActivity } from '../src/state/taskActivity'
@@ -93,7 +94,7 @@ describe('worker lifecycle', () => {
   it('restores the mesh before retrying a measurement, sharing one recovery between callers', async () => {
     vi.stubGlobal('Worker', FakeWorker)
     const client = new MeshWorkerClient()
-    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
+    client.restoreState = () => ({ scan: { name: 'scan.obj', file: new Blob([new Uint8Array([1])]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
     FakeWorker.instances[0].crash()
     const one = client.centroid()
     const two = client.curvature()
@@ -107,10 +108,22 @@ describe('worker lifecycle', () => {
     for (const message of replacement.messages.slice(1)) replacement.onmessage!({ data: { type: `${message.type}-ok`, requestId: message.requestId, result: {}, values: new Float32Array(0) } })
     await Promise.all([one, two])
   })
+  it('says the scan can no longer be read when a restart finds its file changed on disk', async () => {
+    vi.stubGlobal('Worker', FakeWorker)
+    const client = new MeshWorkerClient()
+    class Gone extends File {
+      override arrayBuffer(): Promise<ArrayBuffer> { return Promise.reject(new DOMException('gone', 'NotReadableError')) }
+    }
+    client.restoreState = () => ({ scan: { name: 'big.ply', file: new Gone([new Uint8Array([1])], 'big.ply'), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
+    FakeWorker.instances[0].crash()
+    await expect(client.centroid()).rejects.toThrow(unreadableSource('big.ply'))
+    // Nothing reached the new worker.
+    expect(FakeWorker.instances[1].messages).toEqual([])
+  })
   it('puts a plugin’s own models back after the scan, before the request that found the worker gone', async () => {
     vi.stubGlobal('Worker', FakeWorker)
     const client = new MeshWorkerClient()
-    client.restoreState = () => ({ scan: { name: 'scan.obj', bytes: new Uint8Array([1]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
+    client.restoreState = () => ({ scan: { name: 'scan.obj', file: new Blob([new Uint8Array([1])]), crease: { mode: 'off', angleDeg: 30 }, transform: null }, nominal: null })
     const stop = client.onRestore(async (channel) => {
       const id = await channel.loadStaged('copy.ply', new Uint8Array([2]), { mode: 'off', angleDeg: 30 }, null)
       await channel.call('plugin-x', 'adopt', { staged: id })

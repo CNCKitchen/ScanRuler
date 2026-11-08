@@ -221,7 +221,10 @@ console.log(`animation: the underside moves ${lowest} mm (range ±${range})`)
 check(lowest !== null && lowest < 0 && lowest >= -range - 1e-6, 'the element map plays as motion, as far as the colour range')
 await click(page, '[data-test=animate-deformation]')
 await sleep(500)
-check((await deflection()) === null, 'and stopping it takes the motion off the scan')
+// The buffer the motion was laid in stays on the scan for the next play while
+// the workspace is up — stopping uploads nothing — so what shows the motion is
+// off the scan is the picture.
+check((await deflection()) !== null, 'and stopping it keeps the motion\'s buffer for the next play')
 check((await pixelDiff(page, await frame(), atRest)) < 0.01, 'and puts the part back as measured')
 
 await click(page, '[data-test=toggle-facing]')
@@ -330,8 +333,13 @@ await page.screenshot({ path: shotPath('element-deviation-back.png') })
 // Extending it in the other workspace must grow the measured region, and
 // deleting it must take the map with it rather than leaving a scale over
 // nothing.
+// The motion's buffer, kept on the scan while the deviation workspace is up,
+// goes with it.
+const keptInDeviation = (await deflection()) !== null
 await click(page, '[data-test=workspace-elements]')
 await page.waitForSelector('[data-test=fit-plane]')
+await sleep(200)
+check(keptInDeviation && (await deflection()) === null, 'leaving the workspace releases the motion\'s buffer')
 const measuredBefore = 190
 await click(page, '[data-test=element-row] [data-test=edit-element]')
 await page.waitForSelector('[data-test=extend-uMin]')

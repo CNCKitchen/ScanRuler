@@ -222,10 +222,10 @@ describe('the Mesh Tools part of a project', () => {
     editedCopy.current = copy
     const { manifest, members } = collectProject(sources(), null, '0.1.0')
     editedCopy.current = null
-    const files = new Map(members.map((m) => [m.name, m.bytes] as const))
+    const files = new Map(members.flatMap((m) => m.bytes instanceof Uint8Array ? [[m.name, m.bytes] as const] : []))
     expect((manifest.mesh as MeshPart | undefined)?.copy).toEqual({ member: 'edited.ply', mapMember: 'edited-map.bin', pending })
     expect(members.find((m) => m.name === 'edited.ply')?.bytes).toBe(copy.source.bytes)
-    const bytes = members.find((m) => m.name === 'edited-map.bin')!.bytes
+    const bytes = members.find((m) => m.name === 'edited-map.bin')!.bytes as Uint8Array
     expect(Array.from(new Int32Array(bytes.slice().buffer))).toEqual([0, -1, 1, 2])
     // Read back, the edits wait on the copy again.
     const json = JSON.parse(JSON.stringify(manifest))
@@ -247,7 +247,7 @@ describe('the Mesh Tools part of a project', () => {
     const { manifest, members } = collectProject(sources(), null, '0.1.0')
     editedCopy.current = null
     const json = validateManifest(JSON.parse(JSON.stringify(manifest)))
-    const files = new Map(members.map((m) => [m.name, m.bytes] as const))
+    const files = new Map(members.flatMap((m) => m.bytes instanceof Uint8Array ? [[m.name, m.bytes] as const] : []))
     // Five bytes are no whole number of vertex numbers.
     files.set('edited-map.bin', new Uint8Array(5))
     expect(() => prepareProjectState(json, files)).toThrow(/Malformed/)
@@ -274,11 +274,11 @@ describe('the Mesh Tools part of a project', () => {
   it('keeps an edited scan as the PLY it now is, under the name it was opened as, with its edits', () => {
     const edit = { kind: 'pieces' as const, minSize: 2, pieces: 37, triangles: 1204 }
     useMeshTools.setState({ edits: [edit] })
-    const edited = { ...sources(), scan: { name: 'bracket.ply', bytes: new Uint8Array([9, 9, 9]), units: 'mm' as const } }
+    const edited = { ...sources(), scan: { name: 'bracket.ply', file: new Blob([new Uint8Array([9, 9, 9])]), units: 'mm' as const } }
     const { manifest, members } = collectProject(edited, null, '0.1.0')
     expect(manifest.scan).toMatchObject({ fileName: 'bracket.stl', member: 'scan.ply' })
     expect(manifest.scan).not.toHaveProperty('units')
-    expect(members.find((m) => m.name === 'scan.ply')?.bytes).toBe(edited.scan.bytes)
+    expect(members.find((m) => m.name === 'scan.ply')?.bytes).toBe(edited.scan.file)
     expect((manifest.mesh as MeshPart | undefined)?.edits).toEqual([edit])
     // Read back as what the member is, shown as what it was opened as.
     expect(readAs(manifest.scan!.fileName, manifest.scan!.member)).toBe('bracket.ply')

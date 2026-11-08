@@ -53,6 +53,31 @@ saves carry the same number as `appVersion`. How a release is cut is in
   command. It shows a percentage only where the work measures one, and
   goes back to READY when it is done. Errors still come first. Thanks to
   Myuavbug66.
+- **Large scans use less memory** (2026-11-08, pull request 69). A
+  scan or reference over 256 MB is no longer held in the tab as a copy for
+  the whole session: ScanRuler keeps the file it was opened from and reads
+  it again to save a project, write a recovery checkpoint or restart a
+  worker. If such a file is changed, moved or deleted on disk in the
+  meantime, as a photogrammetry tool re-exporting in place does, saving
+  says so and asks to open it again. Smaller files are still kept as a copy,
+  so nothing on disk can get in the way of saving them. Thanks to Jozkah.
+- **A stricter security policy for the hosted app** (2026-11-08, pull
+  request 58). The site now sends a Content-Security-Policy and the usual
+  security headers: the page runs only its own scripts and cannot be framed
+  by another site, and only the CAD kernel's own worker may generate code.
+  three.js and React load as chunks of their own, which the browser keeps
+  across updates. The build checks pin the GitHub actions they use, and
+  AGENTS.md sums up the repository's rules for coding agents. Thanks to
+  Jozkah.
+- **Quicker taps, and an idle view that rests** (2026-11-08, pull request
+  98, issue 91). Deviation, the map, Split, the Section view, an element's
+  target and facing limit answer sooner, most of all on phones: work that
+  changes nothing is skipped, shaders are prepared while the app is idle,
+  the split and 2D views stay ready once opened, and the motion, the map
+  against an element and the scan's search tree are made in the background
+  worker. A view held still stops drawing after half a second and wakes on
+  the next touch, key or change, so a phone left on a part no longer runs
+  its graphics for nothing. Thanks to Jozkah.
 
 ## 0.9.9 — 2026-11-08
 

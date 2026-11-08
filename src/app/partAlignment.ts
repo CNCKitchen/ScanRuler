@@ -57,8 +57,8 @@ export function partAlignment({ clientRef, sceneRef, imports, maps, clearPreview
     useStore.setState({ busy: true })
     try {
       clearPreview()
-      useStore.getState().setStatus('Aligning part — rebuilding spatial index…')
-      // Let the status paint before the synchronous BVH rebuild.
+      useStore.getState().setStatus('Aligning part…')
+      // Let the status paint before the part moves.
       await new Promise((r) => setTimeout(r, 30))
       await clientRef.current!.transform(m)
       // The real transform goes on and the preview of it comes off together.

@@ -7,13 +7,13 @@ import { runImport } from '../../app/imports'
 import { historyBlocked, redo, undo, useHistory } from '../../state/historyStore'
 import { useShell } from '../../state/shellStore'
 import { useStore } from '../../state/store'
-import { commandHost } from '../host'
+import { commandHost, sceneOf } from '../host'
 import { reportJson, reportText, REPORT_WORKSPACES, type ReportWorkspace } from '../report'
 import { RECENT_KEPT, RECENT_RESULT_CHARS, recentOutcomes } from '../registry'
 import { enumOf, int, obj, str } from '../schema'
 import { internalWorkspace, publicWorkspace, sessionAfterStep, sessionState, workspaceNames } from '../state'
 import { CommandError, type Command } from '../types'
-import { discardSchema, lastError, requireDiscardable, waitFor } from './common'
+import { discardSchema, lastError, mapSettledOrMeasuring, requireDiscardable, waitFor } from './common'
 
 const state: Command = {
   name: 'state',
@@ -23,7 +23,10 @@ const state: Command = {
   input: obj({}),
   readOnly: true,
   headless: true,
-  run: () => sessionState(),
+  run: async () => {
+    await mapSettledOrMeasuring(sceneOf())
+    return sessionState()
+  },
 }
 
 const reset: Command<{ discard?: boolean }> = {
@@ -76,8 +79,13 @@ const report: Command<{ format?: 'json' | 'text'; workspace?: ReportWorkspace }>
     workspace: enumOf(REPORT_WORKSPACES, 'For text: whose report — measure (the default), deviation, thickness or flat.'),
   }),
   readOnly: true,
-  run: async ({ format = 'json', workspace: w = 'measure' }) =>
-    format === 'text' ? { format, workspace: w, text: reportText(w) } : { format, report: reportJson() },
+  run: async ({ format = 'json', workspace: w = 'measure' }) => {
+    // The report pairs the map's figures with the settings it was measured
+    // under: the one measured, not the one before — or, past the wait, none,
+    // with the map said to be running.
+    await mapSettledOrMeasuring(sceneOf())
+    return format === 'text' ? { format, workspace: w, text: reportText(w) } : { format, report: reportJson() }
+  },
 }
 
 /** What a step of the history answers with: the session in brief, or the

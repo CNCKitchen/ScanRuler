@@ -9,7 +9,7 @@
 // prepared beside the models in use, put in their place when committed.
 
 import type { MeshGraph, ParsedMesh, TextureNote, Vec3 } from './types'
-import type { WorkerRequest, WorkerResponse } from './workerProtocol'
+import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
@@ -30,6 +30,8 @@ import {
 } from './deviation/align'
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
+import { deflectionVectors } from './deviation/deflection'
+import { computeElementDeviation } from './deviation/elementField'
 import { GPU_MIN_VERTICES, gpuNearestFaces } from './deviation/gpuNearest'
 import { rigidApplyToPoints, rigidInvert, rigidRotateVectors, type Rigid } from './deviation/rigid'
 import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap } from './deviation/onReference'
@@ -43,12 +45,14 @@ import { planeRegionReport, segmentPlanes } from './fit/segment'
 import { meanCurvature } from './geometry/curvature'
 import { scanSpot } from './geometry/nearest'
 import { boundsOf } from './geometry/bounds'
+import { closedVertices } from './geometry/closedShells'
 import { gatherVertices, queryVertices } from './geometry/query'
 import { findSymmetryPlane } from './symmetry'
 import { autoAlign } from './autoAlign'
 import { workerPlugins } from './workerPlugins'
 import type { WorkerContext } from './workerPluginApi'
-import type { MeshBVH } from 'three-mesh-bvh'
+import * as THREE from 'three'
+import { MeshBVH, type MeshBVHOptions } from 'three-mesh-bvh'
 import { reply } from './workerRpc'
 import { firstHits, firstHitsAt, localNoise, scanRim, scanRims, tessellationOf } from './geometry/scanQa'
 import { sheetReading, type SheetReading } from './geometry/sheet'
@@ -90,6 +94,11 @@ function scanLoops(g: MeshGraph): RimLoop[] {
   }
   return loops
 }
+/** The copies the render thread's layout of each model last posted was
+ *  split into for shading (see geometry/crease.ts) — the scan's by its
+ *  graph, the reference's by its surface — what lays a vertex-by-vertex
+ *  answer over that layout (see 'closed-shells'). */
+const renderCopies = new WeakMap<object, Uint32Array>()
 const stagedScans = new Map<number, MeshGraph>()
 const stagedNominals = new Map<number, NominalSurface>()
 
@@ -113,6 +122,8 @@ function postScan(
 ): void {
   if (crease.mode !== 'off') progress('Finding sharp edges…')
   const { positions, indices, normals, wireSlots: slots, copyOf, crease: report } = scanRender(g, crease)
+  // Kept: the posted one goes over with the rest.
+  renderCopies.set(g, copyOf.slice())
   // The file's own colours are the render thread's alone: nothing measured
   // here reads them, and a worker restart reads the geometry back without.
   const colors = file?.colors && file.colors.length === g.vertexCount * 3 ? file.colors : undefined
@@ -413,6 +424,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const indices = split ? split.indices : g.indices.slice()
       const normals = split ? split.normals : g.normals.slice()
       const slots = split ? split.wireSlots : slotsOwn
+      renderCopies.set(candidate, split ? split.copyOf : new Uint32Array(0))
       post(
         {
           type: 'nominal-loaded',
@@ -549,6 +561,94 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       const at = msg.vertex !== undefined ? { vertex: msg.vertex } : msg.point ? { point: msg.point } : null
       if (!at) throw new Error('Name a vertex or a point.')
       post({ type: 'nearest-ok', requestId: msg.requestId, result: scanSpot(graph, at) })
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
+    return
+  }
+
+  if (msg.type === 'closed-shells') {
+    // On the welded copy held here, laid over the render thread's split
+    // copy by the copies it was split into: the same vertices, then copies
+    // of some of them bit for bit — the same shells. A vertex at a time, as
+    // nothing here or there keeps the triangles in one order: a bounds tree
+    // (the reference's, a thickness ray's, the render thread's) reorders an
+    // index in place, and never a vertex.
+    const mesh =
+      msg.which === 'scan'
+        ? graph && { held: graph, positions: graph.positions, indices: graph.indices }
+        : nominal && { held: nominal, positions: nominal.positions, indices: nominal.index }
+    if (!mesh) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const closed = closedVertices(mesh.positions, mesh.indices, renderCopies.get(mesh.held) ?? [])
+    post({ type: 'closed-shells-ok', requestId: msg.requestId, closed }, [closed.buffer])
+    return
+  }
+
+  if (msg.type === 'bounds-tree') {
+    // Indirect, so that the tree sorts a list of triangle numbers of its own
+    // and leaves the index alone: the render thread lays the tree over a
+    // geometry whose index is already drawn, and read by triangle by the
+    // section caps and the picks, as it was sent. The positions and index
+    // sent are this request's own; the tree takes them over and only its
+    // nodes and its triangle order go back.
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(msg.positions, 3))
+    geometry.setIndex(new THREE.BufferAttribute(msg.indices, 1))
+    const { roots, indirectBuffer } = MeshBVH.serialize(new MeshBVH(geometry, { indirect: true } as MeshBVHOptions), { cloneBuffers: false }) as unknown as SerializedTree
+    post({ type: 'bounds-tree-ok', requestId: msg.requestId, tree: { roots, indirectBuffer } }, [...roots, indirectBuffer.buffer as ArrayBuffer])
+    return
+  }
+
+  if (msg.type === 'deflection') {
+    // Smoothed over the scan's vertices as held here: the render thread's
+    // own, bit for bit — the first `vertexCount` of what it was posted,
+    // moved since by the same transforms — so the motion is the one it
+    // would have worked out itself, without the pass over the whole scan
+    // landing on the thread that answers the user.
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const vectors = deflectionVectors(msg.values, msg.directions, {
+      limit: msg.limit,
+      maxDistance: msg.maxDistance,
+      positions: msg.positions ?? graph.positions,
+      smoothing: msg.smoothing,
+    })
+    post({ type: 'deflection-ok', requestId: msg.requestId, vectors }, [vectors.buffer])
+    return
+  }
+
+  if (msg.type === 'element-deviation') {
+    // Over the scan's vertices as held here, which are the render thread's
+    // own bit for bit (see `deflection`), and the normals it sent, which are
+    // not the ones held here — so that the map is the one it would have
+    // measured itself, without the pass over the whole scan landing on the
+    // thread that answers the user.
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const positions = msg.positions ?? graph.positions
+    if (msg.normals.length !== positions.length) {
+      post({ type: 'error', requestId: msg.requestId, message: 'The normals sent are not the scan’s.' })
+      return
+    }
+    try {
+      const directions = new Int8Array(positions.length)
+      const values = computeElementDeviation(msg.target, positions, msg.normals, {
+        side: msg.side,
+        maxNormalDeviation: msg.maxNormalDeviation,
+        subset: msg.subset,
+        directions,
+      })
+      post(
+        { type: 'element-deviation-ok', requestId: msg.requestId, values, directions, suggestedRange: suggestRange(values, msg.maxDistance) },
+        [values.buffer, directions.buffer],
+      )
     } catch (e) {
       post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
     }

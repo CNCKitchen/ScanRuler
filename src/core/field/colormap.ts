@@ -225,6 +225,20 @@ export function paintField(values: Float32Array, scale: FieldScale, map: Colorma
   }
 }
 
+/**
+ * What a painted buffer was painted from, short of the values themselves: the
+ * map's version (which moves whenever its values do — see the stores), the
+ * scale it was read through and the ramp it was coloured in. Two paints with
+ * the same key into the same buffer are byte for byte the same, so a caller
+ * holding the key of the last paint can skip the pass over every vertex when
+ * nothing has changed. Every input `paintField` reads besides the values and
+ * the buffer is in it; a new one belongs here too.
+ */
+export function paintKey(version: number, scale: FieldScale, colormapId: string): string {
+  const { low, high, bands, validMin, validMax, reversed } = scale
+  return `${version}|${colormapId}|${low}|${high}|${bands ?? ''}|${validMin}|${validMax}|${reversed ? 1 : 0}`
+}
+
 export function cssRgb(rgb: Rgb): string {
   return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`
 }

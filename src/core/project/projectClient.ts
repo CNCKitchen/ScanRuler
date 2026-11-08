@@ -6,7 +6,7 @@
 // started again on the next.
 
 import { WorkerRpc } from '../workerRpc'
-import type { ArchiveMember, UnpackedProject } from './archive'
+import { readMembers, type ArchiveMember, type UnpackedProject } from './archive'
 import type { ProjectManifest } from './manifest'
 import type { ProjectWorkerRequest, ProjectWorkerResponse } from './projectWorker'
 
@@ -24,12 +24,15 @@ export class ProjectClient {
 
   dispose(): void { this.rpc.dispose() }
 
-  /** Members are copied in, not transferred: the session keeps its bytes. */
+  /** Members held as bytes are copied in, not transferred: the session keeps
+   *  them. Members held as files are read here, and that copy goes over. */
   async pack(manifest: ProjectManifest, members: ArchiveMember[]): Promise<Uint8Array> {
     const requestId = this.nextId++
+    const files = await readMembers(members)
+    const read = files.filter((f, i) => f.bytes !== members[i].bytes).map((f) => f.bytes.buffer)
     const res = await this.request<Extract<ProjectWorkerResponse, { type: 'pack-ok' }>>(
-      { type: 'pack', requestId, manifest, members },
-      [],
+      { type: 'pack', requestId, manifest, members: files },
+      read,
     )
     return res.bytes
   }

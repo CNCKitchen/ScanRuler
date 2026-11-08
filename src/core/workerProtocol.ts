@@ -9,6 +9,7 @@
 import type { AlignResult, PointPair } from './deviation/align'
 import type { Rigid } from './deviation/rigid'
 import type { VolumeDeviation } from './deviation/volume'
+import type { ElementTarget, MaterialSide } from './deviation/elementField'
 import type { StepInfo } from './parsers/step'
 import type { ThicknessMethod } from './thickness/thickness'
 import type { AxialWindow, ElementKind, FitOutput, FitSettings, TextureNote, Vec3 } from './types'
@@ -201,6 +202,60 @@ export type WorkerRequest =
    *  the side it stood on, a zero point. See core/autoAlign. Nothing moves:
    *  the answer is a proposal for the alignment editor. */
   | { type: 'auto-align'; requestId: number }
+  /** Which of the scan's or the reference's vertices lie in closed shells
+   *  — see geometry/closedShells closedVertices — found here, off the main
+   *  thread, for the section view's caps (viewer/sliceCap primeClosedPart).
+   *  Answered a vertex at a time, over the render thread's layout of the
+   *  part — its vertices, then the copies its sharp edges were split into —
+   *  and not a triangle at a time: the render thread's bounds tree puts its
+   *  triangles in an order of its own, and so does the reference's here,
+   *  but neither moves a vertex. */
+  | { type: 'closed-shells'; requestId: number; which: 'scan' | 'nominal' }
+  /** A map played as motion: how far each scan vertex moves — see
+   *  deviation/deflection.ts deflectionVectors — smoothed over the scan's
+   *  vertices as held here, which are the render thread's own bit for bit
+   *  (loaded from here, moved by the same datum transforms in the same
+   *  order). `positions` is sent only where that may not hold — a worker
+   *  restarted and the scan read back in under its alignment in one step —
+   *  and is the render thread's copy, smoothed over instead. */
+  | {
+      type: 'deflection'
+      requestId: number
+      values: Float32Array
+      directions: Int8Array
+      limit: number
+      maxDistance: number
+      smoothing: number
+      positions?: Float32Array
+    }
+  /** The map against a fitted element — see deviation/elementField.ts
+   *  computeElementDeviation — measured here, off the main thread, over the
+   *  scan's vertices as held here: the render thread's own bit for bit, as
+   *  for `deflection`. `normals` are the render thread's and always sent:
+   *  its sharp edges were split for shading and the ones held here are the
+   *  average of the faces that meet, so a facing limit read off them would
+   *  be a different map. `positions` is sent only where the vertices may
+   *  not match, as for `deflection`. `subset` is the hand-marked region the
+   *  map is restricted to, when it is; `maxDistance` is the search distance
+   *  the suggested colour scale is read within. */
+  | {
+      type: 'element-deviation'
+      requestId: number
+      target: ElementTarget
+      side: MaterialSide
+      maxNormalDeviation: number | null
+      subset: Uint32Array | null
+      maxDistance: number
+      normals: Float32Array
+      positions?: Float32Array
+    }
+  /** A bounds tree over a mesh as the render thread lays it out — its
+   *  positions and its index as drawn, shading copies and all — built here
+   *  so that a million triangles are not sorted on the thread that answers
+   *  the user (see viewer/bvh.ts treeOffThread). The arrays are the render
+   *  thread's own, copied and sent over: the tree describes them whatever
+   *  this worker holds of the scan, or whether it holds it at all. */
+  | { type: 'bounds-tree'; requestId: number; positions: Float32Array; indices: Uint32Array }
   /** A request for a plugin's part of the worker — see workerPluginApi.ts.
    *  `op` names the plugin's operation, `payload` is its own. */
   | { type: 'plugin'; requestId: number; plugin: string; op: string; payload: unknown }
@@ -325,6 +380,27 @@ export type WorkerResponse =
   | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number }; tessellation: Tessellation; sheet?: SheetReading }
   /** The rim's loop in order, null past the last rim. */
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }
+  /** 1 for each render vertex of a closed shell. */
+  | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array }
+  /** Three floats per scan vertex, the offset to draw it moved by. */
+  | { type: 'deflection-ok'; requestId: number; vectors: Float32Array }
+  /** The map against an element, the direction each reading was taken
+   *  along, and the colour scale the tool would choose for it, in mm. */
+  | { type: 'element-deviation-ok'; requestId: number; values: Float32Array; directions: Int8Array; suggestedRange: number }
+  /** The tree, serialized — see SerializedTree. */
+  | { type: 'bounds-tree-ok'; requestId: number; tree: SerializedTree }
   /** A plugin's answer. */
   | { type: 'plugin-ok'; requestId: number; result: unknown }
   | { type: 'error'; requestId: number; message: string }
+
+/** A bounds tree as it crosses between threads: its nodes, and the order it
+ *  keeps the triangles in. Indirect — the tree sorts that list of triangle
+ *  numbers and never the index it was built over — so it is laid back over
+ *  the render thread's geometry as it stands, and the index already drawn
+ *  and read by triangle keeps every triangle where it was. See three-mesh-bvh
+ *  MeshBVH.serialize; the index it would carry is left out, being the render
+ *  thread's own. */
+export interface SerializedTree {
+  roots: ArrayBuffer[]
+  indirectBuffer: Uint32Array | Uint16Array
+}

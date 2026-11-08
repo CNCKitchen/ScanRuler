@@ -5,7 +5,8 @@
 // pose the scan was fitted in — because the animation takes that offset away
 // to draw the ideal shape and multiplies it to draw the exaggerated one. A
 // direction off by its sign would play the whole part inside out.
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { NominalSurface, emptyHit } from '../src/core/deviation/surface'
 import { computeDeviation } from '../src/core/deviation/deviation'
@@ -18,9 +19,13 @@ import {
   suggestDeflectionScale,
   writeDirection,
 } from '../src/core/deviation/deflection'
-import { rigidApply, rigidFromAxisAngle, rigidInvert } from '../src/core/deviation/rigid'
+import { rigidApply, rigidApplyToPoints, rigidFromAxisAngle, rigidInvert } from '../src/core/deviation/rigid'
 import type { PlaneFit, Vec3 } from '../src/core/types'
-import { boxMesh } from './helpers'
+import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
+import { MeshWorkerClient, StaleScan } from '../src/core/workerClient'
+import { boxMesh, cylinderMesh } from './helpers'
+import { fixture } from './fixtures'
+import { buildBinaryStl } from '../src/core/exportStl'
 
 /** Reading times direction, decoded the way the shader decodes it. */
 function offsetOf(values: Float32Array, directions: Int8Array, v: number): Vec3 {
@@ -283,5 +288,177 @@ describe('the loop', () => {
     }
     // A scale that never reaches the scan as measured starts at its top.
     expect(deflectionFactor(deflectionStartPhase(0.5), 0.5)).toBeCloseTo(0.5, 12)
+  })
+})
+
+/** The bits of a float array, for comparing two of them exactly — a
+ *  negative zero and all. */
+const bits = (a: Float32Array) => new Uint32Array(a.buffer, a.byteOffset, a.length)
+
+/** A deviation map with every kind of reading in it: in range, past the end
+ *  of the colour scale, past the search distance, and none at all. */
+function someMap(n: number): { values: Float32Array; directions: Int8Array } {
+  let seed = 7
+  const rand = () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32
+  const values = new Float32Array(n)
+  const directions = new Int8Array(n * 3)
+  for (let v = 0; v < n; v++) {
+    const r = rand()
+    values[v] = r < 0.05 ? NaN : r < 0.1 ? 9 : (rand() - 0.5) * 0.6
+    for (let k = 0; k < 3; k++) directions[v * 3 + k] = Math.round((rand() - 0.5) * 254)
+  }
+  return { values, directions }
+}
+
+const ballbar = fixture('ballbar.stl')
+/** The scans the motion is checked on: a noisy cylinder whose rims split
+ *  for shading, and the ball bar where it is on hand. */
+const scans: [string, () => ArrayBuffer][] = [
+  // A soup of triangles as a binary STL, the way a scan reaches the worker.
+  ['a noisy cylinder, its rims split', () => buildBinaryStl(cylinderMesh(10, 30, 48, 12, 0.02).positions, null, null, '')],
+]
+if (ballbar.exists) {
+  scans.push(['the ball bar', () => {
+    const b = readFileSync(ballbar.path)
+    return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength)
+  }])
+}
+
+describe('the motion worked out in the worker', () => {
+  let scope: { onmessage: ((event: { data: WorkerRequest }) => void) | null; postMessage: (msg: WorkerResponse) => void }
+  let replies: WorkerResponse[]
+  beforeEach(async () => {
+    replies = []
+    scope = { onmessage: null, postMessage: (msg) => replies.push(msg) }
+    vi.stubGlobal('self', scope)
+    vi.resetModules()
+    await import('../src/core/meshWorker')
+  })
+  afterEach(() => vi.unstubAllGlobals())
+  const send = (msg: WorkerRequest) => {
+    replies.length = 0
+    scope.onmessage!({ data: msg })
+    return replies.at(-1)!
+  }
+
+  /** Load a scan with its sharp edges split, as the app does, and bake a
+   *  datum alignment into it on both sides, as partAlignment does: the
+   *  render thread's positions, as the viewport would hold them. */
+  const loadAndMove = (buffer: ArrayBuffer) => {
+    const loaded = send({ type: 'load', requestId: 1, name: 'scan.stl', buffer, crease: { mode: 'on', angleDeg: 30 } })
+    if (loaded.type !== 'loaded') throw new Error(JSON.stringify(loaded))
+    expect(loaded.copyOf.length).toBeGreaterThan(0)
+    const datum = rigidFromAxisAngle([0.3, -0.5, 0.8], 0.7)
+    datum.t[0] = 12.5
+    datum.t[1] = -3.25
+    datum.t[2] = 101
+    rigidApplyToPoints(datum, loaded.positions)
+    expect(send({ type: 'transform', requestId: 2, transform: datum }).type).toBe('transform-ok')
+    return { render: loaded.positions.subarray(0, loaded.vertexCount * 3), vertexCount: loaded.vertexCount }
+  }
+
+  for (const [name, file] of scans) {
+    it(`holds the scan's vertices bit for bit as the viewport does: ${name}`, () => {
+      const { render, vertexCount } = loadAndMove(file())
+      const all = send({ type: 'query', requestId: 3, min: [-1e9, -1e9, -1e9], max: [1e9, 1e9, 1e9], limit: vertexCount })
+      if (all.type !== 'query-ok') throw new Error(JSON.stringify(all))
+      expect(all.vertices.length).toBe(vertexCount)
+      expect(all.vertices.every((v, i) => v === i)).toBe(true)
+      expect(bits(all.positions)).toEqual(bits(render))
+    })
+
+    it(`moves the scan exactly as the render thread would: ${name}`, () => {
+      const { render, vertexCount } = loadAndMove(file())
+      const { values, directions } = someMap(vertexCount)
+      const options = { limit: 0.2, maxDistance: 5, smoothing: 1.5 }
+      const here = deflectionVectors(values, directions, { ...options, positions: render })
+      const there = send({ type: 'deflection', requestId: 3, values, directions, ...options })
+      if (there.type !== 'deflection-ok') throw new Error(JSON.stringify(there))
+      expect(there.vectors.length).toBe(vertexCount * 3)
+      expect(bits(there.vectors)).toEqual(bits(here))
+      // And over positions sent with the request, where those are not the
+      // worker's own.
+      const shifted = render.map((x) => x + 0.375)
+      const sent = send({ type: 'deflection', requestId: 4, values, directions, ...options, positions: shifted })
+      if (sent.type !== 'deflection-ok') throw new Error(JSON.stringify(sent))
+      expect(bits(sent.vectors)).toEqual(bits(deflectionVectors(values, directions, { ...options, positions: shifted })))
+    })
+  }
+})
+
+describe('the motion asked of the worker', () => {
+  /** A client without its worker: the requests it would post, kept, each
+   *  answered when the test says. */
+  function clientOf() {
+    const sent: Record<string, unknown>[] = []
+    const answers: (() => void)[] = []
+    const client = Object.create(MeshWorkerClient.prototype) as MeshWorkerClient
+    Object.assign(client, {
+      nextId: 1,
+      scanVersion: 0,
+      nominalVersion: 0,
+      scanToken: 0,
+      renderParity: true,
+      ready: () => Promise.resolve(),
+      request: (msg: Record<string, unknown>) => {
+        sent.push(msg)
+        return new Promise((resolve) => answers.push(() => resolve({ vectors: new Float32Array(3) })))
+      },
+    })
+    const settle = async () => {
+      await new Promise((r) => setTimeout(r, 0))
+      for (const answer of answers.splice(0)) answer()
+      await new Promise((r) => setTimeout(r, 0))
+    }
+    return { client, sent, settle }
+  }
+  const values = Float32Array.of(0.1)
+  const directions = Int8Array.of(0, 0, 127)
+  const options = { limit: 1, maxDistance: 2, smoothing: 0.5 }
+
+  it('turns away an answer about a scan since moved or replaced', async () => {
+    const { client, settle } = clientOf()
+    const moved = client.deflection(values, directions, options)
+    const movedSettled = expect(moved).rejects.toBeInstanceOf(StaleScan)
+    await new Promise((r) => setTimeout(r, 0))
+    void client.transform(rigidFromAxisAngle([0, 0, 1], 0.5))
+    await settle()
+    await movedSettled
+
+    const replaced = client.deflection(values, directions, options)
+    const replacedSettled = expect(replaced).rejects.toBeInstanceOf(StaleScan)
+    await new Promise((r) => setTimeout(r, 0))
+    void client.commitImport({ scan: 7 })
+    await settle()
+    await replacedSettled
+
+    const kept = client.deflection(values, directions, options)
+    await settle()
+    await expect(kept).resolves.toHaveLength(3)
+  })
+
+  it("sends the viewport's positions only when the worker's may not match them", async () => {
+    const { client, sent, settle } = clientOf()
+    const render = Float32Array.of(1, 2, 3)
+    const a = client.deflection(values, directions, options, () => render)
+    await settle()
+    await a
+    ;(client as unknown as { renderParity: boolean }).renderParity = false
+    const b = client.deflection(values, directions, options, () => render)
+    await settle()
+    await b
+    expect(sent[0].positions).toBeUndefined()
+    expect([...(sent[1].positions as Float32Array)]).toEqual([1, 2, 3])
+    expect(sent[1].positions).not.toBe(render)
+    // A scan put in place is laid out from the worker's own arrays again —
+    // once the commit has landed.
+    const committed = client.commitImport({ scan: 7 })
+    await settle()
+    await committed
+    const c = client.deflection(values, directions, options, () => render)
+    await settle()
+    await c
+    expect(sent.at(-1)!.type).toBe('deflection')
+    expect(sent.at(-1)!.positions).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { beforeEach, describe, expect, it } from 'vitest'
 import { unzipSync } from 'fflate'
-import { manifestText, packProject, unpackProject } from '../src/core/project/archive'
+import { manifestText, packProject, readMembers, unpackProject } from '../src/core/project/archive'
 import {
   alignFromJson,
   alignToJson,
@@ -31,31 +31,31 @@ import { fresh, sources } from './projectKit'
 describe('the project archive', () => {
   beforeEach(fresh)
 
-  it('is a plain zip holding project.json beside the model files', () => {
+  it('is a plain zip holding project.json beside the model files', async () => {
     const { manifest, members } = collectProject(sources(), null, '0.1.0')
-    const bytes = packProject(manifest, members)
+    const bytes = packProject(manifest, await readMembers(members))
     const files = unzipSync(bytes)
     expect(Object.keys(files).sort()).toEqual(['project.json', 'scan.stl'])
-    expect(files['scan.stl']).toEqual(sources().scan.bytes)
+    expect(files['scan.stl']).toEqual(new Uint8Array(await sources().scan.file.arrayBuffer()))
     // The reference and image are only written when something is loaded.
     expect(manifest.deviation.reference).toBeNull()
     expect(manifest.flat.image).toBeNull()
   })
 
-  it('round-trips the manifest and the members', () => {
+  it('round-trips the manifest and the members', async () => {
     useDeviation.setState({ nominalName: 'bracket.step' })
     useFlat.setState({ imageName: 'sheet.png' })
     const { manifest, members } = collectProject(sources(), Uint32Array.from([3, 5, 8]), '0.1.0')
-    const back = unpackProject(packProject(manifest, members))
+    const back = unpackProject(packProject(manifest, await readMembers(members)))
     expect(back.manifest).toEqual(JSON.parse(JSON.stringify(manifest)))
     expect(back.manifest.deviation.scope).toEqual([3, 5, 8])
     expect(back.manifest.deviation.reference?.member).toBe('reference.step')
     expect(back.manifest.flat.image?.member).toBe('image.png')
     expect([...back.members.keys()].sort()).toEqual(['image.png', 'reference.step', 'scan.stl'])
-    expect(back.members.get('reference.step')).toEqual(sources().reference.bytes)
+    expect(back.members.get('reference.step')).toEqual(new Uint8Array(await sources().reference.file.arrayBuffer()))
   })
 
-  it('remembers what units a mesh was read in, and only when not millimetres', () => {
+  it('remembers what units a mesh was read in, and only when not millimetres', async () => {
     useDeviation.setState({ nominalName: 'bracket.step' })
     const inMm = collectProject(sources(), null, '0.1.0').manifest
     expect(inMm.scan).not.toHaveProperty('units')
@@ -68,7 +68,7 @@ describe('the project archive', () => {
     )
     expect(scaled.manifest.scan).not.toHaveProperty('units')
     expect(scaled.manifest.deviation.reference?.units).toBe('in')
-    const back = unpackProject(packProject(scaled.manifest, scaled.members))
+    const back = unpackProject(packProject(scaled.manifest, await readMembers(scaled.members)))
     expect(back.manifest.deviation.reference?.units).toBe('in')
     const inches = collectProject({ ...src, scan: { ...src.scan, units: 'in' } }, null, '0.1.0').manifest
     expect(inches.scan?.units).toBe('in')
@@ -76,7 +76,7 @@ describe('the project archive', () => {
     expect(() => validateManifest({ ...scaled.manifest, deviation: { ...scaled.manifest.deviation, reference: { ...scaled.manifest.deviation.reference, units: 3 } } })).toThrow('deviation.reference.units')
   })
 
-  it('keeps the files a textured scan came with, under the names they came under', () => {
+  it('keeps the files a textured scan came with, under the names they came under', async () => {
     const src = sources()
     const mtl = new TextEncoder().encode('newmtl a\nmap_Kd Skin.png\n')
     const png = new Uint8Array([137, 80, 78, 71])
@@ -86,14 +86,14 @@ describe('the project archive', () => {
       { fileName: 'part.mtl', member: 'scan-1.mtl' },
       { fileName: 'Skin.png', member: 'scan-2.png' },
     ])
-    const back = unpackProject(packProject(manifest, members))
+    const back = unpackProject(packProject(manifest, await readMembers(members)))
     expect(back.manifest.scan?.companions).toEqual(manifest.scan?.companions)
     expect(back.members.get('scan-1.mtl')).toEqual(mtl)
     expect(back.members.get('scan-2.png')).toEqual(png)
     // A plain scan says nothing of them, and a member that is not there is
     // refused like the scan's own.
     expect(collectProject(src, null, '0.1.0').manifest.scan).not.toHaveProperty('companions')
-    const lost = members.filter((m) => m.name !== 'scan-2.png')
+    const lost = (await readMembers(members)).filter((m) => m.name !== 'scan-2.png')
     expect(() => unpackProject(packProject(manifest, lost))).toThrow('scan-2.png')
     expect(() => validateManifest({ ...manifest, scan: { ...manifest.scan, companions: [{ fileName: 'x.png', member: '../x.png' }] } })).toThrow('scan.companions')
   })

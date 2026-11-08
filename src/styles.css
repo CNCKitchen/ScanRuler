@@ -462,40 +462,69 @@ button.primary:hover:not(:disabled) {
    busy lamp runs at — so the guidance reads as a lamp rather than as another
    piece of the control. It stands off by a couple of pixels rather than hugging
    the control, because that strip of background is what makes it a ring. */
-.pulse::after {
+.pulse::after,
+.pulse::before {
   content: '';
   position: absolute;
   inset: -4px;
-  border: 2px solid #e8a33d;
   border-radius: 6px;
   pointer-events: none;
+}
+
+.pulse::after {
+  border: 2px solid #e8a33d;
   animation: pulsering 1.6s ease-out infinite;
 }
 
-.pulse:disabled::after {
+/* The halo is its own element with a static shadow, so that both layers can
+   be animated on the compositor: a box-shadow or border-color keyframe
+   repaints the control's neighbourhood every frame for as long as the hint is
+   showing, where opacity and scale are only a change of the layer's matrix. */
+.pulse::before {
+  box-shadow: 0 0 0 7px rgba(232, 163, 61, 0.5);
+  opacity: 0;
+  animation: pulsehalo 1.6s ease-out infinite;
+}
+
+.pulse:disabled::after,
+.pulse:disabled::before {
   display: none;
 }
 
 /* An annunciator ping: the ring comes up to full, then throws a halo outward
-   off its own edge as it settles back. Colour and halo are animated rather
-   than opacity, so the two peak together instead of the ring dimming the very
-   halo it is throwing — and the halo is spread on a shadow rather than a
-   second element, so nothing around the control moves. */
+   off its own edge as it settles back. The ring only changes opacity, and the
+   halo swells and fades, so the two peak together instead of the ring dimming
+   the very halo it is throwing — and nothing around the control moves. */
 @keyframes pulsering {
   0%,
   100% {
-    border-color: rgba(232, 163, 61, 0.5);
-    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0);
+    opacity: 0.5;
   }
 
   35% {
-    border-color: rgba(232, 163, 61, 1);
-    box-shadow: 0 0 0 0 rgba(232, 163, 61, 0.5);
+    opacity: 1;
   }
 
   75% {
-    border-color: rgba(232, 163, 61, 0.8);
-    box-shadow: 0 0 0 10px rgba(232, 163, 61, 0);
+    opacity: 0.8;
+  }
+}
+
+@keyframes pulsehalo {
+  0%,
+  35%,
+  100% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+
+  55% {
+    opacity: 0.6;
+  }
+
+  75% {
+    opacity: 0;
+    transform: scale(1);
   }
 }
 
@@ -2665,6 +2694,11 @@ button.x:disabled {
   .pulse::after {
     animation: none;
     opacity: 1;
+  }
+
+  .pulse::before {
+    animation: none;
+    display: none;
   }
 }
 

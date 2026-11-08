@@ -11,7 +11,7 @@
 // Env: CHROME (chrome.exe path), APP_URL, SHOT_DIR.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { canvasRect, check, drag, finish, launchApp, loadScan, OUT_DIR, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
+import { canvasRect, check, drag, finish, launchApp, loadScan, OUT_DIR, previewReady, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
 import { noisyBoxScan } from '../../../scripts/e2e-fixtures.mjs'
 
 mkdirSync(OUT_DIR, { recursive: true })
@@ -106,4 +106,80 @@ console.log('flipped marked', patch)
 check((await text('[data-test=pending-edit]')).includes('marked region'), `the list says so: ${await text('[data-test=pending-edit]')}`)
 check(count(await text('[data-test=mark-count]')) === 0, 'the marking goes with it')
 check(patch.mauve > 2000 && patch.mauve < flipped.mauve * 0.8, 'the patch alone shows its back faces')
+
+// ---- the other workspaces' maps, with the flipped copy waiting -------------
+// Leaving Mesh Tools swaps the copy out for the scan before anything paints,
+// and coming back swaps it in before the paint is taken off: the map of the
+// workspace coming is laid on the scan, not on the copy that was on screen a
+// moment before, and the copy comes back bare.
+/** The surface on screen: which of the two it is, whether a map is laid on
+ *  it, and the scan's own colours — wherever it is — summed. */
+const surface = () =>
+  page.evaluate(() => {
+    const scene = window.__scanruler.scene()
+    const edited = scene.showingEdited()
+    const painted = scene.mapPainted().scan
+    // The scan's vertices and colours, whichever slot it is in: both read
+    // the scan's even while the copy is on screen.
+    const n = scene.scanVertexCount()
+    let sum = 0
+    for (let v = 0; v < n; v++) {
+      const [r, g, b] = scene.scanColorAt(v)
+      sum = (sum * 31 + r * 65536 + g * 256 + b) % 2147483647
+    }
+    return { edited, painted, sum }
+  })
+/** Over to a workspace, and the frames after it settled. */
+const toWorkspace = async (id) => {
+  await page.click(`[data-test=workspace-${id}]`)
+  await sleep(800)
+}
+/** A map measured in a workspace, there and back through Mesh Tools. */
+const roundTrip = async (what, workspace) => {
+  const mapped = await surface()
+  console.log(what, 'measured', mapped)
+  check(!mapped.edited && mapped.painted === 'painted' && mapped.sum !== bare.sum, `the ${what} map is painted on the scan`)
+  await toWorkspace('mesh')
+  const inMesh = await surface()
+  check(inMesh.edited && inMesh.painted === null, `Mesh Tools shows the copy, bare of the ${what} map (${inMesh.painted})`)
+  await toWorkspace(workspace)
+  const back = await surface()
+  console.log(what, 'back', back)
+  check(!back.edited && back.painted === 'painted' && back.sum === mapped.sum, `back on ${workspace}, the scan wears the ${what} map again, byte for byte`)
+  await toWorkspace('mesh')
+  const again = await surface()
+  check(again.edited && again.painted === null, `and the copy is still bare of it (${again.painted})`)
+}
+
+await toWorkspace('thickness')
+// The scan as it is with no map on it, to tell one from.
+const bare = await surface()
+await page.click('[data-test=measure-thickness]')
+await page.waitForSelector('[data-test=thickness-legend]', { timeout: 300_000 })
+await page.waitForFunction(() => !document.querySelector('[data-test=fitting-chip]'), { timeout: 300_000 })
+await sleep(800)
+await roundTrip('thickness', 'thickness')
+
+// The deviation from a plane fitted on the box's top, the same way.
+await toWorkspace('elements')
+await page.click('[data-test=fit-plane]')
+let fitted = false
+for (const [fx, fy] of [[0.5, 0.4], [0.46, 0.36], [0.54, 0.44], [0.5, 0.46], [0.5, 0.32]]) {
+  await page.mouse.click(r.x + (r.w - 190) * fx, r.y + r.h * fy)
+  if (await previewReady(page)) {
+    await page.click('[data-test=create-element]')
+    await sleep(400)
+    fitted = true
+    break
+  }
+}
+check(fitted, 'a plane is fitted on the top of the box')
+await toWorkspace('deviation')
+await page.click('[data-test=source-element]')
+await page.waitForSelector('[data-test=target-select]')
+const target = await page.$eval('[data-test=target-select]', (el) => [...el.options].find((o) => /plane/i.test(o.textContent))?.value ?? '')
+await page.select('[data-test=target-select]', target)
+await page.waitForSelector('[data-test=deviation-legend]', { timeout: 60_000 })
+await sleep(800)
+await roundTrip('deviation', 'deviation')
 await finish(browser, consoleErrors)

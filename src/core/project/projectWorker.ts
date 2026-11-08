@@ -2,12 +2,12 @@
 // Deflating a hundred-megabyte scan takes seconds; it happens off the main
 // thread so the viewport keeps answering while a project is written or read.
 
-import { packProject, unpackProject, type ArchiveMember } from './archive'
+import { packProject, unpackProject, type ArchiveFile } from './archive'
 import type { ProjectManifest } from './manifest'
 import { reply } from '../workerRpc'
 
 export type ProjectWorkerRequest =
-  | { type: 'pack'; requestId: number; manifest: ProjectManifest; members: ArchiveMember[] }
+  | { type: 'pack'; requestId: number; manifest: ProjectManifest; members: ArchiveFile[] }
   | { type: 'unpack'; requestId: number; bytes: Uint8Array }
 
 export type ProjectWorkerResponse =

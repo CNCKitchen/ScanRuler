@@ -16,6 +16,7 @@ import { applyFinish, setSurfaceColor, type ViewTheme } from '../../../src/viewe
 import { patchWireframe, setSurfaceOpacity } from '../../../src/viewer/surfaceModes'
 import { CAP_SLOT, CapSet, cutColor, type CapPart } from '../../../src/viewer/sliceCap'
 import { clipTree } from '../../../src/viewer/clipTree'
+import { refitAfterRigid } from '../../../src/viewer/bvh'
 import { paintField, type Colormap, type FieldScale } from '../../../src/core/field/colormap'
 import type { SectionFrame } from '../../../src/core/section/frame'
 
@@ -217,10 +218,7 @@ export class MeshScene {
           rigidApplyToPoints(m, at.array as Float32Array)
           at.needsUpdate = true
           if (geometry.getAttribute('normal')) geometry.computeVertexNormals()
-          geometry.computeBoundingBox()
-          geometry.computeBoundingSphere()
-          geometry.disposeBoundsTree?.()
-          geometry.computeBoundsTree()
+          refitAfterRigid(geometry)
         }
         const solids = new Set(this.booleanSolids.flatMap((d) => [d.fill.geometry, d.edges.geometry]))
         for (const geometry of [...this.islandGeometries(), ...solids]) {

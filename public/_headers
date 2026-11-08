@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Response headers for every asset Cloudflare serves from dist/.
+#
+# Content-Security-Policy, by directive:
+#   script-src  own bundle only; 'wasm-unsafe-eval' lets the workers compile
+#               manifold-3d and occt-wasm. Workers inherit it from their own
+#               response, which this same rule covers.
+#   style-src   'unsafe-inline' for the inline <style> in index.html.
+#   img-src     data: and blob: for textures, thumbnails and exports.
+#   connect-src https: for the file store (VITE_FILES_URL) and any ?open= link;
+#               127.0.0.1 / localhost on any port for the agent link (mcp/).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https: data: blob: http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# The Reverse engineer's CAD kernel (occt-wasm, an Emscripten build) generates
+# its bindings with new Function, so only the two worker scripts that load it
+# get 'unsafe-eval'. A worker takes its policy from its own response; the page
+# keeps the strict one. `!` drops the policy from the rule above first, since
+# two values for one header would be joined into a second, stricter policy.
+/assets/reWorker-*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; connect-src 'self' data: blob:; object-src 'none'; base-uri 'self'
+/assets/reHelperWorker-*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; connect-src 'self' data: blob:; object-src 'none'; base-uri 'self'

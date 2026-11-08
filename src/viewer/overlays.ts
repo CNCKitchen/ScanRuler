@@ -13,6 +13,7 @@ import type { FitData, Vec3 } from '../core/types'
 import type { PickMarker } from './PickScene'
 import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 import { frameQuaternion } from './frameBasis'
+import { unclip } from './clipTree'
 import { pinLabel, pinValue, type PinVerdict } from './pinLabel'
 export { pinLabel, type PinVerdict } from './pinLabel'
 
@@ -147,6 +148,49 @@ function ownedGeometry(mesh: THREE.Mesh): THREE.BufferGeometry | undefined {
   return mesh.userData.ownedGeometry as THREE.BufferGeometry | undefined
 }
 
+/** What one element's marks are drawn with, kept for as long as the element
+ *  exists, drawn or not. A material let go takes its shader program with it
+ *  once nothing else holds that program, and the next one drawn compiles it
+ *  again in the middle of whatever tap asked for it. So a rebuild sets the
+ *  colour and the opacity of what it finds here and makes only what is
+ *  missing. Nothing else about these materials ever changes — the flags that
+ *  pick a program are fixed where they are made — so none of this needs a new
+ *  program. */
+interface ElementMaterials {
+  shell?: THREE.MeshStandardMaterial
+  dot?: THREE.MeshBasicMaterial
+  guide?: THREE.LineBasicMaterial
+  outline?: THREE.LineBasicMaterial
+}
+
+/** Everything updateOverlays reads, kept to tell whether the next call would
+ *  draw the same thing. */
+interface OverlayInput {
+  elements: readonly OverlayElement[]
+  pairs: readonly OverlayPair[]
+  angles: readonly OverlayAngle[]
+  tags: readonly OverlayTag[]
+  visible: boolean
+}
+
+/** Whether two plain values — numbers, strings, flags, and arrays and objects
+ *  of them — say the same. The overlay input is built afresh on every
+ *  update, so what matters is what it says and not which object says it. A
+ *  difference this cannot see (a NaN, a key held as undefined) reads as a
+ *  change, which only costs a rebuild. Plain data only: a Map, a Set or a
+ *  Date has no keys to read and would always pass for the same. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  const x = a as Record<string, unknown>
+  const y = b as Record<string, unknown>
+  const keys = Object.keys(x)
+  if (keys.length !== Object.keys(y).length) return false
+  for (const k of keys) if (!(k in y) || !sameData(x[k], y[k])) return false
+  return true
+}
+
 /** What the overlays need from the viewport around them. */
 export interface OverlaysContext {
   partGroup: THREE.Group
@@ -214,13 +258,21 @@ export class Overlays {
    *  materials to restyle when that element is selected. */
   private overlayPickables: THREE.Mesh[] = []
   private shellMaterials = new Map<number, { material: THREE.MeshStandardMaterial; color: string }>()
+  /** The materials of every element that exists — see ElementMaterials. */
+  private elementMaterials = new Map<number, ElementMaterials>()
+  /** The same for the marks that are alike for every element: the callout
+   *  lines, and the white strokes of a selection, which are rebuilt on every
+   *  hover and every change of zoom. */
+  private calloutMaterial: THREE.LineBasicMaterial | null = null
+  private strokeMaterials: { hull?: THREE.MeshBasicMaterial; frame?: THREE.MeshBasicMaterial } = {}
+  /** What was last drawn, and whether something has moved the overlays since
+   *  without going through updateOverlays — see setShown. */
+  private lastInput: OverlayInput | null = null
+  private touched = false
   /** The scheme's colours for the marks that carry no reading of their own —
    *  callout lines, the ghost of a pending fit. Element tints, and the labels'
    *  CSS, are not the theme's to touch. */
   private accents: ViewTheme['accents'] = DEFAULT_THEME.accents
-  /** The callout materials on screen, kept so a scheme switch can recolour
-   *  them in place instead of waiting for the next rebuild. */
-  private calloutMaterials: THREE.LineBasicMaterial[] = []
   private highlightIds = new Set<number>()
   private lastOverlayElements: OverlayElement[] = []
   private previewShape: THREE.Mesh | null = null
@@ -272,6 +324,9 @@ export class Overlays {
    *  pending fit, which are elements too. The next updateOverlays sets it
    *  again as the workspace has it. */
   setShown(on: boolean): void {
+    // What is on screen no longer says what the last update asked for, so the
+    // next update must be drawn even if it asks for the same again.
+    this.touched = true
     this.overlayGroup.visible = on
     this.selectionGroup.visible = on
     this.previewGroup.visible = on
@@ -283,13 +338,33 @@ export class Overlays {
     return this.overlayGroup.visible ? [...this.overlayPickables] : []
   }
 
+  /**
+   * Draw the elements, the dimensions between them and the pins of both, or
+   * put them away.
+   *
+   * `existing` names every element that still exists, drawn or not: the
+   * materials of those are kept for the next time they are drawn (see
+   * ElementMaterials), and only an element's own going releases its
+   * materials. Left out, the elements given are all that exist.
+   *
+   * An update that would draw what is already drawn is not drawn again.
+   * Returns whether it drew. The arrays must not be changed afterwards.
+   */
   updateOverlays(
     elements: OverlayElement[],
     pairs: OverlayPair[],
     angles: OverlayAngle[],
     tags: OverlayTag[],
     visible: boolean,
-  ): void {
+    existing?: ReadonlySet<number>,
+  ): boolean {
+    const keep = new Set(existing)
+    for (const el of elements) keep.add(el.id)
+    this.releaseMaterials(keep)
+    const input: OverlayInput = { elements, pairs, angles, tags, visible }
+    if (!this.touched && this.lastInput && sameData(this.lastInput, input)) return false
+    this.lastInput = input
+    this.touched = false
     this.ctx.invalidate()
     for (const fn of this.overlayCleanup) fn()
     this.overlayCleanup = []
@@ -298,33 +373,28 @@ export class Overlays {
     this.overlayGroup.clear()
     this.overlayPickables = []
     this.shellMaterials.clear()
-    this.calloutMaterials = []
     this.overlayGroup.visible = visible
     this.selectionGroup.visible = true
     this.previewGroup.visible = true
     this.lastOverlayElements = visible ? elements : []
     if (!visible) {
       this.rebuildSelectionOutlines()
-      return
+      return true
     }
 
     for (const el of elements) {
+      const mats = this.materialsOf(el.id)
       if (el.style === 'outline') {
-        const outline = this.buildOutline(el.fit, el.color, el.muted === true)
-        if (outline) {
-          this.overlayGroup.add(outline.line)
-          this.overlayCleanup.push(outline.dispose)
-        }
+        const outline = this.buildOutline(el.fit, el.color, el.muted === true, mats)
+        if (outline) this.overlayGroup.add(outline)
       } else {
         // The fitted element itself stays on screen — translucent and without
         // depth writes so the scan surface, centre marker and distance lines
         // stay readable through it. The polygon offset is what keeps it from
         // fighting the depth buffer along a surface it was fitted to and lies
         // exactly on: coplanar with the scan, the two would stripe.
-        const shell = new THREE.MeshStandardMaterial({
-          color: el.color,
+        const shell = (mats.shell ??= new THREE.MeshStandardMaterial({
           transparent: true,
-          opacity: el.muted ? 0.22 : 0.3,
           depthWrite: false,
           polygonOffset: true,
           polygonOffsetFactor: -1,
@@ -332,7 +402,10 @@ export class Overlays {
           roughness: 0.4,
           metalness: 0,
           side: THREE.DoubleSide,
-        })
+        }))
+        unclip(shell)
+        shell.color.set(el.color)
+        shell.opacity = el.muted ? 0.22 : 0.3
         const shape = this.buildShape(el.fit, shell)
         this.holdShape(this.overlayHeld, shape, el.fit)
         shape.userData.elementId = el.id
@@ -341,24 +414,21 @@ export class Overlays {
         const entry = { material: shell, color: el.color }
         this.shellMaterials.set(el.id, entry)
         this.applyHighlight(el.id, entry)
-        this.overlayCleanup.push(() => {
-          shell.dispose()
-          ownedGeometry(shape)?.dispose()
-        })
+        this.overlayCleanup.push(() => ownedGeometry(shape)?.dispose())
       }
 
-      const dotMat = new THREE.MeshBasicMaterial({ color: el.color })
+      const dotMat = (mats.dot ??= new THREE.MeshBasicMaterial())
+      unclip(dotMat).color.set(el.color)
       const marker = new THREE.Mesh(this.unitSphere, dotMat)
       marker.position.set(...el.fit.center)
       this.hold(this.overlayHeld, () => marker.scale.setScalar(this.px(CENTRE_PX)))
       marker.userData.elementId = el.id
       this.overlayGroup.add(marker)
       this.overlayPickables.push(marker)
-      this.overlayCleanup.push(() => dotMat.dispose())
 
       // The line a cylinder is measured along, and the direction a plane
       // faces, are results in their own right — both get drawn.
-      const guide = this.buildGuide(el.fit, el.color)
+      const guide = this.buildGuide(el.fit, el.color, mats)
       if (guide) {
         this.overlayGroup.add(guide.line)
         this.overlayCleanup.push(guide.dispose)
@@ -375,17 +445,8 @@ export class Overlays {
         new THREE.Vector3(...p.a),
         new THREE.Vector3(...p.b),
       ])
-      const mat = new THREE.LineBasicMaterial({
-        color: this.accents.callout,
-        transparent: true,
-        opacity: 0.8,
-      })
-      this.calloutMaterials.push(mat)
-      this.overlayGroup.add(new THREE.Line(geo, mat))
-      this.overlayCleanup.push(() => {
-        geo.dispose()
-        mat.dispose()
-      })
+      this.overlayGroup.add(new THREE.Line(geo, this.calloutMaterialOf()))
+      this.overlayCleanup.push(() => geo.dispose())
 
       const label = pinLabel('distance-label', p.title, p.value, undefined, p)
       label.position.set((p.a[0] + p.b[0]) / 2, (p.a[1] + p.b[1]) / 2, (p.a[2] + p.b[2]) / 2)
@@ -396,6 +457,58 @@ export class Overlays {
     for (const a of angles) this.addAngle(a)
     for (const t of tags) this.addTag(t)
     this.rebuildSelectionOutlines()
+    return true
+  }
+
+  /** What an element's marks are drawn with: the one set it has had since it
+   *  was first drawn, or a new one. */
+  private materialsOf(id: number): ElementMaterials {
+    let mats = this.elementMaterials.get(id)
+    if (!mats) this.elementMaterials.set(id, (mats = {}))
+    return mats
+  }
+
+  /** Let go of the materials of every element not in `keep`. */
+  private releaseMaterials(keep: ReadonlySet<number>): void {
+    for (const [id, mats] of this.elementMaterials) {
+      if (keep.has(id)) continue
+      for (const m of Object.values(mats)) m.dispose()
+      this.elementMaterials.delete(id)
+    }
+  }
+
+  /** The callout lines are alike, so every one of them wears the same
+   *  material: the scheme's colour. */
+  private calloutMaterialOf(): THREE.LineBasicMaterial {
+    this.calloutMaterial ??= new THREE.LineBasicMaterial({
+      color: this.accents.callout,
+      transparent: true,
+      opacity: 0.8,
+    })
+    return unclip(this.calloutMaterial)
+  }
+
+  /** The white of a selection's stroke, the same for every element it
+   *  surrounds: the hull of a volume, or the frame of a flat patch. */
+  private strokeMaterialOf(kind: 'hull' | 'frame'): THREE.MeshBasicMaterial {
+    this.strokeMaterials[kind] ??=
+      kind === 'hull'
+        ? new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.BackSide,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+          })
+        : new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.9,
+            depthWrite: false,
+            depthTest: false,
+          })
+    return unclip(this.strokeMaterials[kind]!)
   }
 
   /** A pin beside the feature, floated off it the way its name tag is; the
@@ -412,13 +525,7 @@ export class Overlays {
     const vertex = new THREE.Vector3(...a.vertex)
     const dirA = new THREE.Vector3(...a.dirA).normalize()
     const dirB = new THREE.Vector3(...a.dirB).normalize()
-    const mat = new THREE.LineBasicMaterial({
-      color: this.accents.callout,
-      transparent: true,
-      opacity: 0.8,
-    })
-    this.calloutMaterials.push(mat)
-    this.overlayCleanup.push(() => mat.dispose())
+    const mat = this.calloutMaterialOf()
 
     // Drawn out to 1 about the vertex, and scaled to its reach on the screen.
     const fan = new THREE.Group()
@@ -469,7 +576,7 @@ export class Overlays {
    *  screen, not wait for the next rebuild. */
   setTheme(theme: ViewTheme): void {
     this.accents = theme.accents
-    for (const mat of this.calloutMaterials) mat.color.setHex(theme.accents.callout)
+    this.calloutMaterial?.color.setHex(theme.accents.callout)
     if (this.previewShape)
       (this.previewShape.material as THREE.MeshStandardMaterial).color.setHex(theme.accents.ghost)
     this.ctx.invalidate()
@@ -526,33 +633,16 @@ export class Overlays {
       hole.closePath()
       shape.holes.push(hole)
       const geo = new THREE.ShapeGeometry(shape)
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.9,
-        depthWrite: false,
-        depthTest: false,
-      })
-      const mesh = new THREE.Mesh(geo, mat)
+      const mesh = new THREE.Mesh(geo, this.strokeMaterialOf('frame'))
       mesh.quaternion.copy(frameQuaternion(fit))
       mesh.position.set(...fit.center)
       mesh.renderOrder = 3
       this.selectionGroup.add(mesh)
-      this.selectionCleanup.push(() => {
-        geo.dispose()
-        mat.dispose()
-      })
+      this.selectionCleanup.push(() => geo.dispose())
       return
     }
 
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      side: THREE.BackSide,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-    })
+    const mat = this.strokeMaterialOf('hull')
 
     if (fit.kind === 'cone') {
       // The stroke has to grow both radii by the same margin, which no scale
@@ -572,10 +662,7 @@ export class Overlays {
         new THREE.Vector3(...fit.axis).normalize(),
       )
       this.selectionGroup.add(mesh)
-      this.selectionCleanup.push(() => {
-        geo.dispose()
-        mat.dispose()
-      })
+      this.selectionCleanup.push(() => geo.dispose())
       return
     }
 
@@ -587,10 +674,7 @@ export class Overlays {
       mesh.position.set(...fit.center)
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...fit.axis).normalize())
       this.selectionGroup.add(mesh)
-      this.selectionCleanup.push(() => {
-        geo.dispose()
-        mat.dispose()
-      })
+      this.selectionCleanup.push(() => geo.dispose())
       return
     }
 
@@ -607,10 +691,7 @@ export class Overlays {
       mesh.scale.set(r, Math.max(fit.length * 1.05, 1e-5) + 2 * t, r)
     }
     this.selectionGroup.add(mesh)
-    this.selectionCleanup.push(() => {
-      mat.dispose()
-      ownedGeometry(mesh)?.dispose()
-    })
+    this.selectionCleanup.push(() => ownedGeometry(mesh)?.dispose())
   }
 
   /** A ring of unit radius about Z, to be scaled to `radius`, whose tube is
@@ -800,11 +881,7 @@ export class Overlays {
    *  Muted is an element merely on offer rather than the one in use: the same
    *  border, drawn back, so which of them the reading is measured against is
    *  still legible at a glance. */
-  private buildOutline(
-    fit: FitData,
-    color: string,
-    muted = false,
-  ): { line: THREE.LineSegments; dispose: () => void } | null {
+  private buildOutline(fit: FitData, color: string, muted: boolean, mats: ElementMaterials): THREE.LineSegments | null {
     const edges =
       fit.kind === 'plane'
         ? this.unitPlaneEdges
@@ -812,20 +889,21 @@ export class Overlays {
           ? this.unitCylinderEdges
           : null
     if (!edges) return null
-    const material = new THREE.LineBasicMaterial({
-      color,
+    const material = (mats.outline ??= new THREE.LineBasicMaterial({
       transparent: true,
-      opacity: muted ? 0.5 : 0.95,
       depthWrite: false,
       depthTest: false,
-    })
+    }))
+    unclip(material)
+    material.color.set(color)
+    material.opacity = muted ? 0.5 : 0.95
     const line = new THREE.LineSegments(edges, material)
     const placed = this.buildShape(fit, material)
     line.position.copy(placed.position)
     line.quaternion.copy(placed.quaternion)
     line.scale.copy(placed.scale)
     line.renderOrder = 3
-    return { line, dispose: () => material.dispose() }
+    return line
   }
 
   /** How far off the element's centre its label should float.
@@ -875,7 +953,7 @@ export class Overlays {
 
   /** A cylinder's axis, or a plane's or circle's normal, drawn as a line from
    *  the centre. */
-  private buildGuide(fit: FitData, color: string): { line: THREE.Line; dispose: () => void } | null {
+  private buildGuide(fit: FitData, color: string, mats: ElementMaterials): { line: THREE.Line; dispose: () => void } | null {
     if (fit.kind === 'sphere' || fit.kind === 'point' || fit.kind === 'line') return null
     const center = new THREE.Vector3(...fit.center)
     let a: THREE.Vector3
@@ -901,14 +979,9 @@ export class Overlays {
       b = center.clone().addScaledVector(dir, Math.max(fit.extentU, fit.extentV) * 0.35)
     }
     const geo = new THREE.BufferGeometry().setFromPoints([a, b])
-    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 })
-    return {
-      line: new THREE.Line(geo, mat),
-      dispose: () => {
-        geo.dispose()
-        mat.dispose()
-      },
-    }
+    const mat = (mats.guide ??= new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9 }))
+    unclip(mat).color.set(color)
+    return { line: new THREE.Line(geo, mat), dispose: () => geo.dispose() }
   }
 
   /** Translucent ghost of the element a pending fit produced. */
@@ -1189,7 +1262,12 @@ export class Overlays {
   }
 
   dispose(): void {
+    this.lastInput = null
     this.updateOverlays([], [], [], [], false)
+    this.calloutMaterial?.dispose()
+    this.calloutMaterial = null
+    for (const m of Object.values(this.strokeMaterials)) m.dispose()
+    this.strokeMaterials = {}
     this.setPreview(null)
     this.setProbes([])
     this.setPickMarkers([])

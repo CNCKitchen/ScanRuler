@@ -13,9 +13,46 @@
 /** Sub-pixel distances two labels may still be apart and count as clear. */
 const SLACK = 1e-6
 
+/** Each label's size as last measured, with the text, the classes and the
+ *  font generation it was measured with. A label's offsetWidth read after
+ *  the renderer has just written every label's transform is a forced layout
+ *  pass — every frame the view moves, for sizes that only change when the
+ *  text does. So a label is measured again only when its text or its
+ *  classes changed (an empty note's italic), or a web font arrived and
+ *  swapped in for the fallback it was measured in. A label measured at
+ *  nothing — out of the layout at the time — is not kept, and is measured
+ *  again. */
+const sizes = new WeakMap<HTMLElement, { w: number; h: number; text: string | null; cls: string; fonts: number }>()
+
+/** Bumped whenever the document finishes loading fonts: the self-hosted
+ *  faces swap in over their fallbacks, and every label measured before
+ *  then is the wrong width. */
+let fontGeneration = 0
+if (typeof document !== 'undefined' && document.fonts) {
+  document.fonts.addEventListener('loadingdone', () => {
+    fontGeneration++
+  })
+}
+
+function sizeOf(el: HTMLElement): { w: number; h: number } {
+  const text = el.textContent
+  const cls = el.className
+  const known = sizes.get(el)
+  if (known && known.text === text && known.cls === cls && known.fonts === fontGeneration) return known
+  const measured = { w: el.offsetWidth, h: el.offsetHeight, text, cls, fonts: fontGeneration }
+  if (measured.w > 0 || measured.h > 0) sizes.set(el, measured)
+  return measured
+}
+
 export function spreadLabels(labelDom: HTMLElement, gap = 2): void {
+  // The Labels key off: every tag is out of the layout, and measuring them
+  // would read nothing, every frame.
+  if (labelDom.closest?.('.nolabels')) return
+  // Out of the layout too: a label the renderer put away, and one on the
+  // side the section view cuts away — which would measure at nothing, and
+  // be measured again every frame for it.
   const els = Array.from(labelDom.querySelectorAll<HTMLElement>('.viewport-label')).filter(
-    (el) => el.style.display !== 'none',
+    (el) => el.style.display !== 'none' && !el.classList?.contains('cut-away'),
   )
   if (els.length < 2) {
     for (const el of els) el.style.top = ''
@@ -25,8 +62,7 @@ export function spreadLabels(labelDom: HTMLElement, gap = 2): void {
     const m = /translate\((-?[\d.]+)px,\s*(-?[\d.]+)px\)\s*$/.exec(el.style.transform)
     const cx = m ? parseFloat(m[1]) : 0
     const cy = m ? parseFloat(m[2]) : 0
-    const w = el.offsetWidth
-    const h = el.offsetHeight
+    const { w, h } = sizeOf(el)
     return { el, x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2, dy: 0 }
   })
   boxes.sort((a, b) => b.y1 - a.y1)

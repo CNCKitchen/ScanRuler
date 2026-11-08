@@ -26,6 +26,40 @@ export interface ClosedShells {
 /** The closed shells of a triangle mesh — `indices` null for a soup, its
  *  triangles three vertices after another. */
 export function closedShells(positions: Float32Array, indices: ArrayLike<number> | null): ClosedShells {
+  const { triangles, corner, id, closedAt } = shellsOf(positions, indices)
+  const closed = new Uint8Array(triangles)
+  let count = 0
+  for (let t = 0; t < triangles; t++) {
+    if (closedAt(id[corner(3 * t)])) {
+      closed[t] = 1
+      count++
+    }
+  }
+  return { closed, count }
+}
+
+/**
+ * The same answer a vertex at a time: 1 for each vertex of a closed shell.
+ * A triangle's shell is each of its corners' shell, so a triangle is closed
+ * when its first corner is — whatever order the triangles are later put in:
+ * a bounds tree built over the mesh reorders its index and never its
+ * vertices. `copyOf` lays the answer over a copy of the mesh split for
+ * shading (see crease.ts) — its vertices, then one for each copy, the
+ * copy's vertex's — which, its corners repeated bit for bit, has the same
+ * shells. A vertex no triangle uses says nothing.
+ */
+export function closedVertices(positions: Float32Array, indices: ArrayLike<number> | null, copyOf: ArrayLike<number> = []): Uint8Array {
+  const { id, closedAt } = shellsOf(positions, indices)
+  const vertexCount = id.length
+  const flags = new Uint8Array(vertexCount + copyOf.length)
+  for (let v = 0; v < vertexCount; v++) flags[v] = closedAt(id[v]) ? 1 : 0
+  for (let k = 0; k < copyOf.length; k++) flags[vertexCount + k] = flags[copyOf[k]]
+  return flags
+}
+
+/** The shells of a mesh, tallied: each vertex's welded id and whether the
+ *  shell a welded vertex lies in is closed. */
+function shellsOf(positions: Float32Array, indices: ArrayLike<number> | null) {
   const vertexCount = Math.floor(positions.length / 3)
   const triangles = Math.floor((indices ? indices.length : vertexCount) / 3)
   const corner = indices ? (i: number) => indices[i] : (i: number) => i
@@ -58,16 +92,11 @@ export function closedShells(positions: Float32Array, indices: ArrayLike<number>
     tally(r, c2, c0)
   }
 
-  const closed = new Uint8Array(triangles)
-  let count = 0
-  for (let t = 0; t < triangles; t++) {
-    const r = sets.find(id[corner(3 * t)])
-    if (lo[r] === 0 && hi[r] === 0) {
-      closed[t] = 1
-      count++
-    }
+  const closedAt = (w: number): boolean => {
+    const r = sets.find(w)
+    return lo[r] === 0 && hi[r] === 0
   }
-  return { closed, count }
+  return { triangles, corner, id, closedAt }
 }
 
 /** Each vertex's welded id: the first vertex with its exact bits — −0 read

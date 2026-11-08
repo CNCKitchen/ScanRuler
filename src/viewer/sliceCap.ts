@@ -3,7 +3,7 @@
 // SceneManager.setSlicePlane and setSectionView.
 
 import * as THREE from 'three'
-import { closedShells } from '../core/geometry/closedShells'
+import { closedShells, type ClosedShells } from '../core/geometry/closedShells'
 import { CAPPED_TRIANGLES } from './clipRaycast'
 import { hatch } from './hatch'
 import { applyFinish, setSurfaceColor, type ViewTheme } from './viewThemes'
@@ -57,14 +57,54 @@ export interface ClosedPart {
  *  nothing. */
 const closedCache = new WeakMap<object, ClosedPart>()
 
-/** The closed shells of a part's geometry — see core/geometry/closedShells. */
+/** The closed shells of a part's geometry — see core/geometry/closedShells.
+ *  Found here, on the main thread, only when nothing primed them (see
+ *  primeClosedPart). */
 export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
   const index = geometry.getIndex()
   const position = geometry.getAttribute('position')
   const key = index ?? position
   const known = closedCache.get(key)
   if (known) return known
-  const shells = closedShells(position.array as Float32Array, index ? index.array : null)
+  const part = partOf(closedShells(position.array as Float32Array, index ? index.array : null), index)
+  closedCache.set(key, part)
+  return part
+}
+
+/**
+ * Keep closed shells found elsewhere as this geometry's — the mesh worker's,
+ * a flag for each vertex (see closedVertices) — so the first cut of a part
+ * loaded does not search it on the main thread. A triangle is read off its
+ * first corner, through the index as it stands now. A part's tree from the
+ * worker is indirect and leaves the index alone (see bvh.ts treeOffThread),
+ * but one built here as a part is laid out again — a resplit, an edit —
+ * reorders its triangles; neither ever moves a vertex. False,
+ * and nothing kept, when the count of flags is not this geometry's count
+ * of vertices. That alone does not prove the flags are this geometry's —
+ * a replacement can have as many — so the caller also checks that the
+ * part and its index are the ones the flags were asked for.
+ */
+export function primeClosedPart(geometry: THREE.BufferGeometry, vertices: Uint8Array): boolean {
+  const index = geometry.getIndex()
+  const position = geometry.getAttribute('position')
+  if (vertices.length !== position.count) return false
+  const key = index ?? position
+  if (closedCache.has(key)) return true
+  const total = Math.floor((index ? index.count : position.count) / 3)
+  const closed = new Uint8Array(total)
+  let count = 0
+  for (let t = 0; t < total; t++) {
+    if (vertices[index ? index.getX(3 * t) : 3 * t] !== 1) continue
+    closed[t] = 1
+    count++
+  }
+  closedCache.set(key, partOf({ closed, count }, index))
+  return true
+}
+
+/** The closed shells of a part with the index of their corners, when they
+ *  are not all of it. */
+function partOf(shells: ClosedShells, index: THREE.BufferAttribute | null): ClosedPart {
   const total = shells.closed.length
   let subset: Uint32Array | null = null
   if (shells.count > 0 && shells.count < total) {
@@ -75,9 +115,7 @@ export function closedPartOf(geometry: THREE.BufferGeometry): ClosedPart {
       for (let c = 0; c < 3; c++) subset[k++] = index ? index.getX(3 * t + c) : 3 * t + c
     }
   }
-  const part = { closed: shells.closed, count: shells.count, total, index: subset }
-  closedCache.set(key, part)
-  return part
+  return { closed: shells.closed, count: shells.count, total, index: subset }
 }
 
 export interface SliceCapOptions {
