@@ -67,10 +67,14 @@ export function evaluateFlatSource(
   fitOf: (id: number) => FlatFit | null,
 ): FlatFit {
   if (source.type === 'picks') {
-    return evaluateFlatPicks(source.method, picksToDocument(source.picks, pxPerMm), {
-      tangents: tangentsToDocument(source.tangents, pxPerMm),
-      closed: source.closed,
-    })
+    // A pixel's size on the sheet, its longer side where the two differ.
+    const pixel = pxPerMm ? Math.max(1 / pxPerMm.x, 1 / pxPerMm.y) : 1
+    return evaluateFlatPicks(
+      source.method,
+      picksToDocument(source.picks, pxPerMm),
+      { tangents: tangentsToDocument(source.tangents, pxPerMm), closed: source.closed },
+      pixel,
+    )
   }
   const refs = source.refs.map((id) => {
     const fit = fitOf(id)

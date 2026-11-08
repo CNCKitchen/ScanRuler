@@ -143,10 +143,13 @@ export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
 const RANSAC_ROUNDS = 96
 /** Inliers lie within this many robust sigmas (1.4826·MAD) of the model. */
 const INLIER_BAND = 3
+/** The least the inlier band shrinks to, in image pixels. */
+const INLIER_FLOOR_PX = 0.35
 
 function consensus(
   points: readonly Vec2[],
   residualsOf: (rand: () => number) => number[] | null,
+  pixel: number,
 ): boolean[] {
   const rand = mulberry32(7)
   let bestMedian = Infinity
@@ -163,13 +166,18 @@ function consensus(
   }
   if (!bestResiduals) return points.map(() => true)
   // A perfectly clean set has a near-zero MAD; the floor keeps subpixel
-  // scatter from being culled as if it were outliers.
-  const band = Math.max(INLIER_BAND * 1.4826 * bestMedian, 0.35)
+  // scatter from being culled as if it were outliers. It is a fraction of
+  // a pixel, so it is taken in pixels: the points are in document units,
+  // millimetres on a calibrated sheet, where 0.35 would keep strays a third
+  // of a millimetre off the edge.
+  const band = Math.max(INLIER_BAND * 1.4826 * bestMedian, INLIER_FLOOR_PX * pixel)
   return bestResiduals.map((r) => Math.abs(r) <= band)
 }
 
-/** Line through region-collected points: consensus first, TLS on what agrees. */
-export function fitLineRegion(points: readonly Vec2[]): FlatLineFit {
+/** Line through region-collected points: consensus first, TLS on what agrees.
+ *  `pixel` is the size of one image pixel in the points' units (1 while the
+ *  sheet has no scale). */
+export function fitLineRegion(points: readonly Vec2[], pixel = 1): FlatLineFit {
   if (points.length < 8) throw new FitError('The region caught too few edge points for a line.')
   const keep = consensus(points, (rand) => {
     const a = points[(rand() * points.length) | 0]
@@ -179,7 +187,7 @@ export function fitLineRegion(points: readonly Vec2[]): FlatLineFit {
     const len = Math.hypot(dx, dy)
     if (len < 1e-9) return null
     return points.map((p) => ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / len)
-  })
+  }, pixel)
   const inliers = points.filter((_, i) => keep[i])
   if (inliers.length < 8) throw new FitError('The region caught too few edge points for a line.')
   return fitLinePoints(inliers)
@@ -197,18 +205,18 @@ function circleResiduals(points: readonly Vec2[], rand: () => number): number[] 
 }
 
 /** Circle through region-collected points, consensus first. */
-export function fitCircleRegion(points: readonly Vec2[]): FlatCircleFit {
+export function fitCircleRegion(points: readonly Vec2[], pixel = 1): FlatCircleFit {
   if (points.length < 12) throw new FitError('The region caught too few edge points for a circle.')
-  const keep = consensus(points, (rand) => circleResiduals(points, rand))
+  const keep = consensus(points, (rand) => circleResiduals(points, rand), pixel)
   const inliers = points.filter((_, i) => keep[i])
   if (inliers.length < 12) throw new FitError('The region caught too few edge points for a circle.')
   return fitCirclePoints(inliers)
 }
 
 /** Arc through region-collected points, consensus first. */
-export function fitArcRegion(points: readonly Vec2[]): FlatArcFit {
+export function fitArcRegion(points: readonly Vec2[], pixel = 1): FlatArcFit {
   if (points.length < 12) throw new FitError('The region caught too few edge points for an arc.')
-  const keep = consensus(points, (rand) => circleResiduals(points, rand))
+  const keep = consensus(points, (rand) => circleResiduals(points, rand), pixel)
   const inliers = points.filter((_, i) => keep[i])
   if (inliers.length < 12) throw new FitError('The region caught too few edge points for an arc.')
   return fitArcPoints(inliers)
