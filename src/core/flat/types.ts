@@ -17,6 +17,10 @@ export interface FlatFitBase {
   sigma: number
   usedPoints: number
   formError?: number
+  /** A circle's or an arc's circularity as the minimum zone (fit/minZone)
+   *  rather than the peak to peak about the fit — what a form tolerance on
+   *  it, lifted into the part, reads. */
+  zoneWidth?: number
 }
 
 /** A reference point: picked on the image, or constructed. */

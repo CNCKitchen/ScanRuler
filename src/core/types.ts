@@ -153,6 +153,12 @@ export interface FitBase {
    *  caliper-style distance range are read from. Absent with `formError`. */
   residualMin?: number
   residualMax?: number
+  /** The minimum-zone width of the used points (see fit/minZone), for a fit
+   *  that keeps no points to read it from later: a circle through picked
+   *  points, or one lifted off a section's sheet. Absent where the points are
+   *  kept — a fitted surface's are read off the scan — and where there are
+   *  no residuals. */
+  zoneWidth?: number
 }
 
 /** A reference point: picked on the scan surface or constructed. */

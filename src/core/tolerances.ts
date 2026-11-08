@@ -13,9 +13,11 @@
 // the derived feature, taken as the fitted straight line over the fitted
 // length. A sphere or a circle stands by its centre. A form tolerance is the
 // minimum zone of the points the fit rests on (fit/minZone), which the
-// least-squares fit's own peak-to-peak only bounds from above; without the
-// points (a circle through picked points, a fit not yet on the scan) it
-// falls back on that peak-to-peak and says so.
+// least-squares fit's own peak-to-peak only bounds from above. A fit that
+// keeps no points (a circle through picked points, or off a section's sheet)
+// carries the zone it took when it was made; one with neither (a fit whose
+// surface is not on the scan yet) falls back on the peak to peak and says
+// so.
 
 import type { DimensionTypeInfo, DimensionValue } from './dimensions'
 import type { ElementKind, FitData, PlaneFit, Vec3 } from './types'
@@ -245,14 +247,18 @@ function formValue(
       label,
       'The element carries no form error: it was constructed, not measured on the scan.',
     )
-  const width = surface ? zoneWidth(fit, surface) : null
+  // Off the points the fit kept on the scan; else as the fit took it, for
+  // one that keeps no points (picked, or off a section's sheet).
+  const fromSurface = surface ? zoneWidth(fit, surface) : null
+  const width = fromSurface ?? fit.zoneWidth ?? null
   if (width !== null) {
+    const points = fromSurface !== null ? Math.floor(surface!.length / 3) : fit.usedPoints
     return {
       label,
       value: fmtLen(width, units, 3),
       raw: width,
       anchor: fit.center,
-      detail: `Minimum zone · ${Math.floor(surface!.length / 3).toLocaleString('en-US')} points · ${fmtLen(fit.formError, units, 3)} peak to peak about the best fit`,
+      detail: `Minimum zone · ${points.toLocaleString('en-US')} points · ${fmtLen(fit.formError, units, 3)} peak to peak about the best fit`,
     }
   }
   return {

@@ -7,6 +7,7 @@
 
 import { fitCircle2d } from '../fit/circle2d'
 import { FitError } from '../fit/errors'
+import { minimumZone } from '../fit/minZone'
 import { mulberry32 } from '../fit/ransac'
 import type { FlatArcFit, FlatCircleFit, FlatLineFit, FlatPointFit, Vec2 } from './types'
 
@@ -110,11 +111,19 @@ function circleWithResiduals(points: readonly Vec2[], what: string) {
     if (e > eMax) eMax = e
     sumSq += e * e
   }
-  return { fit, sigma: Math.sqrt(sumSq / n), formError: eMax - eMin }
+  // The circularity a tolerance reads: the narrowest pair of concentric
+  // circles that holds the points, from the fit's centre.
+  const flat = new Float64Array(n * 3)
+  for (let i = 0; i < n; i++) {
+    flat[i * 3] = pu[i]
+    flat[i * 3 + 1] = pv[i]
+  }
+  const zone = minimumZone(flat, { kind: 'circle', center: [fit.cu, fit.cv, 0], normal: [0, 0, 1] })
+  return { fit, sigma: Math.sqrt(sumSq / n), formError: eMax - eMin, zoneWidth: zone?.width }
 }
 
 export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
-  const { fit, sigma, formError } = circleWithResiduals(points, 'circle')
+  const { fit, sigma, formError, zoneWidth } = circleWithResiduals(points, 'circle')
   return {
     kind: 'circle',
     center: [fit.cu, fit.cv],
@@ -122,6 +131,7 @@ export function fitCirclePoints(points: readonly Vec2[]): FlatCircleFit {
     sigma,
     usedPoints: points.length,
     formError,
+    ...(zoneWidth !== undefined ? { zoneWidth } : {}),
   }
 }
 
@@ -215,7 +225,7 @@ export function fitArcRegion(points: readonly Vec2[]): FlatArcFit {
 }
 
 export function fitArcPoints(points: readonly Vec2[]): FlatArcFit {
-  const { fit, sigma, formError } = circleWithResiduals(points, 'arc')
+  const { fit, sigma, formError, zoneWidth } = circleWithResiduals(points, 'arc')
   const angles = points
     .map((p) => Math.atan2(p[1] - fit.cv, p[0] - fit.cu))
     .sort((a, b) => a - b)
@@ -237,5 +247,6 @@ export function fitArcPoints(points: readonly Vec2[]): FlatArcFit {
     sigma,
     usedPoints: points.length,
     formError,
+    ...(zoneWidth !== undefined ? { zoneWidth } : {}),
   }
 }

@@ -8,6 +8,7 @@ import type { CircleFit, Vec3 } from '../types'
 import { fitCircle2d } from './circle2d'
 import { FitError } from './errors'
 import { orthoBasis, symmetricEigen3 } from './linalg'
+import { minimumZone } from './minZone'
 
 /**
  * The best-fit circle through the given points.
@@ -98,13 +99,17 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     sumSq += er * er + ph[i] * ph[i]
   }
 
+  const center: Vec3 = [
+    mx + cu * u[0] + cv * v[0],
+    my + cu * u[1] + cv * v[1],
+    mz + cu * u[2] + cv * v[2],
+  ]
+  // The picks are not kept with the element, so their circularity as the
+  // narrowest pair of concentric circles in the plane is taken now.
+  const zone = minimumZone(Float64Array.from(points.flat()), { kind: 'circle', center, normal })
   return {
     kind: 'circle',
-    center: [
-      mx + cu * u[0] + cv * v[0],
-      my + cu * u[1] + cv * v[1],
-      mz + cu * u[2] + cv * v[2],
-    ],
+    center,
     normal,
     radius: r,
     sigma: Math.sqrt(sumSq / n),
@@ -113,5 +118,6 @@ export function circleFromPoints(points: Vec3[]): CircleFit {
     formError: maxR - minR,
     residualMin: minR,
     residualMax: maxR,
+    ...(zone ? { zoneWidth: zone.width } : {}),
   }
 }

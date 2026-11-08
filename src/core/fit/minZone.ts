@@ -22,6 +22,9 @@ import { orthoBasis } from './linalg'
 
 export type ZoneShape =
   | { kind: 'plane'; center: Vec3; normal: Vec3 }
+  /** A circle in the plane through `center` square to `normal`: the zone is
+   *  two concentric circles in that plane, the points read in it. */
+  | { kind: 'circle'; center: Vec3; normal: Vec3 }
   | { kind: 'sphere'; center: Vec3 }
   | { kind: 'cylinder'; center: Vec3; axis: Vec3 }
 
@@ -75,7 +78,9 @@ export function minimumZone(points: Float32Array | Float64Array, shape: ZoneShap
   // Initial steps: a tilt that moves the far points by about the width, an
   // offset of about the width.
   const steps = new Float64Array(dims)
-  for (let d = 0; d < dims; d++) steps[d] = shape.kind === 'sphere' || d >= 2 ? start : start / reach
+  // The plane's and the cylinder's first two parameters are tilts.
+  const tilts = shape.kind === 'plane' ? 2 : shape.kind === 'cylinder' ? 2 : 0
+  for (let d = 0; d < dims; d++) steps[d] = d < tilts ? start / reach : start
 
   let set = edges(res, n, new Set<number>())
   let best = start
@@ -134,6 +139,26 @@ function model(shape: ZoneShape, p: Float64Array): { dims: number; residuals: Re
         for (let k = 0; k < idx.length; k++) {
           const i = idx[k] * 3
           out[k] = Math.hypot(p[i] - x[0], p[i + 1] - x[1], p[i + 2] - x[2])
+        }
+      },
+    }
+  }
+  if (shape.kind === 'circle') {
+    const nrm = shape.normal
+    const [u, v] = orthoBasis(nrm)
+    return {
+      dims: 2,
+      residuals: (x, idx, out) => {
+        const ox = x[0] * u[0] + x[1] * v[0]
+        const oy = x[0] * u[1] + x[1] * v[1]
+        const oz = x[0] * u[2] + x[1] * v[2]
+        for (let k = 0; k < idx.length; k++) {
+          const i = idx[k] * 3
+          const qx = p[i] - ox
+          const qy = p[i + 1] - oy
+          const qz = p[i + 2] - oz
+          const t = qx * nrm[0] + qy * nrm[1] + qz * nrm[2]
+          out[k] = Math.hypot(qx - t * nrm[0], qy - t * nrm[1], qz - t * nrm[2])
         }
       },
     }

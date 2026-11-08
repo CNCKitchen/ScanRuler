@@ -110,6 +110,7 @@ export function scaleFit(fit: FitData, s: number): FitData {
     ...(fit.formError !== undefined ? { formError: fit.formError * s } : {}),
     ...(fit.residualMin !== undefined ? { residualMin: fit.residualMin * s } : {}),
     ...(fit.residualMax !== undefined ? { residualMax: fit.residualMax * s } : {}),
+    ...(fit.zoneWidth !== undefined ? { zoneWidth: fit.zoneWidth * s } : {}),
   }
   const center = scalePoint(fit.center, s)
   switch (fit.kind) {
