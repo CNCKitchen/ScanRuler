@@ -219,5 +219,9 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(0)
   }
   await server.connect(transport)
+  // The agent gone — its end of stdin closed — is the end of this copy too.
+  // An agent stops a server it started itself, but one started through
+  // `docker run` would otherwise outlive it, holding the port.
+  process.stdin.once('end', () => server.close())
   log(`Ready. ${connectHelp()}`)
 }

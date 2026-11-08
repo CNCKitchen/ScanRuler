@@ -60,6 +60,8 @@ export interface IcpOptions {
   /** Stop once a step moves the part less than this many millimetres. */
   tolerance?: number
   onIteration?: (iteration: number, meanDistance: number, transform: Rigid) => void
+  /** Helper workers that pair the samples a pass at a time (icpPool.ts). */
+  pool?: IcpPool
 }
 
 export interface IcpResult {
@@ -109,6 +111,145 @@ export function sampleScan(
     }
   }
   return { xyz, normals: nrm, count }
+}
+
+/** What pairing a sample with the reference reads besides the sample itself. */
+export interface PairParams {
+  maxPairDistance: number
+  facingSearch: boolean
+  minNormalDot: number
+  scoreCap: number
+}
+
+/** Where a pass writes what it found, one slot a sample: the pair, the distance,
+ *  whether it counts, and what it adds to the pose's score. Shared memory when
+ *  helpers fill them, so no reading is ever copied. */
+export interface PairArrays {
+  /** The sample in the nominal frame. */
+  q: Float64Array
+  /** Its closest point, and the pseudonormal there. */
+  cp: Float64Array
+  cn: Float64Array
+  dist: Float64Array
+  /** What the sample adds to the pose score: its capped distance, or the cap. */
+  score: Float64Array
+  /** Has a usable correspondence, so it may drive the step. */
+  ok: Uint8Array
+}
+
+export function newPairArrays(n: number, shared = false): PairArrays {
+  const mk = (bytes: number): ArrayBufferLike => (shared ? new SharedArrayBuffer(bytes) : new ArrayBuffer(bytes))
+  return {
+    q: new Float64Array(mk(n * 24)),
+    cp: new Float64Array(mk(n * 24)),
+    cn: new Float64Array(mk(n * 24)),
+    dist: new Float64Array(mk(n * 8)),
+    score: new Float64Array(mk(n * 8)),
+    ok: new Uint8Array(mk(n)),
+  }
+}
+
+/** A set of samples whose passes helpers can take (see icpPool.ts). */
+export interface PairingSession {
+  arrays: PairArrays
+  /** Whether helpers are up and can take a pass now. */
+  ready(): boolean
+  /** Whether the last `pair` filled every sample; when it did not, the caller pairs them itself. */
+  complete: boolean
+  /** Pair every sample under `transform`. Always resolves. */
+  pair(transform: Rigid, params: PairParams): Promise<void>
+}
+
+export interface IcpPool {
+  session(samples: ScanSamples): PairingSession | null
+}
+
+/** Samples a helper takes at a time: neighbours in the scan are neighbours here, so
+ *  dealing the blocks out in turn spreads a slow stretch (a thin wall) over all of them. */
+export const PAIR_CHUNK = 128
+
+/**
+ * Pair samples `from`..`to` with the reference, under `transform`: the one body of
+ * arithmetic, run here for a pass without helpers and by each helper for its
+ * blocks, so the pairs are identical either way.
+ */
+export function pairRange(
+  surface: NominalSurface,
+  samples: { xyz: Float64Array; normals: Float64Array | null },
+  transform: Rigid,
+  params: PairParams,
+  out: PairArrays,
+  from: number,
+  to: number,
+): void {
+  const { maxPairDistance, facingSearch, minNormalDot, scoreCap } = params
+  const { q, cp, cn, dist, ok, score } = out
+  const hit = emptyHit()
+  const p = new Float64Array(3)
+  const sn = new Float64Array(3)
+  for (let i = from; i < to; i++) {
+    ok[i] = 0
+    rigidApply(transform, samples.xyz[i * 3], samples.xyz[i * 3 + 1], samples.xyz[i * 3 + 2], p)
+    q[i * 3] = p[0]; q[i * 3 + 1] = p[1]; q[i * 3 + 2] = p[2]
+    // The sample's own normal, carried into the nominal's frame. Rotated
+    // before the query rather than after it, because with a facing-aware
+    // search the query needs it too.
+    let facing = false
+    if (samples.normals) {
+      rigidRotate(
+        transform,
+        samples.normals[i * 3], samples.normals[i * 3 + 1], samples.normals[i * 3 + 2],
+        sn,
+      )
+      facing = true
+    }
+    // Nearest surface first, whatever it faces: for all but a handful of
+    // samples that is the answer, and the BVH's own bounded query is several
+    // times cheaper than a filtered traversal. Only a sample whose nearest
+    // surface faces back at it — across a thin wall, inside a bore, in the
+    // gap between a boss and its pocket — pays for the second, facing-aware
+    // search. Which is exactly the sample a plain rejection would have
+    // thrown away, so the cost lands where the answer changes.
+    let paired = surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
+    if (
+      paired &&
+      facingSearch &&
+      sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot
+    ) {
+      paired = surface.closestFacing(
+        p[0], p[1], p[2],
+        sn[0], sn[1], sn[2],
+        minNormalDot,
+        hit,
+        maxPairDistance,
+      )
+    }
+    if (!paired) {
+      score[i] = scoreCap
+      continue
+    }
+    // Out of reach counts against the pose exactly as a miss does — a fit
+    // that solves by sliding until only a handful of points still answer
+    // must not be rewarded for the ones it abandoned.
+    if (hit.distance > maxPairDistance) {
+      score[i] = scoreCap
+      continue
+    }
+    // A pair whose two normals still disagree is dropped. The facing search
+    // filters on the face's own normal, and the pseudonormal of a seam it
+    // hands back is the average of the faces meeting there, so this test can
+    // still fire after it — and where the search was not used, it is the
+    // only thing standing between a marked wall and the far side of it.
+    if (facing && sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot) {
+      score[i] = scoreCap
+      continue
+    }
+    cp[i * 3] = hit.px; cp[i * 3 + 1] = hit.py; cp[i * 3 + 2] = hit.pz
+    cn[i * 3] = hit.nx; cn[i * 3 + 1] = hit.ny; cn[i * 3 + 2] = hit.nz
+    dist[i] = hit.distance
+    score[i] = hit.distance < scoreCap ? hit.distance : scoreCap
+    ok[i] = 1
+  }
 }
 
 /**
@@ -166,17 +307,12 @@ export function* icpSteps(
   let converged = false
 
   const n = samples.count
-  const q = new Float64Array(n * 3) // sample in the nominal frame
-  const cp = new Float64Array(n * 3) // its closest point
-  const cn = new Float64Array(n * 3) // pseudonormal there
-  const dist = new Float64Array(n)
-  /** Has a usable correspondence and survived the outlier cut, so it drives
-   *  the step. */
-  const ok = new Uint8Array(n)
+  const session = options.pool?.session(samples) ?? null
+  const arrays = session?.arrays ?? newPairArrays(n)
+  // `ok` also says which pairs survived the outlier cut, so they drive the step.
+  const { q, cp, cn, dist, ok, score: pairScore } = arrays
   const sorted = new Float64Array(n)
-  const hit = emptyHit()
-  const p = new Float64Array(3)
-  const sn = new Float64Array(3)
+  const params: PairParams = { maxPairDistance, facingSearch, minNormalDot, scoreCap }
 
   // Normal equations for [ω, τ]: 6×6 and its right-hand side.
   const ata = new Float64Array(36)
@@ -187,6 +323,13 @@ export function* icpSteps(
     yield
     iterations = iter + 1
 
+    // Every sample paired, here or by the helpers.
+    if (session?.ready()) {
+      yield session.pair(transform, params)
+      if (!session.complete) pairRange(surface, samples, transform, params, arrays, 0, n)
+    } else {
+      pairRange(surface, samples, transform, params, arrays, 0, n)
+    }
     let found = 0
     // Truncated mean distance over *every* sample, not just the ones that
     // survive the cut. Scoring the survivors alone is worse than useless: the
@@ -194,71 +337,12 @@ export function* icpSteps(
     // well-fitting patch still corresponds gets a *better* average from fewer
     // pairs, and the fit walks off the part chasing it. Capping the far ones
     // keeps outliers from dominating while still charging for every sample the
-    // pose failed to place.
+    // pose failed to place. Summed here in sample order, so the score does not
+    // depend on how many helpers paired them.
     let scoreSum = 0
     for (let i = 0; i < n; i++) {
-      ok[i] = 0
-      rigidApply(transform, samples.xyz[i * 3], samples.xyz[i * 3 + 1], samples.xyz[i * 3 + 2], p)
-      q[i * 3] = p[0]; q[i * 3 + 1] = p[1]; q[i * 3 + 2] = p[2]
-      // The sample's own normal, carried into the nominal's frame. Rotated
-      // before the query rather than after it, because with a facing-aware
-      // search the query needs it too.
-      let facing = false
-      if (samples.normals) {
-        rigidRotate(
-          transform,
-          samples.normals[i * 3], samples.normals[i * 3 + 1], samples.normals[i * 3 + 2],
-          sn,
-        )
-        facing = true
-      }
-      // Nearest surface first, whatever it faces: for all but a handful of
-      // samples that is the answer, and the BVH's own bounded query is several
-      // times cheaper than a filtered traversal. Only a sample whose nearest
-      // surface faces back at it — across a thin wall, inside a bore, in the
-      // gap between a boss and its pocket — pays for the second, facing-aware
-      // search. Which is exactly the sample a plain rejection would have
-      // thrown away, so the cost lands where the answer changes.
-      let paired = surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
-      if (
-        paired &&
-        facingSearch &&
-        sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot
-      ) {
-        paired = surface.closestFacing(
-          p[0], p[1], p[2],
-          sn[0], sn[1], sn[2],
-          minNormalDot,
-          hit,
-          maxPairDistance,
-        )
-      }
-      if (!paired) {
-        scoreSum += scoreCap
-        continue
-      }
-      // Out of reach counts against the pose exactly as a miss does — a fit
-      // that solves by sliding until only a handful of points still answer
-      // must not be rewarded for the ones it abandoned.
-      if (hit.distance > maxPairDistance) {
-        scoreSum += scoreCap
-        continue
-      }
-      // A pair whose two normals still disagree is dropped. The facing search
-      // filters on the face's own normal, and the pseudonormal of a seam it
-      // hands back is the average of the faces meeting there, so this test can
-      // still fire after it — and where the search was not used, it is the
-      // only thing standing between a marked wall and the far side of it.
-      if (facing && sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot) {
-        scoreSum += scoreCap
-        continue
-      }
-      cp[i * 3] = hit.px; cp[i * 3 + 1] = hit.py; cp[i * 3 + 2] = hit.pz
-      cn[i * 3] = hit.nx; cn[i * 3 + 1] = hit.ny; cn[i * 3 + 2] = hit.nz
-      dist[i] = hit.distance
-      scoreSum += hit.distance < scoreCap ? hit.distance : scoreCap
-      sorted[found++] = hit.distance
-      ok[i] = 1
+      scoreSum += pairScore[i]
+      if (ok[i]) sorted[found++] = dist[i]
     }
     const score = scoreSum / n
     if (found < 3) break

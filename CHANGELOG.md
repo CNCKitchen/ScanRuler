@@ -78,6 +78,23 @@ saves carry the same number as `appVersion`. How a release is cut is in
   worker. A view held still stops drawing after half a second and wakes on
   the next touch, key or change, so a phone left on a part no longer runs
   its graphics for nothing. Thanks to Jozkah.
+- **Wall thickness and deviation on every core** (2026-11-08, pull request
+  65). A wall-thickness map with a cone of rays or the sphere method, and a
+  deviation map measured without WebGPU, are shared out across several
+  helper workers when the scan is big enough to pay for starting them; a
+  small scan, the single-ray thickness and a deviation the GPU helps with
+  are measured as before. Every point is read by the same code either way,
+  so the maps are unchanged. The automatic alignment can share its passes
+  the same way where the page is cross-origin isolated. Thanks to Israel
+  Fernandes.
+- **Run ScanRuler in Docker** (2026-11-08, pull request 33).
+  `docker compose up -d --build` serves the app on port 8080 from an
+  unprivileged nginx container, with the same security policy as the hosted
+  app and no short-link file store unless one is given at build time. The
+  agent connection, scanruler-mcp, has a container of its own that the agent
+  starts in place of `npx`. It now ends when the agent closes its input, and
+  `SCANRULER_MCP_HOST` sets the address it listens on (still 127.0.0.1 by
+  default). See docs/docker.md. Thanks to Oliver Zimmermann.
 
 ## 0.9.9 — 2026-11-08
 
