@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.9.8 — 2026-11-08
 
 - **No spike in Fusion from a plane a hair off a cone's apex** (2026-11-08,
   issue 97). A wedge whose sides were meant to pass through a revolve's axis,
