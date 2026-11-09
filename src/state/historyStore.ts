@@ -96,6 +96,11 @@ export interface HistoryParticipant {
    *  measured again what the step changed. */
   beforeRestore?(patch: HistoryPatch): Promise<void>
   afterRestore?(patch: HistoryPatch, previous: HistorySnapshot): Promise<void>
+  /** Around the whole of a step, `restore` being all of it — the app putting
+   *  the scan of the other side in place included: for a plugin whose
+   *  machinery has to know beforehand that a scan swap is the history's
+   *  (Merge keeps its layers across its own). Runs `restore` exactly once. */
+  aroundRestore?(patch: HistoryPatch, restore: () => Promise<void>): Promise<void>
 }
 
 const participants: HistoryParticipant[] = []
@@ -278,7 +283,7 @@ async function travel(redo: boolean): Promise<void> {
   useHistory.setState({ restoring: true })
   epoch++
   try {
-    await hooks.runRestore(async () => {
+    const step = async () => {
       await hooks.beforeRestore(patch)
       const done: HistoryParticipant[] = []
       try {
@@ -300,7 +305,13 @@ async function travel(redo: boolean): Promise<void> {
       await hooks.afterRestore(patch, previous)
       for (const p of participants) await p.afterRestore?.(patch, previous)
       useStore.getState().setStatus(`${redo ? 'Redone' : 'Undone'}: ${entry.label}.`)
-    })
+    }
+    // The participants that wrap a step, the first registered outermost.
+    const wrapped = participants.reduceRight<() => Promise<void>>(
+      (inner, p) => (p.aroundRestore ? () => p.aroundRestore!(patch, inner) : inner),
+      step,
+    )
+    await hooks.runRestore(wrapped)
   } catch (error) {
     // A participant that failed after the app's own part may have left the
     // app busy: nothing is running any more.
