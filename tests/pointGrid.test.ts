@@ -202,4 +202,47 @@ describe('PointGrid', () => {
       expect(grid.nearestToRay(o[0], o[1], o[2], dv[0], dv[1], dv[2], rad, 300)).toBe(best)
     }
   })
+
+  it('nearestToRay rejects degenerate rays promptly', () => {
+    expect(grid.nearestToRay(NaN, 0, 0, 1, 0, 0, 1, Infinity)).toBe(-1)
+    expect(grid.nearestToRay(Infinity, 0, 0, 1, 0, 0, 1, Infinity)).toBe(-1)
+    expect(grid.nearestToRay(0, -Infinity, 0, 1, 0, 0, 1, 10)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, NaN, 0, 0, 1, 10)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, Infinity, 0, 0, 1, 10)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, 0, 0, 0, 1, 10)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, 1, NaN)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, 1, -1)).toBe(-1)
+    // maxT = Infinity still works
+    const p = new Float32Array([5, 0, 0])
+    expect(new PointGrid(p, 1).nearestToRay(0, 0, 0, 1, 0, 0, 0.5, Infinity)).toBe(0)
+  })
+
+  it('kNearest and nearestToRay on a cloud with non-finite points equal brute force over finite points', () => {
+    const p = randomCloud(1000, 50, 61)
+    for (const j of [5, 50, 500]) p[3 * j + (j % 3)] = j === 50 ? Infinity : NaN
+    const bad = new Set([5, 50, 500])
+    const g = new PointGrid(p, 4)
+    const r = rng(8)
+    const out = new Int32Array(12)
+    for (let q = 0; q < 30; q++) {
+      const i = Math.floor(r() * 1000)
+      if (bad.has(i)) continue
+      const all: number[] = []
+      for (let j = 0; j < 1000; j++) if (j !== i && !bad.has(j) && d2(p, j, p[3 * i], p[3 * i + 1], p[3 * i + 2]) <= 64) all.push(j)
+      all.sort((a, b) => d2(p, a, p[3 * i], p[3 * i + 1], p[3 * i + 2]) - d2(p, b, p[3 * i], p[3 * i + 1], p[3 * i + 2]))
+      const c = g.kNearest(i, 12, 8, out)
+      expect(Array.from(out.subarray(0, c))).toEqual(all.slice(0, 12))
+      const o = [r() * 60 - 5, r() * 60 - 5, r() * 60 - 5], dv = [r() - 0.5, r() - 0.5, r() - 0.5]
+      const len = Math.hypot(dv[0], dv[1], dv[2])
+      let best = -1, bt = Infinity
+      for (let j = 0; j < 1000; j++) {
+        if (bad.has(j)) continue
+        const wx = p[3 * j] - o[0], wy = p[3 * j + 1] - o[1], wz = p[3 * j + 2] - o[2]
+        const t = (wx * dv[0] + wy * dv[1] + wz * dv[2]) / len
+        if (t < 0 || t > 200) continue
+        if (wx * wx + wy * wy + wz * wz - t * t <= 4 && t < bt) { bt = t; best = j }
+      }
+      expect(g.nearestToRay(o[0], o[1], o[2], dv[0], dv[1], dv[2], 2, 200)).toBe(best)
+    }
+  })
 })

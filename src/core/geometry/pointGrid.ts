@@ -185,7 +185,8 @@ export class PointGrid {
    *  parameter t in [0, maxT], or -1. Direction need not be unit length. */
   nearestToRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, radius: number, maxT: number): number {
     const len = Math.hypot(dx, dy, dz)
-    if (this.n === 0 || !(len > 0) || !Number.isFinite(ox + oy + oz + maxT) && maxT !== Infinity) return -1
+    if (this.n === 0 || !(len > 0) || !Number.isFinite(len)) return -1
+    if (!Number.isFinite(ox + oy + oz) || !(maxT >= 0)) return -1 // maxT = Infinity is allowed
     dx /= len; dy /= len; dz /= len
     const { cell, pos, starts, items, nx, ny, nz } = this
     const m = Math.max(1, Math.ceil(radius / cell)) // window half-width in cells
