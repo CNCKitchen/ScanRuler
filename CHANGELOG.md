@@ -5,7 +5,7 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.11.0 — 2026-11-09
 
 - **A 2D note stays where it was placed** (2026-11-09, pull request 70).
   Once the Reverse engineer had loaded, a text note on the 2D sheet was
