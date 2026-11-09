@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { alignPairs, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
+import { alignDatums, alignPairs, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
 import { datumPose, type DatumSet } from '../core/datums'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
 import { runSteps } from '../../../src/core/deviation/steps'
@@ -94,6 +94,25 @@ describe('datumPose', () => {
     const d = delta(pose, POSE)
     expect(d.deg).toBeLessThanOrEqual(0.05)
     expect(d.mm).toBeLessThanOrEqual(0.02)
+  })
+
+  it('alignDatums recovers the pose when the layer bore axis was fitted the other way', () => {
+    const flipped: CylinderFit = { ...bore, axis: [0, 0, -1] }
+    const layerSet = side(TRUE, { primary: face, secondary: flipped })
+    const targetSet = side(identityRigid(), { primary: face, secondary: bore })
+    // The bare datum pose is half a turn out.
+    const raw = datumPose(layerSet, targetSet)
+    if ('refused' in raw) throw new Error(raw.refused)
+    expect(delta(raw, POSE).deg).toBeGreaterThan(170)
+    const r = runSteps(alignDatums(target, layer, layerSet, targetSet))
+    if ('refused' in r) throw new Error(r.refused)
+    expectRecovered(r, 0.05, 0.02)
+    expect(r.confident).toBe(true)
+  })
+
+  it('alignDatums passes the refusal on', () => {
+    const one = side(identityRigid(), { primary: face })
+    expect(runSteps(alignDatums(target, layer, one, one))).toEqual({ refused: UNDER })
   })
 
   it('refuses a plane alone, on either side', () => {

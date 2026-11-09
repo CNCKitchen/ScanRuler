@@ -21,13 +21,15 @@
 // Pure numerics: no DOM, no Three.js.
 
 import { alignFromPairsSteps } from '../../../src/core/deviation/align'
+import type { DatumSpec } from '../../../src/core/alignment'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
 import { icpSteps, sampleScan } from '../../../src/core/deviation/icp'
 import { poseConfidence, scorePose } from '../../../src/core/deviation/poseScore'
 import type { Rigid } from '../../../src/core/deviation/rigid'
 import type { Steps } from '../../../src/core/deviation/steps'
 import type { ClosestSurface } from '../../../src/core/deviation/surface'
-import type { Vec3 } from '../../../src/core/types'
+import type { FitData, Vec3 } from '../../../src/core/types'
+import { datumPose, type DatumSet } from './datums'
 
 export interface LayerCloud {
   /** The layer in its own frame, mm. */
@@ -117,4 +119,50 @@ export function* refineLayer(
   const score = scorePose(target, layer, pose, SCORE_SPACINGS * spacing)
   const { lowOverlap, confident } = poseConfidence(score, spacing)
   return { pose, rms: score.rms, matched: score.matched, lowOverlap, confident: confident && opts.fromUserGuess !== false }
+}
+
+/** The same datum with its direction the other way, or null for a datum whose
+ *  direction sign means something (a plane's outward normal) or that has none. */
+function flippedAxis(spec: DatumSpec): DatumSpec | null {
+  const f: FitData = spec.fit
+  const neg = (v: Vec3): Vec3 => [-v[0], -v[1], -v[2]]
+  if (f.kind === 'line') return { ...spec, fit: { ...f, dir: neg(f.dir) } }
+  if (f.kind === 'cylinder' || f.kind === 'cone') return { ...spec, fit: { ...f, axis: neg(f.axis) } }
+  return null
+}
+
+/**
+ * A layer laid on the target by matching datums, then refined. An axis fitted
+ * to a bore or a line has no sign of its own, so the two sides can disagree on
+ * it and the datum pose come out half a turn wrong. Each axis-type datum of the
+ * layer is therefore tried both ways (at most four starts), each start is
+ * refined, and the best result is kept: confident first, then the lowest rms.
+ * The datum pose is only a start: coordinates no datum owns are pinned at the
+ * primary's centre (datums.ts), and the refinement closes what that leaves.
+ */
+export function* alignDatums(
+  target: ClosestSurface,
+  layer: LayerCloud,
+  layerDatums: DatumSet,
+  targetDatums: DatumSet,
+  opts: Omit<RefineOptions, 'fromUserGuess'> = {},
+): Steps<LayerAlignResult | { refused: string }> {
+  const primaries = [layerDatums.primary, flippedAxis(layerDatums.primary)].filter((d): d is DatumSpec => d !== null)
+  const secondaries = layerDatums.secondary
+    ? [layerDatums.secondary, flippedAxis(layerDatums.secondary)].filter((d): d is DatumSpec => d !== null)
+    : [null]
+  let best: LayerAlignResult | null = null
+  let refused: { refused: string } | null = null
+  for (const primary of primaries) {
+    for (const secondary of secondaries) {
+      const start = datumPose({ ...layerDatums, primary, secondary }, targetDatums)
+      if ('refused' in start) {
+        refused = start
+        continue
+      }
+      const r = yield* refineLayer(target, layer, start, { ...opts, fromUserGuess: true })
+      if (!best || (r.confident && !best.confident) || (r.confident === best.confident && r.rms < best.rms)) best = r
+    }
+  }
+  return best ?? refused!
 }

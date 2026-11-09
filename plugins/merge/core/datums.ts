@@ -14,7 +14,11 @@
 // happened to sit in its own frame, and the two frames would disagree by that
 // offset. So they agree only where the two primaries' centres are the same
 // point of the part: a plane fitted on different patches of a face slides
-// along it, and an origin point is what pins that down.
+// along it, and an origin point is what pins that down. That is acceptable
+// because a datum pose is only a starting pose: alignDatums (layerAlign.ts)
+// always follows it with refineLayer, which closes the slide along the free
+// direction, and tries both signs of an axis datum, whose sign a fit does not
+// fix and which would otherwise start the layer half a turn wrong.
 //
 // Pure numerics: no DOM, no Three.js.
 
