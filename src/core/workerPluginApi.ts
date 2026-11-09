@@ -6,6 +6,7 @@
 
 import type { NominalSurface } from './deviation/surface'
 import type { Rigid } from './deviation/rigid'
+import type { Steps } from './deviation/steps'
 import type { MeshGraph } from './types'
 
 /** What the worker lends a plugin's request. */
@@ -22,6 +23,11 @@ export interface WorkerContext {
   /** A mesh prepared for closest-point queries, built on first use and kept
    *  until its vertices move. `why` is what the status says meanwhile. */
   surfaceOf(mesh: MeshGraph, why: string): NominalSurface
+  /** A long computation run a slice at a time, as the worker runs a best
+   *  fit, so that Stop (MeshWorkerClient.abortAlign) is heard between
+   *  slices: its value, or null when it was stopped. Return the promise's
+   *  answer from `handle`, so every other request waits for it. */
+  drive<T>(steps: Steps<T>): Promise<T | null>
 }
 
 /** A request's answer, with the buffers to hand over rather than copy. */

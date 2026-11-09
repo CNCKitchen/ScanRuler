@@ -337,7 +337,45 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
   },
   progress,
   surfaceOf: (g, why) => scanSurfaceOf(g, progress, why),
+  drive: driveSteps,
 })
+
+/** A plugin's long computation, driven the way pumpAlign drives a fit: a
+ *  slice at a time, the inbox read between slices for the abort. Nothing
+ *  else runs meanwhile — the plugin hands the promise back from `handle`,
+ *  which holds the queue — so the abort flag is this run's alone. */
+function driveSteps<T>(steps: Steps<T>): Promise<T | null> {
+  alignAborted = false
+  return new Promise<T | null>((resolve, reject) => {
+    const pump = (): void => {
+      try {
+        const until = performance.now() + ALIGN_SLICE_MS
+        for (;;) {
+          if (alignAborted) {
+            resolve(null)
+            return
+          }
+          const step = steps.next()
+          if (step.done) {
+            resolve(step.value)
+            return
+          }
+          if (step.value instanceof Promise) {
+            step.value.then(pump)
+            return
+          }
+          if (performance.now() >= until) {
+            setTimeout(pump, 0)
+            return
+          }
+        }
+      } catch (e) {
+        reject(e)
+      }
+    }
+    pump()
+  })
+}
 
 function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   const progress = (text: string, fraction?: number) => post({ type: 'progress', text, ...(fraction !== undefined ? { fraction } : {}) })
