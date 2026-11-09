@@ -40,6 +40,7 @@ workspaces have references of their own, in
   - [Local fine fit](#local-fine-fit)
   - [The map](#the-map)
   - [Watching the part deform](#watching-the-part-deform)
+  - [Exporting the model pre-deformed](#exporting-the-model-pre-deformed)
 - [Deviation from a fitted element](#deviation-from-a-fitted-element)
 - [Wall thickness](#wall-thickness)
   - [The two methods](#the-two-methods)
@@ -1508,6 +1509,46 @@ Only the picture moves, on the graphics card. The colours, the figures, the
 hover reading, the pins and an exported scan are all the part as measured. The
 loop stops when the marking tools or the point picker come out, since both
 work on the scan where it is, and when a new scan or reference is loaded.
+
+### Exporting the model pre-deformed
+
+A part that is printed, moulded or cast comes out warped. Once you have modelled it,
+compared it with a scan of what came out and watched it
+[deform](#watching-the-part-deform), **Export pre-deformed STL**, under *Pre-deformed
+model* below the animation, saves the model moved the other way: each vertex goes by
+minus the deformation at that place, so making this model, by the same process, should
+bring the part out as it was drawn. It needs a map against a reference part, with the
+scan fitted onto it.
+
+| Control | Unit | What it does |
+| --- | --- | --- |
+| **Correction** | × | How many times the measured deformation is undone. 1× moves each vertex by exactly as much as the scan is out, the other way; less is for a process whose warp does not come out the same each time. Not the animation's Scale, which only exaggerates a picture. |
+| **Smoothing** | length | How far the deformation is averaged over the part, for the animation and the exported model alike: what is watched is what is exported. It starts at a hundredth of the part's diagonal. Lower follows the scan closely and carries its noise into the model; higher keeps only the broad warp, and the model moves smoothly. Past a hundredth the field is blurred rather than made coarser, so it does not show steps. It is under *Deformation*, beside the animation's Scale. |
+| **Longest edge** | length | The density of the exported model: the reference is cut until no edge is longer. It starts at a hundredth of the part's diagonal, the length the motion is smoothed over, which is as fine as the deformation has detail. The exact number of triangles is shown beside it. |
+| **Export pre-deformed STL** | — | Saves the model, in the reference's own coordinates and millimetres. |
+
+**Preview pre-deformed** opens a second viewport beside the scan, in the same view, with
+the model as it would be exported, drawn faceted as the STL will be. The same key, now
+reading *Hide the pre-deformed preview*, puts it away. While it is up **Update pre-deform**
+works the model out again from the Correction and Longest edge as they stand: changing
+either does not move the preview by itself, and the line under the keys says when it no
+longer matches them. The preview shares the second place with the scan-and-reference
+*Split view*, so opening one puts the other away, and it goes with the fit it was made
+under when that is cleared.
+
+The motion is the one the animation plays: smoothed over about 1 % of the part's
+diagonal, a reading past the end of the colour scale moving only as far as the end,
+and a point with no reading not moving. The model is moved where *it* stands, so a
+vertex that has no scan near it, such as a part of the model the scan does not cover,
+stays where it was, and the status line after the export says how many.
+
+The cut bisects every edge longer than the one asked for, edge by edge, so two
+triangles sharing an edge cut it alike and a closed model stays closed. It adds
+vertices on the model's own flat triangles, so a curved face stays as faceted as the
+reference was; the finer cut lets the model follow the field, not become rounder. A
+long thin triangle costs more than its area suggests, which is why the count is worked
+out rather than estimated. The cut stops at two million triangles and leaves its
+longest edges, which the count then says.
 
 ## Deviation from a fitted element
 

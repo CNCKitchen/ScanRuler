@@ -11,6 +11,7 @@
 import { create } from 'zustand'
 import type { AlignResult, PointPair } from '../core/deviation/align'
 import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
+import { MAX_PREDEFORM_SCALE, MIN_PREDEFORM_SCALE } from '../core/deviation/preDeform'
 import { DEFAULT_MAP_FACING_DEG, MAX_AUTO_RANGE, type DeviationStats } from '../core/deviation/deviation'
 import { DEFAULT_FACING_DEG, type MaterialSide } from '../core/deviation/elementField'
 import type { FieldHistogram } from '../core/field/stats'
@@ -190,6 +191,16 @@ interface DeviationState extends ProbeSlice {
   /** The scale is still the suggested one, which follows each map that is
    *  shown, rather than one the user has set. */
   animScaleAuto: boolean
+  /** The pre-deformed export: how many times the measured deformation is
+   *  undone in the reference — 1 is exactly as far as it is out — and the
+   *  longest edge the reference is cut to so that it can follow the field,
+   *  null while that is still the suggested one (core/deviation/preDeform). */
+  preScale: number
+  preEdge: number | null
+  /** How far the deformation field is smoothed, mm, for the animation and the
+   *  pre-deformed model alike — what is watched is what is exported. Null while
+   *  it is the suggested length (core/deviation/deflection deflectionSmoothing). */
+  deflectSmoothing: number | null
 
   /** The split-screen point picker is open. */
   picking: boolean
@@ -282,6 +293,9 @@ interface DeviationState extends ProbeSlice {
   setSplit: (v: boolean) => void
   setAnimate: (v: boolean) => void
   setAnimScale: (scale: number) => void
+  setPreScale: (scale: number) => void
+  setPreEdge: (edge: number | null) => void
+  setDeflectSmoothing: (length: number | null) => void
   /** The scale suited to the map on screen. Taken only while the user has
    *  not set one. */
   suggestAnimScale: (scale: number) => void
@@ -394,6 +408,9 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   split: false,
   animScale: 10,
   animScaleAuto: true,
+  preScale: 1,
+  preEdge: null,
+  deflectSmoothing: null,
 
   // Both maps stay measured, so switching back and forth costs nothing. The
   // pinned readings do not: a reading off one map and a reading off the other
@@ -620,6 +637,9 @@ export const useDeviation = create<DeviationState>()((set, get) => ({
   setSplit: (split) => set(split ? { split, showScan: true } : { split }),
 
   setAnimate: (animate) => set({ animate }),
+  setPreScale: (preScale) => set({ preScale: Math.min(MAX_PREDEFORM_SCALE, Math.max(MIN_PREDEFORM_SCALE, preScale)) }),
+  setPreEdge: (preEdge) => set({ preEdge }),
+  setDeflectSmoothing: (deflectSmoothing) => set({ deflectSmoothing }),
   setAnimScale: (animScale) =>
     set({
       animScale: Math.min(MAX_DEFLECTION_SCALE, Math.max(MIN_DEFLECTION_SCALE, animScale)),

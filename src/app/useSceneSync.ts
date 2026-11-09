@@ -48,7 +48,7 @@ import { colormapById, paintField, paintKey, type FieldScale } from '../core/fie
 import { cachedDeviationStats, cachedHistogram, cachedThicknessStats } from '../core/field/readoutCache'
 import { deviationScale } from '../core/deviation/deviation'
 import {
-  DEFLECTION_SMOOTHING,
+  deflectionSmoothing,
   deflectionVectors,
   suggestDeflectionScale,
 } from '../core/deviation/deflection'
@@ -1104,6 +1104,7 @@ export function useSceneSync({
   // marking tools or the picker: both work on the scan where it is.
   const animate = useDeviation((s) => s.animate)
   const animScale = useDeviation((s) => s.animScale)
+  const deflectSmoothing = useDeviation((s) => s.deflectSmoothing)
   const playing = workspace === 'deviation' && animate && hasDeviationMap && showScan && !marking && !picking
   useEffect(() => {
     const scene = sceneRef.current
@@ -1125,7 +1126,7 @@ export function useSceneSync({
     const timer = setTimeout(() => {
       const dev = useDeviation.getState()
       if (dev.animScaleAuto) dev.suggestAnimScale(suggestDeflectionScale(range, 2 * modelSize))
-      const opts = { limit: range, maxDistance, smoothing: DEFLECTION_SMOOTHING * 2 * modelSize }
+      const opts = { limit: range, maxDistance, smoothing: deflectionSmoothing(dev.deflectSmoothing, 2 * modelSize) }
       const play = (vectors: Float32Array) => {
         if (cancelled) return
         // The scale first, so a loop that is starting starts from the scan as
@@ -1175,7 +1176,7 @@ export function useSceneSync({
       clearTimeout(timer)
     }
     // Runs on the listed dependencies only, not on everything it reads.
-  }, [playing, source, mapVersion, elementVersion, range, maxDistance, modelSize])
+  }, [playing, source, mapVersion, elementVersion, range, maxDistance, modelSize, deflectSmoothing])
   // The motion's buffer stays on the scan between plays while the deviation
   // workspace is up — stopping and starting the loop then costs no upload of
   // the whole scan — and goes when it is left.

@@ -100,6 +100,26 @@ export class CompareScene {
     this.viewport.frameCamera(geometry.boundingBox!, null)
   }
 
+  /** Show another mesh in this half, in the pose it already has: the pre-deformed
+   *  model is worked out again at each Update, and a half built anew for each
+   *  would be a new WebGL context and a new upload per press. The geometry is
+   *  the caller's, as at construction — the old one is not disposed here.
+   *  `flat` draws it faceted, off the screen-space derivatives, so a mesh
+   *  with no normals of its own is lit as the STL it will be written as. */
+  setGeometry(geometry: THREE.BufferGeometry, flat = false): void {
+    if (!geometry.boundingBox) geometry.computeBoundingBox()
+    this.mesh.geometry = geometry
+    if (this.material.flatShading !== flat) {
+      this.material.flatShading = flat
+      this.material.needsUpdate = true
+    }
+    // The cap closes the part where it is closed — a property of this mesh.
+    this.cap?.dispose()
+    this.cap = null
+    this.updateCap()
+    this.viewport.invalidate()
+  }
+
   /** Hold this half in the same pose as the scan's viewport, in both
    *  directions: either half can be the one under the hand. */
   linkTo(scan: LinkedView): void {

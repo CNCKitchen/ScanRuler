@@ -5,6 +5,39 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Export the reference pre-deformed** (2026-11-09). Under *Deformation* in
+  the Surface Deviation panel, **Export pre-deformed STL** saves your modelled
+  part, the reference, moved the opposite way to the deformation the animation
+  shows, so a process that warps the part as the scan did brings it out as
+  drawn. Every vertex moves by minus the **Correction** times the same
+  smoothed motion the animation plays: 1× undoes exactly the measured error,
+  less is for a warp that does not repeat in full. The reference is cut finer
+  first, to a **Longest edge** you set, with the exact triangle count beside
+  it; edges are cut in step with their neighbours, so a closed model stays
+  closed, and the cut stops at two million triangles and says so. Vertices
+  with no scan near them stay where they are, and the status line counts them.
+  **Preview pre-deformed** shows the model first, in a second viewport
+  beside the scan in the same view; **Update pre-deform** works it out again
+  from the settings as they stand, and the same key a second time puts the
+  viewport away. A **Smoothing** setting, under *Deformation*, says how far the
+  deformation is averaged over the part, for the animation and the model alike,
+  from the grain of the scan to a fifth of the part; past the default the field
+  is blurred rather than read off a coarser grid, so the model moves smoothly,
+  with no steps. The file is in the reference's own frame. The agent has it as
+  `deviation_pre_deform`. Tests: `preDeform` (the cut leaves no edge past the
+  length and a closed mesh closed with its volume, on a box and on a long thin
+  bar; the cap; the model moves against the scan and by the scale; a bend is
+  followed per vertex; the field is read in the scan's frame and applied in the
+  model's; vertices beyond the scan stay; a map with nothing measured is
+  refused; smoothing takes the scan's noise out, keeps a linear bend and turns
+  a step into a ramp as wide as it); `e2e-predeform` (the viewport opens in the scan's pose without
+  map colours, a changed setting says the preview is out of date and Update
+  brings it up in the same viewport, the same key puts it away, and the split
+  view takes its place).
+  A second export at the same density no longer fails on a detached buffer.
+
 ## 0.10.2 — 2026-11-09
 
 - **A project with an oddly named file opens again** (2026-11-09, pull
