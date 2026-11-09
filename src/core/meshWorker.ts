@@ -211,7 +211,7 @@ function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) 
   if (ext === 'obj') return parseOBJ(buffer, onProgress, companions)
   if (ext === '3mf') return parse3MF(buffer, onProgress, companions)
   if (ext === 'xyz' || ext === 'asc' || ext === 'pts') return parseXYZ(buffer, onProgress)
-  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF or STEP.`)
+  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF, STEP, XYZ, ASC or PTS.`)
 }
 
 /** The scan: a mesh, or a CAD part opened in a scan's place — cut finer

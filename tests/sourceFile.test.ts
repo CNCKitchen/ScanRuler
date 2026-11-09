@@ -73,6 +73,12 @@ describe('a scan or reference the session keeps', () => {
     await expect(readSourceFile(gone, 'part.stl')).rejects.toThrow(unreadableSource('part.stl'))
   })
 
+  it('names every scan format, the point clouds too, when it refuses a scan', async () => {
+    await expect(prepareScan(client, null, new File([new Uint8Array([1])], 'part.dat'), { mode: 'off', angleDeg: 30 })).rejects.toThrow(
+      'Unsupported file type — use STL, PLY, OBJ, 3MF, STEP, XYZ, ASC or PTS.',
+    )
+  })
+
   it('reads the file when the bytes are needed', async () => {
     const file = new File([new Uint8Array([7, 8, 9])], 'part.stl')
     const [member] = await readMembers([{ name: 'scan.stl', bytes: file }])
