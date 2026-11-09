@@ -65,6 +65,7 @@ import {
 } from './surfaceModes'
 import { principalAxis } from './scanLayout'
 import { patchScanShader } from './scanShader'
+import { CloudLayer } from './cloudLayer'
 import { CAP_SLOT, closedPartOf, cutColor, primeClosedPart, SliceCap, type ClosedPart } from './sliceCap'
 import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
@@ -291,7 +292,12 @@ export class SceneManager {
    *  Held apart so either can be lifted without disturbing the other. */
   private alignMatrix = new THREE.Matrix4()
   private previewMatrix = new THREE.Matrix4()
-  private mesh: THREE.Mesh | null = null
+  /** The scan on screen: its mesh, or for a point cloud the cloud's points
+   *  (see cloudLayer.ts), held in `cloud` as well. The same attributes under
+   *  the same names either way, so what writes colours, tints, marking and
+   *  deflection onto the geometry needs no second path. */
+  private mesh: THREE.Mesh | THREE.Points | null = null
+  private cloud: CloudLayer | null = null
   private colorAttr: THREE.BufferAttribute | null = null
   /** Which vertices wear a tint of their own, one byte per vertex beside the
    *  colours: thresholded in the scan's shader so a region's border falls on
@@ -625,7 +631,8 @@ export class SceneManager {
       raycaster: this.raycaster,
       regions: this.regions,
       setPickRay: (x, y) => this.setPickRay(x, y),
-      mesh: () => this.mesh,
+      // A cloud is marked by its own brush (to come); this one walks triangles.
+      mesh: () => this.scanAsMesh(),
       paintAttr: () => this.paintAttr,
       graphVertex: this.graphVertex,
       setPaintColor: (rgb) => {
@@ -648,7 +655,7 @@ export class SceneManager {
       // Only the scan stands between the camera and a pin: the pins are
       // readings on the scan, and the reference is a translucent ghost a pin
       // shows through. A hidden scan hides nothing.
-      occluder: () => (this.mesh?.visible ? this.mesh : null),
+      occluder: () => (this.mesh?.visible ? this.scanAsMesh() : null),
     })
     this.sections = new SectionOverlay({
       partGroup: this.partGroup,
@@ -747,7 +754,8 @@ export class SceneManager {
     if (this.regions.setBaseColor(theme.surface)) this.surfaceRepainted()
     // The layout waiting out of sight is flagged when it comes back.
     this.other?.regions.setBaseColor(theme.surface)
-    if (this.mesh) applyFinish(this.mesh.material as THREE.MeshStandardMaterial, theme)
+    const scanMesh = this.scanAsMesh()
+    if (scanMesh) applyFinish(scanMesh.material as THREE.MeshStandardMaterial, theme)
     // The caps wear the finish of the scheme, and a tool's the surface colour.
     this.updateCaps()
     if (this.nominalMesh) {
@@ -1034,7 +1042,9 @@ export class SceneManager {
 
   /** Allocate and index a replacement before releasing the current mesh.
    *  `surface` is the part's own colour at each of the scan's vertices,
-   *  sRGB bytes — a textured scan's — worn by bare surface. */
+   *  sRGB bytes — a textured scan's — worn by bare surface. `cloud` makes
+   *  it a point cloud with that typical spacing: drawn as splats (see
+   *  cloudLayer.ts), with no triangles and so no tree. */
   prepareMesh(
     positions: Float32Array,
     indices: Uint32Array,
@@ -1042,7 +1052,9 @@ export class SceneManager {
     wireSlots?: Uint8Array,
     copyOf: Uint32Array = new Uint32Array(0),
     surface: Uint8Array | null = null,
+    cloud?: { spacing: number },
   ): { commit(): void; dispose(): void } {
+    if (cloud) return this.prepareCloud(positions, normals, cloud.spacing, surface)
     const geometry = new THREE.BufferGeometry()
     const { colors, paint, tint } = this.layOutScan(
       geometry,
@@ -1102,6 +1114,50 @@ export class SceneManager {
       // needs the tree.
       if (offThread) this.treeFrom(offThread, geometry)
       this.primeClosedShells('scan', geometry)
+      this.warmPrograms()
+    })
+  }
+
+  /** A point cloud in the scan's place — prepareMesh's other half. Laid
+   *  out with the scan's own attributes, so the regions, the marking and
+   *  the maps write to it as to a mesh; not raycast (see cloudLayer.ts). */
+  private prepareCloud(
+    positions: Float32Array,
+    normals: Float32Array,
+    spacing: number,
+    surface: Uint8Array | null,
+  ): { commit(): void; dispose(): void } {
+    const layer = new CloudLayer(positions, normals, spacing, {
+      paintColor: this.uPaintColor,
+      surfaceColor: this.uSurfaceColor,
+      surfaceOwn: this.uSurfaceOwn,
+      deflect: this.uDeflect,
+    })
+    const points = layer.object
+    const geometry = points.geometry
+    const none = new Uint32Array(0)
+    const { colors, paint, tint } = this.layOutScan(geometry, positions, none, normals, undefined, none, null, false, surface)
+    const axis = principalAxis(positions)
+    layer.setOpacity(this.scanOpacity())
+    const own = points.onBeforeRender
+    points.onBeforeRender = (...args) => {
+      own.apply(points, args)
+      this.uSurfaceOwn.value = this.showScanColors && points.geometry.getAttribute('surface') ? 1 : 0
+    }
+    return preparedHandle(geometry, points.material as THREE.Material, 'scan', () => {
+      this.disposeMesh()
+      this.setPreview(null)
+      this.mesh = points
+      this.cloud = layer
+      this.adoptScanLayout(geometry, none)
+      this.partGroup.add(points)
+      this.applySlice()
+      this.previewMatrix.identity()
+      this.setAlignment(null)
+      this.regions.attach(colors, paint, tint, this.scanVertices)
+      this.modelRadius = Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4)
+      this.scanAxis = axis
+      this.frameCamera(geometry.boundingBox!, this.scanAxis)
       this.warmPrograms()
     })
   }
@@ -1178,7 +1234,8 @@ export class SceneManager {
     // minds.
     if (wireSlots) geometry.setAttribute('wireSlot', new THREE.BufferAttribute(wireSlots, 1))
     else geometry.deleteAttribute('wireSlot')
-    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    // A cloud has no triangles, and an empty index would draw no points.
+    geometry.setIndex(indices.length > 0 ? new THREE.BufferAttribute(indices, 1) : null)
     geometry.computeBoundingBox()
     geometry.computeBoundingSphere()
     if (adopt) this.adoptScanLayout(geometry, copyOf)
@@ -1350,9 +1407,7 @@ export class SceneManager {
   setScanSeeThrough(on: boolean): void {
     if (this.scanSeeThrough === on) return
     this.scanSeeThrough = on
-    if (this.mesh) {
-      setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
-    }
+    this.dressScanOpacity()
     for (const layer of this.layers) layer.opacityChanged?.(this.scanOpacity())
     // A see-through part is cut but not capped: a solid face would hide what
     // seeing through it is for.
@@ -1392,6 +1447,12 @@ export class SceneManager {
     this.invalidate()
   }
 
+  /** The cloud's splats read their opacity from a uniform of their own. */
+  private dressScanOpacity(): void {
+    if (this.cloud) this.cloud.setOpacity(this.scanOpacity())
+    else if (this.mesh) setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
+  }
+
   private scanOpacity(): number {
     return this.scanSeeThrough || this.scanGhost ? SEE_THROUGH_OPACITY : 1
   }
@@ -1402,7 +1463,7 @@ export class SceneManager {
   setScanGhost(on: boolean): void {
     if (this.scanGhost === on) return
     this.scanGhost = on
-    if (this.mesh) setSurfaceOpacity(this.mesh.material as THREE.MeshStandardMaterial, this.scanOpacity())
+    this.dressScanOpacity()
     for (const layer of this.layers) layer.opacityChanged?.(this.scanOpacity())
     this.updateCaps()
     this.invalidate()
@@ -1716,7 +1777,7 @@ export class SceneManager {
     this.slicePlanes = planes
     this.sectioned = sectioned
     // Dressed only when that changes: the plane itself moves in place.
-    const dress = (mesh: THREE.Mesh | null, by: THREE.Plane[] | null) => {
+    const dress = (mesh: THREE.Mesh | THREE.Points | null, by: THREE.Plane[] | null) => {
       if (!mesh) return
       const material = mesh.material as THREE.Material
       if (material.clippingPlanes === by) return
@@ -1794,7 +1855,8 @@ export class SceneManager {
       if (closed.count === 0) return null
       return { mesh, slot, color: cutColor(slot), flat: true, closed }
     }
-    this.scanCap = this.keepCap(this.scanCap, want(this.mesh, CAP_SLOT.scan, this.scanOpacity() === 1))
+    // A cloud has no inside to close: it is cut, never capped.
+    this.scanCap = this.keepCap(this.scanCap, want(this.scanAsMesh(), CAP_SLOT.scan, this.scanOpacity() === 1))
     this.referenceCap = this.keepCap(
       this.referenceCap,
       want(this.nominalMesh, CAP_SLOT.reference, this.sectioned && this.nominalOpacity() === 1),
@@ -1904,7 +1966,8 @@ export class SceneManager {
    *  program; a cap is three meshes, warmed one by one. */
   private warmJobs(): WarmJob[] {
     const jobs: WarmJob[] = []
-    const scan = this.mesh
+    // A cloud's one program is compiled as it is first drawn.
+    const scan = this.scanAsMesh()
     const nominal = this.nominalMesh
     /** A part's own material, cut or whole, solid or see-through. */
     const part = (name: string, mesh: THREE.Mesh | null, cut: boolean, seeThrough: boolean) => {
@@ -2777,8 +2840,11 @@ export class SceneManager {
     rigidRotateVectors(m, normals.array as Float32Array)
     positions.needsUpdate = true
     normals.needsUpdate = true
-    // Also renews the bounding box and sphere.
-    refitAfterRigid(geometry)
+    // Also renews the bounding box and sphere. A cloud has no tree to refit.
+    if (this.cloud) {
+      geometry.computeBoundingBox()
+      geometry.computeBoundingSphere()
+    } else refitAfterRigid(geometry)
     // The edited copy — or the scan, while the copy is shown — is in the same
     // frame, and moves with it.
     if (this.other) {
@@ -2963,6 +3029,12 @@ export class SceneManager {
   setScanVisible(visible: boolean): void {
     if (this.mesh) this.mesh.visible = visible
     this.invalidate()
+  }
+
+  /** The scan as a triangle mesh — null for a point cloud, and with none
+   *  loaded: what walks, caps or clusters triangles asks for this. */
+  private scanAsMesh(): THREE.Mesh | null {
+    return this.mesh instanceof THREE.Mesh ? this.mesh : null
   }
 
   /** Whether the scan is drawn — false with none loaded. */
@@ -3165,8 +3237,21 @@ export class SceneManager {
     wireSlots: Uint8Array | undefined,
     copyOf: Uint32Array,
     surface: Uint8Array | null = null,
+    cloud?: { spacing: number },
   ): void {
     if (!this.mesh) return
+    // A cloud and a mesh are drawn by different objects: a swap from one to
+    // the other puts the new one in, held where the old one was and shown or
+    // not as it was. The camera frames the new part.
+    if (Boolean(cloud) !== Boolean(this.cloud)) {
+      const held = this.alignMatrix.toArray()
+      const shown = this.mesh.visible
+      this.prepareMesh(positions, indices, normals, wireSlots, copyOf, surface, cloud).commit()
+      this.setAlignment(held)
+      this.setScanVisible(shown)
+      return
+    }
+    if (cloud) this.cloud?.setSpacing(cloud.spacing)
     // A copy of the scan that went is not a copy of this one.
     this.setEditedMesh(null)
     const geometry = this.mesh.geometry as THREE.BufferGeometry
@@ -3182,7 +3267,7 @@ export class SceneManager {
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(geometry, positions, indices, normals, wireSlots, copyOf, null, true, surface)
     this.regions.attach(colors, paint, tint, this.scanVertices)
-    geometry.computeBoundsTree()
+    if (!this.cloud) geometry.computeBoundsTree()
     this.modelRadius = Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4)
     this.scanAxis = principalAxis(positions)
     // The cap is cut from the geometry.
@@ -3443,8 +3528,10 @@ export class SceneManager {
     const moving = this.lodLatch.update(this.camera.matrixWorld.elements, now)
     // Only once the full scan has been seen to turn slowly: on a machine
     // that keeps up, the swap is a distraction for nothing.
-    const slow = this.mesh !== null && this.lodSlow.note(now, this.lodLatch.changed)
-    const want = moving && slow && this.mesh ? this.lodProxyFor(this.mesh) : null
+    // A cloud has no triangles to cluster: it is drawn whole.
+    const scanMesh = this.scanAsMesh()
+    const slow = scanMesh !== null && this.lodSlow.note(now, this.lodLatch.changed)
+    const want = moving && slow && scanMesh ? this.lodProxyFor(scanMesh) : null
     // `?? null`: with no proxy shown and none wanted, undefined against null
     // would count as a change and invalidate every frame.
     if (want === (this.lodShown?.proxy ?? null)) return
@@ -3532,6 +3619,7 @@ export class SceneManager {
     ;(this.mesh.material as THREE.Material).dispose()
     this.partGroup.remove(this.mesh)
     this.mesh = null
+    this.cloud = null
     this.colorAttr = null
     this.tintAttr = null
     this.paintAttr = null

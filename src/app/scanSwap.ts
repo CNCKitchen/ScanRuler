@@ -27,6 +27,7 @@ import { readSourceFile } from '../core/sourceFile'
 import { scanRemapped, scanRemeasure, scanSwapped, scanSwapping } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { scanCompanions } from './scanFiles'
+import { cloudOf } from './imports'
 
 /** A scan as the session holds it: its file, its units, and the files that
  *  came with it. An edited version is new bytes, kept as a file of its own
@@ -97,7 +98,7 @@ export function scanSwap({
     // Without a viewport the part's size is read off the mesh, as an open
     // reads it.
     const scene = sceneRef.current
-    scene?.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null)
+    scene?.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null, cloudOf(mesh))
     const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
     useStore.setState((s) => ({
       scanColors: Boolean(mesh.colors),

@@ -28,6 +28,9 @@ import { fmtLen, lengthInputText, unitWord } from '../core/units'
 import { noTrueSize } from '../core/scanScale'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
+/** The same work on a cloud: a mesh has about half as many vertices as
+ *  triangles, and a cloud's fits go by its points. */
+const LARGE_POINT_WARNING = LARGE_TRIANGLE_WARNING / 2
 
 /** What became of the sharp-edge split, for the status line. Null when it
  *  went as asked and there is nothing to add. */
@@ -168,9 +171,11 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
           : ''
         useStore.getState().setStatus(
           unitsWord + scanFileNote(mesh) +
-          (mesh.triangleCount > LARGE_TRIANGLE_WARNING
-            ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
-            : 'Pick an element type in the panel to start measuring.') + creaseWord + sizeWord)
+          (mesh.kind === 'cloud' && mesh.vertexCount > LARGE_POINT_WARNING
+            ? `Large point cloud (${mesh.vertexCount.toLocaleString('en-US')} points) — fits may take a moment. Pick an element type to start.`
+            : mesh.kind !== 'cloud' && mesh.triangleCount > LARGE_TRIANGLE_WARNING
+              ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
+              : 'Pick an element type in the panel to start measuring.') + creaseWord + sizeWord)
       } finally {
         prepared.view.dispose()
         await client.discardImport([prepared.id])

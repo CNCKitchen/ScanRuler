@@ -141,6 +141,8 @@ export function Panel({
     return `${el.name}: ${describeConstruction(el.source.method, names, el.source.params, units)} — linked, it follows its sources. Open it to unlink.`
   }
   const triangleCount = useStore((s) => s.triangleCount)
+  const vertexCount = useStore((s) => s.vertexCount)
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
   const discarded = useStore((s) => s.discarded)
@@ -221,7 +223,7 @@ export function Panel({
         </div>
         <ModelSlotBlock
           fileName={fileName}
-          triangleCount={triangleCount}
+          detail={scanIsCloud ? `${vertexCount.toLocaleString('en-US')} points` : `${triangleCount.toLocaleString('en-US')} triangles`}
           busy={busy}
           onOpenScan={onOpenScan}
         />
@@ -563,12 +565,12 @@ export function Panel({
 // Kept out of the main component so the file-slot block reads as one unit.
 function ModelSlotBlock({
   fileName,
-  triangleCount,
+  detail,
   busy,
   onOpenScan,
 }: {
   fileName: string | null
-  triangleCount: number
+  detail: string
   busy: boolean
   onOpenScan: (file: File) => void
 }) {
@@ -577,7 +579,7 @@ function ModelSlotBlock({
       <ModelSlot
         role="Scan"
         name={fileName}
-        detail={`${triangleCount.toLocaleString('en-US')} triangles`}
+        detail={detail}
         dotColor="#8b9099"
         busy={busy}
         onOpen={onOpenScan}

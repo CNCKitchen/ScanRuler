@@ -61,6 +61,12 @@ export function runImport(
   })
 }
 
+/** How the viewport is to draw a loaded scan: as a point cloud, with its
+ *  spacing, or as a mesh (undefined). */
+export function cloudOf(mesh: Pick<LoadedScan, 'kind' | 'spacing'>): { spacing: number } | undefined {
+  return mesh.kind === 'cloud' ? { spacing: mesh.spacing ?? 0 } : undefined
+}
+
 /** What a model prepared without a viewport puts on screen: nothing. */
 const NO_VIEW: PreparedView = { commit() {}, dispose() {} }
 
@@ -85,7 +91,7 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager 
   const companions = await scanCompanions(file.name, new Uint8Array(buffer), extras)
   const { id, mesh } = await client.prepareScan(file.name, buffer, crease, transform, units, companions, scale)
   try {
-    const view = scene ? scene.prepareMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null) : NO_VIEW
+    const view = scene ? scene.prepareMesh(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null, cloudOf(mesh)) : NO_VIEW
     return { id, mesh, source, view }
   } catch (e) {
     await client.discardImport([id])
