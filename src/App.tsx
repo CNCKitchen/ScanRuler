@@ -355,7 +355,7 @@ function Workbench() {
   // same order every time — see plugins/api.ts. The verbs they are handed
   // are defined further down and bound there; a plugin calls them only from
   // handlers and effects, after this render has run.
-  const hostVerbs = useRef<Pick<PluginHost, 'openScan' | 'openReference' | 'runFit' | 'runDeviation' | 'runThickness' | 'clearPreview' | 'swapScan' | 'remapScan' | 'remeasureScan'> | null>(null)
+  const hostVerbs = useRef<Pick<PluginHost, 'openScan' | 'openReference' | 'runFit' | 'runDeviation' | 'runThickness' | 'clearPreview' | 'swapScan' | 'swapScanBuffers' | 'remapScan' | 'remeasureScan'> | null>(null)
   const host = useRef<PluginHost>({
     clientRef,
     sceneRef,
@@ -369,6 +369,7 @@ function Workbench() {
     runThickness: () => hostVerbs.current!.runThickness(),
     clearPreview: () => hostVerbs.current!.clearPreview(),
     swapScan: (source, transform) => hostVerbs.current!.swapScan(source, transform),
+    swapScanBuffers: (source, buffers, transform) => hostVerbs.current!.swapScanBuffers(source, buffers, transform),
     remapScan: (vertexMap) => hostVerbs.current!.remapScan(vertexMap),
     remeasureScan: (refit) => hostVerbs.current!.remeasureScan(refit),
   }).current
@@ -706,9 +707,9 @@ function Workbench() {
 
   // Another version of the scan put in place under the session — see
   // app/scanSwap.
-  const { swapScan, remapScan, remeasureScan } = session.swap
+  const { swapScan, swapScanBuffers, remapScan, remeasureScan } = session.swap
 
-  hostVerbs.current = { openScan, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, remapScan, remeasureScan }
+  hostVerbs.current = { openScan, openReference: openNominal, runFit, runDeviation, runThickness, clearPreview, swapScan, swapScanBuffers, remapScan, remeasureScan }
 
   useProjectHistory({ clientRef, sceneRef, elementScope, deviation, deviationRgb, referenceMap: maps.referenceMap, referenceRgb: maps.referenceRgb,
     thickness, thicknessRgb, imports, sources, runFit, runDeviation, runThickness, swapScan, remeasureScan })

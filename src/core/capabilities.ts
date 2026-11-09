@@ -34,6 +34,7 @@ export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud.'
  *  cloud branch; the rest read points, normals and adjacency only. */
 export const OP_CAPS = {
   load: { needsTriangles: false },
+  'load-buffers': { needsTriangles: false },
   'commit-import': { needsTriangles: false },
   'discard-import': { needsTriangles: false },
   recrease: { needsTriangles: false },

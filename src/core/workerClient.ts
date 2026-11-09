@@ -225,6 +225,15 @@ export class MeshWorkerClient {
     return { id, mesh }
   }
 
+  /** A point cloud from memory — in millimetres, with its normals — as a
+   *  staged import, as prepareScan does; the arrays are handed over, not
+   *  copied. `transform` is put on it as the file's is. */
+  async prepareCloud(positions: Float32Array, normals: Float32Array, crease: CreaseSetting, transform?: Rigid): Promise<{ id: number; mesh: LoadedScan }> {
+    const id = this.nextId++
+    const mesh = await this.request<LoadedScan>({ type: 'load-buffers', requestId: id, positions, normals, crease, staged: true, transform }, [positions.buffer as ArrayBuffer, normals.buffer as ArrayBuffer])
+    return { id, mesh }
+  }
+
   async prepareNominal(name: string, buffer: ArrayBuffer, units: MeshUnits = 'mm'): Promise<{ id: number; mesh: LoadedNominal }> {
     const id = this.nextId++
     const mesh = await this.request<LoadedNominal>({ type: 'load-nominal', requestId: id, name, buffer, staged: true, scale: fileScale(name, units) }, [buffer])

@@ -379,10 +379,19 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     return
   }
 
-  if (msg.type === 'load') {
+  if (msg.type === 'load' || msg.type === 'load-buffers') {
     try {
-      const { parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions)
-      scaleToMm(parsed, msg.scale)
+      let parsed: ParsedMesh
+      let step: ReturnType<typeof parseScan>['step']
+      if (msg.type === 'load') {
+        ;({ parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions))
+        scaleToMm(parsed, msg.scale)
+      } else {
+        // A cloud already in memory, in millimetres: the same path as a
+        // parsed one from here on.
+        parsed = { kind: 'cloud', positions: msg.positions, normals: msg.normals }
+        step = undefined
+      }
       let candidate: MeshGraph
       let colors = parsed.colors
       if (parsed.kind === 'cloud') {

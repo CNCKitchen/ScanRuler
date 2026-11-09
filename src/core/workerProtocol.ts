@@ -34,6 +34,9 @@ export type WorkerRequest =
    *  Absent or 1, the file is taken in millimetres. `companions` are the
    *  files that came with a textured OBJ, the images decoded. */
   | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number; companions?: ObjCompanions }
+  /** A point cloud already in millimetres, from memory: the same reply as
+   *  a loaded cloud. `transform` is put on it as on `load`. */
+  | { type: 'load-buffers'; requestId: number; positions: Float32Array; normals: Float32Array; crease: CreaseSetting; staged: true; transform?: Rigid }
   /** Staged imports leave the current scan/reference available until all
    *  members and their render resources have been prepared. Omitted keeps a
    *  slot; null clears it; a number selects a staged load's request id. */

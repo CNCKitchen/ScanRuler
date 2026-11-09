@@ -136,6 +136,10 @@ export interface PluginHost {
   /** Put another version of the scan in place under the session, read in
    *  the pose `transform` — see app/scanSwap. */
   swapScan(source: ScanSource, transform: Rigid | null): Promise<void>
+  /** The same from a point cloud in memory — positions and normals in
+   *  millimetres, handed over (not copied). `source.file` is the PLY of them
+   *  that the project and the undo history read back. */
+  swapScanBuffers(source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null): Promise<void>
   /** Renumber everything held by vertex onto the version just put in place. */
   remapScan(vertexMap: Int32Array): void
   /** Measure everything on the scan again after a swap — the elements from

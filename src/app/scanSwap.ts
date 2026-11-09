@@ -28,6 +28,7 @@ import { scanRemapped, scanRemeasure, scanSwapped, scanSwapping } from './scanEv
 import { forgetAllSurfaces } from './surfaces'
 import { scanCompanions } from './scanFiles'
 import { cloudOf } from './imports'
+import type { LoadedScan } from '../core/workerClient'
 
 /** A scan as the session holds it: its file, its units, and the files that
  *  came with it. An edited version is new bytes, kept as a file of its own
@@ -64,7 +65,7 @@ export function scanSwap({
     // An edit is a mesh of its own, colourless; the scan before it, on
     // undo, comes back with whatever came with it.
     const companions = await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? [])
-    const { id, mesh } = await client.prepareScan(
+    const prepared = await client.prepareScan(
       source.name,
       buffer,
       creaseSetting(useStore.getState()),
@@ -73,6 +74,30 @@ export function scanSwap({
       companions,
       source.scale ?? 1,
     )
+    await commitSwap(prepared, source, transform)
+  }
+
+  /**
+   * Put a point cloud from memory in place of the scan: `buffers` are in the
+   * scaled file frame, in millimetres, and are handed over to the worker —
+   * the caller writes `source.file` (a PLY of them, scale 1) first, the file
+   * the project and the history read back. `transform` is the alignment put
+   * on them as they are read, the one the session holds: what is shown is
+   * the cloud moved by it.
+   */
+  const swapScanBuffers = async (
+    source: ScanSource,
+    buffers: { positions: Float32Array; normals: Float32Array },
+    transform: Rigid | null,
+  ): Promise<void> => {
+    const prepared = await clientRef.current!.prepareCloud(buffers.positions, buffers.normals, creaseSetting(useStore.getState()), transform ?? undefined)
+    await commitSwap(prepared, source, transform)
+  }
+
+  /** The prepared scan made the session's: shared by both swaps. */
+  const commitSwap = async (prepared: { id: number; mesh: LoadedScan }, source: ScanSource, _transform: Rigid | null): Promise<void> => {
+    const client = clientRef.current!
+    const { id, mesh } = prepared
     try {
       await client.commitImport({ scan: id })
     } catch (e) {
@@ -168,5 +193,5 @@ export function scanSwap({
     scanRemapped(remap)
   }
 
-  return { swapScan, remeasureScan, remapScan }
+  return { swapScan, swapScanBuffers, remeasureScan, remapScan }
 }
