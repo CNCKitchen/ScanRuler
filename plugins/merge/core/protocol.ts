@@ -49,8 +49,10 @@ export interface MergeOps {
    *  the target's. */
   'align-pairs': { payload: { id: string; target: string; pairs: { layer: Vec3; target: Vec3 }[] }; result: AlignReply }
   'align-datums': { payload: { id: string; target: string; layer: DatumIds; targetDatums: DatumIds }; result: AlignReply }
-  /** ICP from `start` (layer → target frame). */
-  refine: { payload: { id: string; target: string; start: Rigid }; result: AlignReply }
+  /** ICP from `start` (layer → target frame). `fromUserGuess` false: the
+   *  start is no one's guess — the layer as it was opened, never moved or
+   *  aligned by the user — and the result is never confident. Default true. */
+  refine: { payload: { id: string; target: string; start: Rigid; fromUserGuess?: boolean }; result: AlignReply }
   /** A transient fit on a layer or on the base, kept under `fitId` for
    *  align-datums until its side goes. A layer's fit is in the layer's own
    *  frame, the base's in the shown frame. Base fit ids are dropped on every

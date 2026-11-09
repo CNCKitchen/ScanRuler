@@ -204,10 +204,10 @@ const ops: { [K in keyof MergeOps]: (payload: Payload<K>, ctx: WorkerContext) =>
     return aligning(alignDatums(t.surface, cloudOf(l), own, theirs, { targetSpacing: t.spacing }), ctx)
   },
 
-  refine({ id, target, start }, ctx) {
+  refine({ id, target, start, fromUserGuess }, ctx) {
     const l = layerOf(id)
     const t = targetOf(target, id, ctx)
-    return aligning(refineLayer(t.surface, cloudOf(l), start, { targetSpacing: t.spacing, fromUserGuess: true }), ctx)
+    return aligning(refineLayer(t.surface, cloudOf(l), start, { targetSpacing: t.spacing, fromUserGuess: fromUserGuess !== false }), ctx)
   },
 
   fit({ id, elementType, seeds, settings }, ctx) {
