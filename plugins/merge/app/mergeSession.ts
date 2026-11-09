@@ -43,7 +43,7 @@ import { useStore } from '../../../src/state/store'
 import { MergeScene } from '../viewer/mergeScene'
 import { BASE, MERGE, type AlignReply, type DatumIds, type MergeOps } from '../core/protocol'
 import type { LayerAlignResult } from '../core/layerAlign'
-import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
+import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits, type MergeSnapshot } from '../state/mergeStore'
 
 /** The question a merge onto a mesh asks first — exact, see the spec. */
 export const MESH_BASE_CONFIRM = 'The result is a point cloud — triangle-only tools and their results go.'
@@ -61,13 +61,25 @@ export function layerScale(name: string, units: LayerUnits): number {
   return is3mfFile(name) ? 1 : fileScale(name, units)
 }
 
+/** Base vertex → merged point → the vertex the loaded scan made of it: the
+ *  merged cloud is graphed again as it loads, which drops a point with no
+ *  usable normal and makes one vertex of exact duplicates. -1 for gone. */
+export function composeMaps(baseMap: Int32Array, loaded: Int32Array): Int32Array {
+  const out = new Int32Array(baseMap.length)
+  for (let i = 0; i < baseMap.length; i++) {
+    const k = baseMap[i]
+    out[i] = k >= 0 && k < loaded.length ? loaded[k] : -1
+  }
+  return out
+}
+
 export interface MergeSessionDeps {
   clientRef: RefObject<MeshWorkerClient | null>
   sceneRef: RefObject<SceneManager | null>
   imports: ImportQueue
   /** Open a file as the scan — the first file with none open. */
   openScan: (file: File, units?: LayerUnits) => Promise<void>
-  swapScanBuffers: (source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null) => Promise<void>
+  swapScanBuffers: (source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null) => Promise<Int32Array>
   remapScan: (vertexMap: Int32Array) => void
   remeasureScan: (refit: boolean) => Promise<void>
 }
@@ -225,8 +237,39 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     seeded.clear()
   }
 
-  /** A layer read again in other units: removed and added again, scaled
-   *  about its centre so it stays where it was laid. */
+  /** A layer read again in `units` — removed from the worker and added
+   *  again at that scale — where it stands: no pose change, no history.
+   *  Outside the import queue, so the history's restore (which holds the
+   *  queue) can run it too. */
+  const reread = async (id: string, units: LayerUnits): Promise<void> => {
+    const row = rowOf(id)
+    const file = files.get(id)
+    if (!file) throw new Error(`The file of layer "${row.name}" is no longer at hand.`)
+    const k = layerScale(file.name, units) / layerScale(file.name, row.units)
+    await call('remove-layer', { id })
+    let staged
+    try {
+      staged = await stageLayer(file, id, layerScale(file.name, units))
+    } catch (e) {
+      // The worker has let it go: so does everything else.
+      forget(id)
+      throw e
+    }
+    const c = centres.get(id) ?? [0, 0, 0]
+    centres.set(id, [c[0] * k, c[1] * k, c[2] * k])
+    const view = sceneOf()
+    view?.add(id, { ...staged.geometry, spacing: staged.added.spacing }, row.color)
+    view?.setPose(id, row.pose)
+    view?.setVisible(id, row.visible)
+    useMerge.getState().patchLayer(id, { units, vertexCount: staged.added.vertexCount, spacing: staged.added.spacing, isCloud: staged.added.isCloud, last: undefined })
+    // Its fits went with it in the worker.
+    useMerge.getState().clearDatums(id)
+  }
+
+  /** A layer read again in other units, scaled about its centre so it stays
+   *  where it was laid — one step of the history, which keeps the units
+   *  with the poses: a step back reads it in the old units and puts the old
+   *  pose back, so no pose is ever put on the layer at another scale. */
   const changeUnits = async (id: string, units: LayerUnits): Promise<void> => {
     const row = rowOf(id)
     const file = files.get(id)
@@ -234,30 +277,17 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     if (refused()) return
     const k = layerScale(file.name, units) / layerScale(file.name, row.units)
     await runImport(imports, `Reading ${row.name} again in ${unitsLabel(units).toLowerCase()}…`, async () => {
-      await call('remove-layer', { id })
-      let staged
-      try {
-        staged = await stageLayer(file, id, layerScale(file.name, units))
-      } catch (e) {
-        // The worker has let it go: so does everything else.
-        forget(id)
-        throw e
-      }
-      // The centre c stays where the pose put it: R(k c) + t' = R c + t.
-      const c = centres.get(id) ?? [0, 0, 0]
-      const rc = new Float64Array(3)
-      rigidRotate(row.pose, c[0], c[1], c[2], rc)
-      const pose = cloneRigid(row.pose)
-      for (let i = 0; i < 3; i++) pose.t[i] += (1 - k) * rc[i]
-      centres.set(id, [c[0] * k, c[1] * k, c[2] * k])
-      const view = sceneOf()
-      view?.add(id, { ...staged.geometry, spacing: staged.added.spacing }, row.color)
-      view?.setPose(id, pose)
-      view?.setVisible(id, row.visible)
-      useMerge.getState().patchLayer(id, { units, pose, vertexCount: staged.added.vertexCount, spacing: staged.added.spacing, isCloud: staged.added.isCloud, last: undefined })
-      // Its fits went with it in the worker.
-      useMerge.getState().clearDatums(id)
-      useStore.getState().setStatus(`${row.name} is read in ${unitsLabel(units).toLowerCase()} now, scaled about its centre.`)
+      await historyAsync(`Merge: read layer in ${unitsLabel(units).toLowerCase()}`, async () => {
+        // The centre c stays where the pose put it: R(k c) + t' = R c + t.
+        const c = centres.get(id) ?? [0, 0, 0]
+        const rc = new Float64Array(3)
+        rigidRotate(row.pose, c[0], c[1], c[2], rc)
+        const pose = cloneRigid(row.pose)
+        for (let i = 0; i < 3; i++) pose.t[i] += (1 - k) * rc[i]
+        await reread(id, units)
+        useMerge.getState().setPose(id, pose)
+      })
+      useStore.getState().setStatus(`${row.name} is read in ${unitsLabel(units).toLowerCase()} now, scaled about its centre. Ctrl+Z reads it as it was.`)
     })
   }
 
@@ -402,7 +432,9 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
    * The base and the layers shown, as one cloud put in place of the scan
    * under everything measured on it — one step of the history. A mesh base
    * asks first. `dedupe`: a layer point within this of one kept before it
-   * goes, mm; null keeps every point. True when it went through.
+   * goes, mm; null keeps every point. Resolves true when the scan was
+   * merged; false when nothing changed — refused (busy, no layer shown),
+   * answered no at the mesh question, or failed (the error line says why).
    */
   const merge = async ({ dedupe }: { dedupe: number | null }): Promise<boolean> => {
     if (refused()) return false
@@ -439,10 +471,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
             const file = new File([buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)], name)
             const dropped = out.dropped
             // units-ok: the file's own unit, an id — the cloud is written in mm.
-            await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)
+            const loaded = await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)
             // Points laid exactly on one another are one point of the scan.
             const points = useStore.getState().vertexCount
-            remapScan(out.baseMap)
+            remapScan(composeMaps(out.baseMap, loaded))
             useMerge.setState((m) => ({ merges: m.merges + 1, layers: m.layers.map((l) => ({ ...l, visible: false })) }))
             await remeasureScan(true)
             merged = { points, dropped }
@@ -515,6 +547,16 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
       }),
       registerHistory({
         blocked: () => useMerge.getState().running !== null,
+        // A step across a change of units reads the layer again in the
+        // step's units before its pose goes back on.
+        beforeRestore: async (patch) => {
+          const value = patch[MERGE] as MergeSnapshot | undefined
+          if (!value?.units || !clientRef.current) return
+          for (const l of useMerge.getState().layers) {
+            const i = value.ids.indexOf(l.id)
+            if (i >= 0 && value.units[i] !== l.units) await reread(l.id, value.units[i])
+          }
+        },
         // A step across a merge re-swaps the scan: the layers stay for it.
         aroundRestore: async (patch, restore) => {
           const value = patch[MERGE] as { merges?: number } | undefined

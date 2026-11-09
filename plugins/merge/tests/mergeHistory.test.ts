@@ -96,6 +96,40 @@ describe('moves and alignments in the undo history', () => {
   })
 })
 
+describe('a change of units in the undo history', () => {
+  it('is one step: undo reads the layer in the old units with the old pose, redo again', async () => {
+    await openScan(plyFile(hi, 'hi.ply'))
+    useShell.getState().setWorkspace('merge')
+    const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
+    const opened = row(id).pose
+    const mmFirst = (await kit.call('layer-geometry', { id })).positions[0]
+    const moved = nudged(POSE)
+    kit.merge.moveLayer(id, moved)
+    await kit.merge.setLayer(id, { units: 'in' })
+    expect(labels().slice(-2)).toEqual(['Merge: move layer', 'Merge: read layer in inches'])
+    const inPose = row(id).pose
+    const firstOf = async () => (await kit.call('layer-geometry', { id })).positions[0]
+    expect(await firstOf()).toBeCloseTo(mmFirst * 25.4, 2)
+
+    await undo()
+    expect(row(id).units).toBe('mm')
+    expect(row(id).pose).toBe(moved)
+    expect(await firstOf()).toBeCloseTo(mmFirst, 4)
+    await undo()
+    expect(row(id).units).toBe('mm')
+    expect(row(id).pose).toBe(opened)
+    expect(await firstOf()).toBeCloseTo(mmFirst, 4)
+
+    await redo()
+    expect(row(id).pose).toBe(moved)
+    expect(row(id).units).toBe('mm')
+    await redo()
+    expect(row(id).units).toBe('in')
+    expect(row(id).pose).toBe(inPose)
+    expect(await firstOf()).toBeCloseTo(mmFirst * 25.4, 2)
+  })
+})
+
 describe('merging', () => {
   it('puts one cloud in place of the scan as one step, the elements refitted and the layers hidden; undo and redo cross it', async () => {
     const id = await mergeReady()
@@ -245,6 +279,53 @@ describe('merging', () => {
     } finally {
       useStore.setState({ creaseMode: 'auto' })
     }
+  })
+
+  it('carries the selections to the right vertices when the merged cloud drops a point and welds a double', async () => {
+    // An indexed mesh with an unused vertex first (no normal: the cloud
+    // drops it) and a seam of doubled vertices (the cloud makes one of each).
+    const verts: number[][] = [[100, 100, 100]]
+    const faces: number[][] = []
+    const grid = (x0: number) => {
+      const at = verts.length
+      for (let i = 0; i <= 5; i++) for (let j = 0; j <= 10; j++) verts.push([x0 + i, j, 0])
+      for (let i = 0; i < 5; i++) for (let j = 0; j < 10; j++) {
+        const a = at + i * 11 + j, b = a + 11
+        faces.push([a, b, b + 1], [a, b + 1, a + 1])
+      }
+      return at
+    }
+    grid(0)
+    const right = grid(5)
+    const header = ['ply', 'format ascii 1.0', `element vertex ${verts.length}`, 'property float x', 'property float y', 'property float z',
+      `element face ${faces.length}`, 'property list uchar int vertex_indices', 'end_header']
+    const text = [...header, ...verts.map((v) => v.join(' ')), ...faces.map((f) => `3 ${f.join(' ')}`)].join('\n') + '\n'
+    kit.merge.dropLayers(true)
+    useShell.getState().setWorkspace('elements')
+    await run('scan.open', { bytes: new TextEncoder().encode(text), name: 'seam.ply', discard: true })
+    expect(useStore.getState().vertexCount).toBe(verts.length)
+    const picked = Array.from({ length: 66 }, (_, i) => right + i)
+    await run('element.fit_marked', { kind: 'plane', vertices: picked })
+    const where = async () => {
+      const q = await held()
+      const m = new Map<number, string>()
+      for (let i = 0; i < q.vertices.length; i++) m.set(q.vertices[i], [0, 1, 2].map((c) => q.positions[3 * i + c].toFixed(4)).join(','))
+      return m
+    }
+    const before = await where()
+    const wanted = new Set(picked.map((v) => before.get(v)!))
+    useShell.getState().setWorkspace('merge')
+    const pts: number[] = [], nrm: number[] = []
+    for (let a = 0; a < 5; a++) for (let b = 0; b < 10; b++) { pts.push(11.5 + a, b + 0.5, 0); nrm.push(0, 0, 1) }
+    await kit.merge.openLayer(plyFile({ positions: Float32Array.from(pts), normals: Float32Array.from(nrm) }, 'side.ply'), 'mm')
+    expect(await mergeAnswering(true)).toBe(true)
+    const after = await where()
+    const el = useStore.getState().elements[0]
+    const selection = Array.from((el.source as { selection: Uint32Array }).selection)
+    // Still 66: the seam's 11 are welded onto the left grid's, distinct from the rest.
+    expect(selection.length).toBe(66)
+    expect(new Set(selection.map((v) => after.get(v)!))).toEqual(wanted)
+    expect(el.status).toBe('done')
   })
 
   it('a merged scan goes into a project and comes back the same', async () => {

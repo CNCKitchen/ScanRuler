@@ -152,6 +152,7 @@ function postScan(
         vertexCount: g.vertexCount,
         triangleCount: 0,
         ...(colors ? { colors } : {}),
+        ...(file?.vertexMap ? { vertexMap: file.vertexMap.slice() } : {}),
       },
       [positions.buffer, normals.buffer, slots.buffer, ...(colors ? [colors.buffer] : [])],
     )
@@ -188,6 +189,8 @@ function postScan(
 /** What the scan's file said besides its geometry, for the render thread. */
 interface ScanFileFacts {
   colors?: Uint8Array
+  /** Buffers handed over: which vertex each input point became. */
+  vertexMap?: Int32Array
   texture?: TextureNote
   step?: StepInfo
 }
@@ -432,9 +435,12 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       }
       let candidate: MeshGraph
       let colors = parsed.colors
+      let vertexMap: Int32Array | undefined
       if (parsed.kind === 'cloud') {
         const built = buildPointGraph(parsed, progress)
         candidate = built
+        // Whoever handed the points over numbers them its own way.
+        if (msg.type === 'load-buffers') vertexMap = built.vertexMap
         // The file's colours are per input point; the graph keeps fewer.
         if (colors && colors.length === built.vertexMap.length * 3) {
           const kept = new Uint8Array(built.vertexCount * 3)
@@ -449,7 +455,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
         rigidApplyToPoints(msg.transform, candidate.positions)
         rigidRotateVectors(msg.transform, candidate.normals)
       }
-      postScan(msg.requestId, candidate, msg.crease, progress, { colors, texture: parsed.texture, step })
+      postScan(msg.requestId, candidate, msg.crease, progress, { colors, texture: parsed.texture, step, vertexMap })
       if (msg.staged) stagedScans.set(msg.requestId, candidate)
       else { graph = candidate; scanSolid = null; scanReplaced() }
     } catch (e) {

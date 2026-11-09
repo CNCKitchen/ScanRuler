@@ -47,6 +47,9 @@ export interface LoadedScan extends LoadedMesh {
   kind: 'mesh' | 'cloud'
   /** A cloud's typical point spacing, mm. */
   spacing?: number
+  /** A cloud from buffers (prepareCloud): each input point's vertex, -1
+   *  where it was dropped. */
+  vertexMap?: Int32Array
   /** The vertex each appended copy stands in for — see geometry/crease.ts. */
   copyOf: Uint32Array
   crease: CreaseReport

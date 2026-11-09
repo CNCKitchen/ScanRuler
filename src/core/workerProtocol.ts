@@ -291,6 +291,10 @@ export type WorkerResponse =
       /** The scan's own vertices — what every region and marking indexes. */
       vertexCount: number
       triangleCount: number
+      /** A cloud loaded from buffers: each input point's vertex, or -1 where
+       *  it was dropped (no normal, not finite); an exact duplicate gets the
+       *  copy kept. */
+      vertexMap?: Int32Array
       /** The part's own colour per vertex (of `vertexCount`), sRGB bytes —
        *  a textured OBJ's, read off its image. */
       colors?: Uint8Array

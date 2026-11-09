@@ -83,15 +83,19 @@ export function scanSwap({
    * the caller writes `source.file` (a PLY of them, scale 1) first, the file
    * the project and the history read back. `transform` is the alignment put
    * on them as they are read, the one the session holds: what is shown is
-   * the cloud moved by it.
+   * the cloud moved by it. Answers which vertex of the scan each point
+   * became, -1 where one was dropped: points without a usable normal go,
+   * and exact duplicates are one vertex.
    */
   const swapScanBuffers = async (
     source: ScanSource,
     buffers: { positions: Float32Array; normals: Float32Array },
     transform: Rigid | null,
-  ): Promise<void> => {
+  ): Promise<Int32Array> => {
+    const n = buffers.positions.length / 3
     const prepared = await clientRef.current!.prepareCloud(buffers.positions, buffers.normals, creaseSetting(useStore.getState()), transform ?? undefined)
     await commitSwap(prepared, source, transform)
+    return prepared.mesh.vertexMap ?? Int32Array.from({ length: n }, (_, i) => i)
   }
 
   /** The prepared scan made the session's: shared by both swaps. */

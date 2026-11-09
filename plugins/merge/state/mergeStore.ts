@@ -160,8 +160,9 @@ export function layerRow(id: string, name: string, color: string, units: LayerUn
   return { id, name, color, visible: true, units, locked: false, pose: identityRigid(), ...added }
 }
 
-/** What the undo history keeps of the workspace: each layer's pose and
- *  whether it is shown, by position — compared element by element, so a
+/** What the undo history keeps of the workspace: each layer's pose,
+ *  whether it is shown and the units it is read in (a pose belongs to a
+ *  scale), by position — compared element by element, so a
  *  step records them only when one changed — and the count of merges. */
 export function captureMerge() {
   const { layers, merges } = useMerge.getState()
@@ -169,20 +170,22 @@ export function captureMerge() {
     ids: layers.map((l) => l.id),
     poses: layers.map((l) => l.pose),
     visible: layers.map((l) => l.visible),
+    units: layers.map((l) => l.units),
     merges,
   }
 }
 
 export type MergeSnapshot = ReturnType<typeof captureMerge>
 
-/** A step's poses and visibility put back on the layers still open; one
+/** A step's poses, visibility and units put back on the layers still open
+ *  (read again in those units first — see mergeSession's beforeRestore); one
  *  opened since keeps its own, one gone is passed by. */
 export function applyMerge(value: MergeSnapshot): void {
   useMerge.setState((s) => ({
     merges: value.merges,
     layers: s.layers.map((l) => {
       const i = value.ids.indexOf(l.id)
-      return i < 0 ? l : { ...l, pose: value.poses[i], visible: value.visible[i] }
+      return i < 0 ? l : { ...l, pose: value.poses[i], visible: value.visible[i], units: value.units[i] }
     }),
   }))
 }

@@ -138,8 +138,10 @@ export interface PluginHost {
   swapScan(source: ScanSource, transform: Rigid | null): Promise<void>
   /** The same from a point cloud in memory — positions and normals in
    *  millimetres, handed over (not copied). `source.file` is the PLY of them
-   *  that the project and the undo history read back. */
-  swapScanBuffers(source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null): Promise<void>
+   *  that the project and the undo history read back. Answers the vertex
+   *  each point became, -1 for one dropped (no usable normal); exact
+   *  duplicates are one vertex. */
+  swapScanBuffers(source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null): Promise<Int32Array>
   /** Renumber everything held by vertex onto the version just put in place. */
   remapScan(vertexMap: Int32Array): void
   /** Measure everything on the scan again after a swap — the elements from
