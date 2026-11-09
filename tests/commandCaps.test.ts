@@ -134,9 +134,9 @@ describe('commands on a point cloud', () => {
     // The flagged set, in the open: a change here is a decision.
     expect(refusedNames.sort()).toEqual(
       [
-        'align.auto', 'align.symmetry', 'deviation.export', 'deviation.hotspots', 'deviation.settings', 'deviation.volume',
+        'align.symmetry', 'deviation.export', 'deviation.hotspots', 'deviation.settings', 'deviation.volume',
         'element.construct', 'scan.heightmap', 'scan.outline', 'scan.pattern', 'scan.qa',
-        'scan.segment', 'section.cut', 'section.get', 'thickness.measure',
+        'section.cut', 'section.get', 'thickness.measure',
       ].sort(),
     )
     // Those the mesh itself does not answer here, so there is nothing to compare: no state to clear, no browser.

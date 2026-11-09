@@ -630,6 +630,37 @@ export function planeRegionReport(
  *  peeled off the region, so the region stops a little short. */
 const CLOSED_REACH_OF_R = 1
 
+/** A cloud has no triangles for the axis to cross, so a floor or cap is read
+ *  from its points: those within one spacing of the axis line whose normals
+ *  lie along it (the bore's own wall lies a radius off). The points of one
+ *  surface are not at one t on a rough scan, so those within a spacing of
+ *  each other along the axis count as one crossing, at their mean. */
+function crossingsOfPoints(g: MeshGraph, pu: Float32Array, pv: Float32Array, pt: Float32Array, a: Vec3, hits: number[]): void {
+  const spacing = g.spacing ?? g.bboxDiag / Math.cbrt(g.vertexCount)
+  const n = g.normals
+  const near: number[] = []
+  for (let k = 0; k < g.vertexCount; k++) {
+    if (Math.hypot(pu[k], pv[k]) > spacing) continue
+    if (Math.abs(n[k * 3] * a[0] + n[k * 3 + 1] * a[1] + n[k * 3 + 2] * a[2]) < 0.5) continue
+    near.push(pt[k])
+  }
+  near.sort((x, y) => x - y)
+  let sum = 0
+  let count = 0
+  let last = -Infinity
+  for (const t of near) {
+    if (count > 0 && t - last > spacing) {
+      hits.push(sum / count)
+      sum = 0
+      count = 0
+    }
+    sum += t
+    count++
+    last = t
+  }
+  if (count > 0) hits.push(sum / count)
+}
+
 /**
  * Whether a bore is closed at an end, read by casting its axis from the
  * middle of the wall toward each end: on the axis inside a bore there is
@@ -679,6 +710,7 @@ export function closedAlong(g: MeshGraph, region: Uint32Array, fit: { center: Ve
     pt[k] = qx * a[0] + qy * a[1] + qz * a[2]
   }
   const hits: number[] = []
+  if (g.triangleCount === 0) crossingsOfPoints(g, pu, pv, pt, a, hits)
   for (let f = 0; f + 2 < indices.length; f += 3) {
     const i0 = indices[f], i1 = indices[f + 1], i2 = indices[f + 2]
     const u0 = pu[i0], u1 = pu[i1], u2 = pu[i2]

@@ -5,7 +5,7 @@ import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { CLOUD_REFUSAL, OP_CAPS, refusesOnCloud } from '../src/core/capabilities'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { buildPointGraph } from '../src/core/geometry/buildPointGraph'
-import { planeCloud, writePlyCloud } from './cloudFixtures'
+import { blockWithBoreCloud, planeCloud, writePlyCloud } from './cloudFixtures'
 import { boxMesh } from './helpers'
 
 // The request types as the protocol's union spells them.
@@ -26,17 +26,15 @@ const NEEDS: Record<string, Req> = {
   shadow: { type: 'shadow', frame, tolerance: 0.1, play: 0, smoothDeg: 0 },
   centroid: { type: 'centroid' },
   symmetry: { type: 'symmetry', seed: null },
-  segment: { type: 'segment', options: { minArea: 1, maxRms: 1, maxDeg: 10 } },
   curvature: { type: 'curvature' },
   heights: { type: 'heights', grid: { origin: [-6, -6, 10], dir: [0, 0, -1], u: [1, 0, 0], v: [0, 1, 0], cell: 3, cols: 4, rows: 4, far: 30 } as never },
   'scan-qa': { type: 'scan-qa', sample: 100, rims: 3 },
   'scan-rim': { type: 'scan-rim', index: 0 },
-  'auto-align': { type: 'auto-align' },
   'closed-shells': { type: 'closed-shells', which: 'scan' },
 }
 
 // Ops meant to succeed on the 12-triangle box, replying `<op>-ok`.
-const OK_ON_BOX = ['section', 'shadow', 'centroid', 'curvature', 'heights', 'scan-qa', 'auto-align', 'thickness']
+const OK_ON_BOX = ['section', 'shadow', 'centroid', 'curvature', 'heights', 'scan-qa', 'thickness']
 
 const plyMesh = (): ArrayBuffer => {
   const p = boxMesh(10, 2)
@@ -105,6 +103,13 @@ describe('worker gate', () => {
     expect(send({ type: 'nearest', vertex: 0 }, 4)).toMatchObject({ type: 'nearest-ok', result: { vertex: 0, triangle: null } })
     expect(send({ type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) }, 5).type).toBe('plane-region-ok')
     expect(send({ type: 'closed-shells', which: 'nominal' }, 3)).toMatchObject({ type: 'error', message: 'No model loaded.' })
+  })
+
+  it('segment and auto-align run on a cloud', () => {
+    load('block.ply', writePlyCloud(blockWithBoreCloud({ size: [60, 40, 20], boreRadius: 5, step: 2 }), 'binary_little_endian'))
+    const seg = send({ type: 'segment', options: { minArea: 20, maxRms: 0.05, maxDeg: 15 } }, 5)
+    expect(seg.type).toBe('segment-ok')
+    expect(send({ type: 'auto-align' }, 6).type).toBe('auto-align-ok')
   })
 
   it('the same ops still run on a small mesh', () => {

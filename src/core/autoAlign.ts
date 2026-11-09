@@ -42,6 +42,8 @@
 
 import { rigidFromQuaternion, type Rigid } from './deviation/rigid'
 import { symmetricEigen3, symmetricEigenN } from './fit/linalg'
+import { vertexAreas } from './fit/segment'
+import { isCloud } from './geometry/cloud'
 import type { MeshGraph, Vec3 } from './types'
 import { addScaled, cross, dot, normalize } from './vec'
 
@@ -183,38 +185,32 @@ const FLAT_LOOP = 0.02
  *  few degrees, an edge by tens. Normals are not averaged across this either. */
 const EDGE_DEG = 30
 
-function prepare(g: MeshGraph, smoothing: number): Prepared {
-  const { positions: p, indices, vertexCount } = g
-  const area = new Float64Array(vertexCount)
+/** A cloud's samples are its points: no triangle to share out, so each point
+ *  stands for the patch of surface round it (vertexAreas — the density-based
+ *  area the segmentation weighs with, a mesh's third-of-a-triangle in all but
+ *  name), its normal averaged over its neighbours the way a vertex's is.
+ *  Nothing marks an edge but the neighbours' normals, which the averaging
+ *  already keeps apart (see EDGE_DEG), and there are no open edges to read:
+ *  the part stands on its largest face or its axis. */
+function prepareCloud(g: MeshGraph, smoothing: number): Prepared {
+  const { positions: p, vertexCount } = g
+  const area = Float64Array.from(vertexAreas(g))
   let total = 0
-  for (let t = 0; t < indices.length; t += 3) {
-    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
-    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
-    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
-    const third = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 6
-    if (!(third > 0)) continue
-    total += 3 * third
-    area[indices[t]] += third
-    area[indices[t + 1]] += third
-    area[indices[t + 2]] += third
+  const vectorArea: Vec3 = [0, 0, 0]
+  for (let v = 0; v < vertexCount; v++) {
+    total += area[v]
+    for (let k = 0; k < 3; k++) vectorArea[k] += area[v] * g.normals[v * 3 + k]
   }
+  const normals = smoothed(g, g.normals, area, new Uint8Array(vertexCount), smoothing)
+  return { count: vertexCount, pos: p.slice(0, vertexCount * 3), normals, weight: area, total, vectorArea, openings: [] }
+}
 
-  const { vectorArea, openings } = readOpenings(g, total)
-
+/** Passes of area-weighted averaging of the normals over each vertex's
+ *  neighbours, never across an edge of the part. */
+function smoothed(g: MeshGraph, from: Float32Array, area: Float64Array, onEdge: Uint8Array, smoothing: number): Float32Array {
+  const { vertexCount } = g
   const cosEdge = Math.cos(rad(EDGE_DEG))
-  const onEdge = new Uint8Array(vertexCount)
-  for (let t = 0; t < indices.length; t += 3) {
-    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
-    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
-    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
-    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-    const l = Math.hypot(nx, ny, nz)
-    if (!(l > 0)) continue
-    for (const o of [a, b, c])
-      if (nx * g.normals[o] + ny * g.normals[o + 1] + nz * g.normals[o + 2] < cosEdge * l) onEdge[o / 3] = 1
-  }
-
-  let normals = g.normals
+  let normals = from
   for (let pass = 0; pass < smoothing; pass++) {
     const out = new Float32Array(normals.length)
     for (let v = 0; v < vertexCount; v++) {
@@ -245,6 +241,42 @@ function prepare(g: MeshGraph, smoothing: number): Prepared {
     }
     normals = out
   }
+  return normals
+}
+
+function prepare(g: MeshGraph, smoothing: number): Prepared {
+  if (isCloud(g)) return prepareCloud(g, smoothing)
+  const { positions: p, indices, vertexCount } = g
+  const area = new Float64Array(vertexCount)
+  let total = 0
+  for (let t = 0; t < indices.length; t += 3) {
+    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const third = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx) / 6
+    if (!(third > 0)) continue
+    total += 3 * third
+    area[indices[t]] += third
+    area[indices[t + 1]] += third
+    area[indices[t + 2]] += third
+  }
+
+  const { vectorArea, openings } = readOpenings(g, total)
+
+  const cosEdge = Math.cos(rad(EDGE_DEG))
+  const onEdge = new Uint8Array(vertexCount)
+  for (let t = 0; t < indices.length; t += 3) {
+    const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const l = Math.hypot(nx, ny, nz)
+    if (!(l > 0)) continue
+    for (const o of [a, b, c])
+      if (nx * g.normals[o] + ny * g.normals[o + 1] + nz * g.normals[o + 2] < cosEdge * l) onEdge[o / 3] = 1
+  }
+
+  const normals = smoothed(g, g.normals, area, onEdge, smoothing)
 
   // Hand every triangle's area to its vertices, and to a sample of its own
   // for the ones that lie on an edge.
@@ -930,7 +962,7 @@ export interface AutoAlignOptions {
 
 /** Propose the coordinate system of a scan â€” see the head of this file. */
 export function autoAlign(g: MeshGraph, opts: AutoAlignOptions = {}): AutoAlignResult {
-  if (g.vertexCount < 4 || g.triangleCount < 4) throw new Error('Too little surface to align.')
+  if (g.vertexCount < 4 || (!isCloud(g) && g.triangleCount < 4)) throw new Error('Too little surface to align.')
   const pre = prepare(g, opts.smoothing ?? 2)
   if (!(pre.total > 0)) throw new Error('Too little surface to align.')
   const votes = vote(pre)

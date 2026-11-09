@@ -307,7 +307,7 @@ async function facesIn(largest: NonNullable<AutoAlignTilts['largest']>): Promise
 
 const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
   name: 'auto',
-  scanOps: ['auto-align', 'heights'],
+  scanOps: ['auto-align'],
   title: 'Auto-align the part',
   description:
     'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts; largestInside when that face looks into the part (the scan stands in front of it: a rib’s wall, not a mating face — level on the mating face with align.datum). Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.',
@@ -327,7 +327,8 @@ const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
       }
       const note = useStore.getState().alignDraft?.proposal
       // Looked at in the scan's frame as it stands, before the pose moves it.
-      const inside = tilts.largest ? await facesIn(tilts.largest) : null
+      // The rays need triangles to meet; a point cloud has none, and goes without the look.
+      const inside = tilts.largest && !useStore.getState().scanIsCloud ? await facesIn(tilts.largest) : null
       const square = squareOut(tilts)
       const warning = inside
         ? {

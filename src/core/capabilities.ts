@@ -22,9 +22,9 @@ export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud.'
  *   - heights, scan-qa, scan-rim: solid index, rim loops
  *   - thickness: solid index; closed-shells (scan): closedVertices
  *   - deviate-reference, deviate-volume: scanSurfaceOf, WindingTree
- *   - segment: vertexAreas (a third of each triangle)
- *   - auto-align: per-vertex areas and triangleCount
- *  Taken on a cloud after all: nearest (the spot is the nearest point, with no
+ *  Taken on a cloud after all: segment and auto-align (each point weighs its
+ *  density-based patch, vertexAreas, in place of a third of each triangle),
+ *  nearest (the spot is the nearest point, with no
  *  triangle) and plane-region (vertexAreas gives each point its density-based
  *  patch; closedAlong finds no triangle crossings, so a bore on a cloud reports
  *  no closed end — tested).
@@ -53,7 +53,7 @@ export const OP_CAPS = {
   symmetry: { needsTriangles: true },
   flood: { needsTriangles: false },
   'plane-region': { needsTriangles: false },
-  segment: { needsTriangles: true },
+  segment: { needsTriangles: false },
   curvature: { needsTriangles: true },
   nearest: { needsTriangles: false },
   bounds: { needsTriangles: false },
@@ -61,7 +61,7 @@ export const OP_CAPS = {
   heights: { needsTriangles: true },
   'scan-qa': { needsTriangles: true },
   'scan-rim': { needsTriangles: true },
-  'auto-align': { needsTriangles: true },
+  'auto-align': { needsTriangles: false },
   // which='nominal' is the reference's own shells; the worker lets it through.
   'closed-shells': { needsTriangles: true },
   deflection: { needsTriangles: false },
