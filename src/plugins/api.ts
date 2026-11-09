@@ -75,6 +75,13 @@ export interface WorkspaceTab {
    *  own; lower comes first. */
   order: number
   /**
+   * Why the workspace cannot be used now — the tab is greyed with this as
+   * its tooltip, and the workspace gives way to 3D Measure if it is open —
+   * or null when it can. A plain function of the stores, read as they
+   * change; Mesh Tools and Reverse engineer say so for a point cloud.
+   */
+  unavailable?(): string | null
+  /**
    * The workspace's guided hint, as a React hook: the step to ring once a
    * scan is open (opening one is the app's own first step), or 'done' when
    * the workspace has been carried through. `busy` quiets the hints of

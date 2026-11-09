@@ -18,6 +18,8 @@ import { registerReverseGuides } from './guides/guides'
 import { settleHeld } from './app/reCommandCore'
 import { bodiesLayer } from './app/reSectionLayer'
 import { sketchPlanes } from './app/reSectionCommands'
+import { CLOUD_REFUSAL } from '../../src/core/capabilities'
+import { useStore } from '../../src/state/store'
 import { useShell } from '../../src/state/shellStore'
 import { afterStepOut } from './app/reCommandAnswers'
 import { describeReverse } from './app/reReadout'
@@ -62,6 +64,8 @@ const plugin: ScanRulerPlugin = {
     title: 'Sketch on sections, extrude and revolve, and export a solid STEP body built over the scan',
     icon: 'extract',
     order: 10,
+    // The sketches and features are built over the scan's triangles.
+    unavailable: () => (useStore.getState().scanIsCloud ? CLOUD_REFUSAL : null),
   },
   keyboard: reverseKeyboard,
   notices: ReverseNotices,
@@ -78,7 +82,7 @@ const plugin: ScanRulerPlugin = {
     // An agent's way in: the workspace's commands under reverse.*, its part
     // of the session's readout, and what its kernel is busy with — loading,
     // or building the bodies — so no command runs over it.
-    registerCommands('reverse', reverseCommands)
+    registerCommands('reverse', reverseCommands.map((c) => (c.readOnly ? c : { ...c, needsTriangles: true })))
     // How to go about it, for an agent — guide.read serves them.
     registerReverseGuides()
     // A batch's changes run deferred build once, at its end: what they held

@@ -21,7 +21,7 @@ import { bundleFiles } from '../app/scanFiles'
 import { PROJECT_ACCEPT, PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
 import { holdsProject, isProjectFile } from '../app/useProject'
 import { APP_VERSION } from '../version'
-import { useCloudRefusal } from './cloudGate'
+import { watchWorkspaceAvailability, workspaceUnavailable } from '../app/workspaceAvailability'
 import type { RecoveryStatus } from '../app/useRecovery'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
@@ -187,7 +187,9 @@ export function TopBar({
   recovery: RecoveryStatus
 }) {
   const fileName = useStore((s) => s.fileName)
-  const noThickness = useCloudRefusal('thickness')
+  // Read in render: the bar redraws when the scan turns into a cloud.
+  const unavailable = workspaceUnavailable
+  useEffect(() => watchWorkspaceAvailability(), [])
   const scanIsCloud = useStore((s) => s.scanIsCloud)
   const triangleCount = useStore((s) => s.triangleCount)
   const vertexCount = useStore((s) => s.vertexCount)
@@ -252,9 +254,9 @@ export function TopBar({
             data-test={`workspace-${w.id}`}
             aria-selected={workspace === w.id}
             className={workspace === w.id ? 'on' : undefined}
-            title={w.id === 'thickness' && noThickness ? noThickness : `${w.label}\n${w.title}`}
+            title={unavailable(w.id) ?? `${w.label}\n${w.title}`}
             aria-label={w.label}
-            disabled={picking || (w.id === 'thickness' && noThickness !== null)}
+            disabled={picking || unavailable(w.id) !== null}
             onClick={() => setWorkspace(w.id)}
           >
             <Icon name={w.icon} size={16} />

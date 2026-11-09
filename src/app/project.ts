@@ -11,6 +11,7 @@ import { useThickness } from '../state/thicknessStore'
 import { sheetKeyOf, sheetOf, useFlat, type FlatSubject, type SheetState } from '../state/flatStore'
 import { CORE_WORKSPACES, useShell, type Workspace } from '../state/shellStore'
 import { plugins } from '../plugins/registry'
+import { workspaceUnavailable } from './workspaceAvailability'
 import { keptParts, projectSections } from './projectSections'
 import {
   alignFromJson,
@@ -545,7 +546,7 @@ export function prepareProjectState(m: ProjectManifest, members: ReadonlyMap<str
 /** Open the workspace a project was saved in — one of the app's, or one a
  *  plugin in use adds. A workspace this build does not have opens 3D
  *  Measure instead. */
-function applyWorkspace(w: string): void {
+export function applyWorkspace(w: string): void {
   const known: Workspace[] = [...CORE_WORKSPACES, ...plugins().flatMap((p) => (p.workspace ? [p.workspace.id] : []))]
-  useShell.getState().setWorkspace(known.includes(w) ? w : 'elements')
+  useShell.getState().setWorkspace(known.includes(w) && workspaceUnavailable(w) === null ? w : 'elements')
 }

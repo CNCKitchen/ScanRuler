@@ -13,6 +13,7 @@ import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
 import { mapHeld, useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
+import { CLOUD_REFUSAL } from '../core/capabilities'
 import { targetFitOf } from '../app/useElementField'
 import { usePulse } from '../app/useHints'
 import { CopyButton } from './CopyButton'
@@ -101,6 +102,7 @@ export function DeviationPanel({
   const scanName = useStore((s) => s.fileName)
   const scanTriangles = useStore((s) => s.triangleCount)
   const scanBusy = useStore((s) => s.busy)
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
   // Only the slice this panel actually reads: the store is also written on
   // every map repaint and probe, and re-rendering the whole panel for fields
   // it never shows would be paid on every one of them.
@@ -352,7 +354,8 @@ export function DeviationPanel({
           <button
             className="block"
             data-test="align-points"
-            disabled={!ready || busy}
+            disabled={!ready || busy || scanIsCloud}
+            title={scanIsCloud ? CLOUD_REFUSAL : undefined}
             onClick={onPickPoints}
           >
             Align by picking points…

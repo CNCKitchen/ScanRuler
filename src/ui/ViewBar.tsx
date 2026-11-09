@@ -18,6 +18,7 @@ import { mapHeld, useDeviation } from '../state/deviationStore'
 import { useSectionView } from '../state/sectionViewStore'
 import { useShell } from '../state/shellStore'
 import { useStore } from '../state/store'
+import { CLOUD_REFUSAL } from '../core/capabilities'
 import { Icon } from './icons'
 import { anyChanged, PartKey, PartOption, type ViewSwitch } from './PartKey'
 import { SectionViewKeys } from './SectionViewKeys'
@@ -93,7 +94,8 @@ export function ViewBar({
   const hasMap = useDeviation(mapHeld)
   const nominalReady = Boolean(nominalName) && !nominalBusy
   // Nothing to stand a second viewport up with until both parts are in.
-  const canSplit = Boolean(fileName) && nominalReady
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
+  const canSplit = Boolean(fileName) && nominalReady && !scanIsCloud
 
   // The scan, shown or put away by the workspace that holds its key, by the
   // deviation workspace's own switch, or by the app's.
@@ -244,7 +246,9 @@ export function ViewBar({
                 disabled={!canSplit}
                 onClick={() => setSplit(!split)}
                 title={
-                  canSplit
+                  scanIsCloud
+                    ? CLOUD_REFUSAL
+                    : canSplit
                     ? 'Show the scan and the reference in two viewports that turn, pan and zoom together'
                     : 'Load both the scan and the reference to compare them side by side'
                 }

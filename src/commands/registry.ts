@@ -19,7 +19,7 @@
 // leave work only the last of several changes needs — a rebuild — for
 // later; it is finished before the next run that is not (registerSettle).
 
-import { refusesOpsOnCloud } from '../core/capabilities'
+import { CLOUD_REFUSAL, refusesOpsOnCloud } from '../core/capabilities'
 import { historyAsync } from '../state/historyStore'
 import { useStore } from '../state/store'
 import { commandGuard, stopPluginWork, useCommandActivity } from './activity'
@@ -84,7 +84,9 @@ export function listCommands(): CommandInfo[] {
  *  starts — after the commands before it have run, so a scan they opened is
  *  the scan seen — and before anything is changed. */
 function refuseOnCloud(command: Command, input: Record<string, unknown>): void {
-  if (!command.scanOps || !useStore.getState().scanIsCloud) return
+  if (!useStore.getState().scanIsCloud) return
+  if (command.needsTriangles) throw new CommandError('invalid_state', CLOUD_REFUSAL)
+  if (!command.scanOps) return
   const ops = typeof command.scanOps === 'function' ? command.scanOps(input as never) : command.scanOps
   const refusal = refusesOpsOnCloud(ops, true)
   if (refusal) throw new CommandError('invalid_state', refusal)

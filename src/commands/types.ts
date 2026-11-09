@@ -159,6 +159,10 @@ export interface Command<I = Record<string, unknown>> {
    *  CLOUD_REFUSAL before the command runs, so a command is never left half
    *  done and never answers for an empty mesh. List the ops, not a flag, so
    *  that an op learning to take clouds frees its commands with no edit here. */
+  /** The command works on triangles, though it reaches no op of its own to
+   *  say so — a plugin's, whose requests go through the worker's one
+   *  `plugin` op. On a point cloud it is refused as scanOps are. */
+  needsTriangles?: boolean
   scanOps?: readonly WorkerRequest['type'][] | ((input: I) => readonly WorkerRequest['type'][])
   /** The undo step's name for this input; the title otherwise. */
   label?(input: I): string
