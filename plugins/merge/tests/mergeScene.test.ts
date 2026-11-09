@@ -66,10 +66,23 @@ describe('MergeScene', () => {
     s.add('a', patch(3), '#00ff00')
     s.setPose('a', translate(1, 0, 0))
     h.partGroup.matrix.makeTranslation(10, 0, 0)
-    s.partMoved()
     h.partGroup.updateMatrixWorld(true)
     const holder = h.partGroup.children[0].children[0]
     expect(new THREE.Vector3().setFromMatrixPosition(holder.matrixWorld).x).toBeCloseTo(11)
+  })
+
+  it('keeps a layer on the base when a transform is baked into the base', () => {
+    const h = host()
+    const s = new MergeScene(h)
+    s.add('a', patch(3), '#00ff00')
+    s.setPose('a', translate(1, 0, 0))
+    // Base vertices turn a quarter about z; the layer's point (0,0,0) sat at (1,0,0).
+    const T: Rigid = { r: Float64Array.from([0, -1, 0, 1, 0, 0, 0, 0, 1]), t: Float64Array.from([0, 0, 2]) }
+    s.partMoved(T)
+    const holder = h.partGroup.children[0].children[0]
+    holder.updateMatrixWorld(true)
+    const p = new THREE.Vector3(0, 0, 0).applyMatrix4(holder.matrixWorld)
+    expect(p.toArray().map((v) => Math.round(v * 1e6) / 1e6)).toEqual([0, 1, 2])
   })
 
   it('picks only the layers asked for, and says which', () => {

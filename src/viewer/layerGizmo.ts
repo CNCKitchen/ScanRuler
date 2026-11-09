@@ -10,7 +10,7 @@ import type { SceneLayerHost } from './sceneLayers'
 export interface LayerGizmo {
   /** Put the handle on `obj` (null: take it away). `onChange` runs on every
    *  step of a drag, after the object has moved. */
-  attach(obj: THREE.Object3D | null, onChange: () => void): void
+  attach(obj: THREE.Object3D | null, onChange: () => void, mode?: 'translate' | 'rotate'): void
   /** Follow the view's camera — it changes with the projection. */
   tick(): void
   dispose(): void
@@ -38,8 +38,9 @@ export function layerGizmo(host: SceneLayerHost): LayerGizmo {
     claim()
   })
   return {
-    attach(obj, cb) {
+    attach(obj, cb, mode = 'translate') {
       onChange = cb
+      controls.setMode(mode)
       if (obj) controls.attach(obj)
       else controls.detach()
       held = false

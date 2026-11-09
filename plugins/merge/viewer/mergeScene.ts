@@ -13,7 +13,7 @@ import { CloudLayer } from '../../../src/viewer/cloudLayer'
 import { pickCloud } from '../../../src/viewer/cloudPick'
 import { layerGizmo, type LayerGizmo } from '../../../src/viewer/layerGizmo'
 import { PointGrid } from '../../../src/core/geometry/pointGrid'
-import { rigidFromQuaternion, rigidToColumnMajor, type Rigid } from '../../../src/core/deviation/rigid'
+import { cloneRigid, identityRigid, rigidCompose, rigidFromQuaternion, rigidToColumnMajor, type Rigid } from '../../../src/core/deviation/rigid'
 
 /** The pick radius on screen, px — as the viewport's own cloud pick. */
 const PICK_PIXELS = 3
@@ -29,6 +29,7 @@ export interface MergeGeometry {
 
 interface Entry {
   holder: THREE.Group
+  pose: Rigid
   cloud: CloudLayer | null
   mesh: THREE.Mesh | null
   grid: PointGrid | null
@@ -52,7 +53,7 @@ export class MergeScene implements SceneLayer {
   add(id: string, geom: MergeGeometry, color: string): void {
     this.remove(id)
     const holder = new THREE.Group()
-    const entry: Entry = { holder, cloud: null, mesh: null, grid: null, normals: geom.normals, spacing: geom.spacing ?? 1 }
+    const entry: Entry = { holder, pose: identityRigid(), cloud: null, mesh: null, grid: null, normals: geom.normals, spacing: geom.spacing ?? 1 }
     if (geom.indices) {
       const g = new THREE.BufferGeometry()
       g.setAttribute('position', new THREE.BufferAttribute(geom.positions, 3))
@@ -76,7 +77,12 @@ export class MergeScene implements SceneLayer {
   setPose(id: string, pose: Rigid): void {
     const e = this.entries.get(id)
     if (!e) return
-    scratch.fromArray(rigidToColumnMajor(pose))
+    e.pose = cloneRigid(pose)
+    this.place(e)
+  }
+
+  private place(e: Entry): void {
+    scratch.fromArray(rigidToColumnMajor(e.pose))
     scratch.decompose(e.holder.position, e.holder.quaternion, e.holder.scale)
     e.holder.updateMatrixWorld(true)
     this.host.invalidate()
@@ -184,7 +190,7 @@ export class MergeScene implements SceneLayer {
 
   /** The handle on a layer — null puts it away. `onChange` gets the pose,
    *  relative to the base as shown, at every step of a drag. */
-  gizmo(id: string | null, onChange: (pose: Rigid) => void): void {
+  gizmo(id: string | null, onChange: (pose: Rigid) => void, mode: 'translate' | 'rotate' = 'translate'): void {
     const e = id === null ? null : this.entries.get(id)
     if (!e) {
       this.gizmoTool?.attach(null, () => {})
@@ -198,14 +204,18 @@ export class MergeScene implements SceneLayer {
       const p = e.holder.position
       const pose = rigidFromQuaternion(q.w, q.x, q.y, q.z)
       pose.t.set([p.x, p.y, p.z])
-      onChange(pose)
-    })
+      e.pose = pose
+      onChange(cloneRigid(pose))
+    }, mode)
   }
 
-  // The base moving carries the group the layers are held in; their poses
-  // are in that group's frame and stay as they are.
-  partMoved(): void {
-    this.host.invalidate()
+  // A transform baked into the base's vertices carries the layers with it:
+  // pose' = T ∘ pose. (A display alignment moves partGroup and needs nothing.)
+  partMoved(transform: Rigid): void {
+    for (const e of this.entries.values()) {
+      e.pose = rigidCompose(transform, e.pose)
+      this.place(e)
+    }
   }
 
   tick(): void {
