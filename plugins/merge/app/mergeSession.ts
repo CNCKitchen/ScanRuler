@@ -467,9 +467,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
    * asks first. `dedupe`: a layer point within this of one kept before it
    * goes, mm; null keeps every point. Resolves true when the scan was
    * merged; false when nothing changed — refused (busy, no layer shown),
-   * answered no at the mesh question, or failed (the error line says why).
+   * answered no at the mesh question (`confirmed` says yes to it
+   * beforehand), or failed (the error line says why).
    */
-  const merge = async ({ dedupe }: { dedupe: number | null }): Promise<boolean> => {
+  const merge = async ({ dedupe, confirmed = false }: { dedupe: number | null; confirmed?: boolean }): Promise<boolean> => {
     if (refused()) return false
     const shown = () => useMerge.getState().layers.filter((l) => l.visible)
     const none = () => {
@@ -477,7 +478,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
       return false
     }
     if (shown().length === 0) return none()
-    if (!useStore.getState().scanIsCloud && !(await ask(MESH_BASE_CONFIRM))) return false
+    if (!confirmed && !useStore.getState().scanIsCloud && !(await ask(MESH_BASE_CONFIRM))) return false
     if (refused()) return false
     // Read again after the question: the layers and their poses are what
     // they are now, not when it was asked.
@@ -639,17 +640,30 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     answerConfirm,
     dropLayers,
     layers: (): LayerRow[] => useMerge.getState().layers,
-    /** The middle of a layer's bounding box in its own frame, mm. */
     /** The vertex of a layer, or of the scan (BASE), nearest `point` — in the
-     *  layer's own frame, or the scan's as shown — and how far it lies, mm. */
+     *  layer's own frame, or the scan's as shown. Rejects when none lies
+     *  within 5 × the side's point spacing: a point off the part (a typo, the
+     *  wrong frame or units) would seed a datum on whatever vertex is least
+     *  far. */
     nearestVertex: async (side: string, point: Vec3): Promise<{ vertex: number; distance: number }> => {
+      const of = side === BASE ? 'the base' : `layer "${side}"`
+      let found: { vertex: number; distance: number }
+      let spacing: number
       if (side === BASE) {
         const s = await clientRef.current!.nearest({ point })
-        return { vertex: s.vertex, distance: s.distance }
+        found = { vertex: s.vertex, distance: s.distance }
+        spacing = (await call('base-spacing', null)).spacing
+      } else {
+        spacing = rowOf(side).spacing
+        found = await call('nearest-vertex', { id: side, point })
       }
-      rowOf(side)
-      return call('nearest-vertex', { id: side, point })
+      const cap = 5 * spacing
+      if (!(found.vertex >= 0) || !(found.distance <= cap)) {
+        throw new Error(`No point of ${of} within ${Math.round(cap * 100) / 100} mm of at.`) // units-ok: the command API answers in mm
+      }
+      return found
     },
+    /** The middle of a layer's bounding box in its own frame, mm. */
     layerCentre: (id: string): Vec3 => centres.get(id) ?? [0, 0, 0],
     watch,
   }

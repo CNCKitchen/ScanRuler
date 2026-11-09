@@ -47,6 +47,8 @@ export interface MergeOps {
   'layer-geometry': { payload: { id: string }; result: { positions: Float32Array; normals: Float32Array; indices?: Uint32Array } }
   /** The layer's vertex nearest `point` (the layer's own frame, mm) and how far it is. */
   'nearest-vertex': { payload: { id: string; point: Vec3 }; result: { vertex: number; distance: number } }
+  /** The scan's point spacing (a mesh's median edge), mm. */
+  'base-spacing': { payload: null; result: { spacing: number } }
   /** Picked pairs: `layer` points in the layer's frame, `target` points in
    *  the target's. */
   'align-pairs': { payload: { id: string; target: string; pairs: { layer: Vec3; target: Vec3 }[] }; result: AlignReply }

@@ -72,8 +72,11 @@ describe('merge commands', () => {
       expect(l.layers[0]).toMatchObject({ id: o.id, name: 'lo.ply', units: 'mm', visible: true, locked: false, datums: [] })
       expect(l.layers[0].pose).toEqual([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1])
       expect(l.datums_base).toEqual([])
+      useHistory.setState({ past: [], future: [] })
       const gone = await run<{ removed: string; layers: string[] }>('merge.remove_layer', { id: o.id })
       expect(gone).toEqual({ removed: o.id, layers: [] })
+      // Closing a layer is no step of the history.
+      expect(undoLabels()).toEqual([])
     })
 
     it('answers a bad id with not_found and the layer it lacks', async () => {
@@ -121,6 +124,34 @@ describe('merge commands', () => {
       for (let i = 0; i < 9; i++) expect(row(id).pose.r[i]).toBeCloseTo(want.r[i], 6)
     })
 
+    it('moves an inch layer by millimetres', async () => {
+      const inches: Cloud = { positions: layerPart.positions.map((v) => v / 25.4), normals: layerPart.normals }
+      const o = await run<{ id: string; spacing_mm: number }>('merge.open_layer', { bytes: plyBytes(inches, 'in.ply'), name: 'in.ply', units: 'in' })
+      expect(o.spacing_mm).toBeGreaterThan(0.5)
+      const r = await run<{ pose: number[] }>('merge.move_layer', { id: o.id, translate_mm: [25.4, 0, 0] })
+      expect(r.pose.slice(12, 15)).toEqual([25.4, 0, 0])
+      expect(row(o.id).units).toBe('in')
+    })
+
+    it('fits a datum by a point, and refuses a point off the part', async () => {
+      const { id } = await openLo()
+      const far = await refused('merge.fit_datum', { layer: id, kind: 'plane', at: [500, 0, 0] })
+      expect(far.code).toBe('invalid_input')
+      expect(far.message).toMatch(/^No point of layer "L\d+" within [\d.]+ mm of at\.$/)
+      const farBase = await refused('merge.fit_datum', { layer: 'base', kind: 'plane', at: [500, 0, 0] })
+      expect(farBase.message).toMatch(/^No point of the base within [\d.]+ mm of at\.$/)
+      expect((await refused('merge.fit_datum', { layer: id, kind: 'plane', at: [Number.NaN, 0, 0] })).code).toBe('invalid_input')
+      expect((await run<{ kind: string }>('merge.fit_datum', { layer: id, kind: 'plane', at: moved(TRUE, [0, -15, 0]) })).kind).toBe('plane')
+    })
+
+    it('fits a datum by a point on a mesh layer', async () => {
+      const o = await run<{ id: string; is_cloud: boolean }>('merge.open_layer', { bytes: stlBytes(boxMesh(20, 20)), name: 'box.stl' })
+      expect(o.is_cloud).toBe(false)
+      const f = await run<{ kind: string }>('merge.fit_datum', { layer: o.id, kind: 'plane', at: [0.3, 0.2, 10] })
+      expect(f.kind).toBe('plane')
+      expect((await refused('merge.fit_datum', { layer: o.id, kind: 'plane', at: [0, 0, 400] })).message).toMatch(/^No point of layer/)
+    })
+
     it('refuses to move a locked layer', async () => {
       const { id } = await openLo()
       await kit.merge.setLayer(id, { locked: true })
@@ -133,6 +164,7 @@ describe('merge commands', () => {
       const { id } = await openLo()
       // Without a start nobody chose, never confident.
       kit.merge.moveLayer(id, nudged(POSE))
+      useHistory.setState({ past: [], future: [] })
       const r = await run<{ rms: number; matched: number; confident: boolean; low_overlap: boolean; pose: number[] }>('merge.refine', { id, target: 'base' })
       expect(r.confident).toBe(true)
       expect(r.low_overlap).toBe(false)
@@ -143,15 +175,18 @@ describe('merge commands', () => {
       expect(d.mm).toBeLessThanOrEqual(0.02)
       const listed = await run<{ layers: { last: { confident: boolean } }[] }>('merge.list_layers')
       expect(listed.layers[0].last.confident).toBe(true)
+      expect(undoLabels()).toEqual(['Merge: refine layer'])
     })
 
     it('aligns by pairs, and refuses pairs in a line', async () => {
       const { id } = await openLo()
       const at = (p: Vec3) => ({ layer: moved(TRUE, p), target: p })
       const good = [[5, -10, -8], [10, 12, 5], [8, 0, 9], [12, -6, 3]] as Vec3[]
+      useHistory.setState({ past: [], future: [] })
       const r = await run<{ confident: boolean; low_overlap: boolean; rms: number }>('merge.align_pairs', { id, target: 'base', pairs: good.map(at) })
       expect(r.confident).toBe(true)
       expect(r.rms).toBeLessThan(0.5)
+      expect(undoLabels()).toEqual(['Merge: align layer by pairs'])
       const d = delta(row(id).pose, POSE)
       expect(d.deg).toBeLessThanOrEqual(0.05)
       expect(d.mm).toBeLessThanOrEqual(0.02)
@@ -187,6 +222,7 @@ describe('merge commands', () => {
         const e = await refused('merge.align_datums', input)
         expect(e.message).toBe(UNDER)
       }
+      useHistory.setState({ past: [], future: [] })
       const r = await run<{ confident: boolean; matched: number; low_overlap: boolean }>('merge.align_datums', {
         id,
         target: 'base',
@@ -195,6 +231,7 @@ describe('merge commands', () => {
       })
       expect(r.confident).toBe(true)
       expect(r.low_overlap).toBe(false)
+      expect(undoLabels()).toEqual(['Merge: align layer by datums'])
       const d = delta(row(id).pose, POSE)
       expect(d.deg).toBeLessThanOrEqual(0.05)
       expect(d.mm).toBeLessThanOrEqual(0.02)
@@ -207,7 +244,9 @@ describe('merge commands', () => {
       await kit.merge.setLayer(id, { visible: false })
       expect((await refused('merge.merge', {})).message).toBe('Show at least one layer to merge — the hidden ones are left out.')
       await kit.merge.setLayer(id, { visible: true })
+      useHistory.setState({ past: [], future: [] })
       const r = await run<{ points: number; layers_merged: number }>('merge.merge', { dedupe_mm: 0.5 })
+      expect(undoLabels()).toEqual(['Merge: merge layers'])
       expect(r.layers_merged).toBe(1)
       expect(r.points).toBeGreaterThan(before)
       expect(useStore.getState().vertexCount).toBe(r.points)

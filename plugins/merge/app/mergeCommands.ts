@@ -20,7 +20,7 @@ import { useStore } from '../../../src/state/store'
 import { UNDER_CONSTRAINED } from '../core/datums'
 import { BASE, type DatumIds } from '../core/protocol'
 import type { LayerAlignResult } from '../core/layerAlign'
-import { useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
+import { mergeDedupe, useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
 import { MESH_BASE_CONFIRM, mergeSession, type MergeSession } from './mergeSession'
 
 /** The session the panel runs on, or why there is none. */
@@ -198,7 +198,14 @@ const fit: Command<{ layer: string; kind: ElementKind; seeds?: number[]; at?: Ve
     sideOf(layer, 'layer')
     const session = sessionOf()
     fresh()
-    const picked = seeds ?? [(await session.nearestVertex(layer, at!)).vertex]
+    let picked = seeds
+    if (!picked) {
+      try {
+        picked = [(await session.nearestVertex(layer, at!)).vertex]
+      } catch (e) {
+        throw new CommandError('invalid_input', e instanceof Error ? e.message : String(e))
+      }
+    }
     const r = await session.fitDatum(layer, kind, picked)
     if (!r) throw failed('The datum could not be fitted.')
     const f = r.fit as unknown as Record<string, unknown>
@@ -310,10 +317,8 @@ const mergeCmd: Command<{ dedupe_mm?: number | null; confirm?: boolean }> = {
     const mesh = !useStore.getState().scanIsCloud
     if (mesh && confirm !== true) throw new CommandError('invalid_state', `${MESH_BASE_CONFIRM} Pass confirm: true to go ahead.`)
     fresh()
-    const running = dedupe_mm === undefined ? session.mergeShown() : session.merge({ dedupe: dedupe_mm })
-    // The question a mesh base asks is on the panel by now: yes, as confirmed.
-    if (mesh) session.answerConfirm(true)
-    if (!(await running)) throw failed('The layers were not merged.')
+    const dedupe = dedupe_mm === undefined ? mergeDedupe(useMerge.getState()) : dedupe_mm
+    if (!(await session.merge({ dedupe, confirmed: confirm === true }))) throw failed('The layers were not merged.')
     return { points: useStore.getState().vertexCount, layers_merged: shown }
   },
 }

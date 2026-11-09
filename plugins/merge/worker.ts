@@ -190,6 +190,11 @@ const ops: { [K in keyof MergeOps]: (payload: Payload<K>, ctx: WorkerContext) =>
     return { result: { positions, normals, indices }, transfer: [positions.buffer, normals.buffer, indices.buffer] }
   },
 
+  'base-spacing'(_payload, ctx) {
+    return { result: { spacing: spacingOf(scanOf(ctx)) } }
+  },
+
+  // A linear scan: one call per person's or agent's action, a few ms on 760 k points.
   'nearest-vertex'({ id, point }) {
     const p = positionsOf(layerOf(id).graph)
     let best = -1, d2 = Infinity
