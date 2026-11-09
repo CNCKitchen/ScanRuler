@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// What the worker can do with a point cloud. A cloud has no triangles, so an
+// op that reads triangle data (an index, a face area, a ray hit) has nothing
+// to work on; the worker refuses it up front, in words, instead of letting it
+// fall over (or quietly answer for an empty mesh).
+import type { MeshGraph } from './types'
+import type { WorkerRequest } from './workerProtocol'
+import { isCloud } from './geometry/cloud'
+
+export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud.'
+
+/** Every request type, classified once (the `satisfies` makes a type missing
+ *  here a compile error). `align` is one type with several variants — auto,
+ *  points, local — and none of them reads the scan's triangles: the scan is
+ *  only ever moved and measured as points against the reference.
+ *
+ *  Audit of the scan's triangle data (`.indices`, `triangleCount`, face
+ *  areas, `scanSurfaceOf`) reached from a worker op:
+ *   - section, shadow: sliceMesh / shadowMesh
+ *   - centroid: meshCentroid; symmetry: trianglesWithin / scanSurfaceOf
+ *   - curvature: triangle areas
+ *   - heights, scan-qa, scan-rim: solid index, rim loops
+ *   - thickness: solid index; closed-shells (scan): closedVertices
+ *   - deviate-reference, deviate-volume: scanSurfaceOf, WindingTree
+ *   - nearest: the triangle a vertex is a corner of
+ *   - segment, plane-region: vertexAreas (a third of each triangle)
+ *   - auto-align: per-vertex areas and triangleCount
+ *  Left false: bounds-tree works on the positions and index sent with the
+ *  request, never the scan (it also serves the reference's tree while the
+ *  scan is a cloud); recrease re-posts through postScan, which has its own
+ *  cloud branch; the rest read points, normals and adjacency only. */
+export const OP_CAPS = {
+  load: { needsTriangles: false },
+  'commit-import': { needsTriangles: false },
+  'discard-import': { needsTriangles: false },
+  recrease: { needsTriangles: false },
+  fit: { needsTriangles: false },
+  'fit-selection': { needsTriangles: false },
+  'load-nominal': { needsTriangles: false },
+  align: { needsTriangles: false },
+  'align-abort': { needsTriangles: false },
+  deviate: { needsTriangles: false },
+  'deviate-reference': { needsTriangles: true },
+  'deviate-volume': { needsTriangles: true },
+  thickness: { needsTriangles: true },
+  transform: { needsTriangles: false },
+  section: { needsTriangles: true },
+  shadow: { needsTriangles: true },
+  centroid: { needsTriangles: true },
+  symmetry: { needsTriangles: true },
+  flood: { needsTriangles: false },
+  'plane-region': { needsTriangles: true },
+  segment: { needsTriangles: true },
+  curvature: { needsTriangles: true },
+  nearest: { needsTriangles: true },
+  bounds: { needsTriangles: false },
+  query: { needsTriangles: false },
+  heights: { needsTriangles: true },
+  'scan-qa': { needsTriangles: true },
+  'scan-rim': { needsTriangles: true },
+  'auto-align': { needsTriangles: true },
+  'closed-shells': { needsTriangles: true },
+  deflection: { needsTriangles: false },
+  'element-deviation': { needsTriangles: false },
+  'bounds-tree': { needsTriangles: false },
+  plugin: { needsTriangles: false },
+} satisfies Record<WorkerRequest['type'], { needsTriangles: boolean }>
+
+/** The refusal for running `op` on `g`, or null when it may run. */
+export function refusesOnCloud(op: WorkerRequest['type'], g: MeshGraph | null): string | null {
+  return g && isCloud(g) && OP_CAPS[op].needsTriangles ? CLOUD_REFUSAL : null
+}

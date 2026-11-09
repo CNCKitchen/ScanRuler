@@ -21,6 +21,7 @@ import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { buildPointGraph } from './geometry/buildPointGraph'
 import { isCloud } from './geometry/cloud'
+import { CLOUD_REFUSAL, refusesOnCloud } from './capabilities'
 import { wireSlots } from './geometry/wireSlots'
 import { scanRender, splitCreases, type CreaseSetting } from './geometry/crease'
 import { getFitter, getSelectionFitter } from './elements/registry'
@@ -309,6 +310,7 @@ function answer(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
  *  reference gets — built on first use and kept until the scan or its
  *  vertices change. */
 function scanSurfaceOf(g: MeshGraph, progress: (t: string) => void, why: string): NominalSurface {
+  if (isCloud(g)) throw new Error(CLOUD_REFUSAL)
   let surface = scanSurfaces.get(g)
   if (!surface) {
     progress(why)
@@ -338,6 +340,14 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
 
 function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   const progress = (text: string, fraction?: number) => post({ type: 'progress', text, ...(fraction !== undefined ? { fraction } : {}) })
+
+  // The closed shells of the reference are the reference's own: a cloud scan
+  // has no say in them.
+  const refusal = msg.type === 'closed-shells' && msg.which === 'nominal' ? null : refusesOnCloud(msg.type, graph)
+  if (refusal) {
+    post({ type: 'error', requestId: msg.requestId, message: refusal })
+    return
+  }
 
   if (msg.type === 'discard-import') {
     for (const id of msg.ids) { stagedScans.delete(id); stagedNominals.delete(id) }
