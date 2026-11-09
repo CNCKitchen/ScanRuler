@@ -186,9 +186,22 @@ export class PointGrid {
   nearestToRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, radius: number, maxT: number): number {
     const len = Math.hypot(dx, dy, dz)
     if (this.n === 0 || !(len > 0) || !Number.isFinite(len)) return -1
-    if (!Number.isFinite(ox + oy + oz) || !(maxT >= 0)) return -1 // maxT = Infinity is allowed
+    if (!Number.isFinite(ox + oy + oz) || !(maxT >= 0) || !(radius >= 0)) return -1 // maxT = Infinity is allowed
     dx /= len; dy /= len; dz /= len
     const { cell, pos, starts, items, nx, ny, nz } = this
+    const r2 = radius * radius
+    if (radius / cell > Math.max(nx, ny, nz)) {
+      // window would span the whole grid: scan every point (bounded, also for Infinity radius)
+      let best = -1, bestT = Infinity
+      for (let s = 0; s < this.items.length; s++) {
+        const j = this.items[s]
+        const wx = pos[3 * j] - ox, wy = pos[3 * j + 1] - oy, wz = pos[3 * j + 2] - oz
+        const t = wx * dx + wy * dy + wz * dz
+        if (t < 0 || t > maxT || t >= bestT) continue
+        if (wx * wx + wy * wy + wz * wz - t * t <= r2) { best = j; bestT = t }
+      }
+      return best
+    }
     const m = Math.max(1, Math.ceil(radius / cell)) // window half-width in cells
     const pad = m * cell
     // clip the ray to the grid box padded by m cells (virtual cells outside hold nothing)
@@ -221,7 +234,6 @@ export class PointGrid {
     let tmx = dx !== 0 ? (this.minX + (dx > 0 ? ix + 1 : ix) * cell - ox) / dx : Infinity
     let tmy = dy !== 0 ? (this.minY + (dy > 0 ? iy + 1 : iy) * cell - oy) / dy : Infinity
     let tmz = dz !== 0 ? (this.minZ + (dz > 0 ? iz + 1 : iz) * cell - oz) / dz : Infinity
-    const r2 = radius * radius
     let best = -1, bestT = Infinity
     for (;;) {
       const xa = Math.max(ix - m, 0), xb = Math.min(ix + m, nx - 1)

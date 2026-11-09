@@ -212,6 +212,9 @@ describe('PointGrid', () => {
     expect(grid.nearestToRay(0, 0, 0, 0, 0, 0, 1, 10)).toBe(-1)
     expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, 1, NaN)).toBe(-1)
     expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, 1, -1)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, NaN, 10)).toBe(-1)
+    expect(grid.nearestToRay(0, 0, 0, 1, 0, 0, -1, 10)).toBe(-1)
+    expect(grid.nearestToRay(-5, 50, 50, 1, 0, 0, Infinity, 1e9)).toBeGreaterThanOrEqual(0)
     // maxT = Infinity still works
     const p = new Float32Array([5, 0, 0])
     expect(new PointGrid(p, 1).nearestToRay(0, 0, 0, 1, 0, 0, 0.5, Infinity)).toBe(0)
