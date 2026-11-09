@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // PLY in all three encodings — ASCII, and binary of either byte order — read
-// for vertex positions, per-vertex colours and face lists; normals and the
-// other properties a scanner writes are stepped over. One header comment is
+// for vertex positions, per-vertex colours and face lists; the other
+// properties a scanner writes are stepped over. A file with no faces is a
+// point cloud and is read for its normals too, or refused when it has none. One header comment is
 // honoured besides: a file that says its winding is settled
 // (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
 
@@ -51,6 +52,15 @@ function colorProps(el: PlyElement): [number, number, number] | null {
   const g = find(['green', 'g', 'diffuse_green'])
   const b = find(['blue', 'b', 'diffuse_blue'])
   return r < 0 || g < 0 || b < 0 ? null : [r, g, b]
+}
+
+/** Where an element's normal properties sit; null when any is missing. */
+function normalProps(el: PlyElement): [number, number, number] | null {
+  const find = (name: string) => el.props.findIndex((p) => !p.list && p.name === name)
+  const x = find('nx')
+  const y = find('ny')
+  const z = find('nz')
+  return x < 0 || y < 0 || z < 0 ? null : [x, y, z]
 }
 
 /** A colour channel as a byte: floats run 0…1, integer types 0…255. */
@@ -159,15 +169,16 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
   const vertexEl = elements.find((e) => e.name === 'vertex')
   const faceEl = elements.find((e) => e.name === 'face')
   if (!vertexEl) throw new Error('PLY file has no vertex element.')
-  if (!faceEl || faceEl.count === 0) {
-    throw new Error('This PLY contains no faces — point clouds are not supported yet.')
+  const cloud = !faceEl || faceEl.count === 0
+  if (cloud && !normalProps(vertexEl)) {
+    throw new Error('This point cloud has no normals — ScanRuler needs them to measure on points.')
   }
 
   const little = format === 'binary_little_endian'
   if (format !== 'ascii' && !little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
   const mesh = format === 'ascii'
-    ? parseAsciiBody(bytes, bodyStart, elements, onProgress)
-    : parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
+    ? parseAsciiBody(bytes, bodyStart, elements, cloud, onProgress)
+    : parseBinaryBody(buffer, bodyStart, elements, little, cloud, onProgress)
   if (keepWinding) mesh.keepWinding = true
   return mesh
 }
@@ -187,12 +198,14 @@ function parseBinaryBody(
   bodyStart: number,
   elements: PlyElement[],
   little: boolean,
+  cloud: boolean,
   onProgress?: (text: string) => void,
 ): ParsedMesh {
   const dv = new DataView(buffer)
   let off = bodyStart
   let positions: Float32Array | null = null
   let colors: Uint8Array | null = null
+  let normals: Float32Array | null = null
   let indices = new Uint32Array(0)
 
   for (const el of elements) {
@@ -206,6 +219,8 @@ function parseBinaryBody(
       positions = new Float32Array(el.count * 3)
       const rgb = colorProps(el)
       if (rgb) colors = new Uint8Array(el.count * 3)
+      const nrm = cloud ? normalProps(el) : null
+      if (nrm) normals = new Float32Array(el.count * 3)
       if (!hasList) {
         // Fixed stride fast path.
         let stride = 0
@@ -223,6 +238,11 @@ function parseBinaryBody(
             for (let c = 0; c < 3; c++) {
               const type = el.props[rgb[c]].type
               colors![i * 3 + c] = channel(readScalar(dv, base + offsets[rgb[c]], type, little), type)
+            }
+          }
+          if (nrm) {
+            for (let c = 0; c < 3; c++) {
+              normals![i * 3 + c] = readScalar(dv, base + offsets[nrm[c]], el.props[nrm[c]].type, little)
             }
           }
           if (onProgress && (i & 0xfffff) === 0 && i > 0) {
@@ -243,6 +263,7 @@ function parseBinaryBody(
               else if (p === yi) positions[i * 3 + 1] = v
               else if (p === zi) positions[i * 3 + 2] = v
               else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
+              else if (nrm && nrm.includes(p)) normals![i * 3 + nrm.indexOf(p)] = v
               off += TYPE_SIZE[prop.type]
             }
           }
@@ -311,6 +332,7 @@ function parseBinaryBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
+  if (cloud) return withColors({ kind: 'cloud', positions, normals: normals! }, colors)
   return withColors({ kind: 'indexed', positions, indices }, colors)
 }
 
@@ -318,6 +340,7 @@ function parseAsciiBody(
   bytes: Uint8Array,
   bodyStart: number,
   elements: PlyElement[],
+  cloud: boolean,
   onProgress?: (text: string) => void,
 ): ParsedMesh {
   onProgress?.('Reading PLY…')
@@ -340,6 +363,7 @@ function parseAsciiBody(
   }
   let positions: Float32Array | null = null
   let colors: Uint8Array | null = null
+  let normals: Float32Array | null = null
   const indices = gatherIndices()
 
   for (const el of elements) {
@@ -354,6 +378,8 @@ function parseAsciiBody(
       positions = new Float32Array(el.count * 3)
       const rgb = colorProps(el)
       if (rgb) colors = new Uint8Array(el.count * 3)
+      const nrm = cloud ? normalProps(el) : null
+      if (nrm) normals = new Float32Array(el.count * 3)
       for (let i = 0; i < el.count; i++) {
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
@@ -365,6 +391,7 @@ function parseAsciiBody(
             else if (p === yi) positions[i * 3 + 1] = v
             else if (p === zi) positions[i * 3 + 2] = v
             else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
+            else if (nrm && nrm.includes(p)) normals![i * 3 + nrm.indexOf(p)] = v
           }
         }
       }
@@ -403,5 +430,6 @@ function parseAsciiBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
+  if (cloud) return withColors({ kind: 'cloud', positions, normals: normals! }, colors)
   return withColors({ kind: 'indexed', positions, indices: indices.take() }, colors)
 }

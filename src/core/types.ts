@@ -8,10 +8,13 @@
 export type Vec3 = [number, number, number]
 
 /** Output of a file parser. STL produces a triangle soup (9 floats per
- *  triangle); PLY/OBJ are already indexed. */
+ *  triangle); PLY/OBJ are already indexed; a PLY or XYZ of points only is a
+ *  'cloud', which carries its normals. */
 export interface ParsedMesh {
-  kind: 'soup' | 'indexed'
+  kind: 'soup' | 'indexed' | 'cloud'
   positions: Float32Array
+  /** A cloud's unit normals, three per vertex. */
+  normals?: Float32Array
   indices?: Uint32Array
   /** The file says its triangles face the way they are meant to (see
    *  parsers/ply), so the winding is kept as written instead of guessed. */
