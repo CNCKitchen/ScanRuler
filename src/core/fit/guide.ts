@@ -6,6 +6,7 @@
 // click on a rim sits between two surfaces; without these the larger one
 // wins.
 
+import { rigidApply, rigidRotate, type Rigid } from '../deviation/rigid'
 import type { MeshGraph, Vec3 } from '../types'
 
 export interface FitGuide {
@@ -34,6 +35,50 @@ const RADIUS_SLACK = 0.1
 
 export const hasGuide = (g: FitGuide | undefined): g is FitGuide =>
   !!g && (g.side !== undefined || g.radius !== undefined || g.axis !== undefined || g.within !== undefined)
+
+/** The guide carried through a rigid motion of the part, as the element's
+ *  fit is: the axis turns with it, and the box becomes the axis-aligned box
+ *  round its turned corners — no smaller than the one asked for, so what it
+ *  held before it still holds. Side and radius do not move. */
+export function moveGuide(g: FitGuide, m: Rigid): FitGuide {
+  const out: FitGuide = { ...g }
+  const t = new Float64Array(3)
+  if (g.axis) {
+    rigidRotate(m, g.axis[0], g.axis[1], g.axis[2], t)
+    out.axis = [t[0], t[1], t[2]]
+  }
+  if (g.within) {
+    const { min, max } = g.within
+    const lo: Vec3 = [Infinity, Infinity, Infinity]
+    const hi: Vec3 = [-Infinity, -Infinity, -Infinity]
+    for (let c = 0; c < 8; c++) {
+      rigidApply(m, c & 1 ? max[0] : min[0], c & 2 ? max[1] : min[1], c & 4 ? max[2] : min[2], t)
+      for (let k = 0; k < 3; k++) {
+        lo[k] = Math.min(lo[k], t[k])
+        hi[k] = Math.max(hi[k], t[k])
+      }
+    }
+    out.within = { min: lo, max: hi }
+  }
+  return out
+}
+
+/** The guide of a part scaled by `s` about the origin: the radius range and
+ *  the box scale with it; side and axis stay. */
+export function scaleGuide(g: FitGuide, s: number): FitGuide {
+  const out: FitGuide = { ...g }
+  if (g.radius) {
+    out.radius = {
+      ...(g.radius.min !== undefined ? { min: g.radius.min * s } : {}),
+      ...(g.radius.max !== undefined ? { max: g.radius.max * s } : {}),
+    }
+  }
+  if (g.within) {
+    const at = (p: Vec3): Vec3 => [p[0] * s, p[1] * s, p[2] * s]
+    out.within = { min: at(g.within.min), max: at(g.within.max) }
+  }
+  return out
+}
 
 export function unitAxis(g: FitGuide): Vec3 | null {
   if (!g.axis) return null

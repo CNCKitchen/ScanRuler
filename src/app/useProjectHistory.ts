@@ -33,7 +33,7 @@ export function useProjectHistory(options: {
   thicknessRgb: RefObject<Uint8Array | null>
   imports: ImportQueue
   sources: RefObject<SourceFiles>
-  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<void>
+  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<unknown>
   runDeviation: () => Promise<void>
   runThickness: () => Promise<void>
   /** A step across an edit of the scan loads the file from the other side

@@ -67,14 +67,15 @@ export function measureWorkspace({ clientRef, sceneRef }: MeasureDeps) {
    *  saved without their surfaces). A hand-marked element re-fits on its
    *  marked surface, an auto-fitted one from its seeds, each with the fit
    *  settings it was measured with — all of it the recipe the element was
-   *  made with. */
+   *  made with. Resolves to why it failed, or null — it did not, or was
+   *  overtaken. */
   const runFit = async (
     elementId: number,
     kind: ElementKind,
     seeds: number[],
     selection?: Uint32Array,
     regionsOnly = false,
-  ) => {
+  ): Promise<string | null> => {
     const scanVersion = clientRef.current!.scanVersion
     const el = useStore.getState().elements.find((e) => e.id === elementId)
     const alignment = useStore.getState().appliedAlignment
@@ -82,22 +83,27 @@ export function measureWorkspace({ clientRef, sceneRef }: MeasureDeps) {
       alignment === useStore.getState().appliedAlignment &&
       el?.source === useStore.getState().elements.find((e) => e.id === elementId)?.source
     const settings = el?.source.type === 'fitted' ? el.source.settings : useStore.getState().settings
-    // A fit confined to the drawn span is confined to it every time it runs.
+    // A fit confined to the drawn span is confined to it every time it runs,
+    // and one told what surface it is after is told again.
     const window = fitWindow(el?.extend)
+    const guide = el?.source.type === 'fitted' ? el.source.guide : undefined
     try {
       const result = selection
         ? await clientRef.current!.fitSelection(kind, selection, settings, window)
-        : await clientRef.current!.fit(kind, seeds, settings, window)
-      if (!stillCurrent()) return
+        : await clientRef.current!.fit(kind, seeds, settings, window, guide)
+      if (!stillCurrent()) return null
       // The surface goes on record before the fit does, so whatever re-reads
       // the elements on the fit landing finds the points already there.
       rememberSurface(elementId, result.region)
       if (!regionsOnly || !el?.fit) useStore.getState().resolveFit(elementId, result)
       const fitted = useStore.getState().elements.find((e) => e.id === elementId)
       if (fitted) sceneRef.current?.applyRegion(elementId, fitted.color, result.region)
+      return null
     } catch (e) {
-      if (!stillCurrent()) return
-      useStore.getState().failFit(elementId, e instanceof Error ? e.message : String(e))
+      if (!stillCurrent()) return null
+      const message = e instanceof Error ? e.message : String(e)
+      useStore.getState().failFit(elementId, message)
+      return message
     }
   }
 
@@ -112,12 +118,17 @@ export function measureWorkspace({ clientRef, sceneRef }: MeasureDeps) {
    *  Picks may sit on unconnected patches — a partial scan of one feature —
    *  and the region growing seeds from all of them. Returns what the fit
    *  told besides its numbers, for a command's answer; undefined when it
-   *  told nothing, failed or was overtaken. */
-  const runDraftFit = async (kind: ElementKind, picks: [number, number, number][], guide?: FitGuide): Promise<FitTold | undefined> => {
+   *  told nothing, failed or was overtaken. A `guide` given becomes the
+   *  draft's, for this fit and every re-fit of it; without one the draft's
+   *  own is used — a re-opened element's, kept through a change of settings
+   *  or of the picks. */
+  const runDraftFit = async (kind: ElementKind, picks: [number, number, number][], given?: FitGuide): Promise<FitTold | undefined> => {
     const seq = ++draftSeq.current
     const settings = draftSettings()
     const seeds = picks.flat()
+    if (given) useStore.getState().setDraftGuide(given)
     const window = fitWindow(useStore.getState().draft?.extend)
+    const guide = useStore.getState().draft?.guide
     try {
       const result = await clientRef.current!.fit(kind, seeds, settings, window, guide)
       if (seq !== draftSeq.current || !useStore.getState().draft) return undefined
@@ -183,7 +194,7 @@ export function measureWorkspace({ clientRef, sceneRef }: MeasureDeps) {
     try {
       const result = d.selection
         ? await clientRef.current!.fitSelection(d.kind, d.selection, settings, window)
-        : await clientRef.current!.fit(d.kind, d.picks.flat(), settings, window)
+        : await clientRef.current!.fit(d.kind, d.picks.flat(), settings, window, d.guide)
       if (seq !== draftSeq.current || !useStore.getState().draft) return
       draftRegion.current = result.region
       // A hand-marked surface is already tinted by the marking itself, which

@@ -10,6 +10,7 @@ import type { Rigid } from '../core/deviation/rigid'
 import type { Limit, SphereAnchor } from '../core/dimensions'
 import { ConstructionError, creationMethod, evaluateConstruction, takesSurface } from '../core/elements/construct'
 import type { Extension } from '../core/elements/extend'
+import { moveGuide, type FitGuide } from '../core/fit/guide'
 import { isOrientable, type Orient, OrientError, orientFit, referenceNormal } from '../core/elements/orient'
 import type { ElementKind, ElementSource, FitData, FitOutput, FitSettings, Vec3 } from '../core/types'
 import { PALETTE } from './palette'
@@ -69,6 +70,11 @@ export interface Draft {
    *  from a click. Carried into the element so a change of outlier cut-off
    *  re-fits on exactly the same points. */
   selection?: Uint32Array
+  /** What the fit from the picks was told about the surface it is after
+   *  (element.fit's side, radius, axis, within). Part of the recipe like the
+   *  settings: every re-fit of the picks runs with it, and it goes into the
+   *  element. */
+  guide?: FitGuide
   /** The method and outlier cut-off this draft's fit runs with. A new draft
    *  starts on the settings last chosen; a re-opened element brings its own.
    *  Changing them re-fits this draft alone — every other element keeps the
@@ -257,10 +263,10 @@ export function draftFromElement(
     )
   }
   if (el.source.type === 'picked') return base
-  const { seeds, selection } = el.source
+  const { seeds, selection, guide } = el.source
   const picks: [number, number, number][] = []
   for (let i = 0; i + 2 < seeds.length; i += 3) picks.push([seeds[i], seeds[i + 1], seeds[i + 2]])
-  return { ...base, picks, selection }
+  return { ...base, picks, selection, ...(guide ? { guide } : {}) }
 }
 
 /** Elements an edited element must not be built on: itself, and everything
@@ -456,6 +462,9 @@ function sameFit(a: FitData, b: FitData): boolean {
  *  vertex indices (which do not change when the vertices move) or references
  *  to other elements. */
 export function transformSource(source: ElementSource, m: Rigid): ElementSource {
+  // A fit's seeds are vertices, which move with the part; what its guide
+  // says in coordinates moves with them.
+  if (source.type === 'fitted') return source.guide ? { ...source, guide: moveGuide(source.guide, m) } : source
   if (source.type !== 'constructed') return source
   if (source.method === 'point-coords' || source.method === 'point-centroid') {
     const p = transformFit(

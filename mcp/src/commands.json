@@ -1,6 +1,6 @@
 {
-  "app": "0.11.0",
-  "saved": "2026-11-09T19:39:50.894Z",
+  "app": "0.11.1",
+  "saved": "2026-11-09T21:02:58.183Z",
   "commands": [
     {
       "name": "align.auto",
@@ -1169,7 +1169,7 @@
     {
       "name": "element.fit",
       "title": "Fit an element",
-      "description": "Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place (or places) in at and is best-fitted to it; a point is the place itself; a circle goes through three or more places, or round an open rim (rim, numbered by scan.qa). A place is { vertex } or { point: [x, y, z] } (mm, current frame; the nearest vertex is taken). Trap: a seed near an edge can land on the wrong surface — say what is sought with side, radius, axis or within, and surfaces that do not match are passed over. Returns the element with its fit, the seeds used (inRegion, offMm, deg), the region grown (area, box, normalSpreadDeg, fill, sagitta) and a warning when the points look like two surfaces, a bore steps or is closed at an end, or a plane is a bead’s crown — the measure-reference guide (Elements) says how to read each. One undo step.",
+      "description": "Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place (or places) in at and is best-fitted to it; a point is the place itself; a circle goes through three or more places, or round an open rim (rim, numbered by scan.qa). A place is { vertex } or { point: [x, y, z] } (mm, current frame; the nearest vertex is taken). Trap: a seed near an edge can land on the wrong surface — say what is sought with side, radius, axis or within, and surfaces that do not match are passed over; that guide stays with the element, which is fitted with it again when the project reopens. Returns the element with its fit, the seeds used (inRegion, offMm, deg), the region grown (area, box, normalSpreadDeg, fill, sagitta) and a warning when the points look like two surfaces, a bore steps or is closed at an end, or a plane is a bead’s crown — the measure-reference guide (Elements) says how to read each. One undo step.",
       "input": {
         "type": "object",
         "properties": {
@@ -2878,7 +2878,7 @@
     {
       "name": "project.load",
       "title": "Open a project",
-      "description": "Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session. Not undoable: an opened project starts a new history.",
+      "description": "Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session, with a warning naming any fitted element whose surface was not found again (its saved fit stands). Not undoable: an opened project starts a new history.",
       "input": {
         "type": "object",
         "properties": {

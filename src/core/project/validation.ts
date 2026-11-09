@@ -63,6 +63,22 @@ export function vector(value: unknown, size: number, path: string): void {
   const values = array(value, path)
   if (values.length !== size || !values.every((v) => typeof v === 'number' && Number.isFinite(v))) invalid(path)
 }
+/** A fitted element's guide: each part optional, each as element.fit takes it. */
+function fitGuide(value: unknown): void {
+  const g = object(value, 'element.guide')
+  if (g.side !== undefined && g.side !== 'inside' && g.side !== 'outside') invalid('element.guide.side')
+  if (g.radius !== undefined) {
+    const r = object(g.radius, 'element.guide.radius')
+    for (const key of ['min', 'max'])
+      if (r[key] !== undefined && !(typeof r[key] === 'number' && Number.isFinite(r[key]) && r[key] > 0)) invalid(`element.guide.radius.${key}`)
+  }
+  if (g.axis !== undefined) vector(g.axis, 3, 'element.guide.axis')
+  if (g.within !== undefined) {
+    const w = object(g.within, 'element.guide.within')
+    vector(w.min, 3, 'element.guide.within.min')
+    vector(w.max, 3, 'element.guide.within.max')
+  }
+}
 export function entries(value: unknown, path: string, visit?: (entry: RecordValue) => void): void {
   const ids = new Set<number>()
   for (const item of array(value, path)) {
@@ -222,6 +238,7 @@ export function validateProjectParts(raw: unknown): void {
       if (source.type === 'fitted' && source.settings !== undefined) {
         known(object(source.settings, 'element.settings').method, PROJECT_NAMES.fitMethods, 'fit method')
       }
+      if (source.type === 'fitted' && source.guide !== undefined) fitGuide(source.guide)
       if (e.fit !== undefined) {
         const fit = object(e.fit, 'element.fit')
         if (fit.kind !== e.kind) invalid('element.fit.kind')

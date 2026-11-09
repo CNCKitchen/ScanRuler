@@ -49,6 +49,7 @@ import {
   type AxisDir,
 } from '../core/alignment'
 import { rigidApply, rigidCompose, rigidRotate, type Rigid } from '../core/deviation/rigid'
+import type { FitGuide } from '../core/fit/guide'
 import {
   axisOfFrame,
   canCutAlong,
@@ -259,6 +260,9 @@ interface AppState {
   /** The hand-marked surface a draft's fit is running on, or null when the
    *  marking has been cleared. */
   setDraftSelection: (selection: Uint32Array | null) => void
+  /** What the fit from the picks is told about the surface it is after;
+   *  undefined takes it off. */
+  setDraftGuide: (guide: FitGuide | undefined) => void
   setDraftRef: (slot: number, id: number | null) => void
   /** "+ Pick point on scan…" on a construction's point slot: the next click
    *  on the scan fills it. Whatever was in the slot is let go. */
@@ -786,6 +790,13 @@ export const useStore = create<AppState>()((set, get) => ({
   setDraftPickPoints: (points) =>
     set((s) => (s.draft ? { draft: { ...s.draft, pickPoints: points } } : {})),
 
+  setDraftGuide: (guide) =>
+    set((s) => {
+      if (!s.draft) return {}
+      const { guide: _guide, ...rest } = s.draft
+      return { draft: guide ? { ...rest, guide } : rest }
+    }),
+
   setDraftSelection: (selection) =>
     set((s) => {
       if (!s.draft) return {}
@@ -1060,7 +1071,7 @@ export const useStore = create<AppState>()((set, get) => ({
       m.mode === 'fit'
         ? d.selection
           ? { type: 'fitted', seeds: [], selection: d.selection, settings: d.settings }
-          : { type: 'fitted', seeds: d.picks.flat(), settings: d.settings }
+          : { type: 'fitted', seeds: d.picks.flat(), settings: d.settings, ...(d.guide ? { guide: d.guide } : {}) }
         : m.mode === 'pick'
           ? { type: 'picked' }
           : {

@@ -15,11 +15,17 @@
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: DENY
 
-# The Reverse engineer's CAD kernel (occt-wasm, an Emscripten build) generates
-# its bindings with new Function, so only the two worker scripts that load it
-# get 'unsafe-eval'. A worker takes its policy from its own response; the page
-# keeps the strict one. `!` drops the policy from the rule above first, since
-# two values for one header would be joined into a second, stricter policy.
+# The CAD kernel (occt-wasm) and the mesh boolean (manifold-3d) are Emscripten
+# builds whose bindings are generated with new Function, so only the worker
+# scripts that load them get 'unsafe-eval': the Reverse engineer's two and the
+# mesh worker, where Mesh Tools runs its booleans, Hollow and Trim to scan.
+# A worker takes its policy from its own response; the page keeps the strict
+# one. `!` drops the policy from the rule above first, since two values for
+# one header would be joined into a second, stricter policy.
+# scripts/check-csp.mjs checks the built app against these rules.
+/assets/meshWorker-*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; connect-src 'self' data: blob:; object-src 'none'; base-uri 'self'
 /assets/reWorker-*
   ! Content-Security-Policy
   Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; connect-src 'self' data: blob:; object-src 'none'; base-uri 'self'

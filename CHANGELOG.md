@@ -5,6 +5,28 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.11.1 — 2026-11-09
+
+- **Mesh Tools' booleans, Hollow and Trim to scan work on scanruler.com
+  again** (2026-11-09, issues 123 and 126). Since the Content-Security-Policy
+  of 0.9.10, the hosted app refused them with "call to Function() blocked by
+  CSP": the mesh boolean they run on builds part of itself from strings,
+  and only the Reverse engineer's workers were allowed that. The mesh
+  worker is now too, in the hosted app and in the Docker image, and every
+  build is checked for a worker that needs it and is not allowed it.
+  Thanks to SphaeroX and jarmosaari for reporting it.
+- **A fit told what surface it is after opens again with the project**
+  (2026-11-09, issue 125). An element fitted with side, radius, axis or
+  within (element.fit) kept only its seeds, so on opening the project its
+  surface was grown from the seeds alone. A small bore beside a large curved
+  face was not found, and project.load answered "failed" for a project that
+  had opened. The guide is now part of the element and the project file,
+  moves and scales with the part, and every re-fit uses it again. And an
+  element whose surface is not found again no longer fails the open: its
+  saved fit stands, the status line names it, and project.load answers with
+  the session and a warning. Projects saved before keep opening as they did,
+  with no guide. Thanks to raxarot for the careful report.
+
 ## 0.11.0 — 2026-11-09
 
 - **A 2D note stays where it was placed** (2026-11-09, pull request 70).

@@ -48,7 +48,7 @@ export function scanSwap({
   sources: RefObject<SourceFiles>
   maps: ScanMaps
   clearPreview: () => void
-  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<void>
+  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<unknown>
   runDeviation: () => Promise<void>
   runThickness: () => Promise<void>
 }) {
