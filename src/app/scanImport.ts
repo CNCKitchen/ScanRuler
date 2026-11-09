@@ -126,6 +126,7 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
       const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
       const modelSize = scene?.modelSize() ?? bounds!.radius
       store.finishLoad(mesh.vertexCount, mesh.triangleCount, modelSize, scene?.modelCenter() ?? bounds!.center)
+      useStore.setState({ scanIsCloud: mesh.kind === 'cloud' })
       useMark.getState().sizeToModel(modelSize)
       useThickness.getState().suggestMaxThickness(2 * modelSize)
       scanLoaded({ positions: mesh.positions, indices: mesh.indices, modelSize })

@@ -101,6 +101,7 @@ export function scanSwap({
     const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
     useStore.setState((s) => ({
       scanColors: Boolean(mesh.colors),
+      scanIsCloud: mesh.kind === 'cloud',
       vertexCount: mesh.vertexCount,
       triangleCount: mesh.triangleCount,
       modelSize: scene?.modelSize() ?? bounds!.radius,

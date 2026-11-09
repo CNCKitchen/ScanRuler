@@ -72,3 +72,9 @@ export const OP_CAPS = {
 export function refusesOnCloud(op: WorkerRequest['type'], g: MeshGraph | null): string | null {
   return g && isCloud(g) && OP_CAPS[op].needsTriangles ? CLOUD_REFUSAL : null
 }
+
+/** The refusal for work that reaches `ops`, when the scan is a cloud — the
+ *  same ruling the worker gives each op, asked before the work starts. */
+export function refusesOpsOnCloud(ops: readonly WorkerRequest['type'][], scanIsCloud: boolean): string | null {
+  return scanIsCloud && ops.some((op) => OP_CAPS[op].needsTriangles) ? CLOUD_REFUSAL : null
+}

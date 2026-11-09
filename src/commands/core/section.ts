@@ -40,6 +40,7 @@ function radialRefOf(across: RadialIn): SectionPlaneRef {
 
 const cut: Command<{ across: ElementRef | RadialIn; offset?: number; name?: string; kind?: 'cut' | 'shadow'; play?: number; tolerance?: number; smoothDeg?: number; extrude?: boolean }> = {
   name: 'cut',
+  scanOps: ['section', 'shadow'],
   title: 'Cut a section',
   description:
     'Cut the scan with a plane and keep the cut as a section, put on the 2D sheet. across: an element with a direction (plane, cylinder, cone, line, circle) by id or name; "XY", "YZ" or "XZ" through the part’s centre; or { axis, angleDeg }, a plane through an axis turned angleDeg about it — a half section of a turned part. offset slides the plane along its normal, mm (a coordinate plane: the coordinate itself). kind "shadow" keeps the scan’s shadow instead: the whole part projected onto the plane, its outer boundary as loops read as lines and arcs (tolerance, play, smoothDeg), stood up as a block for export.step (extrude). Trap: a shadow takes no offset. Returns the section: its plane and chain count — a shadow also its loops, area and band. One undo step.',
@@ -503,6 +504,7 @@ export function sheetPlaneOf(plane: PlaneIn, fromZero = false): { name: string; 
 
 const render: Command<{ section?: number | string; plane?: PlaneIn; offsets?: number[]; up?: WorldAxis; frame?: FrameIn; tolerance?: number; layers?: string[]; width?: number; height?: number }> = {
   name: 'render',
+  scanOps: ['section'],
   title: 'Picture a section',
   description:
     'A picture of a section as a PNG, for checking a slice against what was built on it: the scan’s cut as points on the sheet ([u, v] mm, +u right, +v up), a mm grid with values in the margins, a scale bar, and the workspaces’ layers over it (a model’s cut as outlines, a sketch’s pieces). Scan points within ten tolerances of an outline are read against it: on it (grey) or off it (red). Needs section, or plane to cut the scan for the picture alone ({ origin, normal }, "XY"/"YZ"/"XZ", an element, or { sketch }). Returns gap { points, read, over, outside, inside, max, rms, overBox }, layers, axes, sheet (origin, normal, basisU, basisV) and map (pixel (c, r) is [left + c·unitsPerPx, top − r·unitsPerPx]). Trap: a plane’s sheet has its zero at the world origin’s foot, a section’s at the part’s centre — read sheet. 800 px by default, up to 2048. Needs the browser. Changes nothing.',

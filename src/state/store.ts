@@ -98,6 +98,9 @@ interface AppState {
   projectName: string | null
   setProjectName: (name: string | null) => void
   fileName: string | null
+  /** The scan is a point cloud: it has no triangles, and the tools that read
+   *  them are off (core/capabilities.ts). */
+  scanIsCloud: boolean
   vertexCount: number
   triangleCount: number
   /** Half the scan's bounding-box diagonal — the scale constructed elements
@@ -507,6 +510,7 @@ const storedCreaseAngle = (): number => {
  *  mesh's size. Element and dimension ids run on across scans. */
 function freshScanState() {
   return {
+    scanIsCloud: false,
     elements: [],
     draft: null,
     // A marking indexes the vertices of the scan it was made on.

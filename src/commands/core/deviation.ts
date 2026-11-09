@@ -63,6 +63,7 @@ interface Pair { scan: [number, number, number]; reference: [number, number, num
 
 const align: Command<{ mode?: 'auto' | 'points' | 'local'; pairs?: Pair[]; vertices?: number[]; searchDistance?: number }> = {
   name: 'align',
+  scanOps: () => (useDeviation.getState().mapOn === 'reference' ? ['deviate-reference'] : []),
   title: 'Best-fit the scan onto the reference',
   description:
     'Rigid best fit (no scale) of the scan onto the reference part, then the deviation map under it. mode auto (the default) finds the pose on its own; points starts from three or more pairs of corresponding points (scan and reference, mm) then refines; local refines the fit in hand on a marked surface only (vertices), within searchDistance mm. Returns the alignment (RMS, points matched, transform) and the map’s statistics. One undo step.',
@@ -114,6 +115,7 @@ const align: Command<{ mode?: 'auto' | 'points' | 'local'; pairs?: Pair[]; verti
 
 const measure: Command = {
   name: 'measure',
+  scanOps: () => (useDeviation.getState().mapOn === 'reference' ? ['deviate-reference'] : []),
   title: 'Measure the deviation map',
   description:
     'Measure the deviation map again under the alignment in hand — after a change of facing limit or search distance, say. deviation.align measures it already. Returns the map’s statistics (min, max, mean, RMS, sigma, share within the tolerance, points matched). One undo step.',
@@ -193,6 +195,7 @@ export function setReading({ range, maxDistance, tolerance }: Reading): { range:
 
 const settings: Command<{ range?: number; maxDistance?: number; bands?: number | null; tolerance?: number; facingDeg?: number | null; colormap?: ColormapId; on?: MapSide; show?: boolean }> = {
   name: 'settings',
+  scanOps: (i) => (i.on === 'reference' ? ['deviate-reference'] : []),
   title: 'Set how the deviation is read',
   description:
     'The deviation map’s reading: range (colour scale, ± mm), maxDistance (search distance, mm), bands, tolerance (± mm the statistics count within), facingDeg (a change measures the map again), colormap (the person’s own choice, kept outside the undo — read settings.colormap for the ramp before judging a picture), on (which surface a map against the reference is painted on; read both sides) and show (the map switch; false leaves the surface bare, the map still measured). Returns the deviation state. Trap: the map paints in the Deviation workspace only — workspace.set deviation brings it back, and view.render says which map it painted (map) or why none (mapWhy). One undo step.',
@@ -265,6 +268,7 @@ export const PATCH_KIND_WORDS = `depth, the median |deviation| over the patch; v
 
 const hotspotsCommand: Command<{ tolerance?: number; patches?: number; grain?: number; on?: MapSide }> = {
   name: 'hotspots',
+  scanOps: (i) => (i.on === 'reference' ? ['deviate-reference'] : []),
   title: 'Where the deviation lies over tolerance',
   description:
     `The deviation map read as patches: the vertices past the tolerance gathered into connected regions, the largest and farthest first — where the part is off, how large each place is and by how much. Needs a map (deviation.align or deviation.set_target). Returns each patch’s centroid, box, area, count, mean, extreme, depth, volume, kind ("feature": material missing or misplaced, to model or name; "texture": roughness), side, the extreme’s point and vertex, a few vertices, and onReference; features, found, over and unmeasured; on: "reference" reads the map on the reference, adding noScan. Trap: read far every time — the vertices past the search distance, which the map draws bare: far.inside is scan deep inside the reference (a hole, pocket or slot the model lacks), far.outside scan standing off it. Changes nothing.`,
@@ -436,6 +440,7 @@ export async function referenceHotspots(tolerance: number | undefined, patches: 
 
 const exportCommand: Command<{ side?: MapSide; format?: DeviationFormat }> = {
   name: 'export',
+  scanOps: (i) => (i.side === 'reference' ? ['deviate-reference'] : []),
   title: 'Export the deviation as data',
   description:
     'The deviation map as a file of readings, for working on it elsewhere: side "scan" (the default) a reading per scan vertex with its signed distance from the reference (or the element measured against), side "reference" a reading per sample on the reference; format ply (the default, binary), npy (N × 4 float32 x, y, z, d) or csv. Returns the file with readings, measured, withinTolerance, withinTolerancePct, tolerance and searchDistance. Trap: the distance is NaN where there is no reading, and a reading past the search distance is kept as it is — |d| ≤ searchDistance says it counts. Changes nothing.',

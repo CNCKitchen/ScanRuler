@@ -233,6 +233,7 @@ const datum: Command<{
   detail?: Detail
 }> = {
   name: 'datum',
+  scanOps: (i) => (i.primary && 'points' in i.primary ? ['nearest'] : []),
   title: 'Align the part to datums',
   description:
     'A 3-2-1 alignment, as the panel’s alignment box sets it up: primary levels the part — a plane (or 3 points, or plane { origin, normal }: a level’s plane from scan.heightmap { levels: true }) whose outward normal becomes primaryAxis (default z-); secondary turns it — a line or axis (or 2 points) laid along secondaryAxis (default x+), or a plane; origin is the zero point — a point, sphere or circle (or 1 point). Elements by id or name, or points in mm used as given, not snapped. Trap: a plane as secondary puts its outward NORMAL on secondaryAxis, not its face along it. Each datum zeroes the coordinates it owns, the origin only those left open; an origin alone moves without turning. On a first alignment the coordinates nothing sets are centred on the scan’s box (keepFree: true leaves them). Returns the transform applied, how many elements moved, centred, origin { set, at, note } and parallelFace when a face parallel to the levelling plane, 0.3 to 5 mm off it (further on a noisy scan), holds more of the scan. Trap: on an embossed or warped sheet a plane fitted to the outermost faces lies on the bead crowns or the high spots, not the sheet — level on the largest level’s plane instead. One undo step.',
@@ -306,6 +307,7 @@ async function facesIn(largest: NonNullable<AutoAlignTilts['largest']>): Promise
 
 const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
   name: 'auto',
+  scanOps: ['auto-align', 'heights'],
   title: 'Auto-align the part',
   description:
     'Read a coordinate system off the scan and apply it, as Auto-align then Confirm alignment do: the directions most faces are square to and the axis round walls run along, the part standing on its base, its long side along X. level: settled (the default) lays all the faces on the axes at once, by area; largest squares the largest flat face exactly and settles the rest about its normal. Returns what the pose was read from, the transform, how many elements moved, and square — how square it came out: largest (the largest flat face’s axis, area, tiltDeg) and per axis the faces square to it with their tilts; largestInside when that face looks into the part (the scan stands in front of it: a rib’s wall, not a mating face — level on the mating face with align.datum). Trap: a drafted wall reads as its draft, not as an alignment error. One undo step.',
@@ -344,6 +346,7 @@ const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
 
 const symmetry: Command<{ detail?: Detail }> = {
   name: 'symmetry',
+  scanOps: ['symmetry'],
   title: 'Align the part on its symmetry plane',
   description:
     'Settle the part’s pose on its mirror plane and apply it, as Use symmetry then Confirm alignment do: the pose is Auto-align’s, the mirror plane a measured symmetry plane or one searched for on the scan; the axis nearest its normal is turned onto it and the zero point put on it. Refuses when the scan has no symmetry plane. Returns the note on what it settled on, the transform and how many elements moved. One undo step.',

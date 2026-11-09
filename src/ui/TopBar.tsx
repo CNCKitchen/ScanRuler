@@ -21,6 +21,7 @@ import { bundleFiles } from '../app/scanFiles'
 import { PROJECT_ACCEPT, PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
 import { holdsProject, isProjectFile } from '../app/useProject'
 import { APP_VERSION } from '../version'
+import { useCloudRefusal } from './cloudGate'
 import type { RecoveryStatus } from '../app/useRecovery'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
@@ -186,6 +187,8 @@ export function TopBar({
   recovery: RecoveryStatus
 }) {
   const fileName = useStore((s) => s.fileName)
+  const noThickness = useCloudRefusal('thickness')
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
   const triangleCount = useStore((s) => s.triangleCount)
   const vertexCount = useStore((s) => s.vertexCount)
   const busy = useStore((s) => s.busy)
@@ -249,9 +252,9 @@ export function TopBar({
             data-test={`workspace-${w.id}`}
             aria-selected={workspace === w.id}
             className={workspace === w.id ? 'on' : undefined}
-            title={`${w.label}\n${w.title}`}
+            title={w.id === 'thickness' && noThickness ? noThickness : `${w.label}\n${w.title}`}
             aria-label={w.label}
-            disabled={picking}
+            disabled={picking || (w.id === 'thickness' && noThickness !== null)}
             onClick={() => setWorkspace(w.id)}
           >
             <Icon name={w.icon} size={16} />
@@ -264,8 +267,8 @@ export function TopBar({
         <div className="partchip file-info" title={fileName}>
           <b>{fileName}</b>
           <span>
-            {triangleCount.toLocaleString('en-US')} triangles ·{' '}
-            {vertexCount.toLocaleString('en-US')} vertices
+            {scanIsCloud ? '' : `${triangleCount.toLocaleString('en-US')} triangles · `}
+            {vertexCount.toLocaleString('en-US')} {scanIsCloud ? 'points' : 'vertices'}
           </span>
         </div>
       )}

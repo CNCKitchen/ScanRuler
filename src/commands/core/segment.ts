@@ -146,6 +146,7 @@ function runRow(r: CurvedRun, i: number, maxRms: number) {
 
 const segment: Command<SegmentIn> = {
   name: 'segment',
+  scanOps: ['segment'],
   title: 'Find the scan’s flat regions',
   description:
     `The scan’s planar regions, found all at once: grown from the flattest places outward within maxDeg (${SEGMENT_DEG}°) and maxRms (${SEGMENT_RMS} mm), those smaller than minArea given back. Returns found, considered, claimed, noise and the regions, largest first, at most limit (${SEGMENT_LIMIT}): id, normal, point, sigma, area (mm²), box, vertices, neighbours { id, deg, smooth } and, with symmetric, mirror (its twin across that plane). Trap: a round surface comes out as strips that look like facets — such a region says curved { sagitta } and run, and curvedRuns joins them into surfaces with a note saying what to model each as; read the runs before taking regions for faces. mark: a region’s id, or several, leaves their points marked for element.fit_marked { marked: true }. Changes nothing.`,

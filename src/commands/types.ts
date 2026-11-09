@@ -5,6 +5,7 @@
 // as one step of the undo history and reads back what the stores hold
 // afterwards. See registry.ts for how they are found and run.
 
+import type { WorkerRequest } from '../core/workerProtocol'
 import type { JsonSchema } from './schema'
 
 /** Why a command did not do what it was asked — the code a caller branches
@@ -151,6 +152,14 @@ export interface Command<I = Record<string, unknown>> {
    *  stopped first (registerBusy's stop), not waited for, rather than the
    *  command refused over it. */
   discards?(input: I): boolean
+  /** The worker requests a run reaches on the scan — for the input given,
+   *  when a command reaches one only for some inputs. Whether a cloud may be
+   *  run through it follows from what the worker can do with a cloud
+   *  (OP_CAPS, core/capabilities.ts): on a point cloud the registry answers
+   *  CLOUD_REFUSAL before the command runs, so a command is never left half
+   *  done and never answers for an empty mesh. List the ops, not a flag, so
+   *  that an op learning to take clouds frees its commands with no edit here. */
+  scanOps?: readonly WorkerRequest['type'][] | ((input: I) => readonly WorkerRequest['type'][])
   /** The undo step's name for this input; the title otherwise. */
   label?(input: I): string
   run(input: I, ctx: CommandContext): Promise<unknown>

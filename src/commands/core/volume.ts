@@ -18,6 +18,7 @@ const boxSchema = obj({ min: vec3('Lowest corner, mm.'), max: vec3('Highest corn
 
 const volumeCommand: Command<{ tolerance?: number; cell?: number; regions?: number; within?: { min: Vec3; max: Vec3 }; kinds?: ('excess' | 'missing' | 'unsure')[] }> = {
   name: 'volume',
+  scanOps: ['deviate-volume'],
   title: 'Volume error',
   description:
     'The scan and the reference part compared as solids, on a grid of small cells: each cell inside one and not the other is an error, touching cells a region. Read it before the surface patches — it tells how much material is wrong and where, which the nearest-point map cannot: excess is material the reference has and the part has not, missing the other way round, unsure where the scan does not say (never an error). Needs deviation.align. Returns totals (mm³ and % of the reference) and the regions largest first, each with kind, volume, maxDepth, thickness, shape (layer or lump), centroid, deepest, box, evidence and confidence. Trap: nothing thinner than smallestSeen (two cells) is seen — the surface map stays the tool for fine offsets. About 15 s on a 1.5M-triangle scan. Changes nothing kept.',

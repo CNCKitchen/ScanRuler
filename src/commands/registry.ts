@@ -19,7 +19,9 @@
 // leave work only the last of several changes needs — a rebuild — for
 // later; it is finished before the next run that is not (registerSettle).
 
+import { refusesOpsOnCloud } from '../core/capabilities'
 import { historyAsync } from '../state/historyStore'
+import { useStore } from '../state/store'
 import { commandGuard, stopPluginWork, useCommandActivity } from './activity'
 import { SCHEMA_BUDGET, schemaWeight, validate } from './schema'
 import { isStaleImport, staleError } from './stalePage'
@@ -75,6 +77,17 @@ export function listCommands(): CommandInfo[] {
       ...(c.names ? { names: c.names } : {}),
       ...(c.askForLess ? { askForLess: c.askForLess } : {}),
     }))
+}
+
+/** A refusal, thrown, when the scan is a point cloud and the command reaches
+ *  a worker op that needs triangles (Command.scanOps). Asked where the run
+ *  starts — after the commands before it have run, so a scan they opened is
+ *  the scan seen — and before anything is changed. */
+function refuseOnCloud(command: Command, input: Record<string, unknown>): void {
+  if (!command.scanOps || !useStore.getState().scanIsCloud) return
+  const ops = typeof command.scanOps === 'function' ? command.scanOps(input as never) : command.scanOps
+  const refusal = refusesOpsOnCloud(ops, true)
+  if (refusal) throw new CommandError('invalid_state', refusal)
 }
 
 /** Whether a command runs without the page — see Command.headless. */
@@ -179,7 +192,11 @@ function start(name: string, input: unknown, onProgress: ((text: string) => void
     // Started at once where nothing is left to finish, as it always was.
     const settling = deferred ? null : settle(name, command)
     return inScene(command, () =>
-      limited(name, command.timeoutMs ?? COMMAND_TIMEOUT_MS, abort, () => (settling ? settling.then(() => command.run(args, ctx)) : command.run(args, ctx))),
+      limited(name, command.timeoutMs ?? COMMAND_TIMEOUT_MS, abort, async () => {
+        if (settling) await settling
+        refuseOnCloud(command, args)
+        return command.run(args, ctx)
+      }),
     ).catch((e) => Promise.reject(asCommandError(e)))
   }
   if (command.interrupts) return interrupt(name, command, args, onProgress)
@@ -286,6 +303,7 @@ async function guarded(
 ): Promise<unknown> {
   const busy = commandGuard().busy()
   if (busy) throw new CommandError('busy', `The session is busy — ${busy}. Try again once it has finished.`)
+  refuseOnCloud(command, input)
   const abort = new AbortController()
   const ctx: CommandContext = {
     progress: (text) => {

@@ -34,6 +34,7 @@ import { SectionEditor } from './SectionEditor'
 import { ExportMeshButton } from './ExportMeshButton'
 import type { MeshFormat } from '../core/exportMesh'
 import { useUnits } from '../app/useUnits'
+import { useCloudRefusal } from './cloudGate'
 
 /** The picture on each element type's key. */
 const KIND_ICON: Record<(typeof ELEMENT_KINDS)[number]['id'], IconName> = {
@@ -128,6 +129,7 @@ export function Panel({
   onFindSymmetry: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
+  const noSection = useCloudRefusal('section')
   const busy = useStore((s) => s.busy)
   // Every reading in the lists is written in the units shown.
   const units = useUnits()
@@ -287,8 +289,8 @@ export function Panel({
             ))}
             <button
               data-test="fit-section"
-              disabled={!fileName || busy || dimDraft !== null}
-              title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
+              disabled={!fileName || busy || dimDraft !== null || noSection !== null}
+              title={noSection ?? 'Cut the scan with a plane, to measure the cut in the 2D Measure workspace'}
               onClick={onStartSection}
             >
               <Icon name="section" />

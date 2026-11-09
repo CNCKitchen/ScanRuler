@@ -19,6 +19,7 @@ import {
   worldPlaneName,
   type SectionRef,
 } from '../core/section/frame'
+import { useCloudRefusal } from './cloudGate'
 import { isShadow, shadowParams, type SectionKind } from '../state/sectionModel'
 import { sectionDraftColorOf, sectionDraftReady, useStore } from '../state/store'
 import { InfoDot } from './InfoDot'
@@ -60,6 +61,8 @@ export function SectionEditor({
   const draft = useStore((s) => s.sectionDraft)
   const elements = useStore((s) => s.elements)
   const sections = useStore((s) => s.sections)
+  const noCut = useCloudRefusal('section')
+  const noShadow = useCloudRefusal('shadow')
   const color = useStore(sectionDraftColorOf)
   const setRef = useStore((s) => s.setSectionDraftRef)
   const setOffset = useStore((s) => s.setSectionDraftOffset)
@@ -162,10 +165,12 @@ export function SectionEditor({
               aria-checked={kind === k}
               className={kind === k ? 'on' : undefined}
               data-test={`section-kind-${k}`}
+              disabled={(k === 'cut' ? noCut : noShadow) !== null}
               title={
-                k === 'cut'
+                (k === 'cut' ? noCut : noShadow) ??
+                (k === 'cut'
                   ? 'The scan where the plane passes through it'
-                  : 'The whole scan projected along the plane’s normal onto it — its outline'
+                  : 'The whole scan projected along the plane’s normal onto it — its outline')
               }
               onClick={() => setKind(k)}
             >

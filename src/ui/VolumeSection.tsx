@@ -12,6 +12,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useStore } from '../state/store'
 import { VOLUME_COLORS } from '../viewer/volumeLayer'
 import { InfoDot } from './InfoDot'
+import { useCloudRefusal } from './cloudGate'
 import { useLength } from '../app/useUnits'
 import { fmtVol, lengthInputText, MM_PER_INCH, unitWord, type DisplayUnits } from '../core/units'
 
@@ -39,6 +40,7 @@ export function VolumeSection({
 }) {
   const volume = useDeviation((s) => s.volume)
   const status = useDeviation((s) => s.volumeStatus)
+  const noVolume = useCloudRefusal('deviate-volume')
   const message = useDeviation((s) => s.volumeMessage)
   const tolerance = useDeviation((s) => s.tolerance)
   const show = useDeviation((s) => s.showVolume)
@@ -73,7 +75,7 @@ export function VolumeSection({
           </p>
         </InfoDot>
       </div>
-      <button className="primary block" data-test="volume-measure" disabled={running} onClick={onMeasure}>
+      <button className="primary block" data-test="volume-measure" disabled={running || noVolume !== null} title={noVolume ?? undefined} onClick={onMeasure}>
         {running ? (
           <>
             <span className="spinner" /> Finding volume errors…{progress !== null ? ` ${Math.round(progress * 100)} %` : ''}
