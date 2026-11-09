@@ -125,7 +125,8 @@ export interface ClosestSurface {
   readonly positions: Float32Array
   readonly bboxDiagonal: number
   /** Signed distance from a point to the surface; false when nothing lies
-   *  within `maxDistance`. */
+   *  within `maxDistance`. On a cloud `maxDistance` bounds the distance to
+   *  the nearest point, not to its tangent plane. */
   closest(x: number, y: number, z: number, out: ClosestHit, maxDistance?: number): boolean
   /** The nearest surface whose normal n satisfies `n · (nx, ny, nz) >= minDot`. */
   closestFacing(

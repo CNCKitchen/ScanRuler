@@ -129,13 +129,15 @@ export function computeDeviation(
   const minFacing = normals && maxNormalDeviation !== null ? Math.cos(maxNormalDeviation) : null
   const reach = surface.bboxDiagonal * FACING_REACH
   const outward = settledOutward ?? (minFacing === null ? 1 : scanNormalsSign(surface, scanPositions, normals!, transform))
+  // Faces are a mesh's alone: a cloud is always searched here.
+  const mesh = surface instanceof NominalSurface ? surface : null
+  const faces = mesh ? nearestFaces : null
 
   for (let v = from; v < to; v++) {
     rigidApply(transform, scanPositions[v * 3], scanPositions[v * 3 + 1], scanPositions[v * 3 + 2], p)
     let found: boolean
-    // Faces are a mesh's alone: a cloud is always searched here.
-    const face = nearestFaces && surface instanceof NominalSurface ? nearestFaces[v] : -1
-    if (face >= 0) (surface as NominalSurface).closestOnFace(p[0], p[1], p[2], face, hit)
+    const face = faces ? faces[v] : -1
+    if (face >= 0) mesh!.closestOnFace(p[0], p[1], p[2], face, hit)
     if (minFacing === null) found = face >= 0 || surface.closest(p[0], p[1], p[2], hit)
     else {
       // The scan's own normal, carried into the reference's frame.

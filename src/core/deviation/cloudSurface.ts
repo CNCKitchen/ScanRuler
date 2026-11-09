@@ -24,6 +24,7 @@ export class CloudSurface implements ClosestSurface {
   readonly bboxDiagonal: number
   private grid: PointGrid
   private near = new Int32Array(FACING_CANDIDATES)
+  private around: number[] = []
 
   constructor(positions: Float32Array, normals: Float32Array, spacing: number) {
     this.positions = positions
@@ -44,6 +45,9 @@ export class CloudSurface implements ClosestSurface {
     this.bboxDiagonal = x1 >= x0 ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0
   }
 
+  /** Unbounded, a query far from the cloud walks every empty grid cell
+   *  between it and the nearest point; callers that can bound the search
+   *  (ICP's pair distance) should. */
   closest(x: number, y: number, z: number, out: ClosestHit, maxDistance = Infinity): boolean {
     const j = this.grid.nearest(x, y, z, maxDistance)
     if (j < 0) return false
@@ -51,9 +55,12 @@ export class CloudSurface implements ClosestSurface {
     return true
   }
 
-  /** The nearest of the 12 points nearest the query whose normal n satisfies
-   *  `n · (nx, ny, nz) >= minDot`. Twelve reach past the far skin of a thin
-   *  wall at the cloud's own spacing, which is the case this query is for. */
+  /** The nearest point whose normal n satisfies `n · (nx, ny, nz) >= minDot`,
+   *  within `maxDistance` (and never past the cloud's own diagonal). The 12
+   *  nearest are tried first: on a surface facing the query's way that is
+   *  the answer. Only when all of them face away — the near skin of a wall,
+   *  with the one wanted on its far side — is the search widened, a radius
+   *  at a time, until a facing point turns up. */
   closestFacing(
     x: number, y: number, z: number,
     nx: number, ny: number, nz: number,
@@ -73,7 +80,38 @@ export class CloudSurface implements ClosestSurface {
       this.fillHit(x, y, z, j, out)
       return true
     }
-    return false
+    if (count < FACING_CANDIDATES) return false // everything within reach was looked at
+    const reach = Math.min(maxDistance, this.bboxDiagonal)
+    const p = this.positions
+    const around = this.around
+    // Every point within the 12th's distance faced away, so the answer lies
+    // beyond it; each pass scans a ball twice as wide, and the nearest
+    // facing point found in a ball is the nearest of all.
+    const j12 = near[count - 1]
+    let r = 2 * Math.max(Math.hypot(p[3 * j12] - x, p[3 * j12 + 1] - y, p[3 * j12 + 2] - z), this.grid.cell / 2)
+    for (;;) {
+      const radius = Math.min(r, reach)
+      this.grid.withinRadius(x, y, z, radius, around)
+      let best = -1
+      let bestD2 = Infinity
+      for (const j of around) {
+        const mx = n[3 * j], my = n[3 * j + 1], mz = n[3 * j + 2]
+        const len = Math.hypot(mx, my, mz)
+        if (!(len > 0) || (mx * nx + my * ny + mz * nz) / len < minDot) continue
+        const dx = p[3 * j] - x, dy = p[3 * j + 1] - y, dz = p[3 * j + 2] - z
+        const d2 = dx * dx + dy * dy + dz * dz
+        if (d2 < bestD2) {
+          bestD2 = d2
+          best = j
+        }
+      }
+      if (best >= 0) {
+        this.fillHit(x, y, z, best, out)
+        return true
+      }
+      if (radius >= reach) return false
+      r *= 2
+    }
   }
 
   /** The query projected onto point j's tangent plane. */
