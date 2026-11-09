@@ -43,6 +43,8 @@ export interface MeshGraph {
   vertexCount: number
   triangleCount: number
   bboxDiag: number
+  /** A point cloud's typical distance between neighbouring points, mm. */
+  spacing?: number
 }
 
 /** 0 = use all points, otherwise the k in "discard residuals beyond k·sigma". */

@@ -19,6 +19,8 @@ import type { ObjCompanions } from './parsers/objTexture'
 import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
 import { buildMeshGraph } from './geometry/buildGraph'
+import { buildPointGraph } from './geometry/buildPointGraph'
+import { isCloud } from './geometry/cloud'
 import { wireSlots } from './geometry/wireSlots'
 import { scanRender, splitCreases, type CreaseSetting } from './geometry/crease'
 import { getFitter, getSelectionFitter } from './elements/registry'
@@ -124,6 +126,35 @@ function postScan(
   progress: (t: string) => void,
   file?: ScanFileFacts,
 ): void {
+  if (isCloud(g)) {
+    // Points: nothing to split, no corners to slot, no triangles for a tree.
+    const positions = g.positions.slice()
+    const normals = g.normals.slice()
+    const indices = new Uint32Array(0)
+    const slots = new Uint8Array(g.vertexCount)
+    const copyOf = new Uint32Array(0)
+    renderCopies.set(g, copyOf)
+    const colors = file?.colors && file.colors.length === g.vertexCount * 3 ? file.colors : undefined
+    post(
+      {
+        type: 'loaded',
+        requestId,
+        kind: 'cloud',
+        ...(g.spacing !== undefined ? { spacing: g.spacing } : {}),
+        positions,
+        indices,
+        normals,
+        wireSlots: slots,
+        copyOf,
+        crease: { added: 0, skipped: 'off' },
+        vertexCount: g.vertexCount,
+        triangleCount: 0,
+        ...(colors ? { colors } : {}),
+      },
+      [positions.buffer, normals.buffer, slots.buffer, ...(colors ? [colors.buffer] : [])],
+    )
+    return
+  }
   if (crease.mode !== 'off') progress('Finding sharp edges…')
   const { positions, indices, normals, wireSlots: slots, copyOf, crease: report } = scanRender(g, crease)
   // Kept: the posted one goes over with the rest.
@@ -135,6 +166,7 @@ function postScan(
     {
       type: 'loaded',
       requestId,
+      kind: 'mesh',
       positions,
       indices,
       normals,
@@ -340,12 +372,26 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     try {
       const { parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions)
       scaleToMm(parsed, msg.scale)
-      const candidate = buildMeshGraph(parsed, progress)
+      let candidate: MeshGraph
+      let colors = parsed.colors
+      if (parsed.kind === 'cloud') {
+        const built = buildPointGraph(parsed, progress)
+        candidate = built
+        // The file's colours are per input point; the graph keeps fewer.
+        if (colors && colors.length === built.vertexMap.length * 3) {
+          const kept = new Uint8Array(built.vertexCount * 3)
+          for (let i = 0; i < built.vertexMap.length; i++) {
+            const k = built.vertexMap[i]
+            if (k >= 0) kept.set(colors.subarray(3 * i, 3 * i + 3), 3 * k)
+          }
+          colors = kept
+        } else colors = undefined
+      } else candidate = buildMeshGraph(parsed, progress)
       if (msg.transform) {
         rigidApplyToPoints(msg.transform, candidate.positions)
         rigidRotateVectors(msg.transform, candidate.normals)
       }
-      postScan(msg.requestId, candidate, msg.crease, progress, { colors: parsed.colors, texture: parsed.texture, step })
+      postScan(msg.requestId, candidate, msg.crease, progress, { colors, texture: parsed.texture, step })
       if (msg.staged) stagedScans.set(msg.requestId, candidate)
       else { graph = candidate; scanSolid = null; scanReplaced() }
     } catch (e) {

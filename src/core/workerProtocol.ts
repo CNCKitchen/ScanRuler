@@ -268,6 +268,11 @@ export type WorkerResponse =
   | {
       type: 'loaded'
       requestId: number
+      /** 'cloud' for a point cloud: no triangles, `indices` and `copyOf`
+       *  empty. */
+      kind: 'mesh' | 'cloud'
+      /** A cloud's typical point spacing, mm. */
+      spacing?: number
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array

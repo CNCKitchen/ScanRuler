@@ -43,6 +43,10 @@ export interface LoadedMesh {
 }
 
 export interface LoadedScan extends LoadedMesh {
+  /** 'cloud' for a point cloud, which has no triangles. */
+  kind: 'mesh' | 'cloud'
+  /** A cloud's typical point spacing, mm. */
+  spacing?: number
   /** The vertex each appended copy stands in for — see geometry/crease.ts. */
   copyOf: Uint32Array
   crease: CreaseReport
