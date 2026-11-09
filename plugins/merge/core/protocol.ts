@@ -52,11 +52,16 @@ export interface MergeOps {
   /** ICP from `start` (layer → target frame). */
   refine: { payload: { id: string; target: string; start: Rigid }; result: AlignReply }
   /** A transient fit on a layer or on the base, kept under `fitId` for
-   *  align-datums until its side goes. */
+   *  align-datums until its side goes. A layer's fit is in the layer's own
+   *  frame, the base's in the shown frame. Base fit ids are dropped on every
+   *  scan replacement, the workspace's own merge and undo included; a
+   *  layer's go with the layer. */
   fit: { payload: { id: string; elementType: ElementKind; seeds: number[]; settings: FitSettings }; result: { fitId: number; fit: FitOutput } }
-  /** The own-swap flag: the scan replaced between begin and end is the
-   *  workspace's own (its merge, the history re-swapping it), and the layers
-   *  stay. */
+  /** The own-swap flag, one-shot: the next scan replacement after a begin
+   *  is the workspace's own (its merge, the history re-swapping it), and the
+   *  layers stay; that replacement consumes the flag. The main side sends
+   *  the matching end in a `finally`, so a swap that fails before it
+   *  happens leaves nothing armed. */
   'merge-begin': { payload: null; result: null }
   'merge-end': { payload: null; result: null }
   'undo-begin': { payload: null; result: null }

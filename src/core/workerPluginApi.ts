@@ -26,7 +26,9 @@ export interface WorkerContext {
   /** A long computation run a slice at a time, as the worker runs a best
    *  fit, so that Stop (MeshWorkerClient.abortAlign) is heard between
    *  slices: its value, or null when it was stopped. Return the promise's
-   *  answer from `handle`, so every other request waits for it. */
+   *  answer from `handle`, so every other request waits for it. Stop reaches
+   *  only a run in progress: a plugin request still queued when it is
+   *  pressed is not swept, and runs when its turn comes. */
   drive<T>(steps: Steps<T>): Promise<T | null>
 }
 

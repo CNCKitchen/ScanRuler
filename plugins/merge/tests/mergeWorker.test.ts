@@ -288,16 +288,22 @@ describe('Merge worker: alignment', () => {
   })
 
   it('stops a refine when Stop is pressed, and answers the next request', async () => {
-    const fine = blockWithBoreCloud({ size: [40, 30, 20], boreRadius: 6, step: 0.4 })
-    const [l, h] = halves(fine, 0, 16)
-    await setBase(h)
-    await addLayer('a', applyRigidCloud(l, TRUE))
-    const refine = post('refine', { id: 'a', target: 'base', start: nudged(POSE) })
-    const after = post('layer-geometry', { id: 'a' })
-    expect(replies.some((m) => 'requestId' in m && m.requestId === refine)).toBe(false)
-    send({ type: 'align-abort' })
-    expect(await result<'refine'>(refine)).toEqual({ stopped: true })
-    expect((await result<'layer-geometry'>(after)).positions.length).toBeGreaterThan(0)
+    await setBase(hi)
+    await addLayer('a', layerPart)
+    // Every slice ends after one step: the clock jumps a second per reading,
+    // so the refine cannot finish inside the slice that starts it.
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 1000))
+    try {
+      const refine = post('refine', { id: 'a', target: 'base', start: nudged(POSE) })
+      const after = post('layer-geometry', { id: 'a' })
+      expect(replies.some((m) => 'requestId' in m && m.requestId === refine)).toBe(false)
+      send({ type: 'align-abort' })
+      expect(await result<'refine'>(refine)).toEqual({ stopped: true })
+      expect((await result<'layer-geometry'>(after)).positions.length).toBeGreaterThan(0)
+    } finally {
+      now.mockRestore()
+    }
   })
 })
 
@@ -317,6 +323,26 @@ describe('Merge worker: the own-swap flag', () => {
     await call('merge-end', null)
     expect((await call('layer-geometry', { id: 'a' })).positions.length).toBe(LO_COUNT * 3)
     await setBase(hi)
+    await expect(call('layer-geometry', { id: 'a' })).rejects.toThrow('There is no layer "a".')
+  })
+
+  it('is one-shot: the swap after a begin consumes it, the next one drops the layers', async () => {
+    await setBase(hi)
+    await addLayer('a', layerPart)
+    await call('merge-begin', null)
+    await setBase(lo)
+    expect((await call('layer-geometry', { id: 'a' })).positions.length).toBe(LO_COUNT * 3)
+    // No end sent (a forgotten or failed one): the next scan still drops them.
+    await setBase(hi)
+    await expect(call('layer-geometry', { id: 'a' })).rejects.toThrow('There is no layer "a".')
+  })
+
+  it('a begin ended without any swap leaves nothing armed', async () => {
+    await setBase(hi)
+    await addLayer('a', layerPart)
+    await call('undo-begin', null)
+    await call('undo-end', null)
+    await setBase(lo)
     await expect(call('layer-geometry', { id: 'a' })).rejects.toThrow('There is no layer "a".')
   })
 

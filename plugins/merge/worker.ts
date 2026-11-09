@@ -7,9 +7,11 @@
 // was prepared over the base's vertices.
 //
 // The layers belong to the scan they were opened beside. Another scan in its
-// place drops them, except while the workspace's own swap is under way (its
-// merge, or the history putting the scan back): merge-begin / undo-begin set
-// that flag, merge-end / undo-end clear it.
+// place drops them, except for the workspace's own swap (its merge, or the
+// history putting the scan back): merge-begin / undo-begin arm a one-shot
+// flag that the next replacement consumes — each such swap is exactly one
+// commit. merge-end / undo-end clear it as well, so a swap that failed
+// before it happened cannot leave the flag armed for an unrelated scan.
 
 import type { FitData, MeshGraph } from '../../src/core/types'
 import type { WorkerContext, WorkerPlugin, WorkerReply } from '../../src/core/workerPluginApi'
@@ -45,7 +47,8 @@ const baseFits = new Map<number, FitData>()
 let baseSurface: { graph: MeshGraph; surface: CloudSurface } | null = null
 /** A mesh's median edge length, the spacing an alignment onto it is judged in. */
 const meshSpacing = new WeakMap<MeshGraph, number>()
-/** Set while the scan is swapped by the workspace itself: its layers stay. */
+/** Armed by merge-begin / undo-begin: the next scan replacement is the
+ *  workspace's own, and its layers stay. Consumed by that replacement. */
 let ownSwap = false
 /** fitIds run on across layers and the base, so one never names two fits. */
 let nextFitId = 1
@@ -90,8 +93,21 @@ function spacingOf(g: MeshGraph): number {
   return isCloud(g) ? g.spacing ?? 0 : medianEdge(g)
 }
 
+interface Target {
+  surface: ClosestSurface
+  spacing: number
+  fits: Map<number, FitData>
+  label: string
+}
+
 /** What a layer is aligned onto: the base, or another layer in its own frame. */
-function targetOf(name: string, self: string, ctx: WorkerContext): { surface: ClosestSurface; spacing: number; fits: Map<number, FitData>; label: string } {
+function targetOf(name: string, self: string, ctx: WorkerContext): Target {
+  const t = surfaceTarget(name, self, ctx)
+  if (!(t.spacing > 0)) throw new Error(`Cannot align onto ${t.label}: its point spacing is unknown — open it again.`)
+  return t
+}
+
+function surfaceTarget(name: string, self: string, ctx: WorkerContext): Target {
   if (name === BASE) {
     const g = scanOf(ctx)
     if (!isCloud(g)) return { surface: ctx.surfaceOf(g, 'Preparing the scan to align the layer onto…'), spacing: medianEdge(g), fits: baseFits, label: 'the base' }
@@ -251,7 +267,8 @@ const plugin: WorkerPlugin = {
   scanReplaced() {
     baseSurface = null
     baseFits.clear()
-    if (!ownSwap) layers.clear()
+    if (ownSwap) ownSwap = false
+    else layers.clear()
   },
   // The layers are in their own frames and their poses are the main side's;
   // only what stands in the base's frame moves.
