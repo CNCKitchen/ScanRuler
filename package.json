@@ -49,6 +49,7 @@
     "e2e:thickness": "node scripts/e2e-thickness.mjs",
     "e2e:mesh": "node plugins/mesh-tools/scripts/e2e-mesh.mjs",
     "e2e:mesh-edits": "node plugins/mesh-tools/scripts/e2e-mesh-edits.mjs",
+    "e2e:merge": "node plugins/merge/scripts/e2e-merge.mjs",
     "e2e:step": "node scripts/e2e-step.mjs",
     "e2e:crease": "node scripts/e2e-crease-fixture.mjs && node scripts/e2e-crease.mjs",
     "e2e:local-fit": "node scripts/e2e-local-fit.mjs",

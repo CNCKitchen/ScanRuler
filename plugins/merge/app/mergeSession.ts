@@ -31,7 +31,6 @@ import type { ScanSource } from '../../../src/app/scanSwap'
 import { prepareScan, runImport } from '../../../src/app/imports'
 import { onScan } from '../../../src/app/scanEvents'
 import { boundLength } from '../../../src/app/useUnits'
-import { buildPointCloudPly } from '../../../src/core/exportPointCloud'
 import { creaseSetting } from '../../../src/core/geometry/crease'
 import { cloneRigid, identityRigid, rigidCompose, rigidInvert, rigidRotate, type Rigid } from '../../../src/core/deviation/rigid'
 import { is3mfFile } from '../../../src/core/formats'
@@ -506,6 +505,9 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
             })
             const base = (s.fileName ?? 'scan').replace(/\.[^.]+$/, '')
             const name = `${base}-merged.ply`
+            // Loaded here, not with the workspace: the writer is an export
+            // writer, which the app fetches only when one is asked for.
+            const { buildPointCloudPly } = await import('../../../src/core/exportPointCloud')
             // Written before the swap: the buffers are handed over to it.
             const file = new File([buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)], name)
             const dropped = out.dropped

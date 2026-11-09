@@ -32,6 +32,10 @@ const OPEN_BUDGET_MS = 1.5 * OPEN_MS_MEASURED
 /** buildPointGraph of all five passes joined (3,014,681 points): median of 4. */
 const BUILD_MS_MEASURED = 5700
 const BUILD_BUDGET_MS = 1.5 * BUILD_MS_MEASURED
+/** Wall-clock budgets hold only on a quiet machine: under a parallel full
+ *  suite they flake, so they are asserted on the heavy run alone
+ *  (SCANRULER_HEAVY=1, run by itself); the default run keeps the counts. */
+const HEAVY = process.env.SCANRULER_HEAVY === '1'
 
 const load = (path: string): ArrayBuffer => {
   const b = readFileSync(path)
@@ -61,17 +65,17 @@ describe.skipIf(!R.exists)('Revo point clouds', () => {
     }, 120_000)
   }
 
-  it('0905_02 opens within its time budget', () => {
+  it('0905_02 opens (within its time budget on the heavy run)', () => {
     const bytes = load(R.pass('0905_02'))
     const t = performance.now()
     const g = buildPointGraph(parsePLY(bytes))
     // Reading the file from disk is not the open: only parse + graph is timed.
     const ms = performance.now() - t
     expect(g.vertexCount).toBe(headerCount(R.pass('0905_02')))
-    expect(ms).toBeLessThanOrEqual(OPEN_BUDGET_MS)
+    if (HEAVY) expect(ms).toBeLessThanOrEqual(OPEN_BUDGET_MS)
   }, 120_000)
 
-  it('the graph of all five passes (~3.0 M points) builds within its budget', () => {
+  it('the graph of all five passes (~3.0 M points) builds (within its budget on the heavy run)', () => {
     const parts = PASSES.map((n) => parsePLY(load(R.pass(n))))
     const total = parts.reduce((s, p) => s + p.positions.length, 0)
     const positions = new Float32Array(total)
@@ -86,7 +90,7 @@ describe.skipIf(!R.exists)('Revo point clouds', () => {
     const g = buildPointGraph({ kind: 'cloud', positions, normals })
     const ms = performance.now() - t
     expect(g.vertexCount).toBe(total / 3)
-    expect(ms).toBeLessThanOrEqual(BUILD_BUDGET_MS)
+    if (HEAVY) expect(ms).toBeLessThanOrEqual(BUILD_BUDGET_MS)
   }, 300_000)
 
   it("0905_03's normals agree with 0905_02's where Revo's merge overlaps them", () => {
