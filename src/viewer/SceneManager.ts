@@ -167,11 +167,14 @@ export interface PickHit {
   weights: [number, number, number]
   /** The triangle the ray met, as the scan's index numbers it — the same
    *  triangle in scanMesh(). With the weights it anchors a point to the
-   *  surface itself. */
+   *  surface itself. -1 on a point cloud: no triangle, the three vertices are
+   *  the one point hit and the weight is all on the first. */
   faceIndex: number
+  /** Where the ray met the scan, in scan coordinates (the alignment is not
+   *  applied) — for a cloud, the picked point itself. */
   point: Vec3
   /** Which way the scanned surface faces at the hit (unit vector, scan
-   *  coordinates) — what tells an alignment which side of a picked face is
+   *  coordinates, the scan frame) — what tells an alignment which side of a picked face is
    *  outside. */
   normal: Vec3
   /** Cursor position that produced the hit, so a readout can follow it. */
@@ -1158,6 +1161,8 @@ export class SceneManager {
       this.setPreview(null)
       this.mesh = points
       this.cloud = layer
+      this.cloudGrid = null
+      this.cloudGridFor(layer) // built now, not on the first hover
       this.adoptScanLayout(geometry, none)
       this.partGroup.add(points)
       this.applySlice()
@@ -2246,7 +2251,7 @@ export class SceneManager {
     return this.cloudGrid
   }
 
-  /** The point of the cloud under a world-space ray, in scan coordinates �
+  /** The point of the cloud under a world-space ray, in scan coordinates —
    *  the alignment is not baked into the points, so the ray and the clip
    *  planes are taken into the scan's frame and the hit stays there. The
    *  radius is a splat's worth on screen, never under 1.5 spacings. */
@@ -2903,6 +2908,7 @@ export class SceneManager {
     if (this.cloud) {
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
+      this.cloudGridFor(this.cloud)
     } else refitAfterRigid(geometry)
     // The edited copy — or the scan, while the copy is shown — is in the same
     // frame, and moves with it.
@@ -3327,7 +3333,8 @@ export class SceneManager {
     geometry.dispose()
     const { colors, paint, tint } = this.layOutScan(geometry, positions, indices, normals, wireSlots, copyOf, null, true, surface)
     this.regions.attach(colors, paint, tint, this.scanVertices)
-    if (!this.cloud) geometry.computeBoundsTree()
+    if (this.cloud) this.cloudGridFor(this.cloud)
+    else geometry.computeBoundsTree()
     this.modelRadius = Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4)
     this.scanAxis = principalAxis(positions)
     // The cap is cut from the geometry.

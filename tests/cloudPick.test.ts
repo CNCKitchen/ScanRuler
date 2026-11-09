@@ -124,6 +124,17 @@ describe('SceneManager.pick on a cloud', () => {
     expect(pick(4, 1.5)!.vertices[0]).toBe(13)
   })
 
+  it('holds to a clip plane through a rotated alignment', () => {
+    const { scene, pick } = pickScene()
+    // x' = z, z' = -x: the plane stands on edge, its x running away from the eye.
+    scene.setAlignment(new THREE.Matrix4().makeRotationY(Math.PI / 2).toArray())
+    expect(pick(0, 1.5)!.point).toEqual([0, 1.5, 0]) // nearest to the eye, unclipped
+    const cloud = (scene as unknown as { cloud: { object: THREE.Points } }).cloud
+    // Keep world z <= -0.75, which is scan x >= 0.75.
+    ;(cloud.object.material as THREE.Material).clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, 0, -1), -0.75)]
+    expect(pick(0, 1.5)!.point).toEqual([1, 1.5, 0])
+  })
+
   it('answers the raycaster too, with a world point and the vertex index', () => {
     const { scene, pick, raycaster } = pickScene()
     scene.setAlignment(new THREE.Matrix4().makeTranslation(10, 0, 0).toArray())

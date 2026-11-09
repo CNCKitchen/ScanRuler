@@ -88,7 +88,7 @@ void main() {
 
 export class CloudLayer {
   readonly object: THREE.Points
-  /** The typical point spacing — what the splats are sized from and a pick's
+  /** The typical point spacing â€” what the splats are sized from and a pick's
    *  radius is floored by. */
   spacing: number
 

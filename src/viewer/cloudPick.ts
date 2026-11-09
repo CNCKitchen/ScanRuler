@@ -42,7 +42,7 @@ export function pickCloud(
       continue
     }
     // ... and of the points around it at that depth, the one the ray passes
-    // closest to — on a plane facing the eye every point is at the same
+    // closest to â€” on a plane facing the eye every point is at the same
     // depth, and the first found would be anywhere in the radius.
     grid.withinRadius(fx, fy, fz, radius, near)
     let best = front, bestD2 = Infinity
