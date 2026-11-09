@@ -642,8 +642,17 @@ export class SceneManager {
       raycaster: this.raycaster,
       regions: this.regions,
       setPickRay: (x, y) => this.setPickRay(x, y),
-      // A cloud is marked by its own brush (to come); this one walks triangles.
       mesh: () => this.scanAsMesh(),
+      cloud: () => {
+        const cloud = this.cloud
+        if (!cloud || this.mesh !== cloud.object) return null
+        return {
+          object: cloud.object,
+          grid: this.cloudGridFor(cloud),
+          normals: cloud.object.geometry.getAttribute('normal').array as Float32Array,
+          spacing: cloud.spacing,
+        }
+      },
       paintAttr: () => this.paintAttr,
       graphVertex: this.graphVertex,
       setPaintColor: (rgb) => {
