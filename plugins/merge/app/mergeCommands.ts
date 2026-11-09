@@ -14,6 +14,7 @@ import { arr, bool, bytes, enumOf, int, num, obj, str, vec3, type JsonSchema } f
 import { requireScan } from '../../../src/commands/refs'
 import { fileNameSchema, fileOf, lastError } from '../../../src/commands/core/common'
 import { cloneRigid, rigidCompose, rigidFromAxisAngle, rigidToColumnMajor, type Rigid } from '../../../src/core/deviation/rigid'
+import { MESH_UNITS } from '../../../src/core/meshUnits'
 import { roundTo } from '../../../src/core/round'
 import type { ElementKind, Vec3 } from '../../../src/core/types'
 import { useStore } from '../../../src/state/store'
@@ -73,7 +74,7 @@ const alignOut = (id: string, target: string, r: LayerAlignResult) => ({
 
 const POSE_NOTE = 'pose is the layer frame to the base as shown, 4x4 column-major, mm'
 
-const unitsOf = enumOf<LayerUnits>(['mm', 'in'], 'The file’s units: mm (the default) or in. Read in mm either way.') // units-ok: ids of the file's units, not on-screen text
+const unitsOf = enumOf<LayerUnits>(MESH_UNITS.map((u) => u.id), 'The file’s units: mm (the default), cm, m or in. Scaled to mm as it is read.') // units-ok: ids of the file's units, not on-screen text
 
 const datumIds = (what: string): JsonSchema =>
   obj(

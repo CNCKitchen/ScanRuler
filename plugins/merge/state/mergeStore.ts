@@ -10,12 +10,14 @@
 
 import { create } from 'zustand'
 import { identityRigid, type Rigid } from '../../../src/core/deviation/rigid'
+import type { MeshUnits } from '../../../src/core/meshUnits'
 import type { ElementKind, Vec3 } from '../../../src/core/types'
 import type { LayerAlignResult } from '../core/layerAlign'
 import { BASE } from '../core/protocol'
 
-/** The units a layer's file is read in. */
-export type LayerUnits = 'mm' | 'in' // units-ok: MeshUnits ids, not on-screen text
+/** The units a layer's file is read in: any the app reads a scan in, so a
+ *  pass written in metres comes in at its size. */
+export type LayerUnits = MeshUnits
 
 export interface LayerRow {
   id: string

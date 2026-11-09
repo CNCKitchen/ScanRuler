@@ -113,15 +113,7 @@ export function useMergePlugin(host: PluginHost): PluginRuntime {
   }, [handle, gizmoMode, session])
 
   /** A file the panel was handed, in the units it is read in — an STL asks. */
-  const unitsOf = async (file: File): Promise<LayerUnits | null> => {
-    const u = await meshUnitsFor(file.name)
-    if (u === null) return null
-    if (u !== 'mm' && u !== 'in') {
-      useStore.getState().setError('A layer is read in millimetres or inches — pick one of those for it.')
-      return null
-    }
-    return u
-  }
+  const unitsOf = (file: File): Promise<LayerUnits | null> => meshUnitsFor(file.name)
 
   const openLayer = async (file: File) => {
     // No scan yet: the file is the scan, opened as the app opens one — in

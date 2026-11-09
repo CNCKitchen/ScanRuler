@@ -133,6 +133,17 @@ describe('merge commands', () => {
       expect(row(o.id).units).toBe('in')
     })
 
+    it('opens a layer written in metres at its size', async () => {
+      const metres: Cloud = { positions: layerPart.positions.map((v) => v / 1000), normals: layerPart.normals }
+      const o = await run<{ id: string; spacing_mm: number }>('merge.open_layer', { bytes: plyBytes(metres, 'm.ply'), name: 'm.ply', units: 'm' })
+      expect(o.spacing_mm).toBeGreaterThan(0.9)
+      expect(o.spacing_mm).toBeLessThan(1.1)
+      expect(row(o.id).units).toBe('m')
+      const cm = await run<{ id: string; spacing_mm: number }>('merge.open_layer', { bytes: plyBytes(layerPart, 'cm.ply'), name: 'cm.ply', units: 'cm' })
+      expect(cm.spacing_mm).toBeGreaterThan(9)
+      expect(row(cm.id).units).toBe('cm')
+    })
+
     it('fits a datum by a point, and refuses a point off the part', async () => {
       const { id } = await openLo()
       const far = await refused('merge.fit_datum', { layer: id, kind: 'plane', at: [500, 0, 0] })

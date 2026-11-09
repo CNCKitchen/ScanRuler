@@ -5,13 +5,13 @@
 // overlap or a result from no one's guess as a warning, never a tick.
 
 import { useLength } from '../../../src/app/useUnits'
-import { unitsLabel } from '../../../src/core/meshUnits'
+import { MESH_UNITS, unitsLabel } from '../../../src/core/meshUnits'
 import { Icon } from '../../../src/ui/icons'
 import { useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
 
 import { count } from './mergeFormat'
 
-const UNITS: LayerUnits[] = ['mm', 'in'] // units-ok: MeshUnits ids, shown through unitsLabel
+const UNITS: LayerUnits[] = MESH_UNITS.map((u) => u.id)
 
 export function LayerList({
   busy,
