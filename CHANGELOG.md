@@ -37,8 +37,7 @@ saves carry the same number as `appVersion`. How a release is cut is in
   computer, Settings → Agents and the chip's tip now say so and how to
   allow it. When nothing answers on the port, they say so, with how to
   start the connector and the `--serve` page for Safari. Thanks to Leafy1.
-- **scanruler-mcp fixes** (2026-11-09, issue 34, in the next
-  scanruler-mcp).
+- **scanruler-mcp fixes** (2026-11-09, issue 34, scanruler-mcp 0.6.3).
   - The self-update ran npm from the system's temporary folder, where on a
     computer shared with others someone could leave a scanruler-mcp that
     would then run as you. It runs from a folder of its own in the
