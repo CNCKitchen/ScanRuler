@@ -69,8 +69,9 @@ export function scanSpot(graph: MeshGraph, at: { vertex: number } | { point: Vec
     vertex = hit.vertex
     distance = hit.distance
   }
-  const triangle = isCloud(graph) ? null : triangleOf(graph.indices, vertex)
-  if (!triangle && !isCloud(graph)) throw new Error(`Vertex ${vertex} is not a corner of any triangle of the scan.`)
+  const cloud = isCloud(graph)
+  const triangle = cloud ? null : triangleOf(graph.indices, vertex)
+  if (!triangle && !cloud) throw new Error(`Vertex ${vertex} is not a corner of any triangle of the scan.`)
   const p = graph.positions
   const n = graph.normals
   return {

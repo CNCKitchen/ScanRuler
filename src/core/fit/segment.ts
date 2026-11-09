@@ -27,6 +27,7 @@ import { localNoise } from '../geometry/scanQa'
 import { cylinderResidual, fitCylinderOnAxis, refineCylinderGeometric, splitTwoCylinders } from './cylinder'
 import { fitHeight } from './heightSurface'
 import { normalizeOrZ, orthoBasis, rmsOver, symmetricEigen3 } from './linalg'
+import { PointGrid } from '../geometry/pointGrid'
 import { planeResidual, splitTwoPlanes } from './plane'
 
 const DEG = Math.PI / 180
@@ -34,8 +35,60 @@ const DEG = Math.PI / 180
 /** Each vertex's share of the scan's surface: a third of every triangle it
  *  is a corner of. Kept per graph — the triangles never change under it, and
  *  a rigid alignment leaves their areas as they are. A cloud's points each
- *  stand for a square of the point spacing. */
+ *  stand for the patch around them (see cloudAreas). */
 const areaCache = new WeakMap<MeshGraph, Float32Array>()
+
+/** A cloud's points have no triangles, so each stands for the patch of
+ *  surface around it. The disc out to the k-th nearest neighbour holds k
+ *  points, so a point's share is pi r^2 / k — with r^2 taken midway between
+ *  the k-th and the (k+1)-th neighbour's, which is unbiased on scattered
+ *  points and does not swing with how a regular grid's rings fall. Unlike a
+ *  fixed spacing^2 it follows the density: a Poisson-sampled or half-dense
+ *  cloud still sums to its true area. A point on the rim of the cloud sees
+ *  its neighbours on one side only, so its disc is half empty and the share
+ *  too large; the widest angular gap among its neighbours, seen along its
+ *  normal, scales it back. Reach is capped at 3 spacings so a stray point is
+ *  not given the area of the gap to the cloud; a point with no neighbour in
+ *  reach gets spacing^2. */
+const CLOUD_AREA_K = 8
+function cloudAreas(g: MeshGraph, out: Float32Array): void {
+  const n = g.vertexCount
+  if (n === 0) return
+  const p = g.positions
+  const nrm = g.normals
+  const spacing = g.spacing ?? g.bboxDiag / Math.cbrt(n)
+  const reach = 3 * spacing
+  const grid = new PointGrid(p, reach)
+  const near = new Int32Array(CLOUD_AREA_K + 1)
+  const angles: number[] = []
+  const d2 = (v: number, w: number) => (p[w * 3] - p[v * 3]) ** 2 + (p[w * 3 + 1] - p[v * 3 + 1]) ** 2 + (p[w * 3 + 2] - p[v * 3 + 2]) ** 2
+  for (let v = 0; v < n; v++) {
+    const m = grid.kNearest(v, CLOUD_AREA_K + 1, reach, near)
+    if (m === 0) {
+      out[v] = spacing * spacing
+      continue
+    }
+    let area: number
+    if (m > CLOUD_AREA_K) area = (Math.PI * (d2(v, near[CLOUD_AREA_K - 1]) + d2(v, near[CLOUD_AREA_K]))) / (2 * (CLOUD_AREA_K + 0.5))
+    else area = (Math.PI * d2(v, near[m - 1])) / m
+    // The widest empty wedge around the point, in its tangent plane.
+    const [[ux, uy, uz], [wx, wy, wz]] = orthoBasis([nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]])
+    angles.length = 0
+    const take = Math.min(m, CLOUD_AREA_K)
+    for (let i = 0; i < take; i++) {
+      const q = near[i] * 3
+      const dx = p[q] - p[v * 3], dy = p[q + 1] - p[v * 3 + 1], dz = p[q + 2] - p[v * 3 + 2]
+      angles.push(Math.atan2(dx * wx + dy * wy + dz * wz, dx * ux + dy * uy + dz * uz))
+    }
+    if (angles.length >= 2) {
+      angles.sort((x, y) => x - y)
+      let gap = angles[0] + 2 * Math.PI - angles[angles.length - 1]
+      for (let i = 1; i < angles.length; i++) gap = Math.max(gap, angles[i] - angles[i - 1])
+      area /= 1 + Math.max(0, gap - (2 * Math.PI) / 3) / (Math.PI / 3)
+    }
+    out[v] = area
+  }
+}
 
 export function vertexAreas(g: MeshGraph): Float32Array {
   const kept = areaCache.get(g)
@@ -43,8 +96,7 @@ export function vertexAreas(g: MeshGraph): Float32Array {
   const { positions: p, indices } = g
   const out = new Float32Array(g.vertexCount)
   if (g.triangleCount === 0) {
-    // A cloud has no triangles: each point stands for a spacing-sized square.
-    out.fill((g.spacing ?? 0) ** 2)
+    cloudAreas(g, out)
     areaCache.set(g, out)
     return out
   }
