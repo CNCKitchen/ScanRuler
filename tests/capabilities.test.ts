@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { CLOUD_REFUSAL, OP_CAPS, refusesOnCloud } from '../src/core/capabilities'
@@ -7,16 +8,11 @@ import { buildPointGraph } from '../src/core/geometry/buildPointGraph'
 import { planeCloud, writePlyCloud } from './cloudFixtures'
 import { boxMesh } from './helpers'
 
-// Every request type, spelled out: a type added to the protocol without a line
-// here is a compile error, and one without a line in OP_CAPS fails below.
-const ALL: Record<WorkerRequest['type'], true> = {
-  load: true, 'commit-import': true, 'discard-import': true, recrease: true, fit: true,
-  'fit-selection': true, 'load-nominal': true, align: true, 'align-abort': true, deviate: true,
-  'deviate-reference': true, 'deviate-volume': true, thickness: true, transform: true,
-  section: true, shadow: true, centroid: true, symmetry: true, flood: true, 'plane-region': true,
-  segment: true, curvature: true, nearest: true, bounds: true, query: true, heights: true,
-  'scan-qa': true, 'scan-rim': true, 'auto-align': true, 'closed-shells': true, deflection: true,
-  'element-deviation': true, 'bounds-tree': true, plugin: true,
+// The request types as the protocol's union spells them.
+const protocolTypes = (): string[] => {
+  const src = readFileSync(new URL('../src/core/workerProtocol.ts', import.meta.url), 'utf8')
+  const union = src.slice(src.indexOf('export type WorkerRequest'), src.indexOf('export type WorkerResponse'))
+  return [...new Set([...union.matchAll(/[{\s]type: '([a-z-]+)'/g)].map((m) => m[1]))].sort()
 }
 
 type Req = WorkerRequest extends infer R ? (R extends { requestId: number } ? Omit<R, 'requestId'> : never) : never
@@ -41,6 +37,9 @@ const NEEDS: Record<string, Req> = {
   'closed-shells': { type: 'closed-shells', which: 'scan' },
 }
 
+// Ops meant to succeed on the 12-triangle box, replying `<op>-ok`.
+const OK_ON_BOX = ['section', 'shadow', 'centroid', 'curvature', 'nearest', 'heights', 'scan-qa', 'auto-align', 'thickness']
+
 const plyMesh = (): ArrayBuffer => {
   const p = boxMesh(10, 2)
   const n = p.length / 3
@@ -54,7 +53,9 @@ const cloudPly = (): ArrayBuffer => writePlyCloud(planeCloud({ size: 5, step: 1 
 
 describe('capabilities', () => {
   it('every worker request type is classified', () => {
-    expect(Object.keys(OP_CAPS).sort()).toEqual(Object.keys(ALL).sort())
+    const types = protocolTypes()
+    expect(types.length).toBeGreaterThan(30)
+    expect(Object.keys(OP_CAPS).sort()).toEqual(types)
   })
 
   it('refusesOnCloud: only a cloud graph and a triangle op', () => {
@@ -113,6 +114,7 @@ describe('worker gate', () => {
       const r = send(req, ++id)
       expect(r, op).toBeDefined()
       if (r.type === 'error') expect(r.message, op).not.toMatch(/point cloud/)
+      if (OK_ON_BOX.includes(op)) expect(r.type, `${op}: ${r.type === 'error' ? r.message : r.type}`).toBe(op === 'shadow' ? 'section-ok' : `${op}-ok`)
     }
     expect(send({ type: 'section', origin: [0, 0, 0], normal: [0, 0, 1], minLength: 0 }, 99).type).toBe('section-ok')
     expect(send({ type: 'nearest', vertex: 0 }, 98).type).toBe('nearest-ok')
@@ -145,5 +147,44 @@ describe('surfaceOf', () => {
     replies.length = 0
     scope.onmessage!({ data: { type: 'plugin', requestId: 2, plugin: 'probe', op: 'x', payload: null } })
     expect(replies.at(-1)).toMatchObject({ type: 'error', message: CLOUD_REFUSAL })
+  })
+})
+
+describe('plugin gate', () => {
+  afterEach(() => {
+    vi.doUnmock('../src/core/workerPlugins')
+    vi.unstubAllGlobals()
+  })
+  const setup = async () => {
+    const replies: WorkerResponse[] = []
+    const scope = { onmessage: null as ((e: { data: WorkerRequest }) => void) | null, postMessage: (m: WorkerResponse) => replies.push(m) }
+    vi.stubGlobal('self', scope)
+    vi.resetModules()
+    const handle = () => ({ result: 'ran' })
+    vi.doMock('../src/core/workerPlugins', () => ({
+      workerPlugins: [{ id: 'plain', handle }, { id: 'cloudy', acceptsClouds: true, handle }],
+    }))
+    await import('../src/core/meshWorker')
+    const ask = (plugin: string, id: number) => {
+      replies.length = 0
+      scope.onmessage!({ data: { type: 'plugin', requestId: id, plugin, op: 'x', payload: null } })
+      return replies.at(-1)
+    }
+    const load = (buffer: ArrayBuffer) => scope.onmessage!({ data: { type: 'load', requestId: 1, name: 'a.ply', buffer, crease: { mode: 'on', angleDeg: 30 } } })
+    return { ask, load }
+  }
+
+  it('a plugin without acceptsClouds is refused on a cloud and runs on a mesh', async () => {
+    const { ask, load } = await setup()
+    load(cloudPly())
+    expect(ask('plain', 2)).toMatchObject({ type: 'error', message: CLOUD_REFUSAL })
+    load(plyMesh())
+    expect(ask('plain', 3)).toMatchObject({ type: 'plugin-ok', result: 'ran' })
+  })
+
+  it('a plugin with acceptsClouds runs on a cloud', async () => {
+    const { ask, load } = await setup()
+    load(cloudPly())
+    expect(ask('cloudy', 2)).toMatchObject({ type: 'plugin-ok', result: 'ran' })
   })
 })

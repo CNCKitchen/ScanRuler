@@ -864,6 +864,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       fail(new Error(`No worker part for the plugin "${msg.plugin}".`))
       return
     }
+    if (graph && isCloud(graph) && !plugin.acceptsClouds) {
+      fail(new Error(CLOUD_REFUSAL))
+      return
+    }
     try {
       const reply = plugin.handle(msg.op, msg.payload, contextOf(progress))
       if (!(reply instanceof Promise)) {

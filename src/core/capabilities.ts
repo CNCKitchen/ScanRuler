@@ -59,10 +59,12 @@ export const OP_CAPS = {
   'scan-qa': { needsTriangles: true },
   'scan-rim': { needsTriangles: true },
   'auto-align': { needsTriangles: true },
+  // which='nominal' is the reference's own shells; the worker lets it through.
   'closed-shells': { needsTriangles: true },
   deflection: { needsTriangles: false },
   'element-deviation': { needsTriangles: false },
   'bounds-tree': { needsTriangles: false },
+  // Gated per plugin in the worker (WorkerPlugin.acceptsClouds), not here.
   plugin: { needsTriangles: false },
 } satisfies Record<WorkerRequest['type'], { needsTriangles: boolean }>
 
