@@ -33,7 +33,8 @@ const DEG = Math.PI / 180
 
 /** Each vertex's share of the scan's surface: a third of every triangle it
  *  is a corner of. Kept per graph — the triangles never change under it, and
- *  a rigid alignment leaves their areas as they are. */
+ *  a rigid alignment leaves their areas as they are. A cloud's points each
+ *  stand for a square of the point spacing. */
 const areaCache = new WeakMap<MeshGraph, Float32Array>()
 
 export function vertexAreas(g: MeshGraph): Float32Array {
@@ -41,6 +42,12 @@ export function vertexAreas(g: MeshGraph): Float32Array {
   if (kept) return kept
   const { positions: p, indices } = g
   const out = new Float32Array(g.vertexCount)
+  if (g.triangleCount === 0) {
+    // A cloud has no triangles: each point stands for a spacing-sized square.
+    out.fill((g.spacing ?? 0) ** 2)
+    areaCache.set(g, out)
+    return out
+  }
   for (let t = 0; t + 2 < indices.length; t += 3) {
     const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
     const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]

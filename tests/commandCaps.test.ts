@@ -134,8 +134,8 @@ describe('commands on a point cloud', () => {
     // The flagged set, in the open: a change here is a decision.
     expect(refusedNames.sort()).toEqual(
       [
-        'align.auto', 'align.datum', 'align.symmetry', 'deviation.export', 'deviation.hotspots', 'deviation.settings', 'deviation.volume',
-        'element.construct', 'element.fit', 'scan.heightmap', 'scan.nearest', 'scan.outline', 'scan.pattern', 'scan.qa',
+        'align.auto', 'align.symmetry', 'deviation.export', 'deviation.hotspots', 'deviation.settings', 'deviation.volume',
+        'element.construct', 'scan.heightmap', 'scan.outline', 'scan.pattern', 'scan.qa',
         'scan.segment', 'section.cut', 'section.get', 'thickness.measure',
       ].sort(),
     )
@@ -163,7 +163,7 @@ describe('commands on a point cloud', () => {
     expect(section).not.toHaveBeenCalled()
     expect(undoLabels()).toEqual(before)
     expect(useStore.getState().sections).toEqual([])
-    const r = await refused('scan.nearest', { at: { vertex: 0 } })
+    const r = await refused('scan.heightmap', {})
     expect(r.message).toBe(CLOUD_REFUSAL)
     section.mockRestore()
   })
@@ -177,14 +177,14 @@ describe('commands on a point cloud', () => {
     expect(await attempt('element.construct', { kind: 'point', method: 'point-centroid' })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
   })
 
-  it('the flag follows OP_CAPS: an op that learns to take clouds frees its commands', async () => {
+  it('the flag follows OP_CAPS: an op that takes clouds runs its commands, one marked triangle-only refuses them', async () => {
     await openCloud()
-    expect(await attempt('scan.nearest', { at: { point: P } })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
+    const out = await attempt('scan.nearest', { at: { point: P } })
+    expect(out).toMatchObject({ ok: true })
     const was = OP_CAPS.nearest.needsTriangles
-    ;(OP_CAPS.nearest as { needsTriangles: boolean }).needsTriangles = false
+    ;(OP_CAPS.nearest as { needsTriangles: boolean }).needsTriangles = true
     try {
-      const out = await attempt('scan.nearest', { at: { point: P } })
-      if (!out.ok) expect(out.message).not.toBe(CLOUD_REFUSAL)
+      expect(await attempt('scan.nearest', { at: { point: P } })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
     } finally {
       ;(OP_CAPS.nearest as { needsTriangles: boolean }).needsTriangles = was
     }

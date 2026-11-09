@@ -26,10 +26,8 @@ const NEEDS: Record<string, Req> = {
   shadow: { type: 'shadow', frame, tolerance: 0.1, play: 0, smoothDeg: 0 },
   centroid: { type: 'centroid' },
   symmetry: { type: 'symmetry', seed: null },
-  'plane-region': { type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) },
   segment: { type: 'segment', options: { minArea: 1, maxRms: 1, maxDeg: 10 } },
   curvature: { type: 'curvature' },
-  nearest: { type: 'nearest', vertex: 0 },
   heights: { type: 'heights', grid: { origin: [-6, -6, 10], dir: [0, 0, -1], u: [1, 0, 0], v: [0, 1, 0], cell: 3, cols: 4, rows: 4, far: 30 } as never },
   'scan-qa': { type: 'scan-qa', sample: 100, rims: 3 },
   'scan-rim': { type: 'scan-rim', index: 0 },
@@ -38,7 +36,7 @@ const NEEDS: Record<string, Req> = {
 }
 
 // Ops meant to succeed on the 12-triangle box, replying `<op>-ok`.
-const OK_ON_BOX = ['section', 'shadow', 'centroid', 'curvature', 'nearest', 'heights', 'scan-qa', 'auto-align', 'thickness']
+const OK_ON_BOX = ['section', 'shadow', 'centroid', 'curvature', 'heights', 'scan-qa', 'auto-align', 'thickness']
 
 const plyMesh = (): ArrayBuffer => {
   const p = boxMesh(10, 2)
@@ -104,6 +102,8 @@ describe('worker gate', () => {
   it('a cloud still takes the ops that need no triangles; the reference shells are not refused', () => {
     load('cloud.ply', cloudPly())
     expect(send({ type: 'bounds' }, 2).type).toBe('bounds-ok')
+    expect(send({ type: 'nearest', vertex: 0 }, 4)).toMatchObject({ type: 'nearest-ok', result: { vertex: 0, triangle: null } })
+    expect(send({ type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) }, 5).type).toBe('plane-region-ok')
     expect(send({ type: 'closed-shells', which: 'nominal' }, 3)).toMatchObject({ type: 'error', message: 'No model loaded.' })
   })
 
@@ -118,6 +118,7 @@ describe('worker gate', () => {
     }
     expect(send({ type: 'section', origin: [0, 0, 0], normal: [0, 0, 1], minLength: 0 }, 99).type).toBe('section-ok')
     expect(send({ type: 'nearest', vertex: 0 }, 98).type).toBe('nearest-ok')
+    expect(send({ type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) }, 96).type).toBe('plane-region-ok')
     expect(send({ type: 'centroid' }, 97).type).toBe('centroid-ok')
   })
 })

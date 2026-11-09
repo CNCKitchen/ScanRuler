@@ -6,6 +6,7 @@
 // triangles a click right on that vertex would have landed in.
 
 import type { MeshGraph, Vec3 } from '../types'
+import { isCloud } from './cloud'
 
 export interface ScanSpot {
   /** The scan vertex — what a fit's seeds and a project file hold. */
@@ -14,8 +15,9 @@ export interface ScanSpot {
   point: Vec3
   /** The surface normal there, pointing out of the part. */
   normal: Vec3
-  /** A triangle the vertex is a corner of: the seed a click would give. */
-  triangle: [number, number, number]
+  /** A triangle the vertex is a corner of: the seed a click would give. Null
+   *  on a point cloud, where the point itself is the seed. */
+  triangle: [number, number, number] | null
   /** How far the vertex is from the point asked about; 0 for a vertex asked
    *  for by its number. */
   distance: number
@@ -67,8 +69,8 @@ export function scanSpot(graph: MeshGraph, at: { vertex: number } | { point: Vec
     vertex = hit.vertex
     distance = hit.distance
   }
-  const triangle = triangleOf(graph.indices, vertex)
-  if (!triangle) throw new Error(`Vertex ${vertex} is not a corner of any triangle of the scan.`)
+  const triangle = isCloud(graph) ? null : triangleOf(graph.indices, vertex)
+  if (!triangle && !isCloud(graph)) throw new Error(`Vertex ${vertex} is not a corner of any triangle of the scan.`)
   const p = graph.positions
   const n = graph.normals
   return {

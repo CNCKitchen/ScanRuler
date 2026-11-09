@@ -291,7 +291,7 @@ function seedsAnswer(spots: ScanSpot[], kind: FitKind, region: Uint32Array, elem
   const el = useStore.getState().elements.find((e) => e.id === elementId)
   const fit = el?.measured ?? el?.fit
   const members = new Set(region)
-  const read = spots.map((s) => ({ spot: s, inRegion: s.triangle.some((v) => members.has(v)), off: fit ? seedOff(fit, s.point, s.normal) : null }))
+  const read = spots.map((s) => ({ spot: s, inRegion: (s.triangle ?? [s.vertex]).some((v) => members.has(v)), off: fit ? seedOff(fit, s.point, s.normal) : null }))
   const seeds = read.map(({ spot, inRegion, off }) => ({ ...spotJson(spot), inRegion, ...(off ? { offMm: roundTo(off.offMm, 3), deg: roundTo(off.deg, 1) } : {}) }))
   const out = read.map((r, i) => ({ ...r, n: i + 1 })).filter((r) => !r.inRegion)
   if (!out.length || !fit) return { seeds }
@@ -370,7 +370,8 @@ const fit: Command<{ kind: FitKind; at?: Location | Location[]; rim?: number; ma
       m.startDraft(input.kind)
       if (input.sigma !== undefined) useStore.getState().setDraftSigma(input.sigma)
       if (input.knownDiameter !== undefined) useStore.getState().setDraftKnownDiameter(input.knownDiameter)
-      const picks = spots.map((s) => s.triangle)
+      // A cloud has no triangle: the point stands in for all three corners a click would give.
+      const picks = spots.map((s): [number, number, number] => s.triangle ?? [s.vertex, s.vertex, s.vertex])
       const points = spots.map((s) => s.point)
       if (input.kind === 'point') {
         // A picked point is the place itself — no worker round-trip.

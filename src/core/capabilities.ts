@@ -22,9 +22,11 @@ export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud.'
  *   - heights, scan-qa, scan-rim: solid index, rim loops
  *   - thickness: solid index; closed-shells (scan): closedVertices
  *   - deviate-reference, deviate-volume: scanSurfaceOf, WindingTree
- *   - nearest: the triangle a vertex is a corner of
- *   - segment, plane-region: vertexAreas (a third of each triangle)
+ *   - segment: vertexAreas (a third of each triangle)
  *   - auto-align: per-vertex areas and triangleCount
+ *  Taken on a cloud after all: nearest (the spot is the nearest point, with no
+ *  triangle) and plane-region (vertexAreas gives each point a spacing-sized
+ *  square; closedAlong finds no crossings, so it reports no closed end).
  *  Left false: bounds-tree works on the positions and index sent with the
  *  request, never the scan (it also serves the reference's tree while the
  *  scan is a cloud); recrease re-posts through postScan, which has its own
@@ -49,10 +51,10 @@ export const OP_CAPS = {
   centroid: { needsTriangles: true },
   symmetry: { needsTriangles: true },
   flood: { needsTriangles: false },
-  'plane-region': { needsTriangles: true },
+  'plane-region': { needsTriangles: false },
   segment: { needsTriangles: true },
   curvature: { needsTriangles: true },
-  nearest: { needsTriangles: true },
+  nearest: { needsTriangles: false },
   bounds: { needsTriangles: false },
   query: { needsTriangles: false },
   heights: { needsTriangles: true },

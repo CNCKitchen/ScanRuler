@@ -98,7 +98,7 @@ describe('segmentPlanes', () => {
 describe('a plane grown across two surfaces', () => {
   const fitAt = (g: MeshGraph, at: [number, number, number], within?: { min: [number, number, number]; max: [number, number, number] }) => {
     const spot = scanSpot(g, { point: at })
-    const fit = fitPlaneFromSeed(g, [...spot.triangle], { method: 'gaussian', sigma: 3 }, undefined, within ? { within } : undefined)
+    const fit = fitPlaneFromSeed(g, [...(spot.triangle ?? [spot.vertex])], { method: 'gaussian', sigma: 3 }, undefined, within ? { within } : undefined)
     return { fit, report: planeRegionReport(g, fit.region, { normal: fit.normal, seed: spot.vertex }) }
   }
 
