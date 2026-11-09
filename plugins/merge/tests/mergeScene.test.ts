@@ -160,6 +160,11 @@ describe('MergeScene', () => {
     const root = h.partGroup.children[0]
     const pts = root.children[0].children[0] as THREE.Points
     expect(Array.from((pts.geometry.getAttribute('color') as THREE.BufferAttribute).array.slice(0, 3))).toEqual([0, 0, 1])
+    // Tinted through, every point: else the splat shader paints the bare
+    // surface grey over the colour.
+    const tint = pts.geometry.getAttribute('tint') as THREE.BufferAttribute
+    expect(tint.count).toBe(pts.geometry.getAttribute('position').count)
+    expect(Array.from(tint.array).every((v) => v === 1)).toBe(true)
     expect(((root.children[1].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHex()).toBe(0x0000ff)
   })
 })

@@ -70,6 +70,9 @@ export class MergeScene implements SceneLayer {
       holder.add(mesh)
     } else {
       const cloud = new CloudLayer(geom.positions, geom.normals, entry.spacing)
+      // Tinted through everywhere: the splat shader paints an untinted point
+      // the bare surface grey, not its vertex colour (regionTint.ts).
+      cloud.setAttribute('tint', new THREE.BufferAttribute(new Float32Array(geom.positions.length / 3).fill(1), 1))
       entry.cloud = cloud
       holder.add(cloud.object)
     }
