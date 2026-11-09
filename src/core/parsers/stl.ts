@@ -8,7 +8,11 @@ import type { ParsedMesh } from '../types'
 import { gatherFloats, textPieces } from './textChunks'
 
 /** Binary if the byte length matches the triangle count in the header;
- *  some binary files start with "solid", so the size check comes first. */
+ *  some binary files start with "solid", so the size check comes first.
+ *  Past that, a file starting "solid" is ASCII only if it reads as text
+ *  (looksAscii): a binary file whose exporter wrote "solid" into its header
+ *  and padded the end, or left bytes after the last triangle, was read as
+ *  ASCII and came out with no triangles. */
 export function parseSTL(buffer: ArrayBuffer, onProgress?: (text: string) => void): ParsedMesh {
   if (buffer.byteLength >= 84) {
     const dv = new DataView(buffer)
@@ -16,12 +20,30 @@ export function parseSTL(buffer: ArrayBuffer, onProgress?: (text: string) => voi
     if (84 + triCount * 50 === buffer.byteLength) return parseBinary(dv, triCount, onProgress)
   }
   const head = new TextDecoder().decode(new Uint8Array(buffer, 0, Math.min(512, buffer.byteLength)))
-  if (/^\s*solid/.test(head)) return parseAscii(buffer, onProgress)
+  if (/^\s*solid/.test(head) && looksAscii(buffer)) return parseAscii(buffer, onProgress)
   if (buffer.byteLength >= 84) {
     const dv = new DataView(buffer)
-    return parseBinary(dv, Math.floor((buffer.byteLength - 84) / 50), onProgress)
+    // The count the header gives, where the file holds that many: anything
+    // after them is padding. Else as many as the bytes hold.
+    const declared = dv.getUint32(80, true)
+    const fits = Math.floor((buffer.byteLength - 84) / 50)
+    return parseBinary(dv, declared > 0 && declared <= fits ? declared : fits, onProgress)
   }
   throw new Error('Not a valid STL file.')
+}
+
+/** Whether a file starting "solid" goes on as ASCII STL: no control bytes
+ *  in its first kilobyte, with a facet or the end of the solid in it. A
+ *  binary file's triangle count, coordinates and attribute bytes from byte
+ *  80 on hold zeros and other control bytes no text has; a solid's name in
+ *  UTF-8 does not. */
+function looksAscii(buffer: ArrayBuffer): boolean {
+  const bytes = new Uint8Array(buffer, 0, Math.min(1024, buffer.byteLength))
+  for (const b of bytes) {
+    if ((b < 32 && b !== 9 && b !== 10 && b !== 13) || b === 127) return false
+  }
+  const text = new TextDecoder().decode(bytes)
+  return /\bfacet\b|\bendsolid\b/.test(text) || bytes.length < 84
 }
 
 function parseBinary(dv: DataView, triCount: number, onProgress?: (text: string) => void): ParsedMesh {
