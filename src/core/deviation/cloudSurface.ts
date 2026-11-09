@@ -27,8 +27,9 @@ export class CloudSurface implements ClosestSurface {
   readonly normals: Float32Array
   readonly bboxDiagonal: number
   private tree: PointKdTree
-  /** Where the widening facing search starts at the least. */
-  private spacing: number
+  /** The cloud's point spacing, mm: where the widening facing search starts
+   *  at the least, and the unit an alignment onto the cloud is judged in. */
+  readonly spacing: number
   private near = new Int32Array(FACING_CANDIDATES)
   private around: number[] = []
 
