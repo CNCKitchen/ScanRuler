@@ -21,12 +21,15 @@ export class PointGrid {
   private sD2 = new Float64Array(16)
 
   constructor(positions: Float32Array, cell: number) {
-    const n = (this.n = Math.floor(positions.length / 3))
+    const total = Math.floor(positions.length / 3)
     this.pos = positions
     let x0 = Infinity, y0 = Infinity, z0 = Infinity
     let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
-    for (let i = 0; i < n; i++) {
+    let n = 0 // finite points only; the rest get no cell and are never returned
+    for (let i = 0; i < total; i++) {
       const x = positions[3 * i], y = positions[3 * i + 1], z = positions[3 * i + 2]
+      if (!Number.isFinite(x + y + z)) continue
+      n++
       if (x < x0) x0 = x
       if (x > x1) x1 = x
       if (y < y0) y0 = y
@@ -34,6 +37,7 @@ export class PointGrid {
       if (z < z0) z0 = z
       if (z > z1) z1 = z
     }
+    this.n = n
     if (n === 0) { x0 = y0 = z0 = x1 = y1 = z1 = 0 }
     this.minX = x0; this.minY = y0; this.minZ = z0
     const ex = x1 - x0, ey = y1 - y0, ez = z1 - z0
@@ -51,8 +55,9 @@ export class PointGrid {
 
     const nCells = nx * ny * nz
     const starts = (this.starts = new Int32Array(nCells + 1))
-    const cellOf = new Int32Array(n)
-    for (let i = 0; i < n; i++) {
+    const cellOf = new Int32Array(total)
+    for (let i = 0; i < total; i++) {
+      if (!Number.isFinite(positions[3 * i] + positions[3 * i + 1] + positions[3 * i + 2])) { cellOf[i] = -1; continue }
       const id = this.cx(positions[3 * i]) + nx * (this.cy(positions[3 * i + 1]) + ny * this.cz(positions[3 * i + 2]))
       cellOf[i] = id
       starts[id + 1]++
@@ -60,7 +65,7 @@ export class PointGrid {
     for (let k = 0; k < nCells; k++) starts[k + 1] += starts[k]
     const fill = starts.slice(0, nCells)
     const items = (this.items = new Int32Array(n))
-    for (let i = 0; i < n; i++) items[fill[cellOf[i]]++] = i
+    for (let i = 0; i < total; i++) if (cellOf[i] >= 0) items[fill[cellOf[i]]++] = i
   }
 
   private cx(x: number): number {
@@ -97,7 +102,7 @@ export class PointGrid {
   /** Shell search: up to k nearest into sIdx/sD2 (ascending), skipping
    *  `exclude` and anything with squared distance > maxD2. Returns count. */
   private search(x: number, y: number, z: number, k: number, maxD2: number, exclude: number): number {
-    if (k <= 0 || this.n === 0) return 0
+    if (k <= 0 || this.n === 0 || !Number.isFinite(x + y + z)) return 0
     if (this.sIdx.length < k) {
       this.sIdx = new Int32Array(k)
       this.sD2 = new Float64Array(k)
@@ -140,7 +145,7 @@ export class PointGrid {
 
   /** Index of the closest point within maxDist, or -1. */
   nearest(x: number, y: number, z: number, maxDist = Infinity): number {
-    const c = this.search(x, y, z, 1, maxDist * maxDist, -1)
+    const c = this.search(x, y, z, 1, maxDist > 0 ? maxDist * maxDist : 0, -1)
     return c > 0 ? this.sIdx[0] : -1
   }
 
@@ -148,7 +153,7 @@ export class PointGrid {
    *  Returns how many were written to out. */
   kNearest(i: number, k: number, maxDist: number, out: Int32Array): number {
     const p = this.pos
-    const c = this.search(p[3 * i], p[3 * i + 1], p[3 * i + 2], Math.min(k, out.length), maxDist * maxDist, i)
+    const c = this.search(p[3 * i], p[3 * i + 1], p[3 * i + 2], Math.min(k, out.length), maxDist > 0 ? maxDist * maxDist : 0, i)
     for (let a = 0; a < c; a++) out[a] = this.sIdx[a]
     return c
   }
@@ -156,7 +161,7 @@ export class PointGrid {
   /** Every point within r of (x,y,z); `out` is cleared first. */
   withinRadius(x: number, y: number, z: number, r: number, out: number[]): void {
     out.length = 0
-    if (this.n === 0 || r < 0) return
+    if (this.n === 0 || !(r >= 0) || !Number.isFinite(x + y + z)) return
     const { pos, starts, items, nx, ny } = this
     const r2 = r * r
     const x0 = this.cx(x - r), x1 = this.cx(x + r)
@@ -180,7 +185,7 @@ export class PointGrid {
    *  parameter t in [0, maxT], or -1. Direction need not be unit length. */
   nearestToRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, radius: number, maxT: number): number {
     const len = Math.hypot(dx, dy, dz)
-    if (this.n === 0 || !(len > 0)) return -1
+    if (this.n === 0 || !(len > 0) || !Number.isFinite(ox + oy + oz + maxT) && maxT !== Infinity) return -1
     dx /= len; dy /= len; dz /= len
     const { cell, pos, starts, items, nx, ny, nz } = this
     const m = Math.max(1, Math.ceil(radius / cell)) // window half-width in cells

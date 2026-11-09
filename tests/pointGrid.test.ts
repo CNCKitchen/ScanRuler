@@ -138,8 +138,68 @@ describe('PointGrid', () => {
     const r = rng(3)
     for (let q = 0; q < 10_000; q++) total += g.kNearest(Math.floor(r() * N), 12, 5, out)
     const ms = performance.now() - t0
-    console.log(`PointGrid 1M build + 10k kNN: ${ms.toFixed(0)} ms`)
     expect(total).toBeGreaterThan(10_000 * 8)
     expect(ms).toBeLessThan(2000)
+  })
+
+  it('ignores non-finite points', () => {
+    const p = randomCloud(500, 50, 31)
+    p[3 * 10] = NaN
+    p[3 * 20 + 1] = Infinity
+    p[3 * 30 + 2] = -Infinity
+    const g = new PointGrid(p, 4)
+    const bad = new Set([10, 20, 30])
+    const r = rng(2)
+    const out: number[] = []
+    for (let q = 0; q < 20; q++) {
+      const x = r() * 50, y = r() * 50, z = r() * 50
+      let best = -1, bd = Infinity
+      const want: number[] = []
+      for (let j = 0; j < 500; j++) {
+        if (bad.has(j)) continue
+        const d = d2(p, j, x, y, z)
+        if (d < bd) { bd = d; best = j }
+        if (d <= 100) want.push(j)
+      }
+      expect(g.nearest(x, y, z)).toBe(best)
+      g.withinRadius(x, y, z, 10, out)
+      expect(out.slice().sort((a, b) => a - b)).toEqual(want)
+    }
+    const k = new Int32Array(12)
+    expect(g.kNearest(10, 12, 10, k)).toBe(0)
+  })
+
+  it('an all-NaN cloud is an empty grid', () => {
+    const g = new PointGrid(new Float32Array(9).fill(NaN), 1)
+    const out: number[] = []
+    g.withinRadius(0, 0, 0, 5, out)
+    expect(out).toEqual([])
+    expect(g.nearest(0, 0, 0)).toBe(-1)
+    expect(g.kNearest(0, 12, 5, new Int32Array(12))).toBe(0)
+    expect(g.nearestToRay(0, 0, 0, 1, 0, 0, 1, 10)).toBe(-1)
+    expect(new PointGrid(new Float32Array(0), 1).nearest(0, 0, 0)).toBe(-1)
+  })
+
+  it('a negative maxDist finds nothing', () => {
+    expect(grid.nearest(pos[0] + 0.5, pos[1], pos[2], -1)).toBe(-1) // treated as 0, not as a positive radius
+    expect(grid.kNearest(0, 12, -1, new Int32Array(12))).toBe(0)
+  })
+
+  it('nearestToRay with radius larger than a cell equals brute force', () => {
+    const r = rng(41)
+    for (let q = 0; q < 30; q++) {
+      const o = [r() * 140 - 20, r() * 140 - 20, r() * 140 - 20]
+      const dv = [r() - 0.5, r() - 0.5, r() - 0.5]
+      const len = Math.hypot(dv[0], dv[1], dv[2])
+      const rad = 10 + r() * 8 // cell is 6 -> m = 2 or 3
+      let best = -1, bt = Infinity
+      for (let j = 0; j < n; j++) {
+        const wx = pos[3 * j] - o[0], wy = pos[3 * j + 1] - o[1], wz = pos[3 * j + 2] - o[2]
+        const t = (wx * dv[0] + wy * dv[1] + wz * dv[2]) / len
+        if (t < 0 || t > 300) continue
+        if (wx * wx + wy * wy + wz * wz - t * t <= rad * rad && t < bt) { bt = t; best = j }
+      }
+      expect(grid.nearestToRay(o[0], o[1], o[2], dv[0], dv[1], dv[2], rad, 300)).toBe(best)
+    }
   })
 })
