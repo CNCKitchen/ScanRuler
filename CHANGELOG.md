@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Densify keeps a large mesh closed** (2026-11-08, Mesh Tools). Past vertex
+  2,097,152 the middle a long edge is cut at was looked up by a key that is no
+  longer exact there, so two edges could share one middle: a box numbered from
+  vertex 3,000,000 came out with over 7,000 edges that no longer met. Densify now
+  keys edges exactly, as the rim and gap search has since 0.9.8.
 - **More ways to construct points, lines and planes** (2026-11-08, issues
   45 and 46). Under Create element, 3D Measure now also builds:
   - points: the centre of a sphere, circle or torus; where three planes
