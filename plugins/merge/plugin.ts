@@ -3,11 +3,12 @@
 // each part of this is to the app. It works on clouds and meshes alike — a
 // mesh base asks before it becomes a cloud — so it is never unavailable.
 
-import { registerBusy, type ScanRulerPlugin } from '../../src/plugins/api'
+import { registerBusy, registerCommands, type ScanRulerPlugin } from '../../src/plugins/api'
 import { registerHistory } from '../../src/state/historyStore'
 import { MERGE } from './core/protocol'
 import { applyMerge, captureMerge, useMerge, type MergeSnapshot } from './state/mergeStore'
 import { MERGE_WORKSPACE, mergeBusy, mergeSession } from './app/mergeSession'
+import { mergeCommands } from './app/mergeCommands'
 import { useMergePlugin } from './app/useMergePlugin'
 import './ui/merge.css'
 
@@ -44,6 +45,8 @@ const plugin: ScanRulerPlugin = {
   },
   usePlugin: useMergePlugin,
   install() {
+    // What an agent works through: merge.open_layer, merge.align_datums and the rest.
+    registerCommands(MERGE, mergeCommands)
     // Stop an alignment, then wait for the panel to be free: a merge runs to its end.
     registerBusy(MERGE, mergeBusy, [useMerge], async () => {
       mergeSession()?.stop()

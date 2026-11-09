@@ -639,6 +639,8 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     answerConfirm,
     dropLayers,
     layers: (): LayerRow[] => useMerge.getState().layers,
+    /** The middle of a layer's bounding box in its own frame, mm. */
+    layerCentre: (id: string): Vec3 => centres.get(id) ?? [0, 0, 0],
     watch,
   }
 }
