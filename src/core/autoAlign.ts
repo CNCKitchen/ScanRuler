@@ -186,7 +186,7 @@ const FLAT_LOOP = 0.02
 const EDGE_DEG = 30
 
 /** A cloud's samples are its points: no triangle to share out, so each point
- *  stands for the patch of surface round it (vertexAreas — the density-based
+ *  stands for the patch of surface round it (vertexAreas â€” the density-based
  *  area the segmentation weighs with, a mesh's third-of-a-triangle in all but
  *  name), its normal averaged over its neighbours the way a vertex's is.
  *  Nothing marks an edge but the neighbours' normals, which the averaging

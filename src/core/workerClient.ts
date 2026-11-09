@@ -633,6 +633,13 @@ export class MeshWorkerClient {
     return (await this.request<Extract<WorkerResponse, { type: 'heights-ok' }>>({ type: 'heights', requestId, grid })).values
   }
 
+  /** On a point cloud: how far each ray runs to a point that looks back at
+   *  it — see geometry/insideRays. */
+  async insideRays(grid: RayGrid): Promise<Float32Array> {
+    const requestId = this.nextId++
+    return (await this.request<Extract<WorkerResponse, { type: 'inside-rays-ok' }>>({ type: 'inside-rays', requestId, grid })).values
+  }
+
   /** The same, with the triangle each ray met: its corners (scan vertex
    *  numbers) and the hit's weight on each, three per ray. */
   async heightsAt(grid: RayGrid): Promise<{ values: Float32Array; corners: Uint32Array; weights: Float32Array }> {

@@ -11,14 +11,13 @@ import { computeElementDeviation } from '../src/core/deviation/elementField'
 import { rigidApply, rigidApplyToPoints, rigidCompose, rigidFromAxisAngle, rigidInvert, rigidRotateVectors, rigidRotationAngle, type Rigid } from '../src/core/deviation/rigid'
 import { NominalSurface } from '../src/core/deviation/surface'
 import { fitPlaneFromSeed } from '../src/core/fit/fitPlaneFromSeed'
-import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { buildPointGraph } from '../src/core/geometry/buildPointGraph'
-import { isCloud } from '../src/core/geometry/cloud'
 import type { MeshGraph, PlaneFit, Vec3 } from '../src/core/types'
 import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { type Cloud, blockWithBoreCloud, planeCloud, writePlyCloud } from './cloudFixtures'
 import { chamferedBlock, facetedSolid } from './facetedSolid'
 import { poseError } from './helpers'
+import { buildBinaryStl } from '../src/core/exportStl'
 
 vi.setConfig({ testTimeout: 120_000 })
 
@@ -69,18 +68,90 @@ const plane: PlaneFit = {
 }
 const SETTINGS = { method: 'gaussian', sigma: 3 } as const
 
-describe('deviation of a point cloud against the CAD', () => {
-  it('equals that of a mesh of the same vertices, per vertex', () => {
-    const c = moved(scanCloud(4, 0.02), pose([0.2, 0.5, 0.1], 1.5, [0.3, -0.2, 0.1]))
-    const surface = reference()
-    // Triangles over the same vertices: the readings must not care for them.
-    const sphere = facetedSolid(FACES, { subdivisions: 4, noise: 0.02, seed: 9 })
-    const mesh = buildMeshGraph({ kind: 'indexed', positions: c.positions.slice(), indices: sphere.indices })
-    expect(isCloud(mesh)).toBe(false)
-    const cloud = cloudGraph(c)
-    expect(isCloud(cloud)).toBe(true)
-    const a = computeDeviation(surface, cloud.positions, IDENTITY, { normals: c.normals, maxNormalDeviation: Math.PI / 2 })
-    const b = computeDeviation(surface, mesh.positions, IDENTITY, { normals: c.normals, maxNormalDeviation: Math.PI / 2 })
+/** A mesh as an ascii-free binary PLY: positions, the normals given, and the faces. */
+function plyMeshOf(positions: Float32Array, normals: Float32Array, indices: Uint32Array): ArrayBuffer {
+  const nv = positions.length / 3
+  const nf = indices.length / 3
+  const head = new TextEncoder().encode(
+    `ply
+format binary_little_endian 1.0
+element vertex ${nv}
+property float x
+property float y
+property float z
+property float nx
+property float ny
+property float nz
+element face ${nf}
+property list uchar int vertex_indices
+end_header
+`,
+  )
+  const out = new Uint8Array(head.length + nv * 24 + nf * 13)
+  out.set(head)
+  const dv = new DataView(out.buffer)
+  let o = head.length
+  for (let v = 0; v < nv; v++) {
+    for (let k = 0; k < 3; k++) dv.setFloat32((o += 4) - 4, positions[v * 3 + k], true)
+    for (let k = 0; k < 3; k++) dv.setFloat32((o += 4) - 4, normals[v * 3 + k], true)
+  }
+  for (let f = 0; f < nf; f++) {
+    dv.setUint8(o++, 3)
+    for (let k = 0; k < 3; k++) dv.setInt32((o += 4) - 4, indices[f * 3 + k], true)
+  }
+  return out.buffer
+}
+
+describe('deviation of a point cloud against the CAD, through the worker', () => {
+  /** A fresh worker; `ask` sends a request and waits for its answer. */
+  async function worker() {
+    const replies: WorkerResponse[] = []
+    const scope = { onmessage: null as ((e: { data: WorkerRequest }) => void) | null, postMessage: (r: WorkerResponse) => void replies.push(r) }
+    vi.stubGlobal('self', scope)
+    vi.resetModules()
+    await import('../src/core/meshWorker')
+    let id = 0
+    return async (msg: object): Promise<WorkerResponse> => {
+      const requestId = ++id
+      scope.onmessage!({ data: { ...msg, requestId } as WorkerRequest })
+      let found: WorkerResponse | undefined
+      await vi.waitFor(() => {
+        found = replies.filter((r) => 'requestId' in r && r.requestId === requestId && r.type !== 'align-progress').at(-1)
+        if (!found) throw new Error('no answer yet')
+      }, { timeout: 60_000 })
+      return found!
+    }
+  }
+
+  it('equals that of a mesh of the same vertices and normals, per vertex', async () => {
+    const pert = pose([0.2, 0.5, 0.1], 1.5, [0.3, -0.2, 0.1])
+    const base = facetedSolid(FACES, { subdivisions: 4, noise: 0.02, seed: 9 })
+    const normals = new Float32Array(base.positions.length)
+    base.faceOf.forEach((f, v) => normals.set(FACES[f].n, v * 3))
+    const c = moved({ positions: base.positions, normals }, pert)
+    const soup = new Float32Array(cad.indices.length * 3)
+    cad.indices.forEach((v, i) => soup.set(cad.positions.subarray(v * 3, v * 3 + 3), i * 3))
+    const reference = buildBinaryStl(soup, null, null, 'cad')
+
+    const readings: Float32Array[] = []
+    for (const kind of ['cloud', 'mesh'] as const) {
+      const ask = await worker()
+      try {
+        const nominal = await ask({ type: 'load-nominal', name: 'cad.stl', buffer: reference.slice(0) })
+        expect(nominal.type).toBe('nominal-loaded')
+        const buffer = kind === 'cloud' ? writePlyCloud(c, 'binary_little_endian') : plyMeshOf(c.positions, c.normals, base.indices)
+        const loaded = await ask({ type: 'load', name: `scan.ply`, buffer, crease: { mode: 'off', angleDeg: 30 } })
+        expect(loaded).toMatchObject({ type: 'loaded', kind })
+        expect((loaded as { vertexCount: number }).vertexCount).toBe(c.positions.length / 3)
+        const dev = await ask({ type: 'deviate', transform: IDENTITY, facingDeg: null })
+        expect(dev.type).toBe('deviation-ok')
+        readings.push((dev as { values: Float32Array }).values)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    }
+    const [a, b] = readings
+    expect(a.length).toBe(b.length)
     let measured = 0
     for (let v = 0; v < a.length; v++) {
       if (Number.isNaN(a[v])) expect(Number.isNaN(b[v])).toBe(true)
@@ -92,6 +163,9 @@ describe('deviation of a point cloud against the CAD', () => {
     expect(measured).toBeGreaterThan(a.length * 0.9)
   })
 
+})
+
+describe('deviation of a displaced cloud', () => {
   it('reads the offset of a displaced cloud, signed outward', () => {
     const c = scanCloud(4)
     const out = new Float32Array(c.positions.length)

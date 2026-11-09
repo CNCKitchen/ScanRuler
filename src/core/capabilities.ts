@@ -62,6 +62,8 @@ export const OP_CAPS = {
   'scan-qa': { needsTriangles: true },
   'scan-rim': { needsTriangles: true },
   'auto-align': { needsTriangles: false },
+  // The cloud's stand-in for heights: rays against points (geometry/insideRays).
+  'inside-rays': { needsTriangles: false },
   // which='nominal' is the reference's own shells; the worker lets it through.
   'closed-shells': { needsTriangles: true },
   deflection: { needsTriangles: false },

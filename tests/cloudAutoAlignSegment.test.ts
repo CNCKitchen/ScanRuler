@@ -71,11 +71,93 @@ describe('auto-align on a point cloud', () => {
     expect(fromCloud.planeShare).toBeGreaterThan(0.6)
   })
 
+  it('still matches the mesh with noisy normals (0.05 on each component)', () => {
+    let s = 12345
+    const rand = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 4294967296 - 0.5) * 2
+    const rough = blockWithBoreCloud({ size: [60, 40, 20], boreRadius: 5, step: 1 })
+    const normals = rough.normals.slice()
+    for (let v = 0; v < normals.length; v += 3) {
+      const x = normals[v] + 0.05 * rand(), y = normals[v + 1] + 0.05 * rand(), z = normals[v + 2] + 0.05 * rand()
+      const l = Math.hypot(x, y, z)
+      normals.set([x / l, y / l, z / l], v)
+    }
+    const g = cloudGraph(applyRigidCloud({ positions: rough.positions, normals }, POSE))
+    const fromCloud = autoAlign(g)
+    const fromMesh = autoAlign(buildMeshGraph({ kind: 'soup', positions: soup }))
+    for (let k = 0; k < 3; k++) expect(offDeg(fromCloud.axes[k], fromMesh.axes[k]), `axis ${k}`).toBeLessThanOrEqual(0.5)
+  })
+
   it('refuses a cloud with too few points', () => {
     const g = cloudGraph({ positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]) })
     expect(() => autoAlign(g)).toThrow('Too little surface to align.')
   })
 })
+
+/** The block with a bore as the fixture gives it as a cloud, and as a mesh over
+ *  the same vertices: every face's grid cut into triangles, the bore's rings
+ *  likewise, each triangle wound to the normal of its first corner. */
+function blockWithBore(): { cloud: Cloud; mesh: MeshGraph } {
+  const size: Vec3 = [60, 40, 20]
+  const step = 1
+  const r = 5
+  const cloud = blockWithBoreCloud({ size, boreRadius: r, step })
+  const ticks = (len: number) => {
+    const n = Math.max(1, Math.round(len / step))
+    return Array.from({ length: n + 1 }, (_, i) => -len / 2 + (len * i) / n)
+  }
+  const pos: number[] = []
+  const tris: number[] = []
+  const grid = (us: number[], vs: number[], at: (u: number, v: number) => Vec3, keep: (p: Vec3) => boolean = () => true) => {
+    const idx = us.map(() => vs.map(() => -1))
+    us.forEach((u, i) => vs.forEach((v, j) => {
+      const p = at(u, v)
+      if (!keep(p)) return
+      idx[i][j] = pos.length / 3
+      pos.push(...p)
+    }))
+    for (let i = 0; i + 1 < us.length; i++)
+      for (let j = 0; j + 1 < vs.length; j++) {
+        const [a, b, c, d] = [idx[i][j], idx[i + 1][j], idx[i + 1][j + 1], idx[i][j + 1]]
+        if (a >= 0 && b >= 0 && c >= 0) tris.push(a, b, c)
+        if (a >= 0 && c >= 0 && d >= 0) tris.push(a, c, d)
+      }
+  }
+  const [sx, sy, sz] = size
+  for (const s of [-1, 1]) {
+    grid(ticks(sy), ticks(sz), (y, z) => [(s * sx) / 2, y, z])
+    grid(ticks(sx), ticks(sz), (x, z) => [x, (s * sy) / 2, z])
+    grid(ticks(sx), ticks(sy), (x, y) => [x, y, (s * sz) / 2], (p) => Math.hypot(p[0], p[1]) > r + step / 2)
+  }
+  const rings = Math.max(1, Math.round(sz / step))
+  const around = Math.max(8, Math.round((2 * Math.PI * r) / step))
+  const base = pos.length / 3
+  for (let k = 0; k <= rings; k++)
+    for (let j = 0; j < around; j++) {
+      const a = (2 * Math.PI * j) / around
+      pos.push(r * Math.cos(a), r * Math.sin(a), -sz / 2 + (sz * k) / rings)
+    }
+  for (let k = 0; k < rings; k++)
+    for (let j = 0; j < around; j++) {
+      const a = base + k * around + j, b = base + k * around + ((j + 1) % around)
+      tris.push(a, b, a + around, b, b + around, a + around)
+    }
+  // The same vertices as the cloud's, in the same order.
+  expect(Float32Array.from(pos)).toEqual(cloud.positions)
+  // Each triangle wound with its first corner's normal.
+  const wound = Uint32Array.from(tris)
+  for (let t = 0; t < wound.length; t += 3) {
+    const [a, b, c] = [wound[t], wound[t + 1], wound[t + 2]]
+    const e1 = [0, 1, 2].map((k) => pos[b * 3 + k] - pos[a * 3 + k])
+    const e2 = [0, 1, 2].map((k) => pos[c * 3 + k] - pos[a * 3 + k])
+    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+    if (n[0] * cloud.normals[a * 3] + n[1] * cloud.normals[a * 3 + 1] + n[2] * cloud.normals[a * 3 + 2] < 0) {
+      wound[t + 1] = c
+      wound[t + 2] = b
+    }
+  }
+  const mesh = buildMeshGraph({ kind: 'indexed', positions: cloud.positions.slice(), indices: wound })
+  return { cloud, mesh }
+}
 
 describe('segment on a point cloud', () => {
   const options = { minArea: 10, maxRms: 0.05, maxDeg: 15 }
@@ -104,23 +186,33 @@ describe('segment on a point cloud', () => {
     })
   }
 
-  it('splits a block with a bore into its six faces and the bore wall', () => {
-    const c = blockWithBoreCloud({ size: [60, 40, 20], boreRadius: 5, step: 1 })
-    const s = segmentPlanes(cloudGraph(c), { minArea: 20, maxRms: 0.05, maxDeg: 15 })
-    // Largest first: the six faces, each square to an axis, each pair opposite.
-    const faces = s.regions.slice(0, 6)
-    expect(faces.map((r) => r.normal.map((v) => Math.round(Math.abs(v))).join('')).sort()).toEqual(['001', '001', '010', '010', '100', '100'])
-    for (const r of faces) expect(r.area).toBeGreaterThan(700)
-    // The rest is the bore wall: facets whose normals lie across z, on the bore.
-    const wall = s.regions.slice(6)
-    expect(wall.length).toBeGreaterThanOrEqual(8)
-    for (const r of wall) {
-      expect(Math.abs(r.normal[2])).toBeLessThan(0.01)
-      expect(Math.hypot(r.point[0], r.point[1])).toBeLessThan(5.01)
-      expect(r.area).toBeLessThan(100)
+  it('splits a block with a bore like its mesh', () => {
+    const { cloud, mesh } = blockWithBore()
+    const o = { minArea: 20, maxRms: 0.05, maxDeg: 15 }
+    const fromCloud = segmentPlanes(cloudGraph(cloud), o)
+    const fromMesh = segmentPlanes(mesh, o)
+    expect(fromCloud.regions).toHaveLength(fromMesh.regions.length)
+    expect(fromCloud.runs).toHaveLength(fromMesh.runs.length)
+    // The faces, largest first: the same flags, normals and areas within a tenth.
+    const same = (c: (typeof fromCloud.regions)[number], m: (typeof fromMesh.regions)[number], label: string) => {
+      expect(c.curved, `${label} curved`).toBe(m.curved)
+      expect(Math.abs(c.area - m.area) / m.area, `${label} area`).toBeLessThan(0.1)
+      expect(c.normal[0] * m.normal[0] + c.normal[1] * m.normal[1] + c.normal[2] * m.normal[2], `${label} normal`).toBeGreaterThan(0.999)
     }
-    // Between them they hold nearly every point of the part.
-    expect(s.claimed / s.considered).toBeGreaterThan(0.95)
+    for (let k = 0; k < 6; k++) same(fromCloud.regions[k], fromMesh.regions[k], `face ${k}`)
+    // The bore's facets are of one size, so their order is not told: by the way they face.
+    const around = (rs: typeof fromMesh.regions) => rs.slice(6).sort((a, b) => Math.atan2(a.normal[1], a.normal[0]) - Math.atan2(b.normal[1], b.normal[0]))
+    const wallCloud = around(fromCloud.regions)
+    const wallMesh = around(fromMesh.regions)
+    wallMesh.forEach((m, k) => same(wallCloud[k], m, `bore facet ${k}`))
+    // The six faces, each square to an axis, and not curved.
+    const faces = fromCloud.regions.slice(0, 6)
+    expect(faces.map((r) => r.normal.map((v) => Math.round(Math.abs(v))).join('')).sort()).toEqual(['001', '001', '010', '010', '100', '100'])
+    for (const r of faces) {
+      expect(r.curved).toBe(false)
+      expect(r.area).toBeGreaterThan(700)
+    }
+    expect(fromCloud.claimed / fromCloud.considered).toBeGreaterThan(0.95)
   })
 })
 

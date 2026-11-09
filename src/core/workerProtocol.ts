@@ -192,6 +192,7 @@ export type WorkerRequest =
    *  geometry/scanQa (firstHits); with `corners`, the triangle each ray met
    *  and the hit's weights on its corners too (firstHitsAt). */
   | { type: 'heights'; requestId: number; grid: RayGrid; corners?: boolean }
+  | { type: 'inside-rays'; requestId: number; grid: RayGrid }
   /** Open rims and surface noise — see geometry/scanQa; with `sheet`,
    *  whether it is a sheet, over so many points — see geometry/sheet. */
   | { type: 'scan-qa'; requestId: number; sample: number; rims: number; sheet?: { sample: number; apartSample: number } }
@@ -382,6 +383,7 @@ export type WorkerResponse =
   /** Per ray, the coordinate of its first hit along the axis, NaN for none;
    *  asked for, the corners and weights of where it landed. */
   | { type: 'heights-ok'; requestId: number; values: Float32Array; corners?: Uint32Array; weights?: Float32Array }
+  | { type: 'inside-rays-ok'; requestId: number; values: Float32Array }
   | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number }; tessellation: Tessellation; sheet?: SheetReading }
   /** The rim's loop in order, null past the last rim. */
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }

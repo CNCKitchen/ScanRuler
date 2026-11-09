@@ -300,7 +300,9 @@ async function facesIn(largest: NonNullable<AutoAlignTilts['largest']>): Promise
   const off = Math.max(0.3, 0.002 * size)
   const half = (INSIDE_RAYS * cell) / 2
   const origin: Vec3 = [0, 1, 2].map((k) => largest.at[k] + n[k] * off - (u[k] + v[k]) * half) as Vec3
-  const values = await client.heights({ origin, dir: n, u, v, cell, cols: INSIDE_RAYS, rows: INSIDE_RAYS, far: 2 * size })
+  const grid = { origin, dir: n, u, v, cell, cols: INSIDE_RAYS, rows: INSIDE_RAYS, far: 2 * size }
+  // A cloud has no triangles to cast at: its points that look back stand in.
+  const values = await (useStore.getState().scanIsCloud ? client.insideRays(grid) : client.heights(grid))
   const hit = Array.from(values).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
   return hit.length >= INSIDE_HITS ? { clear: hit[Math.floor(hit.length / 2)] + off, hits: hit.length } : null
 }
@@ -327,8 +329,7 @@ const auto: Command<{ level?: AutoAlignLevel; detail?: Detail }> = {
       }
       const note = useStore.getState().alignDraft?.proposal
       // Looked at in the scan's frame as it stands, before the pose moves it.
-      // The rays need triangles to meet; a point cloud has none, and goes without the look.
-      const inside = tilts.largest && !useStore.getState().scanIsCloud ? await facesIn(tilts.largest) : null
+      const inside = tilts.largest ? await facesIn(tilts.largest) : null
       const square = squareOut(tilts)
       const warning = inside
         ? {

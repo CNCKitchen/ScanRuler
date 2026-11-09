@@ -61,6 +61,7 @@ import type { WorkerContext } from './workerPluginApi'
 import * as THREE from 'three'
 import { MeshBVH, type MeshBVHOptions } from 'three-mesh-bvh'
 import { reply } from './workerRpc'
+import { insideRays } from './geometry/insideRays'
 import { firstHits, firstHitsAt, localNoise, scanRim, scanRims, tessellationOf } from './geometry/scanQa'
 import { sheetReading, type SheetReading } from './geometry/sheet'
 import { rimLoops, type RimLoop } from './geometry/openEdges'
@@ -743,6 +744,16 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       { type: 'query-ok', requestId: msg.requestId, vertices: found.vertices, positions, normals, matched: found.matched, step: found.step },
       [found.vertices.buffer, positions.buffer, normals.buffer],
     )
+    return
+  }
+
+  if (msg.type === 'inside-rays') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const values = insideRays(graph, msg.grid)
+    post({ type: 'inside-rays-ok', requestId: msg.requestId, values }, [values.buffer])
     return
   }
 

@@ -630,18 +630,23 @@ export function planeRegionReport(
  *  peeled off the region, so the region stops a little short. */
 const CLOSED_REACH_OF_R = 1
 
+/** A point on a floor or cap has its normal this close to along the axis (cos). */
+const FLOOR_ALONG = 0.5
+
 /** A cloud has no triangles for the axis to cross, so a floor or cap is read
  *  from its points: those within one spacing of the axis line whose normals
  *  lie along it (the bore's own wall lies a radius off). The points of one
  *  surface are not at one t on a rough scan, so those within a spacing of
  *  each other along the axis count as one crossing, at their mean. */
 function crossingsOfPoints(g: MeshGraph, pu: Float32Array, pv: Float32Array, pt: Float32Array, a: Vec3, hits: number[]): void {
-  const spacing = g.spacing ?? g.bboxDiag / Math.cbrt(g.vertexCount)
+  // Every cloud graph carries its spacing (buildPointGraph); a mesh never gets here.
+  const spacing = g.spacing
+  if (!(spacing && spacing > 0)) return
   const n = g.normals
   const near: number[] = []
   for (let k = 0; k < g.vertexCount; k++) {
     if (Math.hypot(pu[k], pv[k]) > spacing) continue
-    if (Math.abs(n[k * 3] * a[0] + n[k * 3 + 1] * a[1] + n[k * 3 + 2] * a[2]) < 0.5) continue
+    if (Math.abs(n[k * 3] * a[0] + n[k * 3 + 1] * a[1] + n[k * 3 + 2] * a[2]) < FLOOR_ALONG) continue
     near.push(pt[k])
   }
   near.sort((x, y) => x - y)
@@ -1115,7 +1120,9 @@ export function segmentPlanes(g: MeshGraph, opts: SegmentOptions): Segmentation 
     const [e1, e2] = orthoBasis(r.normal)
     const curve = curveOf(P, vertices.subarray(offsets[i], offsets[i + 1]), r.normal, e1, e2, CURVE_SAMPLE_SEGMENT)
     const region: SegmentedPlane = { normal: r.normal, point: r.point, sigma: r.sigma, area: r.area, min, max, count: r.members.length, neighbours: [], curve, curved: false }
-    region.curved = isCurved(region)
+    // A bow below the float32 floor of the positions is rounding, not a curve: on
+    // exact data the quadric's sigma is that rounding too, and the ratios decide at random.
+    region.curved = isCurved(region) && region.curve!.sagitta >= bandFloor
     return region
   })
 
