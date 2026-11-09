@@ -7,12 +7,16 @@
 // sample sit between two points of the target without reading their spacing
 // as a gap.
 //
-// The grid behind it shares scratch buffers between queries, so one
-// CloudSurface must not be queried from two places at once. ICP pairs its
+// The points sit in a k-d tree (pointKdTree.ts), not the uniform grid the
+// rest of the cloud code uses: a grid opens every empty cell between a far
+// query and the cloud, and an alignment that starts a part tens of
+// millimetres off asks that of every sample. The tree shares scratch state
+// between queries, so one CloudSurface must not be queried from two places
+// at once. ICP pairs its
 // samples one after another, and a cloud never goes to the helper workers
 // (icpPool.ts), which rebuild a NominalSurface from its triangles.
 
-import { PointGrid } from '../geometry/pointGrid'
+import { PointKdTree } from '../geometry/pointKdTree'
 import type { ClosestHit, ClosestSurface } from './surface'
 
 /** Points a facing-aware query looks through for one facing its way. */
@@ -22,14 +26,17 @@ export class CloudSurface implements ClosestSurface {
   readonly positions: Float32Array
   readonly normals: Float32Array
   readonly bboxDiagonal: number
-  private grid: PointGrid
+  private tree: PointKdTree
+  /** Where the widening facing search starts at the least. */
+  private spacing: number
   private near = new Int32Array(FACING_CANDIDATES)
   private around: number[] = []
 
   constructor(positions: Float32Array, normals: Float32Array, spacing: number) {
     this.positions = positions
     this.normals = normals
-    this.grid = new PointGrid(positions, 2 * spacing)
+    this.tree = new PointKdTree(positions)
+    this.spacing = spacing
     let x0 = Infinity, y0 = Infinity, z0 = Infinity
     let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
     for (let i = 0; i < positions.length; i += 3) {
@@ -45,11 +52,8 @@ export class CloudSurface implements ClosestSurface {
     this.bboxDiagonal = x1 >= x0 ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0
   }
 
-  /** Unbounded, a query far from the cloud walks every empty grid cell
-   *  between it and the nearest point; callers that can bound the search
-   *  (ICP's pair distance) should. */
   closest(x: number, y: number, z: number, out: ClosestHit, maxDistance = Infinity): boolean {
-    const j = this.grid.nearest(x, y, z, maxDistance)
+    const j = this.tree.nearest(x, y, z, maxDistance)
     if (j < 0) return false
     this.fillHit(x, y, z, j, out)
     return true
@@ -69,7 +73,7 @@ export class CloudSurface implements ClosestSurface {
     maxDistance = Infinity,
   ): boolean {
     const near = this.near
-    const count = this.grid.kNearestTo(x, y, z, FACING_CANDIDATES, maxDistance, near)
+    const count = this.tree.kNearestTo(x, y, z, FACING_CANDIDATES, maxDistance, near)
     const n = this.normals
     for (let a = 0; a < count; a++) {
       const j = near[a]
@@ -88,10 +92,10 @@ export class CloudSurface implements ClosestSurface {
     // beyond it; each pass scans a ball twice as wide, and the nearest
     // facing point found in a ball is the nearest of all.
     const j12 = near[count - 1]
-    let r = 2 * Math.max(Math.hypot(p[3 * j12] - x, p[3 * j12 + 1] - y, p[3 * j12 + 2] - z), this.grid.cell / 2)
+    let r = 2 * Math.max(Math.hypot(p[3 * j12] - x, p[3 * j12 + 1] - y, p[3 * j12 + 2] - z), this.spacing)
     for (;;) {
       const radius = Math.min(r, reach)
-      this.grid.withinRadius(x, y, z, radius, around)
+      this.tree.withinRadius(x, y, z, radius, around)
       let best = -1
       let bestD2 = Infinity
       for (const j of around) {

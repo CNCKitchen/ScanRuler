@@ -144,6 +144,31 @@ describe('CloudSurface', () => {
   })
 })
 
+describe('CloudSurface at part scale', () => {
+  it('ICP from a 30° start onto a 200 mm box cloud converges in under 10 s', () => {
+    const size: [number, number, number] = [200, 150, 100]
+    // Fine spacing and a 30 mm pair bound, as Merge refines a real scan: most
+    // samples start tens of millimetres off, which a uniform grid pays for
+    // in empty cells.
+    const target = blockWithBoreCloud({ size, boreRadius: 20, step: 0.5 })
+    const surface = new CloudSurface(target.positions, target.normals, 0.5)
+    const scan = blockWithBoreCloud({ size, boreRadius: 20, step: 1.37 })
+    const axis = [1, 2, -1.5].map((v) => v / Math.hypot(1, 2, -1.5)) as [number, number, number]
+    const start = rigidFromAxisAngle(axis, (30 * Math.PI) / 180)
+    start.t.set([12, -8, 6])
+    const moved = applyRigidCloud(scan, start)
+    const samples = sampleScan(moved.positions, moved.normals, 25_000)
+    const t0 = performance.now()
+    const r = icp(surface, samples, identityRigid(), { maxIterations: 200, maxPairDistance: 30 })
+    const ms = performance.now() - t0
+    console.log(`ICP 30° onto a ${target.positions.length / 3} point box cloud: ${r.iterations} iterations, ${ms.toFixed(0)} ms`)
+    const residual = rigidCompose(r.transform, start)
+    expect((rigidRotationAngle(residual) * 180) / Math.PI).toBeLessThan(0.05)
+    expect(Math.hypot(residual.t[0], residual.t[1], residual.t[2])).toBeLessThan(0.05)
+    expect(ms).toBeLessThan(10_000)
+  })
+})
+
 describe('helper-pool gating', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
