@@ -88,8 +88,12 @@ void main() {
 
 export class CloudLayer {
   readonly object: THREE.Points
+  /** The typical point spacing — what the splats are sized from and a pick's
+   *  radius is floored by. */
+  spacing: number
 
   constructor(positions: Float32Array, normals: Float32Array, spacing: number, shared?: CloudUniforms) {
+    this.spacing = spacing
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
@@ -128,6 +132,7 @@ export class CloudLayer {
 
   /** Another version of the same cloud, read with a spacing of its own. */
   setSpacing(spacing: number): void {
+    this.spacing = spacing
     ;(this.object.material as THREE.ShaderMaterial).uniforms.uSplat.value = spacing * SPLAT_SCALE
   }
 

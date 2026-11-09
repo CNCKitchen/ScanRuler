@@ -66,6 +66,8 @@ import {
 import { principalAxis } from './scanLayout'
 import { patchScanShader } from './scanShader'
 import { CloudLayer } from './cloudLayer'
+import { pickCloud } from './cloudPick'
+import { PointGrid } from '../core/geometry/pointGrid'
 import { CAP_SLOT, closedPartOf, cutColor, primeClosedPart, SliceCap, type ClosedPart } from './sliceCap'
 import { clippedRaycast } from './clipRaycast'
 import { clipTree } from './clipTree'
@@ -199,6 +201,9 @@ const STAGE_VIEW = STANDARD_VIEWS.iso
 
 /** How see-through the reference's ghost is while it is being fitted. */
 const GHOST_OPACITY = 0.5
+/** A cloud pick's reach on screen, pixels: about a splat. */
+const CLOUD_PICK_PIXELS = 3
+const pickToLocal = new THREE.Matrix4()
 
 /** The scan's marking, as another viewport needs it: the compositor that owns
  *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
@@ -298,6 +303,9 @@ export class SceneManager {
    *  deflection onto the geometry needs no second path. */
   private mesh: THREE.Mesh | THREE.Points | null = null
   private cloud: CloudLayer | null = null
+  /** The cloud's points indexed for picking; built on the first pick and
+   *  dropped whenever the points move or change (see cloudGridFor). */
+  private cloudGrid: PointGrid | null = null
   private colorAttr: THREE.BufferAttribute | null = null
   /** Which vertices wear a tint of their own, one byte per vertex beside the
    *  colours: thresholded in the scan's shader so a region's border falls on
@@ -1134,6 +1142,7 @@ export class SceneManager {
       deflect: this.uDeflect,
     })
     const points = layer.object
+    points.raycast = (raycaster, out) => this.cloudRaycast(raycaster, out)
     const geometry = points.geometry
     const none = new Uint32Array(0)
     const { colors, paint, tint } = this.layOutScan(geometry, positions, none, normals, undefined, none, null, false, surface)
@@ -2228,11 +2237,55 @@ export class SceneManager {
     return this.pick(clientX, clientY)
   }
 
+  /** The cloud's index over its points, built when first wanted. */
+  private cloudGridFor(cloud: CloudLayer): PointGrid {
+    if (!this.cloudGrid) {
+      const positions = cloud.object.geometry.getAttribute('position').array as Float32Array
+      this.cloudGrid = new PointGrid(positions, 2 * cloud.spacing)
+    }
+    return this.cloudGrid
+  }
+
+  /** The point of the cloud under a world-space ray, in scan coordinates —
+   *  the alignment is not baked into the points, so the ray and the clip
+   *  planes are taken into the scan's frame and the hit stays there. The
+   *  radius is a splat's worth on screen, never under 1.5 spacings. */
+  private pickOnCloud(ray: THREE.Ray, hitOut?: { world: THREE.Vector3; distance: number }): PickHit | null {
+    const cloud = this.cloud
+    if (!cloud) return null
+    this.partGroup.updateWorldMatrix(true, false)
+    const toLocal = pickToLocal.copy(this.partGroup.matrixWorld).invert()
+    const local = new THREE.Ray().copy(ray).applyMatrix4(toLocal)
+    const material = cloud.object.material as THREE.Material
+    const planes = (material.clippingPlanes ?? []).map((pl) => pl.clone().applyMatrix4(toLocal))
+    const radius = Math.max(CLOUD_PICK_PIXELS * this.viewport.worldPerPixel(), 1.5 * cloud.spacing)
+    const found = pickCloud(this.cloudGridFor(cloud), cloud.object.geometry.getAttribute('normal').array as Float32Array, local, radius, planes)
+    if (found && hitOut) {
+      hitOut.world.set(...found.point).applyMatrix4(this.partGroup.matrixWorld)
+      hitOut.distance = hitOut.world.distanceTo(ray.origin)
+    }
+    return found
+  }
+
+  /** The cloud's Points.raycast: its one point per ray, nearest the eye. */
+  private cloudRaycast(raycaster: THREE.Raycaster, out: THREE.Intersection[]): void {
+    const cloud = this.cloud
+    if (!cloud) return
+    const at = { world: new THREE.Vector3(), distance: 0 }
+    const found = this.pickOnCloud(raycaster.ray, at)
+    if (!found || at.distance < raycaster.near || at.distance > raycaster.far) return
+    out.push({ distance: at.distance, point: at.world, object: cloud.object, index: found.vertices[0] })
+  }
+
   private pick(clientX: number, clientY: number): PickHit | null {
     // Raycasting ignores visibility, so gate by hand â€” a hidden scan must not
     // swallow clicks meant for whatever is shown in its place.
     if (!this.mesh?.visible) return null
     this.setPickRay(clientX, clientY)
+    if (this.cloud) {
+      const found = this.pickOnCloud(this.raycaster.ray)
+      return found && { ...found, clientX, clientY }
+    }
     const hits = this.raycaster.intersectObject(this.mesh, false)
     const hit = hits[0]
     if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return null
@@ -2404,6 +2457,11 @@ export class SceneManager {
       if (section) return section.id
       // On the scan the element is the owner of the nearest triangle corner.
       // Bare scan ends the search: it occludes whatever is behind it.
+      if (this.cloud) {
+        // A point has an owner of its own: no corners to weigh.
+        const owner = hit.index === undefined || !this.regions.ready ? null : this.regions.visibleOwnerAt(hit.index)
+        return owner !== null && offered(owner) ? owner : null
+      }
       if (hit.faceIndex === undefined || hit.faceIndex === null || !this.regions.ready) return null
       const index = (this.mesh.geometry as THREE.BufferGeometry).getIndex()!
       const f = hit.faceIndex * 3
@@ -2840,6 +2898,7 @@ export class SceneManager {
     rigidRotateVectors(m, normals.array as Float32Array)
     positions.needsUpdate = true
     normals.needsUpdate = true
+    this.cloudGrid = null // the points moved: the index is of the old places
     // Also renews the bounding box and sphere. A cloud has no tree to refit.
     if (this.cloud) {
       geometry.computeBoundingBox()
@@ -3252,6 +3311,7 @@ export class SceneManager {
       return
     }
     if (cloud) this.cloud?.setSpacing(cloud.spacing)
+    this.cloudGrid = null
     // A copy of the scan that went is not a copy of this one.
     this.setEditedMesh(null)
     const geometry = this.mesh.geometry as THREE.BufferGeometry
@@ -3620,6 +3680,7 @@ export class SceneManager {
     this.partGroup.remove(this.mesh)
     this.mesh = null
     this.cloud = null
+    this.cloudGrid = null
     this.colorAttr = null
     this.tintAttr = null
     this.paintAttr = null

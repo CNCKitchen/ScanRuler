@@ -20,6 +20,11 @@ export class PointGrid {
   private sIdx = new Int32Array(16)
   private sD2 = new Float64Array(16)
 
+  /** The positions the grid indexes (not copied). */
+  get positions(): Float32Array {
+    return this.pos
+  }
+
   constructor(positions: Float32Array, cell: number) {
     const total = Math.floor(positions.length / 3)
     this.pos = positions
