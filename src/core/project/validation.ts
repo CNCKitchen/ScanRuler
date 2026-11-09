@@ -57,11 +57,17 @@ function bands(value: unknown, path: string): void {
  *  starting a measurement with a billion rays or a scale of zero width. */
 const MAX_CONE_RAYS = 256
 const MAX_BANDS = 256
+/** What a member of the archive may be named — checked on open, and on
+ *  save too (packProject), so a project that saves also opens. */
+export function isMemberName(name: string): boolean {
+  return /^[\w .-]+$/.test(name) && name !== 'project.json'
+}
+
 function file(value: unknown, path: string): void {
   if (value === null) return
   const entry = object(value, path)
   fields(entry, 'fileName member', 'string', path)
-  if (!entry.fileName || !/^[\w .-]+$/.test(entry.member as string) || entry.member === 'project.json') invalid(`${path}.member`)
+  if (!entry.fileName || !isMemberName(entry.member as string)) invalid(`${path}.member`)
   if (entry.units !== undefined && !meshUnitsOf(entry.units)) invalid(`${path}.units`)
 }
 function rigid(value: unknown, path: string): void {
