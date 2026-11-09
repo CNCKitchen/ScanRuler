@@ -3,6 +3,7 @@
 // recent jobs did, the workspace on screen, the report, and the undo
 // history.
 
+import { workspaceUnavailable } from '../../app/workspaceAvailability'
 import { runImport } from '../../app/imports'
 import { activeLocalHistory, historyBlocked, redo, undo, useHistory } from '../../state/historyStore'
 import { useShell } from '../../state/shellStore'
@@ -64,7 +65,10 @@ const workspace: Command<{ workspace: string }> = {
     if (!workspaceNames().includes(name)) {
       throw new CommandError('invalid_input', `There is no workspace "${name}" — there are ${workspaceNames().join(', ')}.`)
     }
-    useShell.getState().setWorkspace(internalWorkspace(name))
+    const target = internalWorkspace(name)
+    const unavailable = workspaceUnavailable(target)
+    if (unavailable !== null) throw new CommandError('invalid_state', unavailable)
+    useShell.getState().setWorkspace(target)
     return { workspace: publicWorkspace(useShell.getState().workspace) }
   },
 }

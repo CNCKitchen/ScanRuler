@@ -31,6 +31,7 @@ import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { SectionEditor } from './SectionEditor'
+import { CLOUD_REFUSAL } from '../core/capabilities'
 import { ExportMeshButton } from './ExportMeshButton'
 import type { MeshFormat } from '../core/exportMesh'
 import { useUnits } from '../app/useUnits'
@@ -543,9 +544,9 @@ export function Panel({
             </button>
             <ExportMeshButton
               testId="export-mesh"
-              disabled={busy}
+              disabled={busy || scanIsCloud}
               onExport={onExportMesh}
-              title="Save the scan as an STL or a 3MF where it now stands — any alignment or move you applied comes with it"
+              title={scanIsCloud ? CLOUD_REFUSAL : 'Save the scan as an STL or a 3MF where it now stands — any alignment or move you applied comes with it'}
             />
             <button
               data-test="export-cloud"

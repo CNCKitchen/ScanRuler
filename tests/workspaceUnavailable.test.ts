@@ -13,6 +13,7 @@ import { useShell } from '../src/state/shellStore'
 import { useStore } from '../src/state/store'
 import { runCommand } from '../src/commands/registry'
 import { registerCommands } from '../src/commands/registry'
+import { registerCoreCommands } from '../src/commands/core'
 import { CommandError } from '../src/commands/types'
 
 beforeAll(() => {
@@ -101,6 +102,19 @@ describe('commands flagged needsTriangles', () => {
     } finally {
       off()
     }
+  })
+})
+
+describe('workspace.set on a cloud', () => {
+  it('refuses a workspace that is unavailable and shows one that is not', async () => {
+    registerCoreCommands()
+    setCloud(true)
+    await expect(runCommand('workspace.set', { workspace: 'thickness' })).rejects.toMatchObject({ message: CLOUD_REFUSAL })
+    await expect(runCommand('workspace.set', { workspace: 'mesh' })).rejects.toMatchObject({ message: CLOUD_REFUSAL })
+    expect(useShell.getState().workspace).toBe('elements')
+    await expect(runCommand('workspace.set', { workspace: 'deviation' })).resolves.toMatchObject({ workspace: 'deviation' })
+    setCloud(false)
+    await expect(runCommand('workspace.set', { workspace: 'mesh' })).resolves.toMatchObject({ workspace: 'mesh' })
   })
 })
 

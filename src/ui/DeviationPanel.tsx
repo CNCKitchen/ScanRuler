@@ -842,10 +842,12 @@ export function DeviationPanel({
           <ExportMeshButton
             block
             testId="export-mesh"
-            disabled={scanBusy}
+            disabled={scanBusy || scanIsCloud}
             onExport={onExportMesh}
             title={
-              onElement
+              scanIsCloud
+                ? CLOUD_REFUSAL
+                : onElement
                 ? 'Save the scan as an STL or a 3MF where it now stands'
                 : 'Save the scan as an STL or a 3MF where it now stands — the best fit onto the reference is baked in'
             }

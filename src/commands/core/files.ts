@@ -61,6 +61,7 @@ const stl: Command<{ format?: MeshFormat }> = {
   input: obj({ format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.') }),
   readOnly: true,
   returnsFile: true,
+  needsTriangles: true,
   run: async ({ format = 'stl' }) => {
     requireScan()
     return fileResult(buildScanMesh(requireScene('The mesh export'), format) ?? nothing('no scan is open'))

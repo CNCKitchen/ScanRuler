@@ -3,6 +3,7 @@
 // running over work open in the panel, waiting for the stores to settle, and
 // files in and out.
 
+import { workspaceUnavailable } from '../../app/workspaceAvailability'
 import type { BuiltFile } from '../../app/exports'
 import { holdsWords, projectUnsaved, sessionHolds, sessionIsDirty } from '../../app/project'
 import { dimHolds } from '../../state/historyStore'
@@ -49,8 +50,11 @@ export function requireFlatFree(): void {
   }
 }
 
-/** Put a workspace on screen, so the person sees what the command does. */
+/** Put a workspace on screen, so the person sees what the command does —
+ *  refused when the workspace cannot be used now (a point cloud's). */
 export function showWorkspace(w: Workspace): void {
+  const unavailable = workspaceUnavailable(w)
+  if (unavailable !== null) throw new CommandError('invalid_state', unavailable)
   if (useShell.getState().workspace !== w) useShell.getState().setWorkspace(w)
 }
 
