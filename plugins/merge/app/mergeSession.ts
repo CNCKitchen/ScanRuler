@@ -487,6 +487,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     useMerge.getState().setRunning('Merging the layers…')
     try {
       await runImport(imports, 'Merging the layers…', async () => {
+        // Loaded here, not with the workspace: the writer is an export
+        // writer, which the app fetches only when one is asked for. First,
+        // so a failed fetch refuses the merge before the worker starts on it.
+        const { buildPointCloudPly } = await import('../../../src/core/exportPointCloud')
         await historyAsync('Merge: merge layers', async () => {
           await call('merge-begin', null)
           ownSwap = true
@@ -505,18 +509,18 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
             })
             const base = (s.fileName ?? 'scan').replace(/\.[^.]+$/, '')
             const name = `${base}-merged.ply`
-            // Loaded here, not with the workspace: the writer is an export
-            // writer, which the app fetches only when one is asked for.
-            const { buildPointCloudPly } = await import('../../../src/core/exportPointCloud')
             // Written before the swap: the buffers are handed over to it.
             const file = new File([buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)], name)
             const dropped = out.dropped
             // units-ok: the file's own unit, an id — the cloud is written in mm.
             const loaded = await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)
+            // Counted as soon as the scan is swapped: the step is recorded
+            // even if what follows throws, and undo must know it crosses one.
+            useMerge.setState((m) => ({ merges: m.merges + 1 }))
             // Points laid exactly on one another are one point of the scan.
             const points = useStore.getState().vertexCount
             remapScan(composeMaps(out.baseMap, loaded))
-            useMerge.setState((m) => ({ merges: m.merges + 1, layers: m.layers.map((l) => ({ ...l, visible: false })) }))
+            useMerge.setState((m) => ({ layers: m.layers.map((l) => ({ ...l, visible: false })) }))
             await remeasureScan(true)
             merged = { points, dropped }
           } finally {
@@ -564,9 +568,11 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
       }),
       // An alignment baked into the base moves what was laid on it: the
       // poses are relative to the base as shown. The viewport's layer does
-      // the same of itself (MergeScene.partMoved).
+      // the same of itself (MergeScene.partMoved). Picked pairs are points
+      // as shown, so they are dropped.
       useStore.subscribe((s, prev) => {
         if (s.appliedAlignment === prev.appliedAlignment) return
+        if (useMerge.getState().pairs.length > 0) useMerge.getState().setPairs([])
         const layers = useMerge.getState().layers
         if (layers.length === 0) return
         const delta = rigidCompose(s.appliedAlignment ?? identityRigid(), rigidInvert(prev.appliedAlignment ?? identityRigid()))

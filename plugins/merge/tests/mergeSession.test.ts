@@ -206,6 +206,14 @@ describe('aligning a layer', () => {
     expect(delta(row(id).pose, rigidCompose(M, POSE)).mm).toBeLessThanOrEqual(0.02)
   })
 
+  it('drops the picked pairs when an alignment is baked into the base: they were points as shown', async () => {
+    const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
+    useMerge.getState().select(id)
+    useMerge.getState().setPairs([{ layer: [1, 2, 3], target: [4, 5, 6] }])
+    expect(await kit.headless.session.alignment.applyManual(rigidOf([10, 0, -30], [7, 8, 9]))).toBe(true)
+    expect(useMerge.getState().pairs).toEqual([])
+  })
+
   it("is refused while an alignment runs — the app's scan open too — and Stop leaves the layer where it was", async () => {
     const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
     kit.merge.moveLayer(id, nudged(POSE))

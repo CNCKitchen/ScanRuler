@@ -62,7 +62,8 @@ export async function startMerge(sceneRef?: { current: SceneManager | null }): P
     imports: s.imports,
     openScan: (file, units) => s.scan.openScan(file, units),
     swapScanBuffers: s.swap.swapScanBuffers,
-    remapScan: s.swap.remapScan,
+    // Looked up at each call, so a test can make it fail.
+    remapScan: (map) => s.swap.remapScan(map),
     remeasureScan: s.swap.remeasureScan,
   })
   const unwatch = merge.watch()

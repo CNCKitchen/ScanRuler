@@ -8,7 +8,11 @@
 // secondary on x+) whatever their specs say: the frame is only a go-between,
 // and two sides labelled differently would otherwise disagree for no reason.
 // A secondary datum is required on each side — without one nothing clocks the
-// rotation about the primary's direction. Coordinates neither datum nor an
+// rotation about the primary's direction. A primary with an origin point
+// and no secondary is refused as well, on purpose: a point on the primary's
+// axis clocks nothing, and one off it would clock the rotation only as well
+// as the point was picked — the safer answer is to ask for a second datum
+// rather than start a layer turned by a guess. Coordinates neither datum nor an
 // origin point owns are zeroed at the primary's centre (computeDatumAlignment's
 // centerOf). Left open (centerOf null) they would keep wherever each scan
 // happened to sit in its own frame, and the two frames would disagree by that

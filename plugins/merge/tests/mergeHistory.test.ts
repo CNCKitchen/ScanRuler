@@ -183,6 +183,56 @@ describe('merging', () => {
     await expect(kit.call('layer-geometry', { id })).rejects.toThrow(`There is no layer "${id}".`)
   })
 
+  it('refuses before the worker starts when the file writer cannot be fetched', async () => {
+    const id = await mergeReady()
+    const before = { source: kit.headless.session.sources.current.scan, steps: labels().length, merges: useMerge.getState().merges }
+    const client = kit.headless.session.clientRef.current!
+    const ops: string[] = []
+    const original = client.pluginCall.bind(client)
+    const plugged = vi.spyOn(client, 'pluginCall').mockImplementation((...args: Parameters<typeof client.pluginCall>) => {
+      ops.push(args[1])
+      return original(...args)
+    })
+    vi.doMock('../../../src/core/exportPointCloud', () => {
+      throw new Error('The writer could not be fetched.')
+    })
+    try {
+      expect(await kit.merge.merge({ dedupe: null })).toBe(false)
+    } finally {
+      vi.doUnmock('../../../src/core/exportPointCloud')
+      plugged.mockRestore()
+    }
+    // Vitest words the failed fetch its own way; that it is shown is what counts.
+    expect(useStore.getState().errorText).toBeTruthy()
+    expect(ops).toEqual([])
+    expect(kit.headless.session.sources.current.scan).toBe(before.source)
+    expect(labels()).toHaveLength(before.steps)
+    expect(useMerge.getState().merges).toBe(before.merges)
+    expect(row(id).visible).toBe(true)
+  })
+
+  it('counts the merge once the scan is swapped: a failure after it still undoes with the layers kept', async () => {
+    const id = await mergeReady()
+    const merges = useMerge.getState().merges
+    const remap = vi.spyOn(kit.headless.session.swap, 'remapScan').mockImplementationOnce(() => {
+      throw new Error('The remap failed.')
+    })
+    try {
+      expect(await kit.merge.merge({ dedupe: null })).toBe(false)
+    } finally {
+      remap.mockRestore()
+    }
+    expect(useStore.getState().errorText).toContain('The remap failed.')
+    expect(useMerge.getState().merges).toBe(merges + 1)
+    expect(labels().at(-1)).toBe('Merge: merge layers')
+    const layerPoints = row(id).vertexCount
+    await undo()
+    // The undo crossed the swap as the workspace's own: the worker kept the layer.
+    expect(useMerge.getState().merges).toBe(merges)
+    expect(row(id)).toBeDefined()
+    expect((await kit.call('layer-geometry', { id })).positions.length).toBe(layerPoints * 3)
+  })
+
   it('keeps the base aligned and scaled: the alignment unchanged, the cloud written in the scaled file frame, the deviation measured again', async () => {
     // The +x half at half size, scaled to its true size, then aligned.
     await openScan(plyFile(scaled(hi, 0.5), 'half.ply'))
