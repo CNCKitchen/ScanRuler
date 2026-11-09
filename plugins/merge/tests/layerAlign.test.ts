@@ -70,6 +70,11 @@ describe('alignPairs', () => {
     const r = runSteps(alignPairs(target, layer, pairs))
     expectRecovered(r, 0.05, 0.02)
   })
+
+  it('refuses too few picks and picks in a line', () => {
+    expect(() => runSteps(alignPairs(target, layer, [pick(0, -15, 0), pick(5, -15, 0)]))).toThrow('Pick at least three point pairs')
+    expect(() => runSteps(alignPairs(target, layer, [pick(0, -15, 0), pick(4, -15, 0), pick(8, -15, 0)]))).toThrow('nearly in a line')
+  })
 })
 
 describe('datumPose', () => {
@@ -113,6 +118,12 @@ describe('datumPose', () => {
   it('alignDatums passes the refusal on', () => {
     const one = side(identityRigid(), { primary: face })
     expect(runSteps(alignDatums(target, layer, one, one))).toEqual({ refused: UNDER })
+  })
+
+  it('alignDatums refuses two parallel planes', () => {
+    const back: PlaneFit = { ...face, center: [0, 15, 0], normal: [0, 1, 0] }
+    const s = side(identityRigid(), { primary: face, secondary: back })
+    expect(runSteps(alignDatums(target, layer, s, s))).toEqual({ refused: UNDER })
   })
 
   it('refuses a plane alone, on either side', () => {

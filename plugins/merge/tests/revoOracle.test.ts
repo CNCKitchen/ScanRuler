@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
+import { alignPairs, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
 import { oraclePose, scorePose } from '../../../src/core/deviation/poseScore'
 import { identityRigid, rigidApply, rigidCompose, rigidFromAxisAngle, rigidInvert, rigidRotationAngle, type Rigid } from '../../../src/core/deviation/rigid'
@@ -15,10 +15,13 @@ import { runSteps } from '../../../src/core/deviation/steps'
 import { buildPointGraph, type PointGraph } from '../../../src/core/geometry/buildPointGraph'
 import { parsePLY } from '../../../src/core/parsers/ply'
 import { revo, type RevoPass } from '../../../tests/revoFixtures'
+import type { Vec3 } from '../../../src/core/types'
 
 const R = revo()
 const HEAVY = process.env.SCANRULER_HEAVY === '1'
 const DEG = Math.PI / 180
+/** Measurement lines, printed only on the heavy run. */
+const log = (line: string) => { if (HEAVY) process.stderr.write(line) }
 const PASSES: RevoPass[] = ['0905_01', '0905_03', '0905_04', '0905_05']
 
 const load = (n: RevoPass): PointGraph => {
@@ -85,7 +88,7 @@ describe.skipIf(!R.exists)('Revo oracle', () => {
     const ours = runSteps(refineLayer(target, layer, rigidCompose(oracle, perturbation(start.deg, start.mm, c))))
     const ms = Math.round(performance.now() - t0)
     const d = delta(ours.pose, oracle, c)
-    process.stderr.write(
+    log(
       `REVO ${n} ${start.name}: rms ${ours.rms.toFixed(4)} (oracle ${os.rms.toFixed(4)}) matched ${ours.matched.toFixed(4)} (oracle ${os.matched.toFixed(4)}) ` +
         `delta ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm confident ${ours.confident} ${ms} ms\n`,
     )
@@ -106,6 +109,34 @@ describe.skipIf(!R.exists)('Revo oracle', () => {
     check('0905_03', layerOf(load('0905_03')), STARTS[0])
   }, 300_000)
 
+  it('four rough picks on 0905_03 land on the oracle', () => {
+    setup()
+    const layer = layerOf(load('0905_03'))
+    const oracle = oraclePose(R.oracle('0905_03'))
+    // The layer points furthest along four spread directions, picked on the
+    // target where the oracle puts them, each click 0.3 mm out.
+    const dirs = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 1]]
+    const jitter = [[0.3, -0.3, 0.3], [-0.3, 0.3, 0.3], [0.3, 0.3, -0.3], [-0.3, -0.3, -0.3]]
+    const pairs = dirs.map((d, k) => {
+      let best = 0, far = -Infinity
+      for (let i = 0; i < layer.positions.length; i += 3) {
+        const v = d[0] * layer.positions[i] + d[1] * layer.positions[i + 1] + d[2] * layer.positions[i + 2]
+        if (v > far) { far = v; best = i }
+      }
+      const l: Vec3 = [layer.positions[best], layer.positions[best + 1], layer.positions[best + 2]]
+      const t = new Float64Array(3)
+      rigidApply(oracle, l[0], l[1], l[2], t)
+      return { layer: l, target: [t[0] + jitter[k][0], t[1] + jitter[k][1], t[2] + jitter[k][2]] as Vec3 }
+    })
+    const t0 = performance.now()
+    const r = runSteps(alignPairs(target, layer, pairs))
+    const d = delta(r.pose, oracle, centroid(layer))
+    log(`REVO 0905_03 pairs: rms ${r.rms.toFixed(4)} matched ${r.matched.toFixed(4)} delta ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm confident ${r.confident} ${Math.round(performance.now() - t0)} ms\n`)
+    expect(r.confident).toBe(true)
+    expect(d.deg).toBeLessThan(1)
+    expect(d.mm).toBeLessThan(1)
+  }, 300_000)
+
   it.skipIf(!HEAVY)('lands on the oracle from every start, every pass', () => {
     setup()
     for (const n of PASSES) {
@@ -123,7 +154,7 @@ describe.skipIf(!R.exists)('Revo oracle', () => {
       const t0 = performance.now()
       const r: LayerAlignResult = runSteps(refineLayer(target, layer, identityRigid(), { fromUserGuess: false }))
       const d = delta(r.pose, oracle, centroid(layer))
-      process.stderr.write(
+      log(
         `REVO ${n} identity: rms ${r.rms.toFixed(4)} (oracle ${os.rms.toFixed(4)}) matched ${r.matched.toFixed(4)} lowOverlap ${r.lowOverlap} ` +
           `delta ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm confident ${r.confident} ${Math.round(performance.now() - t0)} ms\n`,
       )
@@ -151,10 +182,9 @@ describe.skipIf(!R.exists)('Revo oracle', () => {
     const d = delta(r.pose, via, c)
     const dOurs = delta(r.pose, rigidCompose(rigidInvert(ours03), ours01), c)
     const viaScore = scorePose(t03, l01, via, 3 * g03.spacing)
-    process.stderr.write(
+    log(
       `REVO composition 01->03: rms ${r.rms.toFixed(4)} (oracle composed ${viaScore.rms.toFixed(4)}) matched ${r.matched.toFixed(4)} (oracle composed ${viaScore.matched.toFixed(4)}) ` +
-        `delta to oracle composed ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm, to ours composed ${dOurs.deg.toFixed(3)} deg ${dOurs.mm.toFixed(3)} mm confident ${r.confident} ${ms} ms
-`,
+        `delta to oracle composed ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm, to ours composed ${dOurs.deg.toFixed(3)} deg ${dOurs.mm.toFixed(3)} mm confident ${r.confident} ${ms} ms\n`,
     )
     // Direct and composed disagree by about 0.25 mm at the centroid whichever
     // poses are composed (Revo's or ours), and the direct pose fits 03 better

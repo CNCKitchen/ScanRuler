@@ -22,7 +22,7 @@
 //
 // Pure numerics: no DOM, no Three.js.
 
-import { computeDatumAlignment, type DatumSpec } from '../../../src/core/alignment'
+import { AlignmentError, computeDatumAlignment, type DatumSpec } from '../../../src/core/alignment'
 import { rigidCompose, rigidInvert, type Rigid } from '../../../src/core/deviation/rigid'
 import type { FitData } from '../../../src/core/types'
 
@@ -38,8 +38,10 @@ function frameOf(s: DatumSet): Rigid | null {
   if (!s.secondary) return null
   try {
     return computeDatumAlignment({ fit: s.primary.fit, axis: 'z+' }, { fit: s.secondary.fit, axis: 'x+' }, s.origin, s.primary.fit.center)
-  } catch {
-    return null
+  } catch (e) {
+    // Degenerate datums (parallel, no direction) are the user's to fix; anything else is a bug.
+    if (e instanceof AlignmentError) return null
+    throw e
   }
 }
 

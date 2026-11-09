@@ -20,10 +20,10 @@
 //
 // Pure numerics: no DOM, no Three.js.
 
-import { alignFromPairsSteps } from '../../../src/core/deviation/align'
 import type { DatumSpec } from '../../../src/core/alignment'
+import { absoluteOrientation } from '../../../src/core/deviation/absoluteOrientation'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
-import { icpSteps, sampleScan } from '../../../src/core/deviation/icp'
+import { icpSteps, sampleScan, type ScanSamples } from '../../../src/core/deviation/icp'
 import { poseConfidence, scorePose } from '../../../src/core/deviation/poseScore'
 import type { Rigid } from '../../../src/core/deviation/rigid'
 import type { Steps } from '../../../src/core/deviation/steps'
@@ -38,6 +38,9 @@ export interface LayerCloud {
   /** A 25 k-point sample of it, for the first ICP stage. */
   sample: Float32Array
   sampleNormals: Float32Array
+  /** The 200 k-point sample for the second stage, drawn once so the starts
+   *  alignDatums tries share it. */
+  fine: ScanSamples
 }
 
 export interface LayerAlignResult {
@@ -69,32 +72,44 @@ const MIN_NORMAL_DOT = 0.5
 const MAX_PAIR = 30
 /** Scoring reach, in target spacings. */
 const SCORE_SPACINGS = 3
+/** Layer points scored between two yields: the full-resolution score of a
+ *  real pass is about a second of work, too long to hold a stop request. */
+const SCORE_CHUNK = 100_000
 
 /** A layer ready to align, its positions multiplied by `scale` first (25.4
  *  for a file in inches) so it lives in the target's millimetres. */
 export function layerCloud(positions: Float32Array, normals: Float32Array, scale = 1): LayerCloud {
   const p = scale === 1 ? positions : positions.map((v) => v * scale)
   const s = sampleScan(p, normals, COARSE_SAMPLES)
-  return { positions: p, normals, sample: Float32Array.from(s.xyz), sampleNormals: Float32Array.from(s.normals ?? []) }
+  return {
+    positions: p,
+    normals,
+    sample: Float32Array.from(s.xyz),
+    sampleNormals: Float32Array.from(s.normals ?? []),
+    fine: sampleScan(p, normals, FINE_SAMPLES),
+  }
 }
 
 /** Picked pairs (a point on the layer, the same point on the target) solved in
- *  closed form, then refined. Throws the picked-point errors of
- *  alignFromPairsSteps for fewer than three pairs or pairs in a line. */
+ *  closed form, then refined. `layer` points are in the layer's frame as
+ *  layerCloud left it: scaled, so millimetres. The closed-form pose goes
+ *  straight to refineLayer, not through alignFromPairs, whose own ICP pairs
+ *  without a distance bound and would drag a partly overlapping layer. Throws
+ *  alignFromPairs' texts for fewer than three pairs, no solution, or pairs in
+ *  a line. */
 export function* alignPairs(
   target: ClosestSurface,
   layer: LayerCloud,
   pairs: { layer: Vec3; target: Vec3 }[],
   opts: Omit<RefineOptions, 'fromUserGuess'> = {},
 ): Steps<LayerAlignResult> {
-  const picked = yield* alignFromPairsSteps(
-    target,
-    layer.positions,
-    layer.normals,
-    pairs.map((p) => ({ scan: p.layer, nominal: p.target })),
-    { fineSamples: COARSE_SAMPLES },
-  )
-  return yield* refineLayer(target, layer, picked.transform, { ...opts, fromUserGuess: true })
+  if (pairs.length < 3) throw new Error('Pick at least three point pairs — two cannot fix a rotation.')
+  const solved = absoluteOrientation(pairs.map((p) => p.layer), pairs.map((p) => p.target))
+  if (!solved) throw new Error('Could not solve the picked points.')
+  if (solved.conditioning < 0.02) {
+    throw new Error('The picked points are nearly in a line — add one away from that line, so the rotation about it is fixed.')
+  }
+  return yield* refineLayer(target, layer, solved.transform, { ...opts, fromUserGuess: true })
 }
 
 export function* refineLayer(
@@ -113,12 +128,31 @@ export function* refineLayer(
     count: layer.sample.length / 3,
   }
   let pose = (yield* icpSteps(target, coarse, start, icpOptions)).transform
-  pose = (yield* icpSteps(target, sampleScan(layer.positions, layer.normals, FINE_SAMPLES), pose, icpOptions)).transform
-  yield
-
-  const score = scorePose(target, layer, pose, SCORE_SPACINGS * spacing)
+  pose = (yield* icpSteps(target, layer.fine, pose, icpOptions)).transform
+  const score = yield* scoreInChunks(target, layer, pose, SCORE_SPACINGS * spacing)
   const { lowOverlap, confident } = poseConfidence(score, spacing)
   return { pose, rms: score.rms, matched: score.matched, lowOverlap, confident: confident && opts.fromUserGuess !== false }
+}
+
+/** scorePose over the layer a chunk at a time, yielding between chunks. */
+function* scoreInChunks(
+  target: ClosestSurface,
+  layer: LayerCloud,
+  pose: Rigid,
+  maxPair: number,
+): Steps<{ rms: number; matched: number }> {
+  const n = layer.positions.length / 3
+  let count = 0
+  let sumSq = 0
+  for (let i = 0; i < n; i += SCORE_CHUNK) {
+    yield
+    const end = Math.min(n, i + SCORE_CHUNK)
+    const s = scorePose(target, { positions: layer.positions.subarray(3 * i, 3 * end), normals: layer.normals.subarray(3 * i, 3 * end) }, pose, maxPair)
+    const c = Math.round(s.matched * (end - i))
+    count += c
+    if (c > 0) sumSq += s.rms * s.rms * c
+  }
+  return { rms: count > 0 ? Math.sqrt(sumSq / count) : Infinity, matched: n > 0 ? count / n : 0 }
 }
 
 /** The same datum with its direction the other way, or null for a datum whose
