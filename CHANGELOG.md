@@ -5,6 +5,14 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **A 2D note stays where it was placed** (2026-11-09, pull request 70).
+  Once the Reverse engineer had loaded, a text note on the 2D sheet was
+  drawn 34 px right of and 17 px above the point clicked, and a long one
+  was cut short: the Reverse engineer's note pins shared the 2D note's
+  style. The pins now have their own. Thanks to Greg-J for finding it.
+
 ## 0.10.2 — 2026-11-09
 
 - **A project with an oddly named file opens again** (2026-11-09, pull
