@@ -43,6 +43,7 @@ import { useStore } from '../../../src/state/store'
 import { MergeScene } from '../viewer/mergeScene'
 import { BASE, MERGE, type AlignReply, type DatumIds, type MergeOps } from '../core/protocol'
 import type { LayerAlignResult } from '../core/layerAlign'
+import { count } from '../ui/mergeFormat'
 import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits, type MergeSnapshot } from '../state/mergeStore'
 
 /** The question a merge onto a mesh asks first — exact, see the spec. */
@@ -51,7 +52,6 @@ export const MESH_BASE_CONFIRM = 'The result is a point cloud — triangle-only 
 /** The workspace's id. */
 export const MERGE_WORKSPACE = 'merge'
 
-const count = (n: number) => n.toLocaleString('en-US')
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
 const shown = () => boundLength(usePrefs.getState().units)
 
@@ -92,10 +92,17 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
   /** Each layer's centre in its own frame, mm — what a change of units
    *  scales it about. */
   const centres = new Map<string, Vec3>()
-  /** The layers the user has placed — moved, or aligned by pairs or datums
-   *  — since they were opened: a refine from any other pose starts from no
-   *  one's guess, and is never called confident. */
-  const seeded = new Set<string>()
+  /** The poses someone chose — a move, an alignment by pairs or datums —
+   *  and those carried on from one (a refine from it, a baked move, a change
+   *  of units). Held by the pose object, which a step of the history puts
+   *  back as it was: undone back to the pose a layer was opened at, a refine
+   *  starts from no one's guess again, and is never called confident. */
+  const guessed = new WeakSet<Rigid>()
+  /** `pose`, a guess if `from` was one. */
+  const carried = (from: Rigid, pose: Rigid): Rigid => {
+    if (guessed.has(from)) guessed.add(pose)
+    return pose
+  }
   let nextLayer = 1
   /** The next scan replacement is the workspace's own: its layers stay. */
   let ownSwap = false
@@ -125,6 +132,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
 
   /** Why nothing may start now, or null. */
   const refusal = (): string | null => {
+    if (useMerge.getState().confirming) return 'Answer the question in the panel first.'
     if (useMerge.getState().running) return 'Wait for the alignment or the merge in progress to finish — or stop it.'
     if (useStore.getState().busy || imports.busy || useHistory.getState().restoring) return 'Wait for the work in progress to finish.'
     return null
@@ -194,7 +202,6 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
       const color = LAYER_COLORS.find((c) => !used.has(c)) ?? LAYER_COLORS[(nextLayer - 2) % LAYER_COLORS.length]
       files.set(id, file)
       centres.set(id, centreOf(geometry.positions))
-      seeded.delete(id)
       sceneOf()?.add(id, { ...geometry, spacing: added.spacing }, color)
       useMerge.getState().addLayer(layerRow(id, file.name, color, units, added))
       useStore
@@ -215,7 +222,6 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     useMerge.getState().removeLayer(id)
     files.delete(id)
     centres.delete(id)
-    seeded.delete(id)
   }
 
   const removeLayer = async (id: string): Promise<void> => {
@@ -227,6 +233,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
 
   /** Every layer dropped: `inWorker` when the worker still holds them. */
   const dropLayers = (inWorker: boolean) => {
+    // A merge waiting on its question has nothing left to merge; an
+    // alignment running has no layer to land on.
+    answerConfirm(false)
+    if (useMerge.getState().running === 'Aligning the layer…') clientRef.current?.abortAlign()
     const ids = useMerge.getState().layers.map((l) => l.id)
     if (ids.length === 0) return
     if (inWorker && clientRef.current) for (const id of ids) void call('remove-layer', { id }).catch(() => {})
@@ -234,7 +244,6 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     useMerge.getState().clearLayers()
     files.clear()
     centres.clear()
-    seeded.clear()
   }
 
   /** A layer read again in `units` — removed from the worker and added
@@ -261,6 +270,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     view?.add(id, { ...staged.geometry, spacing: staged.added.spacing }, row.color)
     view?.setPose(id, row.pose)
     view?.setVisible(id, row.visible)
+    if (handle?.id === id) attachHandle()
     useMerge.getState().patchLayer(id, { units, vertexCount: staged.added.vertexCount, spacing: staged.added.spacing, isCloud: staged.added.isCloud, last: undefined })
     // Its fits went with it in the worker.
     useMerge.getState().clearDatums(id)
@@ -282,7 +292,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
         const c = centres.get(id) ?? [0, 0, 0]
         const rc = new Float64Array(3)
         rigidRotate(row.pose, c[0], c[1], c[2], rc)
-        const pose = cloneRigid(row.pose)
+        const pose = carried(row.pose, cloneRigid(row.pose))
         for (let i = 0; i < 3; i++) pose.t[i] += (1 - k) * rc[i]
         await reread(id, units)
         useMerge.getState().setPose(id, pose)
@@ -295,6 +305,8 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
   const setLayer = async (id: string, patch: Partial<Pick<LayerRow, 'color' | 'visible' | 'units' | 'locked'>>): Promise<void> => {
     rowOf(id)
     const { units, ...rest } = patch
+    // What is shown is what a merge takes: not while one runs or asks.
+    if (rest.visible !== undefined && refused()) return
     if (Object.keys(rest).length > 0) useMerge.getState().patchLayer(id, rest)
     if (units !== undefined) await changeUnits(id, units)
   }
@@ -311,9 +323,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
       lockedNote(row)
       return false
     }
+    if (refused()) return false
     historyAction('Merge: move layer', () => useMerge.getState().setPose(id, pose))
     useMerge.getState().patchLayer(id, { last: undefined })
-    seeded.add(id)
+    guessed.add(pose)
     return true
   }
 
@@ -357,7 +370,8 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     historyAction(`Merge: ${label}`, () => useMerge.getState().setPose(id, pose))
     const result: LayerAlignResult = { ...reply, pose }
     useMerge.getState().patchLayer(id, { last: result })
-    if (seeds) seeded.add(id)
+    if (seeds) guessed.add(pose)
+    else carried(row.pose, pose)
     const len = shown()
     const pct = `${(reply.matched * 100).toFixed(1)} %`
     useStore
@@ -384,7 +398,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
   /** Refine a layer onto its target from where it stands. */
   const refine = (id: string, target: string) => {
     const start = rigidCompose(rigidInvert(targetPose(target)), rowOf(id).pose)
-    return align(id, target, 'refine layer', () => call('refine', { id, target, start, fromUserGuess: seeded.has(id) }), false)
+    return align(id, target, 'refine layer', () => call('refine', { id, target, start, fromUserGuess: guessed.has(rowOf(id).pose) }), false)
   }
 
   /** A datum fitted on a layer or on the base (BASE) from picked vertices of
@@ -404,6 +418,25 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     } finally {
       useMerge.getState().setRunning(null)
     }
+  }
+
+  /** The handle the panel wants on a layer, kept so a layer read again
+   *  (new units, a step across them) gets it back: the viewport drops it
+   *  with the layer it was on. */
+  let handle: { id: string; mode: 'translate' | 'rotate' } | null = null
+  const attachHandle = () => {
+    const view = sceneOf()
+    if (!view) return
+    if (!handle) view.gizmo(null, () => {})
+    else {
+      const id = handle.id
+      view.gizmo(id, (pose) => moveLayer(id, pose), handle.mode)
+    }
+  }
+  /** Put the handle on a layer, or away with null. */
+  const setGizmo = (id: string | null, mode: 'translate' | 'rotate' = 'translate') => {
+    handle = id === null ? null : { id, mode }
+    attachHandle()
   }
 
   /** Stop the alignment running. */
@@ -438,13 +471,18 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
    */
   const merge = async ({ dedupe }: { dedupe: number | null }): Promise<boolean> => {
     if (refused()) return false
-    const visible = useMerge.getState().layers.filter((l) => l.visible)
-    if (visible.length === 0) {
+    const shown = () => useMerge.getState().layers.filter((l) => l.visible)
+    const none = () => {
       useStore.getState().setError('Show at least one layer to merge — the hidden ones are left out.')
       return false
     }
+    if (shown().length === 0) return none()
     if (!useStore.getState().scanIsCloud && !(await ask(MESH_BASE_CONFIRM))) return false
     if (refused()) return false
+    // Read again after the question: the layers and their poses are what
+    // they are now, not when it was asked.
+    const visible = shown()
+    if (visible.length === 0) return none()
     let merged: { points: number; dropped: number } | null = null
     useMerge.getState().setRunning('Merging the layers…')
     try {
@@ -529,7 +567,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
         const layers = useMerge.getState().layers
         if (layers.length === 0) return
         const delta = rigidCompose(s.appliedAlignment ?? identityRigid(), rigidInvert(prev.appliedAlignment ?? identityRigid()))
-        useMerge.setState({ layers: layers.map((l) => ({ ...l, pose: rigidCompose(delta, l.pose) })) })
+        useMerge.setState({ layers: layers.map((l) => ({ ...l, pose: carried(l.pose, rigidCompose(delta, l.pose)) })) })
       }),
       onScan({
         // Another part: its layers go — the worker has dropped them.
@@ -546,7 +584,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
         if (prev.workspace === MERGE_WORKSPACE && s.workspace !== MERGE_WORKSPACE) dropLayers(true)
       }),
       registerHistory({
-        blocked: () => useMerge.getState().running !== null,
+        blocked: () => useMerge.getState().running !== null || useMerge.getState().confirming !== null,
         // A step across a change of units reads the layer again in the
         // step's units before its pose goes back on.
         beforeRestore: async (patch) => {
@@ -597,6 +635,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     merge,
     mergeShown,
     stop,
+    setGizmo,
     answerConfirm,
     dropLayers,
     layers: (): LayerRow[] => useMerge.getState().layers,

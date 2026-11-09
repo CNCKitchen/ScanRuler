@@ -9,7 +9,8 @@ import { unitsLabel } from '../../../src/core/meshUnits'
 import { Icon } from '../../../src/ui/icons'
 import { useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
 
-const count = (n: number) => n.toLocaleString('en-US')
+import { count } from './mergeFormat'
+
 const UNITS: LayerUnits[] = ['mm', 'in'] // units-ok: MeshUnits ids, shown through unitsLabel
 
 export function LayerList({
@@ -87,6 +88,7 @@ function LayerItem({
         <button
           className={'x eye' + (l.visible ? '' : ' off')}
           data-test={`merge-layer-visible-${l.id}`}
+          disabled={busy}
           title={l.visible ? `Hide ${l.name} — and leave it out of the merge` : `Show ${l.name}`}
           onClick={(e) => {
             e.stopPropagation()

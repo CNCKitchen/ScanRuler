@@ -16,7 +16,7 @@ import { BASE } from '../core/protocol'
 import { autoDedupe, mergeDedupe, useMerge, type DatumKind, type LayerRow, type MergeTool } from '../state/mergeStore'
 import { LayerList } from './LayerList'
 
-const count = (n: number) => n.toLocaleString('en-US')
+import { count } from './mergeFormat'
 
 const TOOLS: { id: MergeTool; label: string; title: string }[] = [
   { id: 'move', label: 'Move', title: 'Drag the layer near its place with the handle, or type where it goes — then Refine' },
@@ -60,20 +60,30 @@ export function MergePanel({
   const scanPoints = useStore((s) => s.vertexCount)
   const scanIsCloud = useStore((s) => s.scanIsCloud)
   const scanBusy = useStore((s) => s.busy)
-  const m = useMerge()
+  const layers = useMerge((s) => s.layers)
+  const selected = useMerge((s) => s.selected)
+  const target = useMerge((s) => s.target)
+  const tool = useMerge((s) => s.tool)
+  const gizmoMode = useMerge((s) => s.gizmoMode)
+  const pairs = useMerge((s) => s.pairs)
+  const datums = useMerge((s) => s.datums)
+  const datumKind = useMerge((s) => s.datumKind)
+  const runningText = useMerge((s) => s.running)
+  const confirming = useMerge((s) => s.confirming)
+  const dedupe = useMerge(mergeDedupe)
+  const { setTarget, setTool, setGizmoMode, setPairs, clearDatums, setDatumKind, setDedupe } = useMerge.getState()
   const len = useLength()
   const layerInput = useRef<HTMLInputElement>(null)
-  const running = m.running !== null
+  const running = runningText !== null
   const busy = scanBusy || running
-  const layer = m.layers.find((l) => l.id === m.selected) ?? null
-  const targets = m.layers.filter((l) => l.id !== m.selected)
-  const pairsDone = m.pairs.filter((p) => p.target !== null).length
-  const layerDatums = layer ? (m.datums[layer.id] ?? []) : []
-  const targetDatums = m.datums[m.target] ?? []
-  const shown = m.layers.filter((l) => l.visible).length
-  const dedupe = mergeDedupe(m)
-  const auto = autoDedupe(m.layers)
-  const targetName = m.target === BASE ? 'the scan' : (m.layers.find((l) => l.id === m.target)?.name ?? 'the scan')
+  const layer = layers.find((l) => l.id === selected) ?? null
+  const targets = layers.filter((l) => l.id !== selected)
+  const pairsDone = pairs.filter((p) => p.target !== null).length
+  const layerDatums = layer ? (datums[layer.id] ?? []) : []
+  const targetDatums = datums[target] ?? []
+  const shown = layers.filter((l) => l.visible).length
+  const auto = autoDedupe(layers)
+  const targetName = target === BASE ? 'the scan' : (layers.find((l) => l.id === target)?.name ?? 'the scan')
 
   return (
     <aside className="panel merge-panel">
@@ -129,7 +139,7 @@ export function MergePanel({
           </div>
           <label className="field">
             <span>Onto</span>
-            <select data-test="merge-target" value={m.target} disabled={busy} onChange={(e) => m.setTarget(e.target.value)}>
+            <select data-test="merge-target" value={target} disabled={busy} onChange={(e) => setTarget(e.target.value)}>
               <option value={BASE}>The scan</option>
               {targets.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -143,12 +153,12 @@ export function MergePanel({
               <button
                 key={t.id}
                 role="radio"
-                aria-checked={m.tool === t.id}
-                className={m.tool === t.id ? 'on' : undefined}
+                aria-checked={tool === t.id}
+                className={tool === t.id ? 'on' : undefined}
                 data-test={`merge-tool-${t.id}`}
                 disabled={busy || layer.locked}
                 title={layer.locked ? 'Unlock the layer to move it' : t.title}
-                onClick={() => m.setTool(m.tool === t.id ? null : t.id)}
+                onClick={() => setTool(tool === t.id ? null : t.id)}
               >
                 {t.label}
               </button>
@@ -156,11 +166,11 @@ export function MergePanel({
           </div>
           {layer.locked && <p className="hint">Locked — it stays where it is.</p>}
 
-          {m.tool === 'move' && !layer.locked && (
+          {tool === 'move' && !layer.locked && (
             <>
               <div className="moderow" role="radiogroup" aria-label="Handle">
                 {(['translate', 'rotate'] as const).map((mode) => (
-                  <button key={mode} role="radio" aria-checked={m.gizmoMode === mode} className={m.gizmoMode === mode ? 'on' : undefined} data-test={`merge-gizmo-${mode}`} onClick={() => m.setGizmoMode(mode)}>
+                  <button key={mode} role="radio" aria-checked={gizmoMode === mode} className={gizmoMode === mode ? 'on' : undefined} data-test={`merge-gizmo-${mode}`} onClick={() => setGizmoMode(mode)}>
                     {mode === 'translate' ? 'Slide' : 'Turn'}
                   </button>
                 ))}
@@ -187,19 +197,19 @@ export function MergePanel({
             </>
           )}
 
-          {m.tool === 'pairs' && (
+          {tool === 'pairs' && (
             <>
               <div className="kv" data-test="merge-pairs">
                 <span className="name">Pairs picked</span>
                 <b>{count(pairsDone)}</b>
               </div>
               <p className="hint">
-                {m.pairs.length > pairsDone
+                {pairs.length > pairsDone
                   ? `Now the same point on ${targetName}.`
                   : `Click a point on ${layer.name}, then the same point on ${targetName}. Three or more, spread out.`}
               </p>
               <div className="toolrow">
-                <button data-test="merge-pairs-clear" disabled={busy || m.pairs.length === 0} onClick={() => m.setPairs([])}>
+                <button data-test="merge-pairs-clear" disabled={busy || pairs.length === 0} onClick={() => setPairs([])}>
                   Clear
                 </button>
                 <button className="primary" data-test="merge-pairs-align" disabled={busy || pairsDone < 3} onClick={onAlignPairs} title={pairsDone < 3 ? 'Pick three pairs first' : 'Lay the layer on by the pairs, then refine it'}>
@@ -209,11 +219,11 @@ export function MergePanel({
             </>
           )}
 
-          {m.tool === 'datums' && (
+          {tool === 'datums' && (
             <>
               <div className="moderow merge-datum-kinds" role="radiogroup" aria-label="Datum kind">
                 {DATUM_KINDS.map((k) => (
-                  <button key={k.id} role="radio" aria-checked={m.datumKind === k.id} className={m.datumKind === k.id ? 'on' : undefined} data-test={`merge-datum-${k.id}`} onClick={() => m.setDatumKind(k.id)}>
+                  <button key={k.id} role="radio" aria-checked={datumKind === k.id} className={datumKind === k.id ? 'on' : undefined} data-test={`merge-datum-${k.id}`} onClick={() => setDatumKind(k.id)}>
                     {k.label}
                   </button>
                 ))}
@@ -232,8 +242,8 @@ export function MergePanel({
                   data-test="merge-datums-clear"
                   disabled={busy || (layerDatums.length === 0 && targetDatums.length === 0)}
                   onClick={() => {
-                    m.clearDatums(layer.id)
-                    m.clearDatums(m.target)
+                    clearDatums(layer.id)
+                    clearDatums(target)
                   }}
                 >
                   Clear
@@ -262,11 +272,11 @@ export function MergePanel({
               </button>
             )}
           </div>
-          {m.running && <p className="hint" data-test="merge-running">{m.running}</p>}
+          {runningText && <p className="hint" data-test="merge-running">{runningText}</p>}
         </div>
       )}
 
-      {m.layers.length > 0 && (
+      {layers.length > 0 && (
         <div className="group" data-test="merge-merge">
           <div className="sec-head">
             Merge
@@ -284,7 +294,7 @@ export function MergePanel({
               data-test="merge-dedupe-on"
               checked={dedupe !== null}
               disabled={busy}
-              onChange={(e) => m.setDedupe(e.target.checked ? (auto ?? 0.1) : null)}
+              onChange={(e) => setDedupe(e.target.checked ? (auto ?? 0.1) : null)}
             />
             <span>Drop doubled points</span>
           </label>
@@ -297,13 +307,13 @@ export function MergePanel({
               min={0.0001}
               kind="length"
               disabled={busy}
-              onCommit={(v) => m.setDedupe(v)}
+              onCommit={(v) => setDedupe(v)}
               hint="Starts at the layers' point spacing."
             />
           )}
-          {m.confirming ? (
+          {confirming ? (
             <div className="merge-confirm" data-test="merge-confirm" role="alertdialog" aria-label="Merge onto a mesh">
-              <p>{m.confirming}</p>
+              <p>{confirming}</p>
               <div className="toolrow">
                 <button data-test="merge-confirm-no" onClick={() => onConfirm(false)} title="Leave the scan as it is (Esc)">
                   Keep the mesh

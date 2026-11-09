@@ -24,6 +24,7 @@ import type { SourceFiles } from './project'
 import { scanLoaded } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { usePrefs } from '../state/prefsStore'
+import { pluginBusy } from '../commands/activity'
 import { fmtLen, lengthInputText, unitWord } from '../core/units'
 import { noTrueSize } from '../core/scanScale'
 
@@ -77,6 +78,16 @@ export interface ScanImportDeps {
   imports: ImportQueue
   maps: ScanMaps
   clearPreview: () => void
+}
+
+/** A workspace's own machinery at work on the scan — an alignment running
+ *  in the worker, say (registerBusy): a new scan is refused rather than put
+ *  under it, said on the error line. Asked when the open is asked for and
+ *  again at the head of the import queue. */
+function pluginRefuses(): boolean {
+  const busy = pluginBusy()
+  if (busy) useStore.getState().setError(`Wait for the work in progress to finish before opening another scan — ${busy}.`)
+  return busy !== null
 }
 
 export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearPreview }: ScanImportDeps) {
@@ -149,6 +160,7 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
    *  `shouldStart`, asked at the head of the import queue — so it sees work
    *  made while the file waited — leaves it unopened when it says no. */
   const openScan = async (file: File, units?: MeshUnits, shouldStart?: () => boolean): Promise<void> => {
+    if (pluginRefuses()) return
     const read = units ?? (await meshUnitsFor(file.name))
     if (!read) return
     await runImport(imports, isStepFile(file.name) ? 'Reading STEP file — tessellating the CAD surfaces…' : 'Reading file…', async () => {
@@ -180,7 +192,7 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
         prepared.view.dispose()
         await client.discardImport([prepared.id])
       }
-    }, shouldStart)
+    }, () => !pluginRefuses() && (shouldStart?.() ?? true))
   }
 
   return { commitScan, openScan }

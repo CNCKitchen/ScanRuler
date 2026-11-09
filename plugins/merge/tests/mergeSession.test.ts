@@ -7,6 +7,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { identityRigid, rigidCompose, rigidInvert } from '../../../src/core/deviation/rigid'
 import { useShell } from '../../../src/state/shellStore'
+import { undo } from '../../../src/state/historyStore'
 import { useStore } from '../../../src/state/store'
 import { applyRigidCloud, rigidOf } from '../../../tests/cloudFixtures'
 import { BASE } from '../core/protocol'
@@ -205,21 +206,48 @@ describe('aligning a layer', () => {
     expect(delta(row(id).pose, rigidCompose(M, POSE)).mm).toBeLessThanOrEqual(0.02)
   })
 
-  it('is refused while an alignment runs, and Stop leaves the layer where it was', async () => {
+  it("is refused while an alignment runs — the app's scan open too — and Stop leaves the layer where it was", async () => {
     const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
     kit.merge.moveLayer(id, nudged(POSE))
     const was = row(id).pose
-    const running = kit.merge.refine(id, BASE)
-    expect(useMerge.getState().running).not.toBeNull()
-    expect(await kit.merge.refine(id, BASE)).toBeNull()
-    expect(useStore.getState().errorText).toMatch(/alignment or the merge in progress/)
-    await expect(kit.merge.openLayer(plyFile(layerPart, 'x.ply'), 'mm')).rejects.toThrow(/in progress/)
-    kit.merge.stop()
-    const r = await running
-    // Stopped, or finished before the stop arrived: either way nothing else ran.
-    if (r === null) expect(row(id).pose).toBe(was)
+    // Every slice of the worker's run ends after one step — the clock jumps
+    // a second per reading — so the refine is still running when Stop lands.
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 1000))
+    try {
+      const running = kit.merge.refine(id, BASE)
+      expect(useMerge.getState().running).not.toBeNull()
+      expect(await kit.merge.refine(id, BASE)).toBeNull()
+      expect(useStore.getState().errorText).toMatch(/alignment or the merge in progress/)
+      await expect(kit.merge.openLayer(plyFile(layerPart, 'x.ply'), 'mm')).rejects.toThrow(/in progress/)
+      expect(kit.merge.moveLayer(id, POSE)).toBe(false)
+      // The app's own open of a scan is refused while the workspace is busy.
+      await kit.headless.session.scan.openScan(plyFile(hi, 'other.ply'), 'mm')
+      expect(useStore.getState().fileName).toBe('hi.ply')
+      expect(useStore.getState().errorText).toMatch(/Wait for the work in progress to finish before opening another scan — aligning the layer/)
+      kit.merge.stop()
+      expect(await running).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
+    expect(row(id).pose).toBe(was)
+    expect(useStore.getState().statusText).toMatch(/^Stopped/)
     expect(useMerge.getState().running).toBeNull()
     expect(layers()).toHaveLength(1)
+  })
+
+  it("a refine from the pose a layer was opened at is no one's guess, even undone back to it", async () => {
+    const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
+    kit.merge.moveLayer(id, rigidOf([0, 0, 1], [0.5, 0, 0]))
+    await undo()
+    const r = await kit.merge.refine(id, BASE)
+    expect(r!.confident).toBe(false)
+    // And a second refine from that result is still no one's guess.
+    expect((await kit.merge.refine(id, BASE))!.confident).toBe(false)
+    // A move makes it one, and a refine from a refine of it stays one.
+    kit.merge.moveLayer(id, nudged(POSE))
+    expect((await kit.merge.refine(id, BASE))!.confident).toBe(true)
+    expect((await kit.merge.refine(id, BASE))!.confident).toBe(true)
   })
 })
 

@@ -14,6 +14,7 @@ import { startHeadless, type Headless } from '../../../tests/commandKit'
 import plugin from '../plugin'
 import { createMergeSession, installMergeSession, type MergeSession } from '../app/mergeSession'
 import type { MergeOps } from '../core/protocol'
+import type { SceneManager } from '../../../src/viewer/SceneManager'
 
 let installed = false
 
@@ -25,7 +26,9 @@ export interface MergeKit {
   stop(): void
 }
 
-export async function startMerge(): Promise<MergeKit> {
+/** `sceneRef`: a viewport for the merge session alone — the app's session
+ *  stands without one. */
+export async function startMerge(sceneRef?: { current: SceneManager | null }): Promise<MergeKit> {
   const headless = await startHeadless()
   if (!installed) {
     plugin.install!()
@@ -55,7 +58,7 @@ export async function startMerge(): Promise<MergeKit> {
   const uninstall = installHistory()
   const merge = createMergeSession({
     clientRef: s.clientRef,
-    sceneRef: s.sceneRef,
+    sceneRef: sceneRef ?? s.sceneRef,
     imports: s.imports,
     openScan: (file, units) => s.scan.openScan(file, units),
     swapScanBuffers: s.swap.swapScanBuffers,

@@ -44,7 +44,11 @@ const plugin: ScanRulerPlugin = {
   },
   usePlugin: useMergePlugin,
   install() {
-    registerBusy(MERGE, mergeBusy, [useMerge], async () => mergeSession()?.stop())
+    // Stop an alignment, then wait for the panel to be free: a merge runs to its end.
+    registerBusy(MERGE, mergeBusy, [useMerge], async () => {
+      mergeSession()?.stop()
+      while (useMerge.getState().running !== null) await new Promise((r) => setTimeout(r, 20))
+    })
     // The layers' poses and whether each is shown, and the count of merges
     // that tells a step across one (see mergeSession's aroundRestore).
     registerHistory({

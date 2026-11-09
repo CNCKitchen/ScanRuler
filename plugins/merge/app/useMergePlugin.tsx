@@ -108,14 +108,8 @@ export function useMergePlugin(host: PluginHost): PluginRuntime {
   // The handle on the layer being moved; a locked layer gets none.
   const handle = onMerge && tool === 'move' && selected !== null && !locked && !running ? selected : null
   useEffect(() => {
-    const scene = session.sceneOf()
-    if (!scene) return
-    if (handle === null) {
-      scene.gizmo(null, () => {})
-      return
-    }
-    scene.gizmo(handle, (pose) => session.moveLayer(handle, pose), gizmoMode)
-    return () => scene.gizmo(null, () => {})
+    session.setGizmo(handle, gizmoMode)
+    return () => session.setGizmo(null)
   }, [handle, gizmoMode, session])
 
   /** A file the panel was handed, in the units it is read in — an STL asks. */
@@ -130,6 +124,12 @@ export function useMergePlugin(host: PluginHost): PluginRuntime {
   }
 
   const openLayer = async (file: File) => {
+    // No scan yet: the file is the scan, opened as the app opens one — in
+    // any units it reads.
+    if (!useStore.getState().fileName) {
+      await host.openScan(file)
+      return
+    }
     const units = await unitsOf(file)
     if (units) await session.openLayer(file, units).catch(() => {})
   }
