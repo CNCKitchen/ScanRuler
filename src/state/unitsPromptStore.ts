@@ -57,11 +57,18 @@ export function askMeshUnits(fileName: string): Promise<MeshUnits | null> {
   return result
 }
 
-/** The units to read a mesh file in: millimetres for anything but an STL,
- *  and for an STL the remembered answer, or the operator's — null when they
- *  dismissed the question, and the file is not to be opened. */
+/** Whether a file carries no units of its own — an STL or a point-cloud
+ *  text file — and so has to be asked about. */
+export function asksUnits(fileName: string): boolean {
+  return ['stl', 'xyz', 'asc', 'pts'].includes(extensionOf(fileName))
+}
+
+/** The units to read a mesh file in: millimetres for anything that says its
+ *  own, and for an STL or a point-cloud text file the remembered answer, or
+ *  the operator's — null when they dismissed the question, and the file is
+ *  not to be opened. */
 export function meshUnitsFor(fileName: string): Promise<MeshUnits | null> {
-  if (extensionOf(fileName) !== 'stl') return Promise.resolve('mm')
+  if (!asksUnits(fileName)) return Promise.resolve('mm')
   const prefs = usePrefs.getState()
   if (!prefs.askStlUnits) return Promise.resolve(prefs.stlUnits)
   return askMeshUnits(fileName)

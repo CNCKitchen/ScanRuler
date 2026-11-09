@@ -11,6 +11,7 @@
 import type { MeshGraph, ParsedMesh, TextureNote, Vec3 } from './types'
 import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
+import { parseXYZ } from './parsers/xyz'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
 import { parse3MF } from './parsers/threemf'
@@ -172,6 +173,7 @@ function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) 
   if (ext === 'ply') return parsePLY(buffer, onProgress)
   if (ext === 'obj') return parseOBJ(buffer, onProgress, companions)
   if (ext === '3mf') return parse3MF(buffer, onProgress, companions)
+  if (ext === 'xyz' || ext === 'asc' || ext === 'pts') return parseXYZ(buffer, onProgress)
   throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF or STEP.`)
 }
 
@@ -410,6 +412,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   if (msg.type === 'load-nominal') {
     try {
       const { parsed, step } = parseNominal(msg.name, msg.buffer, progress)
+      if (parsed.kind === 'cloud') throw new Error('A point cloud cannot be the reference yet — open a mesh or CAD file.')
       scaleToMm(parsed, msg.scale)
       // The nominal goes through the same welding as a scan: the pseudonormals
       // that give a signed distance its sign are sums over the faces meeting at

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The units window: what an STL about to be opened is in. Put up by the
+// The units window: what an STL or point-cloud file about to be opened is in. Put up by the
 // import (state/unitsPromptStore) before it reads the file, with the last
 // answer offered first; Open reads the file in the units picked, Cancel and
 // Escape leave it unopened. "Don't ask again" makes the answer stand for
-// every STL from here on — Settings → Files brings the question back.
+// every such file from here on — Settings → Files brings the question back.
 
 import { useEffect, useState } from 'react'
+import { extensionOf } from '../core/formats'
 import { MESH_UNITS, type MeshUnits } from '../core/meshUnits'
 import { usePrefs } from '../state/prefsStore'
 import { useUnitsPrompt } from '../state/unitsPromptStore'
@@ -49,6 +50,7 @@ export function UnitsModal() {
   }, [request, units, remember, answer, cancel])
 
   if (!request) return null
+  const kind = extensionOf(request.fileName).toUpperCase()
   return (
     <div className="modalback" onClick={cancel}>
       <div
@@ -65,7 +67,7 @@ export function UnitsModal() {
           </button>
         </div>
         <p className="dim">
-          An STL file carries no units — a 1 in it is whatever the program that wrote it meant.
+          This {kind} file carries no units — a 1 in it is whatever the program that wrote it meant.
           Say what this one is in and it is read in millimetres, like everything measured here.
         </p>
         <div className="setting">
@@ -93,7 +95,7 @@ export function UnitsModal() {
             onChange={(e) => setRemember(e.target.checked)}
           />
           <span>
-            <b>Don't ask again</b> — read every STL in these units. Settings brings the question
+            <b>Don't ask again</b> — read every {kind} in these units. Settings brings the question
             back.
           </span>
         </label>
