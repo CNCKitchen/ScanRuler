@@ -31,7 +31,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir, tmpdir } from 'node:os'
+import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { configDir } from './config.js'
@@ -289,15 +289,30 @@ export function npmCommand(env = process.env, execPath = process.execPath, exist
   return cli ? { file: execPath, args: [cli], shell: false } : { file: 'npm', args: [], shell: process.platform === 'win32' }
 }
 
+/** The folder npm runs in: an empty one of this user's, in the config
+ *  folder, that only they can write to. `npm exec` takes a package from the
+ *  folder's own node_modules before the registry, so a shared one — the
+ *  temp folder on Linux — would run a scanruler-mcp anyone planted there,
+ *  as this user. The home folder when that one cannot be made. */
+export function npmFolder(env = process.env, make = mkdirSync) {
+  const dir = join(configDir(env), 'npm-run')
+  try {
+    make(dir, { recursive: true, mode: 0o700 })
+    return dir
+  } catch {
+    return homedir()
+  }
+}
+
 /** Run npm with `args` (fixed words and a checked version only — they may
- *  pass a shell), quietly, from the temp folder: `{ code, stdout }`. */
-export function runNpm(args, { env = process.env, within = FETCH_WITHIN_MS, spawnFn = spawn } = {}) {
+ *  pass a shell), quietly, from npmFolder: `{ code, stdout }`. */
+export function runNpm(args, { env = process.env, within = FETCH_WITHIN_MS, spawnFn = spawn, cwd = npmFolder(env) } = {}) {
   return new Promise((resolve) => {
     const npm = npmCommand(env)
     let child
     try {
       child = spawnFn(npm.file, [...npm.args, ...args], {
-        cwd: tmpdir(),
+        cwd,
         env: { ...env, [NO_UPDATE_ENV]: '1', [HANDED_OFF_ENV]: '' },
         stdio: ['ignore', 'pipe', 'ignore'],
         shell: npm.shell,

@@ -7,7 +7,7 @@ import { registerGuide } from '../src/commands/guides'
 import { registerCommands, runCommand } from '../src/commands/registry'
 import { isStaleImport, resetPageStale } from '../src/commands/stalePage'
 import { CommandError } from '../src/commands/types'
-import { startBridge } from '../src/commands/bridge'
+import { BROWSER_ASKING, nothingAnswers, startBridge } from '../src/commands/bridge'
 import { decoder, encode, type Message } from '../src/commands/framing'
 import { usePrefs } from '../src/state/prefsStore'
 import { boxMesh } from './helpers'
@@ -226,6 +226,34 @@ describe('the agent bridge', () => {
     await until(() => asked > 0, 'the hello')
     expect(FakeSocket.made).toHaveLength(0)
     expect(useAgentLink.getState().status).toBe('waiting')
+  })
+
+  it('says nothing answers on the port while the hello fails, and how to start it', async () => {
+    stop = startBridge({ port: 7400, token: 't', socket: (url) => new FakeSocket(url) as unknown as WebSocket, reach: async () => false })
+    await until(() => useAgentLink.getState().detail, 'the reason')
+    expect(useAgentLink.getState()).toMatchObject({ status: 'waiting', detail: nothingAnswers(7400) })
+    expect(nothingAnswers(7400)).toContain('port 7400')
+    expect(nothingAnswers(7400)).toContain('--pair')
+    expect(nothingAnswers(7400)).toContain('--serve')
+  })
+
+  it('says it waits for the browser while the hello hangs, and stops saying so once it answers (issue 100)', async () => {
+    let answer: ((ok: boolean) => void) | undefined
+    stop = startBridge({
+      port: 7400,
+      token: 't',
+      socket: (url) => new FakeSocket(url) as unknown as WebSocket,
+      reach: () => new Promise((resolve) => (answer = resolve)),
+      slowMs: 20,
+    })
+    await until(() => useAgentLink.getState().detail === BROWSER_ASKING, 'the browser question')
+    expect(useAgentLink.getState().status).toBe('waiting')
+    answer!(true)
+    const socket = await until(() => FakeSocket.made[0], 'the socket')
+    expect(useAgentLink.getState().detail).toBeNull()
+    socket.open()
+    socket.say({ welcome: { server: 'scanruler-mcp', version: '1.0.0' } })
+    expect(useAgentLink.getState()).toMatchObject({ status: 'connected', detail: null })
   })
 
   it('takes a pairing link out of the address into the settings', () => {

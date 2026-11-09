@@ -30,6 +30,23 @@ saves carry the same number as `appVersion`. How a release is cut is in
   kind, a way of making an element or a dimension type the open build does
   not know is turned away the same way, naming it, while a project that
   uses none of them still opens. Projects saved before open as they did.
+- **The agent link says why it is still waiting** (2026-11-09, issue 100).
+  The chip said "listening" whatever held it up. When the browser takes
+  more than three seconds to let the page reach the agent's server, which
+  is most often its question whether the site may reach apps on this
+  computer, Settings → Agents and the chip's tip now say so and how to
+  allow it. When nothing answers on the port, they say so, with how to
+  start the connector and the `--serve` page for Safari. Thanks to Leafy1.
+- **scanruler-mcp fixes** (2026-11-09, issue 34, in the next
+  scanruler-mcp).
+  - The self-update ran npm from the system's temporary folder, where on a
+    computer shared with others someone could leave a scanruler-mcp that
+    would then run as you. It runs from a folder of its own in the
+    server's settings folder now.
+  - A second copy of the server, finding the port taken, waited for ever
+    for an answer from what held it. It gives up after five seconds and
+    says the port is taken, and only a scanruler-mcp turning it away
+    counts as a refusal.
 
 ## 0.10.2 — 2026-11-09
 
