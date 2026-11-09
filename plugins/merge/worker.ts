@@ -45,7 +45,8 @@ const layers = new Map<string, Layer>()
 const baseFits = new Map<number, FitData>()
 /** The base cloud prepared as a target, for the graph it was built over. */
 let baseSurface: { graph: MeshGraph; surface: CloudSurface } | null = null
-/** A mesh's median edge length, the spacing an alignment onto it is judged in. */
+/** A mesh's median edge length, the spacing an alignment onto it is judged in
+ *  unless the layer's own is finer. */
 const meshSpacing = new WeakMap<MeshGraph, number>()
 /** Armed by merge-begin / undo-begin: the next scan replacement is the
  *  workspace's own, and its layers stay. Consumed by that replacement. */
@@ -98,34 +99,41 @@ interface Target {
   spacing: number
   fits: Map<number, FitData>
   label: string
+  /** A mesh: its spacing is its median edge, how it was triangulated. */
+  mesh: boolean
 }
 
 /** What a layer is aligned onto: the base, or another layer in its own frame. */
 function targetOf(name: string, self: string, ctx: WorkerContext): Target {
   const t = surfaceTarget(name, self, ctx)
   if (!(t.spacing > 0)) throw new Error(`Cannot align onto ${t.label}: its point spacing is unknown — open it again.`)
+  // A decimated mesh's edges run 3 to 5 mm, so a pose 2 to 4 mm off would
+  // pass a bar set by them; the fit is judged at the layer's own sampling
+  // when that is finer.
+  const own = layerOf(self).spacing
+  if (t.mesh && own > 0 && own < t.spacing) return { ...t, spacing: own }
   return t
 }
 
 function surfaceTarget(name: string, self: string, ctx: WorkerContext): Target {
   if (name === BASE) {
     const g = scanOf(ctx)
-    if (!isCloud(g)) return { surface: ctx.surfaceOf(g, 'Preparing the scan to align the layer onto…'), spacing: medianEdge(g), fits: baseFits, label: 'the base' }
+    if (!isCloud(g)) return { surface: ctx.surfaceOf(g, 'Preparing the scan to align the layer onto…'), spacing: medianEdge(g), fits: baseFits, label: 'the base', mesh: true }
     if (baseSurface?.graph !== g) {
       ctx.progress('Preparing the scan to align the layer onto…')
       baseSurface = { graph: g, surface: new CloudSurface(positionsOf(g), normalsOf(g), g.spacing ?? 0) }
     }
-    return { surface: baseSurface.surface, spacing: baseSurface.surface.spacing, fits: baseFits, label: 'the base' }
+    return { surface: baseSurface.surface, spacing: baseSurface.surface.spacing, fits: baseFits, label: 'the base', mesh: false }
   }
   if (name === self) throw new Error('A layer cannot be aligned onto itself.')
   const l = layerOf(name)
   const label = `layer "${name}"`
-  if (!isCloud(l.graph)) return { surface: ctx.surfaceOf(l.graph, 'Preparing the layer to align onto…'), spacing: l.spacing, fits: l.fits, label }
+  if (!isCloud(l.graph)) return { surface: ctx.surfaceOf(l.graph, 'Preparing the layer to align onto…'), spacing: l.spacing, fits: l.fits, label, mesh: true }
   if (!l.surface) {
     ctx.progress('Preparing the layer to align onto…')
     l.surface = new CloudSurface(positionsOf(l.graph), normalsOf(l.graph), l.spacing)
   }
-  return { surface: l.surface, spacing: l.spacing, fits: l.fits, label }
+  return { surface: l.surface, spacing: l.spacing, fits: l.fits, label, mesh: false }
 }
 
 function cloudOf(l: Layer): LayerCloud {

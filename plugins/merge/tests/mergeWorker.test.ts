@@ -250,6 +250,36 @@ describe('Merge worker: alignment', () => {
     expect(d.mm).toBeLessThanOrEqual(0.02)
   })
 
+  it('judges a fit onto a coarse mesh by the scan\'s own spacing, not the mesh\'s edges', async () => {
+    // A 20 mm box of 5 mm triangles, and a 0.5 mm cloud of a box `half` mm
+    // across: at 11 every point of the layer stands 1 mm off the mesh in the
+    // best pose ICP can reach, which the 5 mm edges alone would call close.
+    const boxCloud = (half: number): Cloud => {
+      const pts: number[] = [], nrm: number[] = []
+      const n = Math.round((2 * half) / 0.5)
+      for (let i = 0; i <= n; i++) {
+        for (let j = 0; j <= n; j++) {
+          const a = -half + i * 0.5, b = -half + j * 0.5
+          for (const s of [-1, 1]) {
+            pts.push(s * half, a, b); nrm.push(s, 0, 0)
+            pts.push(a, s * half, b); nrm.push(0, s, 0)
+            pts.push(a, b, s * half); nrm.push(0, 0, s)
+          }
+        }
+      }
+      return { positions: Float32Array.from(pts), normals: Float32Array.from(nrm) }
+    }
+    await loadStl(boxMesh(20, 4), false)
+    await addLayer('off', boxCloud(11))
+    await addLayer('on', boxCloud(10))
+    const start = rigidOf([0, 0, 0], [0, 0, 0])
+    const off = aligned(await call('refine', { id: 'off', target: 'base', start }))
+    expect(off.rms).toBeGreaterThan(0.9)
+    expect(off.confident).toBe(false)
+    const on = aligned(await call('refine', { id: 'on', target: 'base', start }))
+    expect(on.confident).toBe(true)
+  })
+
   it('a transient fit on each side answers ids align-datums lays the layer by', async () => {
     await setBase(hi)
     await addLayer('a', layerPart)
