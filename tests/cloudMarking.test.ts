@@ -10,6 +10,11 @@ import { SurfaceMarking, type MarkingContext } from '../src/viewer/marking'
 import { blockWithBoreCloud, planeCloud } from './cloudFixtures'
 
 describe('brushCloud', () => {
+  it('takes a point just inside the radius and leaves one just outside', () => {
+    const positions = Float32Array.from([0, 0, 0, 2.9, 0, 0, 3.1, 0, 0])
+    expect(brushCloud(new PointGrid(positions, 1), [0, 0, 0], 3).sort()).toEqual([0, 1])
+  })
+
   it('marks exactly the points within the radius', () => {
     const { positions } = planeCloud({ size: 4, step: 0.5 })
     const grid = new PointGrid(positions, 1)
@@ -63,9 +68,63 @@ describe('marqueeCloud', () => {
     expect(got.filter((i) => positions[3 * i + 2] === 5 && normals[3 * i + 2] === 1).length).toBe(face)
   })
 
-  it('side faces seen edge-on are not taken, hidden ones not either', () => {
+  it('takes only points facing the camera', () => {
     const got = box(positions, normals, all)
     for (const i of got) expect(normals[3 * i + 2]).toBeGreaterThan(0)
+  })
+
+  it('a plane tilted steeply to the view is taken, a parallel plane behind it is not', () => {
+    for (const deg of [70, 75]) {
+      const a = (deg * Math.PI) / 180
+      const t = [Math.cos(a), 0, -Math.sin(a)] // tangent; normal (sin a, 0, cos a)
+      const p: number[] = [], nn: number[] = []
+      for (let u = -10; u <= 10; u += 0.5)
+        for (let v = -10; v <= 10; v += 0.5) {
+          p.push(u * t[0], v, u * t[2])
+          nn.push(Math.sin(a), 0, Math.cos(a))
+        }
+      const nTilted = p.length / 3
+      for (let x = -10; x <= 10; x += 0.5)
+        for (let y = -10; y <= 10; y += 0.5) {
+          p.push(x, y, -30)
+          nn.push(0, 0, 1)
+        }
+      const pos = Float32Array.from(p), nor = Float32Array.from(nn)
+      // a window across the tilted plane's footprint (x within +-3 world)
+      const win = [{ x: 47, y: 0 }, { x: 53, y: 0 }, { x: 53, y: 100 }, { x: 47, y: 100 }]
+      const got = new Set(box(pos, nor, win, false, 0.5))
+      let inWin = 0, taken = 0
+      for (let i = 0; i < nTilted; i++) {
+        if (Math.abs(pos[3 * i]) > 3) continue
+        inWin++
+        if (got.has(i)) taken++
+      }
+      expect(inWin).toBeGreaterThan(100)
+      expect(taken / inWin).toBeGreaterThanOrEqual(0.95)
+      for (let i = nTilted; i < pos.length / 3; i++) expect(got.has(i)).toBe(false)
+    }
+  })
+
+  it('under a rotated and moved alignment the window takes the same near-face points', () => {
+    const m = new THREE.Matrix4().makeTranslation(12, -7, 0).multiply(new THREE.Matrix4().makeRotationZ(0.5))
+    const got = marqueeCloud({
+      positions, normals, spacing: 1, camera: topCamera(), partMatrix: m, width: 100, height: 100, outline: all, backfaces: false, clip: [],
+    })
+    const want: number[] = []
+    for (let i = 0; i < positions.length / 3; i++) if (positions[3 * i + 2] === 5 && normals[3 * i + 2] === 1) want.push(i)
+    expect(got.sort((a, b) => a - b)).toEqual(want)
+  })
+
+  it('a clip plane takes away what it cuts', () => {
+    // keep x <= 0 (world)
+    const clip = [new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0)]
+    const got = marqueeCloud({
+      positions, normals, spacing: 1, camera: topCamera(), partMatrix: new THREE.Matrix4(), width: 100, height: 100, outline: all, backfaces: false, clip,
+    })
+    const want: number[] = []
+    for (let i = 0; i < positions.length / 3; i++) if (positions[3 * i + 2] === 5 && normals[3 * i + 2] === 1 && positions[3 * i] <= 0) want.push(i)
+    expect(want.length).toBeGreaterThan(10)
+    expect(got.sort((a, b) => a - b)).toEqual(want)
   })
 
   it('through takes the far face as well', () => {
@@ -148,5 +207,51 @@ describe('the brush through SurfaceMarking', () => {
       expect(Math.hypot(positions[3 * v] - 1, positions[3 * v + 1], positions[3 * v + 2] - 5)).toBeLessThanOrEqual(4 + 1e-6)
     }
     expect(marked.has(top)).toBe(true)
+  })
+
+  it('inverts the marking over every point of a cloud', () => {
+    const el = () => ({ setAttribute: vi.fn(), append: vi.fn(), remove: vi.fn(), style: { display: '', setProperty: vi.fn() } })
+    vi.stubGlobal('document', { createElementNS: () => el(), addEventListener: vi.fn(), removeEventListener: vi.fn() })
+    const n = 10
+    const positions = new Float32Array(n * 3)
+    const normals = new Float32Array(n * 3)
+    const mask = new Uint8Array(n)
+    mask[2] = mask[5] = 1
+    const regions = {
+      get paintCount() { return mask.reduce((a, b) => a + b, 0) },
+      invertPaint: (tri: ArrayLike<number>, own: (v: number) => number) => {
+        const next = new Uint8Array(n)
+        for (let i = 0; i < tri.length; i++) next[own(tri[i])] = mask[own(tri[i])] ? 0 : 1
+        mask.set(next)
+        return true
+      },
+    }
+    const attr = { needsUpdate: false }
+    const onPaintChange = vi.fn()
+    const ctx = {
+      container: { appendChild: vi.fn(), clientWidth: 100, clientHeight: 100, getBoundingClientRect: () => ({ left: 0, top: 0 }) },
+      camera: () => topCamera(),
+      worldPerPixel: () => 1,
+      partGroup: new THREE.Group(),
+      raycaster: { intersectObject: () => [] },
+      regions,
+      setPickRay: vi.fn(),
+      mesh: () => null,
+      cloud: () => ({ object: { visible: true }, grid: new PointGrid(positions, 1), normals, spacing: 1 }),
+      paintAttr: () => attr,
+      graphVertex: (v: number) => v,
+      setPaintColor: vi.fn(),
+      invalidate: vi.fn(),
+      claimDrag: vi.fn(),
+      navigates: () => false,
+      requestHover: vi.fn(),
+      onPaintChange,
+    } as unknown as MarkingContext
+    const marking = new SurfaceMarking(ctx)
+    marking.setPaintBrush({ color: '#fff', diameter: 6, erase: false, gesture: 'brush' })
+    marking.invertPaint()
+    expect([...mask]).toEqual([1, 1, 0, 1, 1, 0, 1, 1, 1, 1])
+    expect(attr.needsUpdate).toBe(true)
+    expect(onPaintChange).toHaveBeenCalledWith(8)
   })
 })

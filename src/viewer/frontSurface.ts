@@ -178,13 +178,16 @@ const MAX_SPLAT_PX = 24
  * (the cloud's spacing on screen, at least a pixel — the size the points are
  * drawn at, so the discs close up into a surface), nearest depth winning. A
  * point is in front when its depth is within `tolerance` (world units) of the
- * buffer's at its own pixel. A point off the box reads as in front.
+ * buffer's at its own pixel — `tolerance` being a number for all, or a
+ * function of the point (a surface turned away from the screen falls away by
+ * more than a spacing between neighbours: see marqueeCloud). A point off the
+ * box reads as in front.
  */
 export function frontSurfacePoints(
   points: ProjectedPoints,
   box: ScreenBox,
   splat: number,
-  tolerance: number,
+  tolerance: number | ((point: number) => number),
 ): (point: number) => boolean {
   const { sx, sy, sz, dropped } = points
   const r = Math.min(MAX_SPLAT_PX, Math.max(1, Math.ceil(splat)))
@@ -216,6 +219,6 @@ export function frontSurfacePoints(
     const i = Math.floor(sx[p]) - x0
     const j = Math.floor(sy[p]) - y0
     if (i < 0 || j < 0 || i >= w || j >= h) return true
-    return sz[p] <= depth[j * w + i] + tolerance
+    return sz[p] <= depth[j * w + i] + (typeof tolerance === 'number' ? tolerance : tolerance(p))
   }
 }

@@ -36,6 +36,9 @@ export interface CloudMarqueeInput {
   clip: readonly THREE.Plane[]
 }
 
+/** The steepest slope the front-surface tolerance allows for. */
+const MAX_TAN = 8
+
 /** Slack on a plane, as the mesh path allows. */
 const ON_PLANE = 3e-6
 
@@ -87,7 +90,15 @@ export function marqueeCloud(o: CloudMarqueeInput): number[] {
           { sx, sy, sz, dropped: (i) => dropped[i] === 1 },
           box,
           o.spacing / perPixel,
-          1.5 * o.spacing + 2 * perPixel,
+          // A surface turned from the screen falls away by tan(angle) per unit
+          // across, over a splat's reach (a spacing, or a pixel if wider) and
+          // the pixel the point sits in, so what is on the front surface lies that much
+          // behind the depth the buffer holds at its pixel.
+          (i) => {
+            const c = Math.abs(normals[3 * i] * look.x + normals[3 * i + 1] * look.y + normals[3 * i + 2] * look.z)
+            const tan = Math.sqrt(Math.max(0, 1 - c * c)) / Math.max(c, 1e-3)
+            return 1.5 * o.spacing + 2 * perPixel + Math.min(tan, MAX_TAN) * (Math.max(o.spacing, perPixel) + perPixel)
+          },
         )
       })()
 

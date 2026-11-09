@@ -446,10 +446,18 @@ export class SurfaceMarking {
    *  it would a stroke. Only a marking session's marking is turned. */
   invertPaint(): void {
     const mesh = this.ctx.mesh()
+    const cloud = this.ctx.cloud?.()
     const attr = this.ctx.paintAttr()
-    if (!this.paint || !mesh || !attr) return
-    const index = (mesh.geometry as THREE.BufferGeometry).getIndex()
-    if (!index || !this.ctx.regions.invertPaint(index.array, this.ctx.graphVertex)) return
+    if (!this.paint || !(mesh || cloud) || !attr) return
+    // A cloud has no triangles: every point stands for itself (no shading
+    // copies, so graphVertex is the identity).
+    let index: ArrayLike<number> | null = null
+    if (cloud) {
+      const ids = new Uint32Array(cloud.grid.positions.length / 3)
+      for (let i = 0; i < ids.length; i++) ids[i] = i
+      index = ids
+    } else index = ((mesh as THREE.Mesh).geometry as THREE.BufferGeometry).getIndex()?.array ?? null
+    if (!index || !this.ctx.regions.invertPaint(index, this.ctx.graphVertex)) return
     attr.needsUpdate = true
     this.ctx.invalidate()
     this.ctx.onPaintChange(this.ctx.regions.paintCount)
