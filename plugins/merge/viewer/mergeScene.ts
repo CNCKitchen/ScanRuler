@@ -38,6 +38,8 @@ interface Entry {
 }
 
 const scratch = new THREE.Matrix4()
+const toLocal = new THREE.Matrix4()
+const scratchVec = new THREE.Vector3()
 
 export class MergeScene implements SceneLayer {
   order = 20
@@ -45,6 +47,8 @@ export class MergeScene implements SceneLayer {
   private readonly entries = new Map<string, Entry>()
   private gizmoTool: LayerGizmo | null = null
   private gizmoFor: string | null = null
+  /** The mesh picks' own raycaster: the host's is the viewport's. */
+  private readonly caster = new THREE.Raycaster()
 
   constructor(private readonly host: SceneLayerHost) {
     host.partGroup.add(this.root)
@@ -72,6 +76,8 @@ export class MergeScene implements SceneLayer {
     this.entries.set(id, entry)
     this.root.add(holder)
     this.setColor(id, color)
+    const planes = this.host.clipPlanes()
+    if (planes) this.clipEntry(entry, planes)
   }
 
   setPose(id: string, pose: Rigid): void {
@@ -136,18 +142,18 @@ export class MergeScene implements SceneLayer {
   /** The layer under a point of the canvas (NDC, y up), nearest the eye,
    *  among `ids` or all shown. The hit is in that layer's own frame. */
   pick(ndcX: number, ndcY: number, ids?: string[]): (PickHit & { layerId: string }) | null {
-    const caster = this.host.raycaster
+    const caster = this.caster
     caster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.host.camera())
     const ray = caster.ray.clone()
     const planes = this.host.clipPlanes() ?? []
-    const world = new THREE.Vector3()
+    const world = scratchVec
     let best: (PickHit & { layerId: string }) | null = null
     let bestT = Infinity
     for (const [id, e] of this.entries) {
       if (ids && !ids.includes(id)) continue
       if (!e.holder.visible) continue
       e.holder.updateWorldMatrix(true, true)
-      const toLocal = new THREE.Matrix4().copy(e.holder.matrixWorld).invert()
+      toLocal.copy(e.holder.matrixWorld).invert()
       let hit: PickHit | null = null
       if (e.cloud) {
         const local = ray.clone().applyMatrix4(toLocal)
@@ -155,7 +161,6 @@ export class MergeScene implements SceneLayer {
         e.grid ??= new PointGrid(e.cloud.object.geometry.getAttribute('position').array as Float32Array, 2 * e.spacing)
         hit = pickCloud(e.grid, e.normals, local, radius, planes.map((p) => p.clone().applyMatrix4(toLocal)))
       } else if (e.mesh) {
-        caster.ray.copy(ray)
         const found = caster.intersectObject(e.mesh, false).find((i) => i.face && !planes.some((p) => p.distanceToPoint(i.point) < 0))
         if (found?.face) {
           const f = found.face
@@ -223,13 +228,15 @@ export class MergeScene implements SceneLayer {
   }
 
   clippingChanged(planes: THREE.Plane[] | null): void {
-    for (const e of this.entries.values()) {
-      e.cloud?.setClipPlanes(planes ?? [])
-      if (e.mesh) {
-        const m = e.mesh.material as THREE.Material
-        m.clippingPlanes = planes
-        m.needsUpdate = true
-      }
+    for (const e of this.entries.values()) this.clipEntry(e, planes)
+  }
+
+  private clipEntry(e: Entry, planes: THREE.Plane[] | null): void {
+    e.cloud?.setClipPlanes(planes ?? [])
+    if (e.mesh) {
+      const m = e.mesh.material as THREE.Material
+      m.clippingPlanes = planes
+      m.needsUpdate = true
     }
   }
 

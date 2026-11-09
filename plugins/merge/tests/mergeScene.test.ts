@@ -5,7 +5,7 @@ import { MergeScene } from '../viewer/mergeScene'
 import type { SceneLayerHost } from '../../../src/viewer/sceneLayers'
 import type { Rigid } from '../../../src/core/deviation/rigid'
 
-function host(): SceneLayerHost {
+function host(planes: THREE.Plane[] | null = null): SceneLayerHost {
   const partGroup = new THREE.Group()
   partGroup.matrixAutoUpdate = false
   const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 0.1, 100)
@@ -17,7 +17,7 @@ function host(): SceneLayerHost {
     raycaster: new THREE.Raycaster(),
     camera: () => camera,
     worldPerPixel: () => 0.01,
-    clipPlanes: () => null,
+    clipPlanes: () => planes,
     canvas: { addEventListener() {}, removeEventListener() {}, style: {} },
     invalidate: () => {},
     claimDrag: () => {},
@@ -137,5 +137,29 @@ describe('MergeScene', () => {
     s.dispose()
     expect(h.scene.children.length).toBe(0)
     expect(h.partGroup.children.length).toBe(0)
+  })
+
+  it('clips a layer added while a section is active', () => {
+    const planes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 0)]
+    const s = new MergeScene(host(planes))
+    s.add('a', patch(3), '#ff0000')
+    s.add('m', { positions: Float32Array.from([-1, -1, 0, 1, -1, 0, 0, 1, 0]), normals: new Float32Array(9), indices: Uint32Array.from([0, 1, 2]) }, '#fff')
+    const root = (s as unknown as { root: THREE.Group }).root
+    const mat = (i: number) => ((root.children[i].children[0] as THREE.Mesh | THREE.Points).material as THREE.Material)
+    expect(mat(0).clippingPlanes).toBe(planes)
+    expect(mat(1).clippingPlanes).toBe(planes)
+  })
+
+  it('recolours a cloud and a mesh layer', () => {
+    const h = host()
+    const s = new MergeScene(h)
+    s.add('a', patch(3), '#ff0000')
+    s.add('m', { positions: Float32Array.from([-1, -1, 0, 1, -1, 0, 0, 1, 0]), normals: new Float32Array(9), indices: Uint32Array.from([0, 1, 2]) }, '#ff0000')
+    s.setColor('a', '#0000ff')
+    s.setColor('m', '#0000ff')
+    const root = h.partGroup.children[0]
+    const pts = root.children[0].children[0] as THREE.Points
+    expect(Array.from((pts.geometry.getAttribute('color') as THREE.BufferAttribute).array.slice(0, 3))).toEqual([0, 0, 1])
+    expect(((root.children[1].children[0] as THREE.Mesh).material as THREE.MeshStandardMaterial).color.getHex()).toBe(0x0000ff)
   })
 })
