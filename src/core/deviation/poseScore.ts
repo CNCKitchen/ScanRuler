@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// How well a pose lays one scan on another: the RMS of the point-to-plane
-// distances of the source points that find a facing partner in the target, and
-// the share of the source that does. Run over every source point, so it is the
+// How well a pose lays one scan on another: the RMS of the closest-point
+// (Euclidean) distances of the source points that find a facing partner in the
+// target, and the share of the source that does. It is not ICP's reported rms,
+// which is the signed plane residual after a median cut. Run over every source point, so it is the
 // honest figure behind an alignment that ICP only fitted on a thinned sample.
 
 import { emptyHit, type ClosestSurface } from './surface'
@@ -30,6 +31,8 @@ export function oraclePose(m: number[]): Rigid {
   }
 }
 
+/** maxPair here (3 spacings in the Revo tests) is the scoring reach, tighter
+ *  than the 30 mm pairing reach ICP runs with. */
 export function scorePose(
   target: ClosestSurface,
   source: { positions: Float32Array; normals: Float32Array },
@@ -48,6 +51,8 @@ export function scorePose(
     if (!target.closest(p[0], p[1], p[2], hit, maxPair)) continue
     if (sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < MIN_NORMAL_DOT) {
       if (!target.closestFacing(p[0], p[1], p[2], sn[0], sn[1], sn[2], MIN_NORMAL_DOT, hit, maxPair)) continue
+      // As ICP does: the search can hand back a seam whose pseudonormal still disagrees.
+      if (sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < MIN_NORMAL_DOT) continue
     }
     if (hit.distance > maxPair) continue
     count++

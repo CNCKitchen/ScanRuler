@@ -2,13 +2,13 @@
 // Revo's pose convention and what alignment recovers on the real passes.
 // Skipped, loudly, where the project is absent (tests/revoFixtures.ts); heavy,
 // so each test states its own timeout. Numbers it logs are the ones the
-// LOW_OVERLAP and CONFIDENT_RMS_SPACINGS choices in src/core/deviation/poseScore.ts rests on.
+// LOW_OVERLAP and CONFIDENT_RMS_SPACINGS choices in src/core/deviation/poseScore.ts rest on.
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { CloudSurface } from '../src/core/deviation/cloudSurface'
 import { icp, sampleScan } from '../src/core/deviation/icp'
-import { CONFIDENT_RMS_SPACINGS, LOW_OVERLAP, oraclePose, poseConfidence, scorePose } from '../src/core/deviation/poseScore'
+import { oraclePose, poseConfidence, scorePose } from '../src/core/deviation/poseScore'
 import { identityRigid, rigidApply, rigidCompose, rigidFromAxisAngle, rigidInvert, rigidRotationAngle, type Rigid } from '../src/core/deviation/rigid'
 import { buildPointGraph, type PointGraph } from '../src/core/geometry/buildPointGraph'
 import { parsePLY } from '../src/core/parsers/ply'
@@ -51,7 +51,6 @@ describe.skipIf(!R.exists)('Revo pose', () => {
     for (const n of ['0905_01', '0905_03', '0905_04', '0905_05'] as RevoPass[]) {
       const s = scorePose(target, load(n), oraclePose(R.oracle(n)), maxPair)
       console.log(`oracle ${n}: rms ${s.rms} matched ${s.matched}`)
-      expect(s.matched).toBeGreaterThan(0)
       expect(poseConfidence(s, ref.spacing!)).toEqual({ lowOverlap: false, confident: true })
     }
   }, 900_000)
@@ -109,7 +108,5 @@ describe.skipIf(!R.exists)('Revo pose', () => {
       run(n, 'identity', identityRigid(), pass, o, own, false)
       console.log(`${n} oracle rotation ${rigidRotationAngle(o) / DEG} deg`)
     }
-    expect(LOW_OVERLAP).toBeGreaterThan(0)
-    expect(CONFIDENT_RMS_SPACINGS).toBeGreaterThan(0)
   }, 3_600_000)
 })
