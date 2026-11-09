@@ -12,6 +12,24 @@ saves carry the same number as `appVersion`. How a release is cut is in
   drawn 34 px right of and 17 px above the point clicked, and a long one
   was cut short: the Reverse engineer's note pins shared the 2D note's
   style. The pins now have their own. Thanks to Greg-J for finding it.
+- **A DXF with a line break in a name or note opens** (2026-11-09, issue
+  34). A note, element name or title holding a line break, as an agent or
+  a project can give one, was written into the DXF as it was, and CAD read
+  the rest of the file as nonsense. The break is now a space, as the sheet
+  and the SVG show it.
+- **STEP export of a torus alone, and a plain-ASCII STEP** (2026-11-09,
+  issue 34). Measured elements that were only tori were filed in the STEP
+  as curves rather than surfaces. And the file's product description held a
+  dash outside ASCII, which a strict reader can refuse; it is a plain
+  hyphen now.
+- **A project from a newer ScanRuler says so** (2026-11-09, issue 34).
+  Projects are saved in version 2 of the file format now, so 0.10.2 and
+  older turn them away with "saved by a newer version, please reload"
+  instead of opening them with the newest constructions failed and
+  everything built on them. From here on, a project holding an element
+  kind, a way of making an element or a dimension type the open build does
+  not know is turned away the same way, naming it, while a project that
+  uses none of them still opens. Projects saved before open as they did.
 
 ## 0.10.2 — 2026-11-09
 

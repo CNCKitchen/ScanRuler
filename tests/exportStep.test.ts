@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildStepFile, type StepElement, type StepSection } from '../src/core/exportStep'
 import type { ArcGeometry, SplineGeometry } from '../src/core/section/lift'
-import type { CircleFit, CylinderFit, LineFit, PlaneFit, PointFit, SphereFit } from '../src/core/types'
+import type { CircleFit, CylinderFit, LineFit, PlaneFit, PointFit, SphereFit, TorusFit } from '../src/core/types'
 
 const NO_STATS = { sigma: 0, usedPoints: 0, regionSize: 0 }
 
@@ -28,6 +28,16 @@ const plane: PlaneFit = {
 }
 const line: LineFit = { kind: 'line', center: [0, 0, 0], dir: [1, 0, 0], length: 30, ...NO_STATS }
 const point: PointFit = { kind: 'point', center: [-1.5, 0, 2], ...NO_STATS }
+const torus: TorusFit = {
+  kind: 'torus',
+  center: [0, 0, 0],
+  axis: [0, 0, 1],
+  majorRadius: 20,
+  minorRadius: 3,
+  tubeCoverage: 90,
+  spineCoverage: 360,
+  ...NO_STATS,
+}
 
 const ALL: StepElement[] = [
   { name: 'Sphere 1', fit: sphere },
@@ -106,6 +116,23 @@ describe('STEP export as construction surfaces', () => {
     expect(wire).toContain('GEOMETRIC_CURVE_SET(')
     expect(wire).toContain('GEOMETRICALLY_BOUNDED_WIREFRAME_SHAPE_REPRESENTATION')
     expect(wire).not.toContain('GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION')
+  })
+
+  it('counts a torus as a surface, so a torus alone is a surface set', () => {
+    const torusOnly = buildStepFile([{ name: 'Torus 1', fit: torus }], 'scan.stl', STAMP, 'surfaces')
+    expect(torusOnly).toMatch(/RECTANGULAR_TRIMMED_SURFACE\('Torus 1',#\d+/)
+    expect(torusOnly).toContain("GEOMETRIC_SET('elements'")
+    expect(torusOnly).not.toContain('GEOMETRIC_CURVE_SET(')
+    expect(torusOnly).toContain('GEOMETRICALLY_BOUNDED_SURFACE_SHAPE_REPRESENTATION')
+  })
+
+  it('is plain ASCII in both forms, whatever the file and element names', () => {
+    const named: StepElement[] = [...ALL, { name: 'Torus 1', fit: torus }].map((e) => ({ ...e, name: `${e.name} Ø±` }))
+    for (const form of ['surfaces', 'solids'] as const) {
+      const out = buildStepFile(named, 'scän — part.stl', STAMP, form)
+      const odd = [...out].filter((ch) => ch !== '\n' && !/[\x20-\x7e]/.test(ch))
+      expect(odd, form).toEqual([])
+    }
   })
 })
 

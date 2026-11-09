@@ -51,7 +51,7 @@ describe('project input validation', () => {
   })
   it('accepts an unresolved flat construction with a null fit', () => {
     const manifest = project()
-    manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'intersection', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
+    manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'flat-point-intersect', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
     expect(() => validateManifest(manifest)).not.toThrow()
   })
   it.each([
