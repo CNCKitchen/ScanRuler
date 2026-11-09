@@ -161,18 +161,22 @@ describe('merge commands', () => {
       expect(e.message).toMatch(/nearly in a line/)
     })
 
-    it('fits datums on both sides, refuses one alone with the exact text, and aligns with two', async () => {
+    it('fits datums by a point on each side, refuses one alone with the exact text, and aligns with two', async () => {
       const { id } = await openLo()
-      const geo = (await kit.call('layer-geometry', { id })).positions
-      const base = (await kit.headless.session.clientRef.current!.query({ min: [-1e9, -1e9, -1e9], max: [1e9, 1e9, 1e9], limit: 1e7 })).positions
-      const bore = await run<{ fit_id: number; kind: string; radius: number }>('merge.fit_datum', { layer: id, kind: 'cylinder', seeds: [nearest(geo, moved(TRUE, [-6, 0, 0]))] })
+      const bore = await run<{ fit_id: number; kind: string; radius: number }>('merge.fit_datum', { layer: id, kind: 'cylinder', at: moved(TRUE, [-6, 0, 0]) })
       expect(bore.kind).toBe('cylinder')
       expect(bore.radius).toBeCloseTo(6, 1)
-      const face = await run<{ fit_id: number }>('merge.fit_datum', { layer: id, kind: 'plane', seeds: [nearest(geo, moved(TRUE, [0, -15, 0]))] })
-      const boreB = await run<{ fit_id: number }>('merge.fit_datum', { layer: 'base', kind: 'cylinder', seeds: [nearest(base, [6, 0, 0])] })
-      const faceB = await run<{ fit_id: number }>('merge.fit_datum', { layer: 'base', kind: 'plane', seeds: [nearest(base, [5, -15, 0])] })
+      const face = await run<{ fit_id: number }>('merge.fit_datum', { layer: id, kind: 'plane', at: moved(TRUE, [0, -15, 0]) })
+      const boreB = await run<{ fit_id: number }>('merge.fit_datum', { layer: 'base', kind: 'cylinder', at: [6, 0, 0] })
+      const faceB = await run<{ fit_id: number }>('merge.fit_datum', { layer: 'base', kind: 'plane', at: [5, -15, 0] })
+      expect((await refused('merge.fit_datum', { layer: id, kind: 'plane' })).message).toBe('Give seeds or at — exactly one of them.')
+      expect((await refused('merge.fit_datum', { layer: id, kind: 'plane', seeds: [0], at: [0, 0, 0] })).code).toBe('invalid_input')
+      // seeds still work: the vertex `at` resolved to.
+      const geo = (await kit.call('layer-geometry', { id })).positions
+      const seeded = await run<{ kind: string }>('merge.fit_datum', { layer: id, kind: 'plane', seeds: [nearest(geo, moved(TRUE, [0, -15, 0]))] })
+      expect(seeded.kind).toBe('plane')
       const listed = await run<{ layers: { datums: { fit_id: number; kind: string }[] }[]; datums_base: unknown[] }>('merge.list_layers')
-      expect(listed.layers[0].datums.map((d) => d.fit_id)).toEqual([bore.fit_id, face.fit_id])
+      expect(listed.layers[0].datums.map((d) => d.fit_id).slice(0, 2)).toEqual([bore.fit_id, face.fit_id])
       expect(listed.datums_base).toHaveLength(2)
 
       for (const input of [

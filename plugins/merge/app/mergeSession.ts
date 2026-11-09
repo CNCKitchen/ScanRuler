@@ -640,6 +640,16 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     dropLayers,
     layers: (): LayerRow[] => useMerge.getState().layers,
     /** The middle of a layer's bounding box in its own frame, mm. */
+    /** The vertex of a layer, or of the scan (BASE), nearest `point` — in the
+     *  layer's own frame, or the scan's as shown — and how far it lies, mm. */
+    nearestVertex: async (side: string, point: Vec3): Promise<{ vertex: number; distance: number }> => {
+      if (side === BASE) {
+        const s = await clientRef.current!.nearest({ point })
+        return { vertex: s.vertex, distance: s.distance }
+      }
+      rowOf(side)
+      return call('nearest-vertex', { id: side, point })
+    },
     layerCentre: (id: string): Vec3 => centres.get(id) ?? [0, 0, 0],
     watch,
   }

@@ -93,7 +93,7 @@ const open: Command<{ bytes: Uint8Array; name: string; units?: LayerUnits }> = {
   name: 'open_layer',
   title: 'Open a layer',
   description:
-    'Open a scan pass — a point cloud or a mesh, PLY, STL, OBJ, 3MF, XYZ — as a layer beside the scan, to lay on it and merge. With no scan open the file becomes the scan instead (id "base"). Returns the layer id, its name, point or vertex count, whether it is a cloud and its point spacing (mm); a layer starts where its file puts it, so move it near its place (merge.move_layer) or align it. No step of the history: merge.remove_layer takes it away.',
+    'Open a scan pass — a point cloud or a mesh, PLY, STL, OBJ, 3MF, XYZ — as a layer beside the scan, to lay on it and merge. With no scan open the file becomes the scan instead: the answer’s id is then "base" and base is true. Returns the layer id, its name, point or vertex count, whether it is a cloud and its point spacing (mm); a layer starts where its file puts it, so move it near its place (merge.move_layer) or align it. No step of the history: merge.remove_layer takes it away.',
   input: obj({ bytes: bytes('The file’s contents.'), name: fileNameSchema('"pass2.ply"'), units: unitsOf }, ['bytes', 'name']),
   history: false,
   run: async ({ bytes: data, name, units }) => {
@@ -176,26 +176,30 @@ const move: Command<{ id: string; translate_mm?: Vec3; rotate_deg?: Vec3 }> = {
 
 const FIT_KINDS = ['plane', 'cylinder', 'sphere'] as const
 
-const fit: Command<{ layer: string; kind: ElementKind; seeds: number[] }> = {
+const fit: Command<{ layer: string; kind: ElementKind; seeds?: number[]; at?: Vec3 }> = {
   name: 'fit_datum',
   title: 'Fit a datum',
   description:
-    'Fit a datum — a plane, cylinder or sphere — on a layer or on the scan ("base") from picked vertices of it (seeds: vertex numbers of that side, as scan.query gives for the scan), for merge.align_datums; it is kept by number, never a session element. Returns fit_id, kind and the fit’s centre, axis or normal, radius and sigma (mm). Two datums on each side are needed to align.',
+    'Fit a datum — a plane, cylinder or sphere — on a layer or on the scan ("base") from one place on it — `at`, a point in mm (in the layer’s own frame, as it was read; for "base" in the scan’s frame as shown), whose nearest vertex seeds the fit — or `seeds`, vertex numbers of that side (as scan.query gives for the scan); give exactly one. For merge.align_datums; it is kept by number, never a session element. Returns fit_id, kind and the fit’s centre, axis or normal, radius and sigma (mm). Two datums on each side are needed to align.',
   input: obj(
     {
       layer: str('A layer’s id, or "base" for the scan.'),
       kind: enumOf(FIT_KINDS, 'plane, cylinder or sphere.'),
-      seeds: arr(int('A vertex number.', { minimum: 0 }), 'Vertices on the feature to fit.', { minItems: 1 }),
+      seeds: arr(int('A vertex number.', { minimum: 0 }), 'Vertices on the feature to fit, in place of at.', { minItems: 1 }),
+      at: vec3('A point on the feature, mm — the nearest vertex of the layer is the seed; in place of seeds.'),
     },
-    ['layer', 'kind', 'seeds'],
+    ['layer', 'kind'],
   ),
   history: false,
   long: true,
-  run: async ({ layer, kind, seeds }) => {
+  run: async ({ layer, kind, seeds, at }) => {
     requireScan()
+    if ((seeds === undefined) === (at === undefined)) throw new CommandError('invalid_input', 'Give seeds or at — exactly one of them.')
     sideOf(layer, 'layer')
+    const session = sessionOf()
     fresh()
-    const r = await sessionOf().fitDatum(layer, kind, seeds)
+    const picked = seeds ?? [(await session.nearestVertex(layer, at!)).vertex]
+    const r = await session.fitDatum(layer, kind, picked)
     if (!r) throw failed('The datum could not be fitted.')
     const f = r.fit as unknown as Record<string, unknown>
     const pick = (k: string) => (Array.isArray(f[k]) ? { [k]: round(f[k] as number[], 4) } : typeof f[k] === 'number' ? { [k]: roundTo(f[k] as number, 4) } : {})
@@ -291,7 +295,7 @@ const mergeCmd: Command<{ dedupe_mm?: number | null; confirm?: boolean }> = {
   name: 'merge',
   title: 'Merge the layers',
   description:
-    'Merge the scan and the layers shown into one point cloud, in place of the scan, under everything measured on it (carried across and measured again); the layers are hidden after. dedupe_mm: a layer point within this of one kept before it goes (mm); null keeps every point; left out, the panel’s own (the layers’ median point spacing). A mesh scan becomes a cloud — triangle-only tools and their results go — so it is refused until confirm is true. One step of the history ("Merge: merge layers"). Returns the points of the scan now and the layers merged.',
+    'Merge the scan and the layers shown into one point cloud, in place of the scan, under everything measured on it (carried across and measured again); the layers are hidden after. dedupe_mm: a layer point within this of one kept before it goes (mm); null keeps every point; left out, the panel’s own (the layers’ median point spacing). A mesh scan becomes a cloud — triangle-only tools and their results go — so it is refused (with that warning) until confirm is true, which says yes to it. One step of the history ("Merge: merge layers"). Returns the points of the scan now and the layers merged.',
   input: obj({
     dedupe_mm: { oneOf: [num('mm.', { minimum: 0 }), { type: 'null' }], description: 'Drop doubles within this distance, mm; null keeps every point.' },
     confirm: bool('true: go ahead though the scan is a mesh and becomes a point cloud.'),

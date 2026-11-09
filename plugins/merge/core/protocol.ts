@@ -45,6 +45,8 @@ export interface MergeOps {
   'remove-layer': { payload: { id: string }; result: null }
   /** Copies of the layer's buffers, to draw it; `indices` for a mesh only. */
   'layer-geometry': { payload: { id: string }; result: { positions: Float32Array; normals: Float32Array; indices?: Uint32Array } }
+  /** The layer's vertex nearest `point` (the layer's own frame, mm) and how far it is. */
+  'nearest-vertex': { payload: { id: string; point: Vec3 }; result: { vertex: number; distance: number } }
   /** Picked pairs: `layer` points in the layer's frame, `target` points in
    *  the target's. */
   'align-pairs': { payload: { id: string; target: string; pairs: { layer: Vec3; target: Vec3 }[] }; result: AlignReply }

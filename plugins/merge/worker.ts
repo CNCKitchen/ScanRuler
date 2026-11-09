@@ -190,6 +190,16 @@ const ops: { [K in keyof MergeOps]: (payload: Payload<K>, ctx: WorkerContext) =>
     return { result: { positions, normals, indices }, transfer: [positions.buffer, normals.buffer, indices.buffer] }
   },
 
+  'nearest-vertex'({ id, point }) {
+    const p = positionsOf(layerOf(id).graph)
+    let best = -1, d2 = Infinity
+    for (let i = 0; i < p.length; i += 3) {
+      const d = (p[i] - point[0]) ** 2 + (p[i + 1] - point[1]) ** 2 + (p[i + 2] - point[2]) ** 2
+      if (d < d2) { d2 = d; best = i / 3 }
+    }
+    return { result: { vertex: best, distance: Math.sqrt(d2) } }
+  },
+
   'align-pairs'({ id, target, pairs }, ctx) {
     const l = layerOf(id)
     const t = targetOf(target, id, ctx)
