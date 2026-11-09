@@ -148,6 +148,26 @@ describe('slicing a mesh', () => {
     expect(pathLength(chains[0])).toBeCloseTo(80, 4)
   })
 
+  it('cuts a plane laid on the bottom face as it cuts one on the top face', () => {
+    // A 20 mm box runs from z = -10 to 10: either face gives the outline,
+    // the same way round, its material pointing out of the part.
+    const { positions, indices } = welded(boxMesh(20, 4))
+    for (const z of [10, -10]) {
+      const cut = sliceMesh(positions, indices, [0, 0, z], [0, 0, 1])
+      const chains = chainsOf(cut)
+      expect(chains, `z = ${z}`).toHaveLength(1)
+      expect(chains[0][0]).toEqual(chains[0][chains[0].length - 1])
+      expect(pathLength(chains[0])).toBeCloseTo(80, 4)
+      for (const p of chains[0]) expect(p[2]).toBeCloseTo(z, 6)
+      const n = cut.normals!
+      for (let i = 0; i < n.length / 3; i++) {
+        const p = chains[0][i]
+        // Outward: along the side of the square the point lies on.
+        expect(n[i * 3] * p[0] + n[i * 3 + 1] * p[1]).toBeGreaterThan(0)
+      }
+    }
+  })
+
   it('lays the cut flat in the frame, and moves with the part', () => {
     const { positions, indices } = welded(cylinderMesh(10, 30, 64, 6).positions)
     const cut = sliceMesh(positions, indices, [0, 0, 4], [0, 0, 1])

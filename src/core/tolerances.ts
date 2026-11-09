@@ -11,13 +11,19 @@
 // so a plane's parallelism is read off the scan points its fit rests on and
 // includes the face's own flatness. A cylinder, a cone or a line is its axis,
 // the derived feature, taken as the fitted straight line over the fitted
-// length. A sphere or a circle stands by its centre. Form tolerances read the
-// peak-to-peak residual the fit already carries.
+// length. A sphere or a circle stands by its centre. A form tolerance is the
+// minimum zone of the points the fit rests on (fit/minZone), which the
+// least-squares fit's own peak-to-peak only bounds from above. A fit that
+// keeps no points (a circle through picked points, or off a section's sheet)
+// carries the zone it took when it was made; one with neither (a fit whose
+// surface is not on the scan yet) falls back on the peak to peak and says
+// so.
 
 import type { DimensionTypeInfo, DimensionValue } from './dimensions'
 import type { ElementKind, FitData, PlaneFit, Vec3 } from './types'
 import { EXTENT_MARGIN, refAxis, refPoint, type AxisRef } from './elements/refs'
 import { orthoBasis } from './fit/linalg'
+import { minimumZone, type ZoneShape } from './fit/minZone'
 import { fmtLen, type DisplayUnits } from './units'
 import {
   acuteAngle,
@@ -40,7 +46,7 @@ export const TOLERANCE_TYPES: readonly DimensionTypeInfo[] = [
     label: 'Flatness',
     stem: 'Flatness',
     unit: 'mm', // units-ok: the value's kind, an id — printed through unitWord
-    hint: 'How far the measured face strays from a perfect plane: the peak-to-peak deviation of its points.',
+    hint: 'How far the measured face strays from a perfect plane: the distance between the two closest parallel planes that hold its points.',
     slots: [{ roles: ['plane'], label: 'Plane' }],
   },
   {
@@ -50,7 +56,7 @@ export const TOLERANCE_TYPES: readonly DimensionTypeInfo[] = [
     label: 'Cylindricity',
     stem: 'Cylindricity',
     unit: 'mm', // units-ok: the value's kind, an id — printed through unitWord
-    hint: 'How far the measured wall strays from a perfect cylinder, peak to peak.',
+    hint: 'How far the measured wall strays from a perfect cylinder: the difference in radius of the two closest coaxial cylinders that hold its points.',
     slots: [{ roles: ['axis'], kinds: ['cylinder'], label: 'Cylinder' }],
   },
   {
@@ -70,7 +76,7 @@ export const TOLERANCE_TYPES: readonly DimensionTypeInfo[] = [
     label: 'Sphericity',
     stem: 'Sphericity',
     unit: 'mm', // units-ok: the value's kind, an id — printed through unitWord
-    hint: 'How far the measured surface strays from a perfect sphere, peak to peak.',
+    hint: 'How far the measured surface strays from a perfect sphere: the difference in radius of the two closest concentric spheres that hold its points.',
     slots: [{ roles: ['point'], kinds: ['sphere'], label: 'Sphere' }],
   },
   {
@@ -135,8 +141,9 @@ export interface ToleranceOptions {
   /** The basic angle of an angularity, in degrees. */
   basic?: number
   /** Per slot: the scan points the element's fit rests on, packed x y z in
-   *  the frame the elements are in — or null where there are none. Only a
-   *  plane feature reads them. */
+   *  the frame the elements are in — or null where there are none. A form
+   *  tolerance reads them for its minimum zone, an orientation tolerance on a
+   *  plane for the face's spread. */
   surfaces?: readonly (Float32Array | null)[]
   /** What the value and its detail are written in — millimetres unless the
    *  screen asks otherwise. */
@@ -203,7 +210,35 @@ const FORM_KIND: Record<string, ElementKind> = {
   Sphericity: 'sphere',
 }
 
-function formValue(label: string, fit: FitData | undefined, units: DisplayUnits): DimensionValue {
+/** The shape a form tolerance's zone is built round, from the fit. */
+function zoneShape(fit: FitData): ZoneShape | null {
+  if (fit.kind === 'plane') return { kind: 'plane', center: fit.center, normal: fit.normal }
+  if (fit.kind === 'sphere') return { kind: 'sphere', center: fit.center }
+  if (fit.kind === 'cylinder') return { kind: 'cylinder', center: fit.center, axis: fit.axis }
+  return null
+}
+
+/** Minimum zones already found, per fit and the number of points they were
+ *  found on: the dimensions are evaluated again on every change to the
+ *  store, and a fit's points only change with the fit. */
+const zones = new WeakMap<FitData, { points: number; width: number | null }>()
+
+function zoneWidth(fit: FitData, surface: Float32Array): number | null {
+  const points = Math.floor(surface.length / 3)
+  const kept = zones.get(fit)
+  if (kept && kept.points === points) return kept.width
+  const shape = zoneShape(fit)
+  const width = shape ? (minimumZone(surface, shape)?.width ?? null) : null
+  zones.set(fit, { points, width })
+  return width
+}
+
+function formValue(
+  label: string,
+  fit: FitData | undefined,
+  units: DisplayUnits,
+  surface: Float32Array | null | undefined,
+): DimensionValue {
   if (!fit) return invalid(label, 'A reference is missing.')
   if (fit.kind !== FORM_KIND[label])
     return invalid(label, `${label} is a property of a ${FORM_KIND[label]}.`)
@@ -212,6 +247,20 @@ function formValue(label: string, fit: FitData | undefined, units: DisplayUnits)
       label,
       'The element carries no form error: it was constructed, not measured on the scan.',
     )
+  // Off the points the fit kept on the scan; else as the fit took it, for
+  // one that keeps no points (picked, or off a section's sheet).
+  const fromSurface = surface ? zoneWidth(fit, surface) : null
+  const width = fromSurface ?? fit.zoneWidth ?? null
+  if (width !== null) {
+    const points = fromSurface !== null ? Math.floor(surface!.length / 3) : fit.usedPoints
+    return {
+      label,
+      value: fmtLen(width, units, 3),
+      raw: width,
+      anchor: fit.center,
+      detail: `Minimum zone · ${points.toLocaleString('en-US')} points · ${fmtLen(fit.formError, units, 3)} peak to peak about the best fit`,
+    }
+  }
   return {
     label,
     value: fmtLen(fit.formError, units, 3),
@@ -367,13 +416,13 @@ export function evaluateTolerance(
   const units = opts.units ?? 'mm' // units-ok: the default units, an id
   switch (type) {
     case 'form-flatness':
-      return formValue('Flatness', fits[0], units)
+      return formValue('Flatness', fits[0], units, opts.surfaces?.[0])
     case 'form-cylindricity':
-      return formValue('Cylindricity', fits[0], units)
+      return formValue('Cylindricity', fits[0], units, opts.surfaces?.[0])
     case 'form-circularity':
-      return formValue('Circularity', fits[0], units)
+      return formValue('Circularity', fits[0], units, opts.surfaces?.[0])
     case 'form-sphericity':
-      return formValue('Sphericity', fits[0], units)
+      return formValue('Sphericity', fits[0], units, opts.surfaces?.[0])
     case 'orient-parallelism':
       return orientation('Parallelism', 0, fits, opts.surfaces, units)
     case 'orient-perpendicularity':

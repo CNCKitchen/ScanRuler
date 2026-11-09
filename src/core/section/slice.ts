@@ -121,6 +121,13 @@ export function sliceMesh(
   // Per segment, the triangle it was cut from: its winding says which side
   // of the segment the material is on.
   const segTri: number[] = []
+  // The mesh edges lying in the plane that already gave a segment, by key.
+  const inPlane = new Set<number>()
+  /** The key of a triangle's edge between its two vertices on the plane. */
+  const edgeOf = (a: number, b: number, c: number): number => {
+    const [i, j] = dist[a] !== 0 ? [b, c] : dist[b] !== 0 ? [c, a] : [a, b]
+    return i < j ? i * vertexCount + j : j * vertexCount + i
+  }
   for (let t = 0; t < triangleCount; t++) {
     const a = indices[t * 3]
     const b = indices[t * 3 + 1]
@@ -145,6 +152,30 @@ export function sliceMesh(
     // Both ends on the same vertex is a triangle touching the plane at a
     // corner — a point, not a segment.
     if (p < 0 || q < 0 || p === q) continue
+    segs.push(p, q)
+    segTri.push(t)
+    // An edge lying in the plane: cut here, by the triangle below it.
+    if ((dist[a] === 0 ? 1 : 0) + (dist[b] === 0 ? 1 : 0) + (dist[c] === 0 ? 1 : 0) === 2) inPlane.add(edgeOf(a, b, c))
+  }
+
+  // An edge lying in the plane is cut by a triangle on the negative side of
+  // it, as zero counts as positive. Where the mesh has nothing on that side
+  // — a plane laid on the part's bottom face, square to its walls — the
+  // same edge is taken from a triangle above, once; a face lying in the
+  // plane itself is cut where it meets the walls, as on the top face.
+  for (let t = 0; t < triangleCount; t++) {
+    const a = indices[t * 3]
+    const b = indices[t * 3 + 1]
+    const c = indices[t * 3 + 2]
+    const zeros = (dist[a] === 0 ? 1 : 0) + (dist[b] === 0 ? 1 : 0) + (dist[c] === 0 ? 1 : 0)
+    if (zeros !== 2) continue
+    const key = edgeOf(a, b, c)
+    if (inPlane.has(key)) continue
+    inPlane.add(key)
+    const [i, j] = dist[a] !== 0 ? [b, c] : dist[b] !== 0 ? [c, a] : [a, b]
+    const p = onVertex(i)
+    const q = onVertex(j)
+    if (p === q) continue
     segs.push(p, q)
     segTri.push(t)
   }

@@ -365,20 +365,23 @@ export function evalConstructDraft(d: Draft, elements: readonly Pick<Element, 'i
   }
 }
 
-/** Re-evaluate every constructed element from its sources, in creation order
- *  (constructions can only reference older elements, so one pass settles the
- *  whole chain). Called after anything that changes a geometry. `planes` are
- *  the sections as the planes they were cut on: a construction or an
- *  alignment may stand on one. A section keeps its plane whatever happens to
- *  the elements, so it never moves in this pass. */
+/** Re-evaluate every constructed element from its sources, and re-apply
+ *  every alignment to its reference. Called after anything that changes a
+ *  geometry. Each element is settled after what it rests on: a construction
+ *  only references older elements, but an alignment may point at a newer
+ *  plane — a constructed one recomputed in this same pass — and must read
+ *  it after it moved, not before. `planes` are the sections as the planes
+ *  they were cut on: a construction or an alignment may stand on one. A
+ *  section keeps its plane whatever happens to the elements, so it never
+ *  moves in this pass. */
 export function reevaluateConstructions(
   elements: Element[],
   modelSize: number,
   planes: readonly Pick<Element, 'id' | 'fit'>[] = [],
 ): Element[] {
-  // Alignments may point at planes anywhere in the list, so the current
-  // geometry of everything is on hand before the pass; constructions and
-  // alignments that are recomputed overwrite their entry as they go.
+  // The current geometry of everything is on hand before the pass;
+  // constructions and alignments that are recomputed overwrite their entry
+  // as they go.
   const byId = new Map<number, FitData>()
   for (const p of planes) if (p.fit) byId.set(p.id, p.fit)
   for (const el of elements) if (el.fit) byId.set(el.id, el.fit)
@@ -387,7 +390,7 @@ export function reevaluateConstructions(
     if (out.fit) byId.set(out.id, out.fit)
     return out
   }
-  return elements.map((el) => {
+  const evaluate = (el: Element): Element => {
     if (el.source.type !== 'constructed') return settle(el)
     const { method, refs, params } = el.source
     const fits: FitData[] = []
@@ -416,7 +419,30 @@ export function reevaluateConstructions(
         message: e instanceof ConstructionError ? e.message : 'Construction failed.',
       }
     }
-  })
+  }
+
+  const byElement = new Map(elements.map((el) => [el.id, el]))
+  const done = new Map<number, Element>()
+  const busy = new Set<number>()
+  // Depth first through what each element rests on. A loop cannot be made
+  // (dependentsOf refuses one); should a project bring one, the element met
+  // again is left to read what is on hand, as the plain pass did.
+  const visit = (el: Element): Element => {
+    const settled = done.get(el.id)
+    if (settled) return settled
+    busy.add(el.id)
+    const rests = el.source.type === 'constructed' ? [...el.source.refs] : []
+    if (el.orient) rests.push(el.orient.ref)
+    for (const id of rests) {
+      const dep = byElement.get(id)
+      if (dep && !busy.has(id)) visit(dep)
+    }
+    const out = evaluate(el)
+    busy.delete(el.id)
+    done.set(el.id, out)
+    return out
+  }
+  return elements.map(visit)
 }
 
 /** Cheap identity check so untouched constructions keep their object and the

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { fitCircleRegion, fitLineRegion } from '../src/core/flat/fit'
 import type { Vec2 } from '../src/core/flat/types'
 import { mulberry32 } from '../src/core/fit/ransac'
+import { evaluateFlatSource } from '../src/core/flat/elements'
 
 describe('fitLineRegion', () => {
   it('votes out a second edge caught by the region', () => {
@@ -53,5 +54,31 @@ describe('fitCircleRegion', () => {
     expect(fit.radius).toBeCloseTo(40, 1)
     expect(fit.center[0]).toBeCloseTo(100, 1)
     expect(fit.center[1]).toBeCloseTo(80, 1)
+  })
+})
+
+describe('the inlier floor on a calibrated sheet', () => {
+  // 10 px/mm: the measured edge at y = 5 mm with a twentieth of a pixel of
+  // scatter, and strays from a neighbouring edge 3 px (0.3 mm) off it.
+  const pts = (): Vec2[] => {
+    const rand = mulberry32(3)
+    const out: Vec2[] = []
+    for (let i = 0; i < 200; i++) out.push([i * 0.05, 5 + (rand() - 0.5) * 0.01])
+    for (let i = 0; i < 60; i++) out.push([i * 0.15, 5.3 + (rand() - 0.5) * 0.01])
+    return out
+  }
+
+  it('is a fraction of a pixel, not of a document unit', () => {
+    const fit = fitLineRegion(pts(), 0.1)
+    // 0.35 mm of floor kept the strays and pulled the line ~0.07 mm off.
+    expect(Math.abs(fit.center[1] - 5)).toBeLessThan(0.005)
+    expect(fit.usedPoints).toBeLessThanOrEqual(200)
+  })
+
+  it('reaches the fit through a calibrated element', () => {
+    const picks = pts().map(([x, y]): Vec2 => [x * 10, y * 10])
+    const fit = evaluateFlatSource({ type: 'picks', method: 'flat-line-edge', picks }, { x: 10, y: 10 }, () => null)
+    expect(fit.kind).toBe('line')
+    if (fit.kind === 'line') expect(Math.abs(fit.center[1] - 5)).toBeLessThan(0.005)
   })
 })

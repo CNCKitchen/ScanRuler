@@ -65,6 +65,7 @@ export function liftDir(frame: SectionFrame, d: Vec2): Vec3 {
 export function liftFlatFit(frame: SectionFrame, fit: FlatFit): SectionGeometry {
   const stats: FitBase = { sigma: fit.sigma, usedPoints: fit.usedPoints, regionSize: 0 }
   if (fit.formError !== undefined) stats.formError = fit.formError
+  if (fit.zoneWidth !== undefined) stats.zoneWidth = fit.zoneWidth
   switch (fit.kind) {
     case 'point':
       return { kind: 'point', center: liftPoint(frame, fit.at), ...stats }

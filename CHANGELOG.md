@@ -5,6 +5,43 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.10.1 — 2026-11-09
+
+- **Form tolerances read the narrowest zone** (2026-11-09, pull request
+  116). Flatness, cylindricity, sphericity and circularity were read as the
+  spread of the points about the best fit, which is never narrower than the
+  tolerance zone and can be a good deal wider, so a good part could fail.
+  They now read the minimum zone: the narrowest pair of parallel planes,
+  concentric spheres, coaxial cylinders or concentric circles that holds the
+  points the fit kept. The detail gives the spread about the best fit
+  beside it. Thanks to Jozkah.
+- **An alignment follows the plane it reads** (2026-11-09, pull request
+  117). An element aligned to a constructed plane made after it read the
+  plane before the plane was worked out again, and kept its old direction.
+  Elements are now settled after what they rest on. Thanks to Jozkah.
+- **A section on a part's bottom face cuts** (2026-11-09, pull request 117).
+  A section plane laid on the bottom face, square to the walls, gave an
+  empty cut, while the same plane on the top face gave the outline. Both
+  now cut. Thanks to Jozkah.
+- **Mesh Tools edits only a marking made on its copy** (2026-11-09, pull
+  request 118). A mesh command given the marked region while another
+  workspace was on screen took the marking off the scan and applied it to
+  the edited copy, changing other parts of the copy. It now refuses and asks
+  to mark again with Mesh Tools on screen. Thanks to Jozkah.
+- **XYZ export of very large scans** (2026-11-09, pull request 119).
+  Exporting a scan of about ten million points or more as an XYZ point
+  cloud failed; it is now written in pieces. Thanks to Jozkah.
+- **A lighter volume error on large references** (2026-11-09, pull request
+  119). Naming the reference triangle under each region built a full
+  measuring surface over the reference and a table back to its order; a
+  lean search tree in the reference's own order now does it, in less time
+  and memory. Thanks to Jozkah.
+- **A tube at any angle reads as open** (2026-11-09, pull request 117).
+  0.10.0 stopped a scan shaped like a tube open at both ends being taken
+  for closed, but one lying close to a diagonal of the axes still was. Each
+  opening is now measured on its own, whichever way it faces. Thanks to
+  Jozkah.
+
 ## 0.10.0 — 2026-11-09
 
 - **The rest of the second code review's bugs** (2026-11-09, issue 34),

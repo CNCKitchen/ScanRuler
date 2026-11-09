@@ -74,7 +74,7 @@ describe('point-cloud PLY', () => {
 
 describe('point-cloud XYZ text', () => {
   it('writes one point per line with its normal', () => {
-    const text = buildPointCloudXyz(XYZ, NRM, null)
+    const text = new TextDecoder().decode(buildPointCloudXyz(XYZ, NRM, null))
     const lines = text.split('\n')
     expect(lines).toHaveLength(4)
     expect(lines[3]).toBe('')
@@ -83,8 +83,20 @@ describe('point-cloud XYZ text', () => {
   })
 
   it('applies the pose and drops the normal columns when there are none', () => {
-    const lines = buildPointCloudXyz(XYZ, null, pose()).split('\n')
+    const lines = new TextDecoder().decode(buildPointCloudXyz(XYZ, null, pose())).split('\n')
     expect(lines[1]).toBe('100.0000 10.0000 0.0000')
     expect(lines[1].split(' ')).toHaveLength(3)
+  })
+
+  it('writes a cloud in pieces, each line whole, across the pieces', () => {
+    // Past one piece of lines: every point is there once, in order.
+    const n = 70_000
+    const xyz = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) xyz[i * 3] = i
+    const lines = new TextDecoder().decode(buildPointCloudXyz(xyz, null, null)).split('\n')
+    expect(lines).toHaveLength(n + 1)
+    expect(lines[65_535]).toBe('65535.0000 0.0000 0.0000')
+    expect(lines[65_536]).toBe('65536.0000 0.0000 0.0000')
+    expect(lines[n - 1]).toBe(`${n - 1}.0000 0.0000 0.0000`)
   })
 })

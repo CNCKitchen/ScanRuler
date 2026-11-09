@@ -911,8 +911,9 @@ export interface EvaluatedDimension {
 }
 
 /** Where the scan points an element's fit rests on come from, packed x y z
- *  in the frame the elements are in — null for an element that has none. A
- *  tolerance on a plane's surface reads them; nothing else asks. */
+ *  in the frame the elements are in — null for an element that has none.
+ *  Tolerances read them: a form tolerance's minimum zone, a plane's spread
+ *  across an orientation zone. */
 export type SurfaceSource = (elementId: number) => Float32Array | null
 
 /** Resolve every dimension against the current elements. A dimension whose

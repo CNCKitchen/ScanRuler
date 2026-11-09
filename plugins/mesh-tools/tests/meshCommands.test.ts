@@ -542,3 +542,35 @@ describe('a wrap', () => {
     expect(grown.wrap.shells).toBe(1)
   }, 60_000)
 })
+
+describe('a region "marked" on screen', () => {
+  it('is taken off the edited copy only while the copy is what is on screen', async () => {
+    await open('box.stl', cuboid([-10, -10, -10], [10, 10, 10], 6))
+    useHistory.setState({ past: [], future: [] })
+    // The first edit makes the copy.
+    await run('mesh.delete_marked', { region: { sphere: { center: [0, 0, 10], radius: 5 }, facing: [0, 0, 1] } })
+    expect(useMeshTools.getState().copyTriangles).not.toBeNull()
+    const steps = undoLabels().length
+
+    // A stand-in for the viewport: a marking of three vertices, on whichever
+    // mesh is in the scan's place.
+    let onCopy = false
+    const scene = { showingEdited: () => onCopy, paintedVertices: () => Uint32Array.of(0, 1, 2) }
+    const ref = headless.session.sceneRef as { current: unknown }
+    ref.current = scene
+    try {
+      // Another workspace on screen shows the scan in use: its vertex
+      // numbers would land on other vertices of the copy.
+      const wrong = await refused('mesh.delete_marked', { region: 'marked' })
+      expect(wrong.code).toBe('invalid_state')
+      expect(wrong.message).toMatch(/scan in use, not on the edited copy/)
+      expect(undoLabels().length).toBe(steps)
+
+      onCopy = true
+      await run('mesh.delete_marked', { region: 'marked' })
+      expect(undoLabels().length).toBe(steps + 1)
+    } finally {
+      ref.current = null
+    }
+  }, 60_000)
+})

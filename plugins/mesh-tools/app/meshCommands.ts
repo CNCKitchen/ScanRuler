@@ -147,7 +147,20 @@ const regionSchema = (what: string): JsonSchema =>
 /** The vertices a region holds, of the mesh the workspace works on. */
 async function regionVertices(region: RegionIn): Promise<Uint32Array> {
   if (region === 'marked') {
-    const vertices = requireScene('A region marked on the part').paintedVertices()
+    const scene = requireScene('A region marked on the part')
+    // The marking is numbered by the mesh on screen in the scan's place:
+    // the edited copy only while Mesh Tools is on screen, the scan in use
+    // under every other workspace. Taken off the other one, its numbers
+    // would name different vertices of the copy.
+    if (scene.showingEdited() !== (m().copyTriangles !== null)) {
+      throw new CommandError(
+        'invalid_state',
+        m().copyTriangles !== null
+          ? 'The marking on screen is on the scan in use, not on the edited copy the tools work on — put Mesh Tools on screen (workspace.set { workspace: "mesh" }) and mark again, or name the region with a box, a sphere or vertices.'
+          : 'The marking on screen is on an edited copy that is gone — mark again, or name the region with a box, a sphere or vertices.',
+      )
+    }
+    const vertices = scene.paintedVertices()
     if (vertices.length === 0) {
       throw new CommandError('invalid_state', 'Nothing is marked on the part — mark it with mesh.mark, or name the region with a box, a sphere or vertices.')
     }

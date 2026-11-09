@@ -205,3 +205,32 @@ describe('the deviation as volumes', () => {
     for (const p of [[10, 1, 1], [30, 1, 3], [5, -1, 1]]) expect(after.exact(p[0], p[1], p[2])).toBeCloseTo(before.exact(p[0], p[1], p[2]), 5)
   })
 })
+
+describe('the reference triangle a region names', () => {
+  it('is the reference’s own triangle nearest the region’s deepest point', () => {
+    const block = box([7, 7, 19], [13, 13, 24])
+    const v = volumeDeviation({ reference: join(part, block), scan: part, toReference: identityRigid(), tolerance: 0.1, cell: 0.25 })
+    const ref = join(part, block)
+    expect(v.regions.length).toBeGreaterThan(0)
+    for (const r of v.regions) {
+      const t = r.referenceTriangle
+      expect(t).toBeGreaterThanOrEqual(0)
+      // The nearest of every triangle, by the distance to its corners'
+      // plane clamped to the triangle — checked here against all of them.
+      const dist = (f: number) => {
+        const P = [0, 1, 2].map((k) => [0, 1, 2].map((c) => ref.positions[ref.indices[f * 3 + k] * 3 + c]))
+        // Sample the triangle finely: enough to rank them on a 1 mm grid.
+        let best = Infinity
+        for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20 - i; j++) {
+          const a = i / 20, b = j / 20, c = 1 - a - b
+          const q = [0, 1, 2].map((k) => a * P[0][k] + b * P[1][k] + c * P[2][k])
+          best = Math.min(best, Math.hypot(q[0] - r.deepest[0], q[1] - r.deepest[1], q[2] - r.deepest[2]))
+        }
+        return best
+      }
+      let least = Infinity
+      for (let f = 0; f < ref.indices.length / 3; f++) least = Math.min(least, dist(f))
+      expect(dist(t)).toBeLessThan(least + 0.06)
+    }
+  })
+})
