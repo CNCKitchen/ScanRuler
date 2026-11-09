@@ -248,4 +248,22 @@ describe('PointGrid', () => {
       expect(g.nearestToRay(o[0], o[1], o[2], dv[0], dv[1], dv[2], 2, 200)).toBe(best)
     }
   })
+  it('kNearestTo: the k nearest to an arbitrary point, nearest first, as brute force', () => {
+    const p = randomCloud(3000, 50, 7)
+    const g = new PointGrid(p, 2)
+    const r = rng(8)
+    const out = new Int32Array(12)
+    for (let q = 0; q < 200; q++) {
+      const x = r() * 60 - 5, y = r() * 60 - 5, z = r() * 60 - 5
+      const maxDist = q % 2 ? Infinity : 4
+      const c = g.kNearestTo(x, y, z, 12, maxDist, out)
+      const brute = Array.from({ length: 3000 }, (_, i) => i)
+        .filter((i) => d2(p, i, x, y, z) <= maxDist * maxDist)
+        .sort((a, b) => d2(p, a, x, y, z) - d2(p, b, x, y, z))
+        .slice(0, 12)
+      expect(c).toBe(brute.length)
+      for (let a = 0; a < c; a++) expect(d2(p, out[a], x, y, z)).toBeCloseTo(d2(p, brute[a], x, y, z), 9)
+    }
+    expect(g.kNearestTo(NaN, 0, 0, 12, Infinity, out)).toBe(0)
+  })
 })

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 /** Uniform voxel grid over a point cloud: one counting-sorted Int32Array of
  *  point indices plus per-cell start offsets. Queries reuse internal scratch
- *  buffers, so nearest / kNearest / nearestToRay allocate nothing per call
+ *  buffers, so nearest / kNearest / kNearestTo / nearestToRay allocate nothing per call
  *  (a scratch grows only when a larger k is requested). Not re-entrant. */
 export class PointGrid {
   /** Edge length actually used; larger than requested if the request would
@@ -159,6 +159,14 @@ export class PointGrid {
   kNearest(i: number, k: number, maxDist: number, out: Int32Array): number {
     const p = this.pos
     const c = this.search(p[3 * i], p[3 * i + 1], p[3 * i + 2], Math.min(k, out.length), maxDist > 0 ? maxDist * maxDist : 0, i)
+    for (let a = 0; a < c; a++) out[a] = this.sIdx[a]
+    return c
+  }
+
+  /** Up to k points nearest (x,y,z) within maxDist, nearest first. Returns
+   *  how many were written to out. */
+  kNearestTo(x: number, y: number, z: number, k: number, maxDist: number, out: Int32Array): number {
+    const c = this.search(x, y, z, Math.min(k, out.length), maxDist > 0 ? maxDist * maxDist : 0, -1)
     for (let a = 0; a < c; a++) out[a] = this.sIdx[a]
     return c
   }

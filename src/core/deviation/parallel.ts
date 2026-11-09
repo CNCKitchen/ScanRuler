@@ -15,7 +15,7 @@ import { helpersFor } from '../thickness/parallel'
 import { computeDeviation, scanNormalsSign, type DeviationOptions } from './deviation'
 import type { DeviationHelperRequest, DeviationHelperResponse } from './deviationHelper'
 import type { Rigid } from './rigid'
-import type { NominalSurface } from './surface'
+import { NominalSurface, type ClosestSurface } from './surface'
 
 /** Stretches measured here before deciding, and how many points in each. */
 const PROBES = 8
@@ -36,7 +36,7 @@ type Span = { from: number; to: number }
  * always was.
  */
 export function computeDeviationAuto(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   transform: Rigid,
   options: DeviationOptions = {},
@@ -84,14 +84,16 @@ export function computeDeviationAuto(
   const left = rest.reduce((sum, s) => sum + (s.to - s.from), 0)
 
   const projected = perPoint * left
-  const helpers = projected > WORTH_MS && surface.triangleCount <= MAX_REFERENCE_TRIANGLES ? helpersFor(n, Infinity) : 0
+  // Helpers rebuild the reference from its triangles, so a point cloud is measured here.
+  const mesh = surface instanceof NominalSurface ? surface : null
+  const helpers = mesh && projected > WORTH_MS && mesh.triangleCount <= MAX_REFERENCE_TRIANGLES ? helpersFor(n, Infinity) : 0
   const here = () => {
     for (const s of rest) measure(s.from, s.to, onProgress)
     onProgress?.(1)
     return values
   }
-  if (helpers === 0) return here()
-  return onHelpers(surface, scanPositions, normals ?? null, transform, maxNormalDeviation, outward, helpers, values, directions, rest, n - left, onProgress).then(
+  if (!mesh || helpers === 0) return here()
+  return onHelpers(mesh, scanPositions, normals ?? null, transform, maxNormalDeviation, outward, helpers, values, directions, rest, n - left, onProgress).then(
     () => {
       onProgress?.(1)
       return values

@@ -13,7 +13,7 @@ import { helpersFor } from '../thickness/parallel'
 import { newPairArrays, type IcpPool, type PairArrays, type PairingSession, type PairParams, type ScanSamples } from './icp'
 import type { IcpHelperRequest, IcpHelperResponse } from './icpHelper'
 import type { Rigid } from './rigid'
-import type { NominalSurface } from './surface'
+import { NominalSurface, type ClosestSurface } from './surface'
 
 /** Fewer samples than this are paired faster here than a pass can be handed out. */
 const MIN_SAMPLES = 2_000
@@ -24,8 +24,10 @@ export interface ClosablePool extends IcpPool {
   close(): void
 }
 
-/** A pool for a scan of this many vertices against `surface`, or null where there is no gain or no way. */
-export function icpPoolFor(surface: NominalSurface, vertexCount: number): ClosablePool | null {
+/** A pool for a scan of this many vertices against `surface`, or null where there is no gain or no way.
+ *  A helper rebuilds the reference from its triangles, which a point cloud does not have. */
+export function icpPoolFor(surface: ClosestSurface, vertexCount: number): ClosablePool | null {
+  if (!(surface instanceof NominalSurface)) return null
   const isolated = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true
   if (typeof SharedArrayBuffer === 'undefined' || !isolated) return null
   if (surface.triangleCount > MAX_REFERENCE_TRIANGLES) return null

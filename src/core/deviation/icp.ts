@@ -19,7 +19,7 @@ import {
   type Rigid,
 } from './rigid'
 import { runSteps, type Steps } from './steps'
-import { emptyHit, type NominalSurface } from './surface'
+import { emptyHit, NominalSurface, type ClosestSurface } from './surface'
 
 /** A thinned copy of the scan, in the scan's own frame, that ICP iterates on.
  *  Every iteration is one closest-point query per sample, so this is the knob
@@ -174,7 +174,7 @@ export const PAIR_CHUNK = 128
  * blocks, so the pairs are identical either way.
  */
 export function pairRange(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   samples: { xyz: Float64Array; normals: Float64Array | null },
   transform: Rigid,
   params: PairParams,
@@ -268,7 +268,7 @@ export function pairRange(
  * singular; centring it decouples them and the solve stays well conditioned.
  */
 export function icp(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   samples: ScanSamples,
   initial: Rigid,
   options: IcpOptions = {},
@@ -280,7 +280,7 @@ export function icp(
  *  the top of the iteration, which is the only place the state is a plain
  *  transform and nothing is half-computed. */
 export function* icpSteps(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   samples: ScanSamples,
   initial: Rigid,
   options: IcpOptions = {},
@@ -307,7 +307,9 @@ export function* icpSteps(
   let converged = false
 
   const n = samples.count
-  const session = options.pool?.session(samples) ?? null
+  // Helpers rebuild the reference from its triangles, so only a mesh goes to
+  // them; a cloud is paired here.
+  const session = surface instanceof NominalSurface ? (options.pool?.session(samples) ?? null) : null
   const arrays = session?.arrays ?? newPairArrays(n)
   // `ok` also says which pairs survived the outlier cut, so they drive the step.
   const { q, cp, cn, dist, ok, score: pairScore } = arrays

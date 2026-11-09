@@ -118,6 +118,25 @@ export function closestOnTriangle(
   out[3] = Feature.Face
 }
 
+/** What ICP and the alignments pair a scan with: a triangle mesh
+ *  (NominalSurface) or a point cloud (CloudSurface). Only a NominalSurface
+ *  can go to the helper workers, which rebuild it from its triangles. */
+export interface ClosestSurface {
+  readonly positions: Float32Array
+  readonly bboxDiagonal: number
+  /** Signed distance from a point to the surface; false when nothing lies
+   *  within `maxDistance`. */
+  closest(x: number, y: number, z: number, out: ClosestHit, maxDistance?: number): boolean
+  /** The nearest surface whose normal n satisfies `n · (nx, ny, nz) >= minDot`. */
+  closestFacing(
+    x: number, y: number, z: number,
+    nx: number, ny: number, nz: number,
+    minDot: number,
+    out: ClosestHit,
+    maxDistance?: number,
+  ): boolean
+}
+
 /**
  * The nominal geometry, prepared for signed closest-point queries.
  *
@@ -134,7 +153,7 @@ export function closestOnTriangle(
  * the nominal has to be watertight (and why the scan, which is not, is never
  * the thing being queried).
  */
-export class NominalSurface {
+export class NominalSurface implements ClosestSurface {
   readonly positions: Float32Array
   readonly index: Uint32Array
   readonly triangleCount: number

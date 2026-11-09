@@ -12,7 +12,7 @@ import type { FieldScale } from '../field/colormap'
 import { fieldPercentiles, fieldStats, niceCeil, type FieldStats } from '../field/stats'
 import { writeDirection } from './deflection'
 import { rigidApply, rigidRotate, type Rigid } from './rigid'
-import { type ClosestHit, emptyHit, type NominalSurface } from './surface'
+import { type ClosestHit, type ClosestSurface, emptyHit, NominalSurface } from './surface'
 
 /** A deviation map's numbers: the shared ones, plus the tolerance band an
  *  inspection report is actually judged on. `measured` here means "had a
@@ -112,7 +112,7 @@ export interface DeviationOptions {
  * that fail pay for the second, slower search.
  */
 export function computeDeviation(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   transform: Rigid,
   { onProgress, directions, normals, maxNormalDeviation = null, nearestFaces = null, range, outward: settledOutward }: DeviationOptions = {},
@@ -133,8 +133,9 @@ export function computeDeviation(
   for (let v = from; v < to; v++) {
     rigidApply(transform, scanPositions[v * 3], scanPositions[v * 3 + 1], scanPositions[v * 3 + 2], p)
     let found: boolean
-    const face = nearestFaces ? nearestFaces[v] : -1
-    if (face >= 0) surface.closestOnFace(p[0], p[1], p[2], face, hit)
+    // Faces are a mesh's alone: a cloud is always searched here.
+    const face = nearestFaces && surface instanceof NominalSurface ? nearestFaces[v] : -1
+    if (face >= 0) (surface as NominalSurface).closestOnFace(p[0], p[1], p[2], face, hit)
     if (minFacing === null) found = face >= 0 || surface.closest(p[0], p[1], p[2], hit)
     else {
       // The scan's own normal, carried into the reference's frame.
@@ -200,7 +201,7 @@ const heldHit = emptyHit()
  * nearest whatever it faces.
  */
 export function closestFacingWay(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   x: number, y: number, z: number,
   sx: number, sy: number, sz: number,
   minFacing: number | null,
@@ -247,7 +248,7 @@ export function closestFacingWay(
  * wrong way round (issue 34).
  */
 export function scanNormalsSign(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   positions: Float32Array | Float64Array,
   normals: Float32Array | Float64Array,
   transform: Rigid,
