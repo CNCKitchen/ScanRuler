@@ -58,8 +58,8 @@ function tangentsToDocument(
 
 /**
  * Evaluate one source against the scale in force. Constructions resolve their
- * references through `fitOf` — already-evaluated fits, so callers evaluate in
- * id order and references only ever point backwards.
+ * references through `fitOf` — the sources' evaluated fits (see
+ * evaluateFlatElements, which evaluates each source first).
  */
 export function evaluateFlatSource(
   source: FlatSource,
@@ -70,6 +70,7 @@ export function evaluateFlatSource(
     return evaluateFlatPicks(source.method, picksToDocument(source.picks, pxPerMm), {
       tangents: tangentsToDocument(source.tangents, pxPerMm),
       closed: source.closed,
+      pixel: pxPerMm ? 2 / (pxPerMm.x + pxPerMm.y) : 1,
     })
   }
   const refs = source.refs.map((id) => {
@@ -80,27 +81,41 @@ export function evaluateFlatSource(
   return evaluateFlatConstruction(source.method, refs)
 }
 
-/** Re-evaluate a whole element list (in id order, so constructions see their
- *  sources fresh). Elements whose evaluation refuses keep their identity and
- *  carry the reason instead of a fit. */
+/** Re-evaluate a whole element list, each element after the ones it is
+ *  built from, so constructions see their sources fresh — whatever their
+ *  ids: a construction re-pointed at an element made after it broke when
+ *  the list ran in id order (issue 34). Listed in id order. Elements whose
+ *  evaluation refuses keep their identity and carry the reason instead of
+ *  a fit; one caught in a loop of references reads its sources as
+ *  unavailable. */
 export function evaluateFlatElements(
   elements: readonly FlatElement[],
   pxPerMm: PixelsPerMm | null,
 ): FlatElement[] {
-  const fits = new Map<number, FlatFit | null>()
-  return [...elements]
-    .sort((a, b) => a.id - b.id)
-    .map((el) => {
-      try {
-        const fit = evaluateFlatSource(el.source, pxPerMm, (id) => fits.get(id) ?? null)
-        fits.set(el.id, fit)
-        return { ...el, fit, error: null }
-      } catch (e) {
-        fits.set(el.id, null)
-        if (e instanceof FitError) return { ...el, fit: null, error: e.message }
-        throw e
-      }
-    })
+  const byId = new Map(elements.map((el) => [el.id, el]))
+  const done = new Map<number, FlatElement>()
+  const busy = new Set<number>()
+  const evaluate = (el: FlatElement): FlatElement => {
+    const finished = done.get(el.id)
+    if (finished) return finished
+    busy.add(el.id)
+    let out: FlatElement
+    try {
+      const fit = evaluateFlatSource(el.source, pxPerMm, (id) => {
+        const source = byId.get(id)
+        return source && !busy.has(id) ? evaluate(source).fit : null
+      })
+      out = { ...el, fit, error: null }
+    } catch (e) {
+      if (!(e instanceof FitError)) throw e
+      out = { ...el, fit: null, error: e.message }
+    } finally {
+      busy.delete(el.id)
+    }
+    done.set(el.id, out)
+    return out
+  }
+  return [...elements].sort((a, b) => a.id - b.id).map(evaluate)
 }
 
 /** How many picks a pick-mode method needs before it fits. A closed spline

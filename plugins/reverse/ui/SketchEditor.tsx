@@ -263,6 +263,10 @@ function PictureRow({ draft }: { draft: SketchDraft }) {
   const image = draft.image
   const pick = draft.imagePick ?? null
   const [length, setLength] = useState<number | null>(null)
+  // The length as last typed, read by Enter: the field commits and then
+  // presses Enter in one key press, before the state above has the commit,
+  // and Scale on Enter applied the length before (issue 34).
+  const typed = useRef<number | null>(null)
   const file = useRef<HTMLInputElement>(null)
   const len = useLength()
   const lay = async (f: File | undefined) => {
@@ -321,7 +325,17 @@ function PictureRow({ draft }: { draft: SketchDraft }) {
         <div className="toolrow">
           <label className="field">
             <span>Apart on the part</span>
-            <ExprInput value={length ?? 0} kind="length" unit={len.word()} testId="sketch-image-length" onCommit={(v) => setLength(v)} onEnter={() => length && re.scaleSketchImage(length)} />
+            <ExprInput
+              value={length ?? 0}
+              kind="length"
+              unit={len.word()}
+              testId="sketch-image-length"
+              onCommit={(v) => {
+                typed.current = v
+                setLength(v)
+              }}
+              onEnter={() => typed.current && re.scaleSketchImage(typed.current)}
+            />
           </label>
           <button className="primary" data-test="sketch-image-apply" disabled={!length} onClick={() => length && re.scaleSketchImage(length)}>
             Scale

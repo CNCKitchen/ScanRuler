@@ -451,16 +451,20 @@ export function candidatesOf(entities: readonly SketchEntity[], datums: readonly
 
   const adjacent = neighbours(lines, rounds, held)
 
-  // Lines along the sheet's axes.
-  const onAxis = new Set<number>()
+  // Lines along the sheet's axes. `squarely`: so near their axis that a
+  // pair's parallel or perpendicular says nothing horizontal and vertical do
+  // not. Only near — a sketch drawn a degree or two turned — the pair's
+  // relation is offered as well: it is the one that holds if the axes are
+  // turned down, and dropped it left a turned sketch with no square
+  // relations at all (issue 34).
+  const squarely = new Set<number>()
   for (const l of lines) {
     const level = Math.min(l.theta, 180 - l.theta)
     const upright = Math.abs(l.theta - 90)
+    if (Math.min(level, upright) <= net.angleDeg / 4) squarely.add(l.id)
     if (level <= net.angleDeg) {
-      onAxis.add(l.id)
       add({ kind: 'horizontal', pieces: [l.id], off: level, unit: 'deg', sigma: l.sigmaAngleDeg, constraints: [{ kind: 'horizontal', entity: l.id }] })
     } else if (upright <= net.angleDeg) {
-      onAxis.add(l.id)
       add({ kind: 'vertical', pieces: [l.id], off: upright, unit: 'deg', sigma: l.sigmaAngleDeg, constraints: [{ kind: 'vertical', entity: l.id }] })
     }
   }
@@ -471,7 +475,7 @@ export function candidatesOf(entities: readonly SketchEntity[], datums: readonly
       const a = lines[i], b = lines[j]
       const d = between(a, b)
       const sigmaAngle = hyp(a.sigmaAngleDeg, b.sigmaAngleDeg)
-      const both = onAxis.has(a.id) && onAxis.has(b.id)
+      const both = squarely.has(a.id) && squarely.has(b.id)
       if (d <= net.angleDeg) {
         // In line as well as parallel?
         const offB = Math.abs(acrossLine(a, b.mid).off)

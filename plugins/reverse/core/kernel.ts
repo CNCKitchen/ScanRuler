@@ -1753,9 +1753,21 @@ export class ReKernel {
    *  face and the shading is sharp there, as a CAD body's should be. The
    *  normals are the surfaces' own, turned outward by the windings — see
    *  surfaceNormals. */
-  mesh(shape: Shape, linearDeflection: number, angularDeflection = 0.15): KernelMesh {
+  mesh(shape: Shape, linearDeflection: number, angularDeflection = 0.15, opts: { copy?: boolean } = {}): KernelMesh {
     return run('Tessellating the body', () => {
-      const m = meshEveryFace(this.occt, shape, linearDeflection, angularDeflection)
+      // `copy`: a mesh to measure by at a chord of its own, made on a copy
+      // that leaves the body's own mesh alone. Meshed in place at one chord
+      // after another, a body had OCCT at it for minutes (gapBetween says
+      // so), and a split's coarse check after the drawing's fine mesh did
+      // just that (issue 34). Its faceHash is the copy's, no use for
+      // picking: a drawing mesh is made in place.
+      const target = opts.copy ? (this.occt.copy(shape) as Shape) : shape
+      let m: ReturnType<typeof meshEveryFace>
+      try {
+        m = meshEveryFace(this.occt, target, linearDeflection, angularDeflection)
+      } finally {
+        if (opts.copy) this.occt.release(target)
+      }
       const mesh: KernelMesh = { positions: m.positions, normals: surfaceNormals(m.positions, m.normals, m.indices, m.faceGroups), indices: m.indices, ...(m.faults ? { faults: m.faults } : {}) }
       // The face each triangle lies on: the kernel meshes face by face and
       // says which triangles are whose — as runs of the index buffer,
@@ -2151,6 +2163,10 @@ export class ReKernel {
           if (info.shapeHandle !== null) this.occt.release(info.shapeHandle)
           return info.name
         })
+      } catch (e) {
+        // As in readStepParts: the reader's own calls are not watched.
+        if (isTrap(e)) this.trapped ??= e instanceof Error ? e.message : String(e)
+        throw e
       } finally {
         doc.close()
       }
@@ -2190,9 +2206,17 @@ export class ReKernel {
             }
           } else if (info.shapeHandle !== null) parts.push({ shape: info.shapeHandle as Shape, ...(rootName ? { name: rootName } : {}) })
         }
-      } catch {
+      } catch (e) {
         for (const p of parts) this.occt.release(p.shape)
         parts.length = 0
+        // The document reader is an object of its own, which the trap watch
+        // over the kernel's calls does not see: a trap in it is recorded
+        // here, and the file is not read again on the broken kernel
+        // (issue 34).
+        if (isTrap(e)) {
+          this.trapped ??= e instanceof Error ? e.message : String(e)
+          throw e
+        }
       } finally {
         doc?.close()
       }

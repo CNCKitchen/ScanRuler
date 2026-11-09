@@ -419,7 +419,10 @@ function buildGraph(curves: Curve[]): { vertices: Vec2[]; edges: Edge[] } {
   }
   const vertices: Vec2[] = []
   const grid = new Map<string, number[]>()
-  const cell = 1e-3
+  // A cell as wide as SNAP: the eight round one hold every vertex within
+  // SNAP. Half as wide, an end 1–2 µm off the vertex it meets could sit two
+  // cells over, never merge, and leave its region open (issue 34).
+  const cell = SNAP
   const vertexOf = (p: Vec2): number => {
     const cx = Math.floor(p[0] / cell)
     const cy = Math.floor(p[1] / cell)

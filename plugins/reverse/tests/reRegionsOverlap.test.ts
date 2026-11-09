@@ -114,3 +114,16 @@ describe('two outlines along one line', () => {
     expect(regions.reduce((sum, r) => sum + r.area, 0)).toBeCloseTo(300, 6)
   })
 })
+
+describe('ends a hair apart across the vertex grid (issue 34)', () => {
+  it('meet: the corner closes and the triangle is a region', () => {
+    // The closing line ends 1.6 µm short of the first line's start, within
+    // the 2 µm the graph snaps by — but two 1 µm cells over, where the old
+    // grid never looked.
+    const s = emptySketch()
+    addEntity(s, { kind: 'line', a: [0, 0], b: [10, 0] })
+    addEntity(s, { kind: 'line', a: [10, 0], b: [5, 8] })
+    addEntity(s, { kind: 'line', a: [5, 8], b: [-0.0016, 0] })
+    expect(findRegions(s)).toHaveLength(1)
+  })
+})

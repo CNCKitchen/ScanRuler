@@ -58,6 +58,12 @@ const UNITS: Record<string, Value> = {
 
 const CONSTANTS: Record<string, number> = { pi: Math.PI, e: Math.E }
 
+/** A unit or a constant by its own name — never one an object inherits:
+ *  `10 constructor` read Object.prototype's as a unit and threw a raw
+ *  TypeError, and a parameter named toString read as a constant (issue 34). */
+const unitNamed = (name: string): Value | undefined => (Object.hasOwn(UNITS, name) ? UNITS[name] : undefined)
+const constantNamed = (name: string): number | undefined => (Object.hasOwn(CONSTANTS, name) ? CONSTANTS[name] : undefined)
+
 const FUNCTIONS = new Set(['sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'sqrt', 'abs', 'min', 'max', 'floor', 'ceil', 'round', 'pow'])
 
 /** The names an expression already means something by, which no parameter
@@ -134,7 +140,7 @@ function tokenize(src: string): Token[] {
       i++
       continue
     }
-    throw new ExpressionError(c === ',' ? 'a comma separates a function’s arguments; the decimal point is a dot' : `“${c}” is not part of an expression`, [i, i + 1])
+    throw new ExpressionError(`“${c}” is not part of an expression`, [i, i + 1])
   }
   out.push({ kind: 'end', at: [src.length, src.length] })
   return out
@@ -171,7 +177,13 @@ class Parser {
     if (this.tokens[0].kind === 'end') throw new ExpressionError('nothing to read', [0, 0])
     const node = this.expression(0)
     const t = this.peek()
-    if (t.kind !== 'end') throw new ExpressionError(t.kind === 'op' && t.text === ')' ? 'a “)” with no “(” before it' : `“${this.text(t)}” where an operator was expected`, t.at)
+    if (t.kind !== 'end') {
+      // A comma outside a function's parentheses is a decimal comma, as
+      // in 2,5 — which the tokenizer cannot tell from an argument's, so
+      // the hint is given here, where it is known not to be one.
+      if (t.kind === 'op' && t.text === ',') throw new ExpressionError('a comma separates a function’s arguments; the decimal point is a dot', t.at)
+      throw new ExpressionError(t.kind === 'op' && t.text === ')' ? 'a “)” with no “(” before it' : `“${this.text(t)}” where an operator was expected`, t.at)
+    }
     return node
   }
 
@@ -215,7 +227,7 @@ class Parser {
     const t = this.next()
     if (t.kind === 'number') {
       const unit = this.peek()
-      if (unit.kind === 'name' && UNITS[unit.text]) {
+      if (unit.kind === 'name' && unitNamed(unit.text)) {
         this.next()
         return { kind: 'number', value: t.value, unit: unit.text, at: [t.at[0], unit.at[1]] }
       }
@@ -243,9 +255,10 @@ class Parser {
         return { kind: 'call', name: t.text, args, at: [t.at[0], close.at[1]] }
       }
       // A constant takes a unit as a number does: `pi rad` is half a turn.
-      if (t.text in CONSTANTS && open.kind === 'name' && UNITS[open.text]) {
+      const constant = constantNamed(t.text)
+      if (constant !== undefined && open.kind === 'name' && unitNamed(open.text)) {
         this.next()
-        return { kind: 'number', value: CONSTANTS[t.text], unit: open.text, at: [t.at[0], open.at[1]] }
+        return { kind: 'number', value: constant, unit: open.text, at: [t.at[0], open.at[1]] }
       }
       return { kind: 'name', name: t.text, at: t.at }
     }
@@ -324,12 +337,14 @@ function evaluateNode(n: Node, scope: Scope): Value {
   switch (n.kind) {
     case 'number': {
       if (n.unit === null) return { value: n.value, dim: 'free' }
-      const u = UNITS[n.unit]
+      const u = unitNamed(n.unit)!
       return { value: n.value * u.value, dim: u.dim }
     }
     case 'name': {
-      if (n.name in CONSTANTS) return { value: CONSTANTS[n.name], dim: 'free' }
-      if (UNITS[n.name]) return { value: UNITS[n.name].value, dim: UNITS[n.name].dim }
+      const constant = constantNamed(n.name)
+      if (constant !== undefined) return { value: constant, dim: 'free' }
+      const unit = unitNamed(n.name)
+      if (unit) return { value: unit.value, dim: unit.dim }
       const v = scope(n.name)
       if (!v) throw new ExpressionError(FUNCTIONS.has(n.name) ? `“${n.name}” is a function — it takes its argument in parentheses` : `there is no parameter “${n.name}”`, n.at)
       if (!('dim' in v)) throw new ExpressionError(v.error, n.at)
@@ -508,11 +523,13 @@ export function references(src: string): string[] {
  *  it, so a rename or a count of users does not miss one. */
 function tokenizeLoosely(src: string): Token[] {
   const out: Token[] = []
-  const re = /[A-Za-z_][A-Za-z0-9_]*|\(/g
+  // A number is matched first and passed over, exponent and all: the `e3`
+  // of `1e3` is part of the number, not a name to rename (issue 34).
+  const re = /(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[A-Za-z_][A-Za-z0-9_]*|\(/g
   let m: RegExpExecArray | null
   while ((m = re.exec(src))) {
     if (m[0] === '(') out.push({ kind: 'op', text: '(', at: [m.index, m.index + 1] })
-    else out.push({ kind: 'name', text: m[0], at: [m.index, m.index + m[0].length] })
+    else if (/^[A-Za-z_]/.test(m[0])) out.push({ kind: 'name', text: m[0], at: [m.index, m.index + m[0].length] })
   }
   out.push({ kind: 'end', at: [src.length, src.length] })
   return out

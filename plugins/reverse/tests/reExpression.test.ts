@@ -104,7 +104,17 @@ describe('refusals', () => {
     expect(error('sin(1, 2)')).toContain('takes one argument')
     expect(error('1 / 0')).toBe('divides by zero')
     expect(error('sqrt(-1)')).toContain('negative')
-    expect(error('2,5')).toContain('operator was expected')
+    // A decimal comma says so (issue 34): the hint never fired before.
+    expect(error('2,5')).toContain('the decimal point is a dot')
+  })
+
+  it('never read a name an object inherits as a unit or a constant (issue 34)', () => {
+    // `constructor` read as a unit, and threw a raw TypeError.
+    expect(error('10 constructor + 1 mm')).toContain('where an operator was expected')
+    expect(error('toString')).toContain('no parameter “toString”')
+    // A parameter by such a name is read like any other.
+    const own: Scope = (name) => (name === 'constructor' ? mm(4) : name === 'toString' ? num(2) : undefined)
+    expect(value('constructor * toString', own)).toBe(8)
   })
 
   it('keep lengths, angles and numbers apart', () => {
@@ -209,5 +219,13 @@ describe('reading without evaluating', () => {
     expect(formatValue(30, 'angle')).toBe('30°')
     expect(formatValue(6.9, 'integer')).toBe('7')
     expect(formatValue(0.5, 'number')).toBe('0.5')
+  })
+})
+
+describe('renaming in a broken expression (issue 34)', () => {
+  it('leaves the exponent of a number alone', () => {
+    // Broken (a stray #), so renaming falls back on the loose reading,
+    // which took the e3 of 1e3 for a name.
+    expect(renameIn('1e3 * e3 #', 'e3', 'k')).toBe('1e3 * k #')
   })
 })

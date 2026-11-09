@@ -854,7 +854,7 @@ class Budget {
  * the opened faces one at a time. What the budget did not reach is said —
  * "not bisected: over budget" — with what was found.
  */
-export function diagnoseShell(kernel: ReKernel, builder: Builder, step: Extract<BuildStep, { kind: 'shell' }>, body: Body, limit?: { ms: number; perTry: number }): Diagnosis | null {
+export function diagnoseShell(kernel: ReKernel, builder: Builder, step: Extract<BuildStep, { kind: 'shell' }>, body: Body, limit?: { ms: number; perTry: number }, crashed = false): Diagnosis | null {
   const k = kernel
   const found = builder.findFaces(step.body, step.faces, step.id, { asked: step.facesWhere, quiet: true })
   if ('lost' in found) return null
@@ -863,14 +863,25 @@ export function diagnoseShell(kernel: ReKernel, builder: Builder, step: Extract<
   // What the kernel said when the last try failed — for the answer when
   // nothing on the body explains it.
   let refusal = ''
+  // The step's own shell, on a kernel it crashed: known to fail, and not
+  // played again to find out (issue 34).
+  const isStep = (faces: readonly number[], at: number) =>
+    crashed && at === t && faces.length === found.hashes.length && faces.every((h) => found.hashes.includes(h))
   const attempt = (faces: readonly number[], at: number): boolean =>
     budget.timed(() => {
+      if (isStep(faces, at)) {
+        refusal = 'the kernel crashed on it'
+        return false
+      }
       try {
         const r = k.shellTracked(body.shape, faces, at)
         const ok = k.isClosedSolid(r.shape)
         k.release(r.shape)
         return ok
       } catch (e) {
+        // A trap is no refusal: the kernel is broken, and nothing more is
+        // tried on it (issue 34).
+        if (isTrap(e) || k.trapped !== null) throw e
         // Refused at this thickness: that is the answer the try was for.
         refusal = said(e)
         return false
@@ -1007,7 +1018,8 @@ export function diagnoseDraft(kernel: ReKernel, builder: Builder, step: Extract<
       const ok = k.isClosedSolid(shape)
       k.release(shape)
       return ok
-    } catch {
+    } catch (e) {
+      if (isTrap(e) || k.trapped !== null) throw e
       // Refused at this angle: that is the answer the try was for.
       return false
     }
@@ -1080,7 +1092,8 @@ function grazingEdges(kernel: ReKernel, body: Body, picked: readonly number[], e
   let sides
   try {
     sides = kernel.edgeSides(body.shape, candidates.map((e) => e.hash))
-  } catch {
+  } catch (e) {
+    if (isTrap(e) || kernel.trapped !== null) throw e
     // Not read: nothing to add.
     return []
   }
@@ -1113,7 +1126,8 @@ function tangentNeighbours(kernel: ReKernel, body: Body, picked: readonly number
   let mesh
   try {
     mesh = kernel.mesh(body.shape, meshDeflection(diagonalOf(kernel, body.shape)))
-  } catch {
+  } catch (e) {
+    if (isTrap(e) || kernel.trapped !== null) throw e
     // No mesh, no reading of how the faces meet: nothing to add.
     return none
   }
@@ -1172,6 +1186,7 @@ export function diagnoseOffset(kernel: ReKernel, step: Extract<BuildStep, { kind
       k.release(k.offsetSolid(body.shape, Math.sign(d) * at))
       return true
     } catch (e) {
+      if (isTrap(e) || k.trapped !== null) throw e
       // Refused at this distance: that is the answer the try was for.
       refusal = said(e)
       return false
@@ -1244,7 +1259,8 @@ function facesAlone(kernel: ReKernel, body: Body, distance: number, as: string, 
   let probe: { faces: FaceOffsetLimit[]; curved: number }
   try {
     probe = kernel.faceOffsetLimits(body.shape, distance, undefined, deadline)
-  } catch {
+  } catch (e) {
+    if (isTrap(e) || kernel.trapped !== null) throw e
     // The probe failing itself has nothing to add.
     probe = { faces: [], curved: 0 }
   }

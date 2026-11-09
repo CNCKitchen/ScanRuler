@@ -77,12 +77,30 @@ export function meshCentroid(positions: Float32Array, indices: Uint32Array): Mes
   const o2: Vec3 = [area[0] + diag, area[1] + 0.7 * diag, area[2] + 0.4 * diag]
   let v1 = 0, v2 = 0
   let mx = 0, my = 0, mz = 0
+  // The volume read three ways — the flux of x, of y and of z through the
+  // surface (divergence theorem, one coordinate at a time). Closed, the
+  // three agree. Open, each misses the flux through the openings along its
+  // own axis, which the shifted origin does not see when openings face
+  // each other: a tube open at both ends shifts nothing, yet holds no
+  // z-flux at all (issue 34).
+  let fx = 0, fy = 0, fz = 0
   for (let t = 0; t < triangleCount; t++) {
     const a = indices[t * 3] * 3
     const b = indices[t * 3 + 1] * 3
     const c = indices[t * 3 + 2] * 3
     v1 += tetraVolume(positions, a, b, c, o1)
     v2 += tetraVolume(positions, a, b, c, o2)
+    {
+      const ux = positions[b] - positions[a], uy = positions[b + 1] - positions[a + 1], uz = positions[b + 2] - positions[a + 2]
+      const vx = positions[c] - positions[a], vy = positions[c + 1] - positions[a + 1], vz = positions[c + 2] - positions[a + 2]
+      // Twice the area vector, and the triangle's centroid about o1: the
+      // flux of a field linear over the flat triangle is its value at the
+      // centroid times the area vector.
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+      fx += (nx / 2) * ((positions[a] + positions[b] + positions[c]) / 3 - o1[0])
+      fy += (ny / 2) * ((positions[a + 1] + positions[b + 1] + positions[c + 1]) / 3 - o1[1])
+      fz += (nz / 2) * ((positions[a + 2] + positions[b + 2] + positions[c + 2]) / 3 - o1[2])
+    }
     const v = tetraVolume(positions, a, b, c, o1)
     // The centroid of a tetrahedron is the mean of its corners; with the
     // origin as the fourth corner that is (a + b + c) / 4 relative to it.
@@ -90,7 +108,8 @@ export function meshCentroid(positions: Float32Array, indices: Uint32Array): Mes
     my += v * (positions[a + 1] + positions[b + 1] + positions[c + 1] - 3 * o1[1]) / 4
     mz += v * (positions[a + 2] + positions[b + 2] + positions[c + 2] - 3 * o1[2]) / 4
   }
-  const closed = Math.abs(v1) > 0 && Math.abs(v1 - v2) <= CLOSED_TOLERANCE * Math.abs(v1)
+  const agrees = (f: number) => Math.abs(f - v1) <= CLOSED_TOLERANCE * Math.abs(v1)
+  const closed = Math.abs(v1) > 0 && agrees(v2) && agrees(fx) && agrees(fy) && agrees(fz)
   const volume: Vec3 | null = closed ? [o1[0] + mx / v1, o1[1] + my / v1, o1[2] + mz / v1] : null
   return { volume, area, closed, volumeMm3: Math.abs(v1) }
 }

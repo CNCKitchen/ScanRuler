@@ -74,24 +74,19 @@ export function detectEdges(
 
   const blurred = gaussianBlur(gray, width, height, sigma)
 
-  // Sobel gradients. The border ring stays zero — an edge there is half
-  // outside the image and could not be measured anyway.
-  const gx = new Float32Array(n)
-  const gy = new Float32Array(n)
+  // Sobel gradient magnitudes. The border ring stays zero — an edge there
+  // is half outside the image and could not be measured anyway. The
+  // gradient's two parts are not kept for every pixel: the few that need
+  // them, the candidates and the chains, read them again (sobel). Kept,
+  // they were 8 of the 23 bytes a pixel took, and a 100 MP scan ran out of
+  // memory (issue 34).
   const mag = new Float32Array(n)
+  const g = new Float64Array(2)
   for (let y = 1; y < height - 1; y++) {
-    const r0 = (y - 1) * width
-    const r1 = y * width
-    const r2 = (y + 1) * width
     for (let x = 1; x < width - 1; x++) {
-      const a = blurred[r0 + x - 1], b = blurred[r0 + x], c = blurred[r0 + x + 1]
-      const d = blurred[r1 + x - 1], f = blurred[r1 + x + 1]
-      const g = blurred[r2 + x - 1], h = blurred[r2 + x], i = blurred[r2 + x + 1]
-      const sx = c + 2 * f + i - (a + 2 * d + g)
-      const sy = g + 2 * h + i - (a + 2 * b + c)
-      gx[r1 + x] = sx
-      gy[r1 + x] = sy
-      mag[r1 + x] = Math.hypot(sx, sy)
+      const i = y * width + x
+      sobel(blurred, width, i, g, false)
+      mag[i] = Math.hypot(g[0], g[1])
     }
   }
 
@@ -120,15 +115,16 @@ export function detectEdges(
       const i = y * width + x
       const m = mag[i]
       if (m < low) continue
-      const ax = Math.abs(gx[i])
-      const ay = Math.abs(gy[i])
+      sobel(blurred, width, i, g)
+      const ax = Math.abs(g[0])
+      const ay = Math.abs(g[1])
       let m1: number
       let m2: number
       if (ax >= 2.4142 * ay) {
         m1 = mag[i - 1]; m2 = mag[i + 1] // horizontal gradient, vertical edge
       } else if (ay >= 2.4142 * ax) {
         m1 = mag[i - width]; m2 = mag[i + width]
-      } else if (gx[i] * gy[i] > 0) {
+      } else if (g[0] * g[1] > 0) {
         m1 = mag[i - width - 1]; m2 = mag[i + width + 1]
       } else {
         m1 = mag[i - width + 1]; m2 = mag[i + width - 1]
@@ -139,12 +135,15 @@ export function detectEdges(
     }
   }
 
-  // Hysteresis: weak pixels survive only connected to a strong one.
-  const kept = new Uint8Array(n)
+  // Hysteresis: weak pixels survive only connected to a strong one. What
+  // survives is flagged in `mark` itself, which then becomes the kept mask —
+  // one byte a pixel, not two.
+  const KEPT = 4
+  const kept = mark
   const stack: number[] = []
   for (let i = 0; i < n; i++) {
-    if (mark[i] === STRONG && !kept[i]) {
-      kept[i] = 1
+    if (mark[i] === STRONG) {
+      kept[i] |= KEPT
       stack.push(i)
       while (stack.length) {
         const p = stack.pop()!
@@ -155,8 +154,8 @@ export function detectEdges(
             if (px + dx < 0 || px + dx >= width) continue
             const q2 = p + dy * width + dx
             if (q2 < 0 || q2 >= n) continue
-            if (mark[q2] !== NONE && !kept[q2]) {
-              kept[q2] = 1
+            if (mark[q2] !== NONE && !(kept[q2] & KEPT)) {
+              kept[q2] |= KEPT
               stack.push(q2)
             }
           }
@@ -165,7 +164,8 @@ export function detectEdges(
     }
   }
 
-  const chains = traceChains(kept, gx, gy, mag, width, height)
+  for (let i = 0; i < n; i++) kept[i] = kept[i] & KEPT ? 1 : 0
+  const chains = traceChains(kept, blurred, mag, width, height)
   const judged = bridgeGaps(chains, BRIDGE_RADIUS, BRIDGE_ANGLE_DEG).filter(
     (c) =>
       pathLength(c) >= minLength &&
@@ -336,6 +336,20 @@ function packChains(chains: Chain[]): EdgeChains {
 }
 
 /** Separable Gaussian blur into floats. */
+/** The Sobel gradient at pixel `i` (not on the border) of the blurred
+ *  image, into `out` as [x, y]. `stored` rounds it to 32 bits, as it was
+ *  read back when it was kept for every pixel, so the edges come out as
+ *  they did; the magnitude was taken before that rounding. */
+function sobel(blurred: Float32Array, width: number, i: number, out: Float64Array, stored = true): void {
+  const a = blurred[i - width - 1], b = blurred[i - width], c = blurred[i - width + 1]
+  const d = blurred[i - 1], f = blurred[i + 1]
+  const g = blurred[i + width - 1], h = blurred[i + width], k = blurred[i + width + 1]
+  const x = c + 2 * f + k - (a + 2 * d + g)
+  const y = g + 2 * h + k - (a + 2 * b + c)
+  out[0] = stored ? Math.fround(x) : x
+  out[1] = stored ? Math.fround(y) : y
+}
+
 function gaussianBlur(
   gray: Uint8Array | Uint8ClampedArray,
   width: number,
@@ -352,7 +366,8 @@ function gaussianBlur(
   }
   for (let i = 0; i < kernel.length; i++) kernel[i] /= sum
 
-  const tmp = new Float32Array(width * height)
+  // Across the rows into `out`, then down each column in place through one
+  // column's copy: one image-sized buffer, not two.
   const out = new Float32Array(width * height)
   for (let y = 0; y < height; y++) {
     const row = y * width
@@ -362,15 +377,17 @@ function gaussianBlur(
         const xx = Math.min(width - 1, Math.max(0, x + k))
         acc += kernel[k + radius] * gray[row + xx]
       }
-      tmp[row + x] = acc
+      out[row + x] = acc
     }
   }
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  const column = new Float32Array(height)
+  for (let x = 0; x < width; x++) {
+    for (let y = 0; y < height; y++) column[y] = out[y * width + x]
+    for (let y = 0; y < height; y++) {
       let acc = 0
       for (let k = -radius; k <= radius; k++) {
         const yy = Math.min(height - 1, Math.max(0, y + k))
-        acc += kernel[k + radius] * tmp[yy * width + x]
+        acc += kernel[k + radius] * column[yy]
       }
       out[y * width + x] = acc
     }
@@ -383,8 +400,7 @@ function gaussianBlur(
  *  that a stretch of one physical edge comes out as one run of points. */
 function traceChains(
   kept: Uint8Array,
-  gx: Float32Array,
-  gy: Float32Array,
+  blurred: Float32Array,
   mag: Float32Array,
   width: number,
   height: number,
@@ -466,6 +482,7 @@ function traceChains(
     if (kept[p] && !visited[p]) walk(p)
   }
 
+  const grad = new Float64Array(2)
   return chains.map((chain) => {
     const out: Chain = []
     for (const p of chain) {
@@ -475,8 +492,9 @@ function traceChains(
       let px = x + 0.5
       let py = y + 0.5
       if (m0 > 0) {
-        const nx = gx[p] / m0
-        const ny = gy[p] / m0
+        sobel(blurred, width, p, grad)
+        const nx = grad[0] / m0
+        const ny = grad[1] / m0
         const m1 = sampleMag(mag, width, height, x - nx, y - ny)
         const m2 = sampleMag(mag, width, height, x + nx, y + ny)
         const denom = m1 + m2 - 2 * m0

@@ -576,7 +576,14 @@ export class SurfaceMarking {
     const index = geometry.getIndex()
     if (!bvh || !index) return
 
-    const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
+    // What the section view cuts away is not there to mark, as window and
+    // lasso already knew: the ray takes the first surface on the kept side,
+    // and the dab only triangles whose middle is on it (issue 34). The
+    // planes are the scan material's, in the world's frame.
+    const material = mesh.material as THREE.Material
+    const planes = material?.clippingPlanes?.length ? material.clippingPlanes : []
+    const kept = (world: THREE.Vector3) => planes.every((pl) => pl.distanceToPoint(world) >= -3e-6)
+    const hit = this.ctx.raycaster.intersectObject(mesh, false).find((h) => kept(h.point))
     if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) return
     const idx = index.array as ArrayLike<number>
     const pos = (geometry.getAttribute('position') as THREE.BufferAttribute).array as Float32Array
@@ -585,6 +592,9 @@ export class SurfaceMarking {
     // scan has been aligned; everything below is in the scan's own. scratchD
     // holds the centre across the sweep — the trio below is the sweep's.
     this.ctx.partGroup.updateWorldMatrix(true, false)
+    const toLocal = new THREE.Matrix4().copy(this.ctx.partGroup.matrixWorld).invert()
+    const localPlanes = planes.map((pl) => pl.clone().applyMatrix4(toLocal))
+    const middle = new THREE.Vector3()
     const centre = this.ctx.partGroup.worldToLocal(this.scratchD.copy(hit.point))
     const f = hit.faceIndex * 3
     const face = this.faceNormal(pos, idx[f], idx[f + 1], idx[f + 2])
@@ -611,6 +621,10 @@ export class SurfaceMarking {
         // itself before taking it.
         tri.closestPointToPoint(centre, near)
         if (near.distanceToSquared(centre) > radius * radius) return false
+        if (localPlanes.length > 0) {
+          middle.copy(tri.a).add(tri.b).add(tri.c).multiplyScalar(1 / 3)
+          if (!localPlanes.every((pl) => pl.distanceToPoint(middle) >= -3e-6)) return false
+        }
         // Same winding convention as the face under the cursor, so the two
         // normals can be compared at all.
         if (!anyFacing) {

@@ -1335,13 +1335,24 @@ function dilateInto(from: Uint8Array, into: Uint8Array, cx: number, cy: number, 
 }
 
 /** For each triangle of a surface's tree order, its index in the mesh it
- *  was built from: the tree reorders its triangles, and reports them so. */
-function originalTriangles(indices: Uint32Array, surface: NominalSurface): Int32Array {
-  const key = (a: number, b: number, c: number) => `${a},${b},${c}`
-  const at = new Map<string, number>()
-  for (let t = 0; t < indices.length / 3; t++) at.set(key(indices[t * 3], indices[t * 3 + 1], indices[t * 3 + 2]), t)
-  const out = new Int32Array(surface.triangleCount)
+ *  was built from: the tree reorders its triangles, and reports them so.
+ *  Both lists sorted by their three vertices and walked side by side — a
+ *  Map keyed by the vertices as text held at most 2^24 of them, and threw
+ *  past 16.7 M reference triangles (issue 34). */
+export function originalTriangles(indices: Uint32Array, surface: { triangleCount: number; index: ArrayLike<number> }): Int32Array {
+  const byVertices = (idx: ArrayLike<number>, count: number): Uint32Array =>
+    Uint32Array.from({ length: count }, (_, i) => i).sort(
+      (x, y) => idx[x * 3] - idx[y * 3] || idx[x * 3 + 1] - idx[y * 3 + 1] || idx[x * 3 + 2] - idx[y * 3 + 2],
+    )
   const s = surface.index
-  for (let f = 0; f < surface.triangleCount; f++) out[f] = at.get(key(s[f * 3], s[f * 3 + 1], s[f * 3 + 2])) ?? -1
+  const mine = byVertices(indices, indices.length / 3)
+  const theirs = byVertices(s, surface.triangleCount)
+  const out = new Int32Array(surface.triangleCount).fill(-1)
+  let i = 0
+  for (const f of theirs) {
+    const cmp = () => indices[mine[i] * 3] - s[f * 3] || indices[mine[i] * 3 + 1] - s[f * 3 + 1] || indices[mine[i] * 3 + 2] - s[f * 3 + 2]
+    while (i < mine.length && cmp() < 0) i++
+    if (i < mine.length && cmp() === 0) out[f] = mine[i]
+  }
   return out
 }

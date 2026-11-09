@@ -21,7 +21,7 @@ import type { FaceInfo } from '../core/build'
 import type { EdgeRef } from '../core/features'
 import { describeFaceIn, matchEdge, matchTolerance } from '../core/topo'
 import { reverseSession } from '../app/reSession'
-import { useNetworkReport } from '../app/useNetworkLayer'
+import { useNetworkReport, useNetworkReportCurrent } from '../app/useNetworkLayer'
 import { type FeatureDraft, useReverse } from '../state/reStore'
 import { Num } from './featureFields'
 
@@ -60,6 +60,9 @@ function stripOf(report: NetworkReport | undefined, curve: number | undefined) {
 
 export function NetworkFields({ d }: { d: NetworkDraftOpen }) {
   const report = useNetworkReport() ?? undefined
+  // The last report's patch numbers, while a later change builds, are not
+  // this draft's: what acts on them waits for the build.
+  const current = useNetworkReportCurrent()
   const len = useLength()
   const edit = (change: (x: NetworkDraftOpen) => NetworkDraftOpen) => useReverse.getState().editNetwork(change)
   const picked = d.picked !== null && report ? report.patches[d.picked] : undefined
@@ -201,7 +204,7 @@ export function NetworkFields({ d }: { d: NetworkDraftOpen }) {
       {report && report.patches.length > 0 && (
         <div className="checklist" data-test="network-patches">
           {report.patches.map((p, i) => (
-            <button key={i} data-test={`network-patch-${i}`} className={'netpatch' + (d.picked === i ? ' on' : '')} title={`Off the scan beyond its noise: ${len.fmt(p.misfit, 3)} (the tolerance ${len.fmt(d.fit.tolerance ?? DEFAULT_TOLERANCE, 3, { bare: true })}). The patch's worst points: ${p.worst.map((w) => `${len.fmt(w.off, 3, { signed: true })} at (${w.at.map((x) => len.fmt(x, 1, { bare: true })).join(', ')})`).join('; ')}`} onClick={() => edit((x) => ({ ...x, picked: x.picked === i ? null : i }))}>
+            <button key={i} data-test={`network-patch-${i}`} disabled={!current} className={'netpatch' + (d.picked === i ? ' on' : '')} title={`Off the scan beyond its noise: ${len.fmt(p.misfit, 3)} (the tolerance ${len.fmt(d.fit.tolerance ?? DEFAULT_TOLERANCE, 3, { bare: true })}). The patch's worst points: ${p.worst.map((w) => `${len.fmt(w.off, 3, { signed: true })} at (${w.at.map((x) => len.fmt(x, 1, { bare: true })).join(', ')})`).join('; ')}`} onClick={() => edit((x) => ({ ...x, picked: x.picked === i ? null : i }))}>
               Patch {i + 1} · σ {len.fmt(p.rms, 3, { bare: true })} · worst {len.fmt(p.max, 3)} · {p.net.u} × {p.net.v}
             </button>
           ))}
@@ -212,7 +215,7 @@ export function NetworkFields({ d }: { d: NetworkDraftOpen }) {
           {stripField('Spans along', picked.sides[0]?.[0], 'network-spans-u')}
           {stripField('Spans across', picked.sides[1]?.[0], 'network-spans-v')}
           <div className="toolrow">
-            <button data-test="network-delete-patch" title="Take the patch out, with the edges no other patch has (Delete)" onClick={() => edit((x) => removeReportedPatch(x, report, d.picked!))}>
+            <button data-test="network-delete-patch" disabled={!current} title={current ? 'Take the patch out, with the edges no other patch has (Delete)' : 'Wait for the build: the patches are numbered as they were before your last change'} onClick={() => edit((x) => removeReportedPatch(x, report, d.picked!))}>
               Delete patch {d.picked + 1}
             </button>
           </div>

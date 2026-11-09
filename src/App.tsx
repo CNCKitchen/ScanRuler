@@ -286,13 +286,23 @@ function Workbench() {
     clearHistory()
   }
 
-  const openImage = (file: File) => runImport(imports, 'Reading image…', async () => {
+  const openImage = (file: File, shouldStart?: () => boolean) => runImport(imports, 'Reading image…', async () => {
     const image = await prepareImage(file)
     commitImage(image)
     useShell.getState().setWorkspace('flat')
     void runEdgeDetect()
     useStore.getState().setStatus(`Image loaded — ${file.name}.`)
-  })
+  }, shouldStart)
+
+  /** An image the person opens: asked about first when the image sheet holds
+   *  measurements, which a new image clears (issue 34's pull request 23). */
+  const openImageAsking = (file: File) =>
+    openImage(file, () => {
+      const f = useFlat.getState()
+      const sheet = f.subject.kind === 'image' ? f : f.sheets.image
+      const held = sheet ? sheet.elements.length + sheet.dimensions.length + sheet.counts.length + sheet.notes.length : 0
+      return held === 0 || window.confirm(`Opening ${file.name} replaces the image, and the ${held === 1 ? 'item' : `${held} items`} measured on it — elements, dimensions, counts and notes — go with it. Continue?`)
+    })
 
   /** A section laid flat for the 2D sheet: its cut projected into its own
    *  plane, indexed for snapping, and the bounds of a sheet with room round
@@ -631,6 +641,17 @@ function Workbench() {
     handleCopyReport,
     selectTarget: handleSelectTarget,
   } = session.deviation
+
+  /** A reference the person opens: asked about first when the session holds
+   *  a best fit to the one in place or pins on its map, which a new
+   *  reference clears. Compare in Deviation opens its own and is not asked. */
+  const openNominalAsking = (file: File) =>
+    openNominal(file, undefined, {}, () => {
+      const d = useDeviation.getState()
+      if (!d.nominalName) return true
+      const lose = [d.align ? 'the best-fit alignment to it' : null, d.probes.length > 0 ? `${d.probes.length === 1 ? 'the pin' : `${d.probes.length} pins`} on its map` : null].filter(Boolean)
+      return lose.length === 0 || window.confirm(`Opening ${file.name} replaces the reference part. Lost with it: ${lose.join(' and ')}. Continue?`)
+    })
 
   // ---- Deviation from a fitted element -------------------------------------
   // The map against an element follows its target in SceneSync, below.
@@ -1319,9 +1340,9 @@ function Workbench() {
     runThickness,
   })
 
-  const dragging = useDragDrop({ openFile, openNominal, openImage, openProject })
+  const dragging = useDragDrop({ openFile, openNominal: openNominalAsking, openImage: openImageAsking, openProject })
   // A file the address names — a shared link — goes the same way as a drop.
-  useOpenFromAddress({ openFile, openNominal, openImage, openProject })
+  useOpenFromAddress({ openFile, openNominal: openNominalAsking, openImage: openImageAsking, openProject })
 
   // The commands an agent runs (src/commands) work through the session, and
   // through the same handlers as the buttons for what only the browser has:
@@ -1551,7 +1572,7 @@ function Workbench() {
             what: 'The nominal CAD part — mesh or STEP',
             name: nominalName,
             accept: REFERENCE_ACCEPT,
-            onOpen: (f) => void openNominal(f),
+            onOpen: (f) => void openNominalAsking(f),
           },
         ]
       : [scanSlot]
@@ -1574,7 +1595,7 @@ function Workbench() {
         onSaveProject={saveProject}
         onOpenProject={openProject}
         onOpenScan={openFile}
-        onOpenImage={openImage}
+        onOpenImage={openImageAsking}
         savable={(fileName !== null && vertexCountLoaded) || flatImageName !== null || runtimes.some((r) => r.canSave)}
       />
       <RecoveryBar recovery={recovery} />
@@ -1583,7 +1604,7 @@ function Workbench() {
         {onDeviation ? (
           <DeviationPanel
             onOpenScan={(f) => void openFile(f)}
-            onOpenNominal={(f) => void openNominal(f)}
+            onOpenNominal={(f) => void openNominalAsking(f)}
             onAlign={() => void runAlign(false)}
             onStopAlign={abortAlign}
             onPickPoints={startPicking}
@@ -1614,7 +1635,7 @@ function Workbench() {
           active.panel
         ) : onFlat ? (
           <FlatPanel
-            onOpenImage={(f) => void openImage(f)}
+            onOpenImage={(f) => void openImageAsking(f)}
             onCopy={handleFlatCopyReport}
             onExportCsv={handleFlatExportCsv}
             onExportSvg={handleFlatExportSvg}
@@ -1811,7 +1832,7 @@ function Workbench() {
                   what: 'The flatbed scan of the part',
                   name: flatImageName,
                   accept: IMAGE_ACCEPT,
-                  onOpen: (f) => void openImage(f),
+                  onOpen: (f) => void openImageAsking(f),
                 },
               ]}
             />

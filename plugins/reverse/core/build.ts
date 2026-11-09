@@ -83,11 +83,13 @@ const ADOPT_MM = 1e-5
  *  it. */
 export const CACHE_BYTES = 96 * 2 ** 20
 
-/** How long a Combine may have taken, ms, for the builder to work out what
- *  its two bodies share on its own for the volume identity — another
- *  boolean as long again; past it the result is held to its bounds alone
- *  (booleanGuard.ts). */
-const IDENTITY_CHECK_MS = 1000
+/** How many faces a Combine's two bodies may have between them for the
+ *  builder to work out what they share on its own for the volume identity
+ *  — another boolean of the same size; past it the result is held to its
+ *  bounds alone (booleanGuard.ts). By the bodies, not by how long the
+ *  combine took: timed, the same project built differently on a slower
+ *  machine (issue 34). */
+const IDENTITY_CHECK_FACES = 600
 
 /** How many steps' play times are kept, the oldest let go first. */
 const PLAY_TIMES = 2000
@@ -335,28 +337,37 @@ export class Builder {
     if (!scan) return null
     const k = this.kernel
     const hit = emptyHit()
-    const mesh = k.mesh(shape, meshDeflection(diagonalOf(this.kernel, shape)) * 4)
+    // On a copy: a check at a chord of its own leaves the body's mesh alone.
+    const mesh = k.mesh(shape, meshDeflection(diagonalOf(this.kernel, shape)) * 4, undefined, { copy: true })
     const p = mesh.positions
     const tris = mesh.indices.length / 3
-    const every = Math.max(1, Math.floor(tris / SPLIT_SAMPLES))
     const areas = new Float64Array(tris)
     let whole = 0
-    for (let t = 0; t < tris; t += every) {
+    for (let t = 0; t < tris; t++) {
       const a = mesh.indices[t * 3] * 3, b = mesh.indices[t * 3 + 1] * 3, c = mesh.indices[t * 3 + 2] * 3
       const n = cross([p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]], [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]])
       areas[t] = Math.hypot(n[0], n[1], n[2]) / 2
       whole += areas[t]
     }
     if (!(whole > 0)) return 0
-    let on = 0
+    // About SPLIT_SAMPLES points over the whole surface, each standing for
+    // the same share of it: every triangle takes the points its running
+    // share of the area comes to — a large one several, a sliver one now
+    // and then. Not every k-th triangle past a few thousand: that dropped
+    // whole faces (a flat face is two triangles however large) and undid
+    // the weighting by area (issue 34).
+    const perArea = SPLIT_SAMPLES / whole
+    let due = 0
+    let hits = 0
     // What `leaveOut` leaves out counts neither way.
-    let read = 0
-    for (let t = 0; t < tris; t += every) {
+    let taken = 0
+    for (let t = 0; t < tris; t++) {
       if (!(areas[t] > 0)) continue
+      const before = Math.floor(due)
+      due += areas[t] * perArea
+      const count = Math.floor(due) - before
+      if (count === 0) continue
       const a = mesh.indices[t * 3] * 3, b = mesh.indices[t * 3 + 1] * 3, c = mesh.indices[t * 3 + 2] * 3
-      const count = Math.max(1, Math.round((SPLIT_SAMPLES * areas[t]) / whole))
-      let hits = 0
-      let taken = 0
       for (let i = 0; i < count; i++) {
         // The Halton points of bases 2 and 3, folded into the triangle: the
         // same points every build, spread evenly whatever their number.
@@ -372,10 +383,8 @@ export class Builder {
         taken++
         if (scan.closest(x, y, z, hit, tolerance)) hits++
       }
-      on += (areas[t] * hits) / count
-      read += (areas[t] * taken) / count
     }
-    return read > 0 ? on / read : 0
+    return taken > 0 ? hits / taken : 0
   }
 
   /** The box a trim cuts up: round the scan, grown a tenth each way, or
@@ -514,7 +523,7 @@ export class Builder {
     const box = k.extent(shape)
     const diagonal = Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2])
     const margin = 0.05 * diagonal + 1
-    const points = k.mesh(shape, meshDeflection(diagonal) * 4).positions
+    const points = k.mesh(shape, meshDeflection(diagonal) * 4, undefined, { copy: true }).positions
     const tools: Shape[] = []
     const made: Shape[] = []
     try {
@@ -2209,7 +2218,10 @@ export class Builder {
       let r: T
       try {
         r = again()
-      } catch {
+      } catch (e) {
+        // A trap is no refusal: the kernel is broken, and no other way is
+        // played on it (issue 34).
+        if (isTrap(e) || k.trapped !== null) throw e
         // Refused this way too: the next way, or the failure as it was.
         continue
       }
@@ -3187,9 +3199,9 @@ export class Builder {
       const body = this.bodyFor(step)
       if (body.surface) return null
       if (step.kind === 'offsetBody') return diagnoseOffset(this.kernel, step, body, { deadline: performance.now() + ms })
-      if (step.kind === 'shell') return diagnoseShell(this.kernel, this, step, body, { ms, perTry: 0 })
-      // The round that crashed is not tried again; a try that traps
-      // stops the diagnosis.
+      // The shell or the round that crashed is not tried again; a try that
+      // traps stops the diagnosis.
+      if (step.kind === 'shell') return diagnoseShell(this.kernel, this, step, body, { ms, perTry: 0 }, true)
       return diagnoseRound(this.kernel, this, step, body, { ms, perTry: 0 }, true)
     } catch {
       return null
@@ -3899,7 +3911,6 @@ export class Builder {
       const tools = step.kind === 'boolean' ? this.toolFamily(step).map((id) => this.bodies.get(id)).filter((t): t is Body => t !== undefined) : []
       const intoBodies = [body, ...intoPieces.map((id) => this.bodies.get(id)).filter((b): b is Body => b !== undefined)]
       const volumes = step.kind === 'boolean' ? { body: intoBodies.reduce((v, b) => v + this.volumeOf(b.shape), 0), tool: tools.reduce((v, t) => v + this.volumeOf(t.shape), 0) } : null
-      const started = performance.now()
       const first = this.applyToBody(step)
       let whole = body.surface ? k.isSurface(first.shape) : k.isClosedSolid(first.shape)
       let result: typeof first | null = first
@@ -3919,7 +3930,7 @@ export class Builder {
         if (step.op === 'join' && toolsOf(step).length > 1) return { kind: 'join', parts: [...intoBodies, ...tools].map((b) => this.volumeOf(b.shape)), result: this.volumeOf(shape) }
         const kind = step.op === 'join' ? 'union' : step.op === 'cut' ? 'subtract' : 'intersect'
         let common: number | undefined
-        if (kind !== 'intersect' && tools.length === 1 && intoBodies.length === 1 && performance.now() - started < IDENTITY_CHECK_MS) {
+        if (kind !== 'intersect' && tools.length === 1 && intoBodies.length === 1 && k.faceCount(body.shape) + k.faceCount(tools[0].shape) <= IDENTITY_CHECK_FACES) {
           const shared = k.commonTracked(body.shape, tools[0].shape)
           common = this.volumeOf(shared.shape)
           k.release(shared.shape)

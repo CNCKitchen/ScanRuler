@@ -177,6 +177,15 @@ function sideSampler(fit: NetworkFitResult): (patch: FittedPatch) => (k: number,
 }
 
 /** The network's faces sewn into a body, and its report — or why not. */
+/** Whether a network closes: every curve round every patch shared by two.
+ *  Counted by curve, not by side: a T-junction's side is one side of
+ *  several curves, each shared, and counted by side a closed network with a
+ *  T in it never closed — it was sewn as a sheet with no volume (issue 34). */
+export function networkCloses(fit: Pick<NetworkFitResult, 'patches' | 'shared'>): boolean {
+  const uses = fit.patches.reduce((n, p) => n + p.sides.reduce((m, side) => m + side.edges.length, 0), 0)
+  return fit.shared.length * 2 === uses
+}
+
 export function networkBody(k: ReKernel, reading: NetworkReading): { shape: Shape; report: NetworkReport; faceOf: Map<number, number> } {
   const fit = reading.fit as NetworkFitResult
   const began = performance.now()
@@ -212,9 +221,7 @@ export function networkBody(k: ReKernel, reading: NetworkReading): { shape: Shap
       return { curve: s.curve, gap: Math.max(gap, s.gap), angle: s.angle, crease: s.crease }
     })
     const worstGap = shared.reduce((m, s) => Math.max(m, s.gap), 0)
-    // Closed: every side of every patch is shared.
-    const sides = fit.patches.reduce((n, p) => n + p.sides.length, 0)
-    const closed = fit.shared.length * 2 === sides
+    const closed = networkCloses(fit)
     const tolerance = Math.max(SEW_TOLERANCE, 2 * worstGap)
     let shape = faces.length === 1 ? k.copy(faces[0]) : k.sewPatches(faces, tolerance, closed)
     if (closed && !k.isClosedSolid(shape)) {

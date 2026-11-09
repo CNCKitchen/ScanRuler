@@ -49,6 +49,25 @@ describe('a snapped face as an edit of what made it', () => {
     expect((half.features[1] as ExtrudeFeature).extent).toEqual({ kind: 'distance', from: -5, to: 4 })
   })
 
+  it('lets go of the expression of what it moved, so the next parameter pass keeps the move (issue 34)', () => {
+    const { sketch, extrude } = block()
+    const linked: ExtrudeFeature = { ...extrude, exprs: { 'extent.to': 'height', 'extent.from': 'floor' } }
+    const top = planSnap([sketch, linked], plane([20, 10, 10], [0, 0, 1]), 2)
+    if (top.route === 'direct') throw new Error(top.why)
+    // The To moved; the From's expression stays.
+    expect((top.features[1] as ExtrudeFeature).exprs).toEqual({ 'extent.from': 'floor' })
+    // A typed radius with an expression: the value moves, the expression goes.
+    const typed = block()
+    const id = typed.sketch.sketch.entities.find((e) => e.kind === 'circle')!.id
+    addConstraint(typed.sketch.sketch, { kind: 'radius', entity: id, value: 3, expr: 'boreR' })
+    const bore: FaceFingerprint = { kind: 'cylinder', centroid: [10, 10, 5], dir: [0, 0, 1], area: 188, radius: 3, center: [10, 10, 5], origin: 2 }
+    const resized = planSnap([typed.sketch, typed.extrude], bore, 0.4)
+    if (resized.route === 'direct') throw new Error(resized.why)
+    const c = (resized.features[0] as SketchFeature).sketch.constraints.find((x) => x.kind === 'radius') as { value: number; expr?: string }
+    expect(c.value).toBeCloseTo(3.4, 6)
+    expect(c.expr).toBeUndefined()
+  })
+
   it('moves several faces as one edit: both ends of an extrude, or all of them on the body when one does not trace', () => {
     const { sketch, extrude } = block()
     const ends = planMoves([sketch, extrude], [plane([20, 10, 10], [0, 0, 1]), plane([20, 10, 0], [0, 0, -1])], 1)

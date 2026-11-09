@@ -533,6 +533,10 @@ export class SceneManager {
         const targets: THREE.Object3D[] = []
         if (this.mesh?.visible) targets.push(this.mesh)
         if (this.nominalMesh?.visible) targets.push(this.nominalMesh)
+        // The map on the reference stands in its place while shown, and the
+        // volume regions over it: both can be turned about.
+        if (this.referenceMapMesh?.visible) targets.push(this.referenceMapMesh)
+        targets.push(...this.volumeLayer.meshes())
         for (const layer of this.layers) targets.push(...(layer.navTargets?.() ?? []))
         return targets
       },
@@ -1721,6 +1725,10 @@ export class SceneManager {
     }
     dress(this.mesh, planes)
     dress(this.nominalMesh, sectioned ? planes : null)
+    // The map on the reference and the volume regions are the reference's
+    // and cut with it (issue 34).
+    dress(this.referenceMapMesh, sectioned ? planes : null)
+    this.volumeLayer.setClipping(sectioned ? planes : null)
     for (const layer of this.layers) layer.clippingChanged?.(planes, sectioned)
     this.updateCaps()
     // The labels and the pins on the side cut away go with it.
@@ -2885,6 +2893,8 @@ export class SceneManager {
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
       this.referenceMapMesh = new THREE.Mesh(geometry, referenceMapMaterial())
+      // Cut as the reference is, if the section view is on.
+      ;(this.referenceMapMesh.material as THREE.Material).clippingPlanes = this.sectioned ? this.slicePlanes : null
       this.referenceMapMesh.visible = false
       this.referenceMapMesh.renderOrder = 1
       this.scene.add(this.referenceMapMesh)
@@ -3531,6 +3541,7 @@ export class SceneManager {
 
   dispose(): void {
     this.volumeLayer.dispose()
+    this.setReferenceMap(null)
     for (const layer of [...this.layers]) layer.dispose()
     this.layers = []
     this.marking.dispose()

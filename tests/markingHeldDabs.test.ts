@@ -138,4 +138,22 @@ describe('a stroke laid while the tree is out', () => {
     marking.treeLanded()
     expect(regions.paintCount).toBeGreaterThan(0)
   })
+
+  it('marks nothing the section view cut away (issue 34)', () => {
+    // The cut keeps x ≥ 0.
+    ;(mesh.material as THREE.Material).clippingPlanes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 0)]
+    mesh.geometry.boundsTree = new MeshBVH(mesh.geometry)
+    // A dab on the cut-away side marks nothing at all.
+    press(300, 300)
+    release(300, 300)
+    expect(regions.paintCount).toBe(0)
+    // One on the cut marks only triangles whose middle is kept: no vertex
+    // further out on the cut side than one square.
+    press(400, 300)
+    release(400, 300)
+    const points = marked()
+    expect(points.length).toBeGreaterThan(0)
+    expect(points.every((p) => p.x >= -0.1 - 1e-6)).toBe(true)
+    expect(points.some((p) => p.x > 0.1)).toBe(true)
+  })
 })

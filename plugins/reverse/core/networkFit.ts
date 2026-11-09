@@ -780,12 +780,17 @@ function fitAt(input: NetworkFitInput, strips: Strips, stripSpans: readonly numb
     const applyPoles = (withConstants: boolean) => {
       G.fill(0)
       nets.forEach((net, p) => bandMultiply(hessians[p], net, y.subarray(poleBase[p] * 3, (poleBase[p] + (net.nu + 3) * (net.nv + 3)) * 3), G.subarray(poleBase[p] * 3)))
+      // The tie as the exact layout holds it — C − B = λ (B − A), so A =
+      // B − d and C = B + λ d — weighed as λ A + C − (1 + λ) B. It was
+      // A + λ C − (1 + λ) B, which holds C − B = (B − A) / λ: the soft ties
+      // next to a corner pulled the cross-spacings the other way round from
+      // the ties along the curve (issue 34).
       for (const t of lay.soft) {
         const w = tiesWeight / (1 + t.ratio * t.ratio)
         for (let c = 0; c < 3; c++) {
-          const r = y[t.a * 3 + c] + t.ratio * y[t.c * 3 + c] - (withConstants ? (1 + t.ratio) * allPoles[t.b * 3 + c] : 0)
-          G[t.a * 3 + c] += w * r
-          G[t.c * 3 + c] += w * t.ratio * r
+          const r = t.ratio * y[t.a * 3 + c] + y[t.c * 3 + c] - (withConstants ? (1 + t.ratio) * allPoles[t.b * 3 + c] : 0)
+          G[t.a * 3 + c] += w * t.ratio * r
+          G[t.c * 3 + c] += w * r
         }
       }
       for (const row of faceRows) {
@@ -827,8 +832,8 @@ function fitAt(input: NetworkFitInput, strips: Strips, stripSpans: readonly numb
       for (let c = 0; c < 3; c++) {
         const za = lay.z[t.a * 3 + c]
         const zc = lay.z[t.c * 3 + c]
-        if (za >= 0) diagonal[za] += w * lay.coef[t.a * 3 + c] ** 2
-        if (zc >= 0) diagonal[zc] += w * (t.ratio * lay.coef[t.c * 3 + c]) ** 2
+        if (za >= 0) diagonal[za] += w * (t.ratio * lay.coef[t.a * 3 + c]) ** 2
+        if (zc >= 0) diagonal[zc] += w * lay.coef[t.c * 3 + c] ** 2
       }
     }
     for (const row of faceRows) {

@@ -191,17 +191,36 @@ check(
 // gesture is a pure pan: the part has to follow the hand 1:1 and the pivot must
 // stay away.
 //
-// Pinched small first, and deliberately so. The measure is the centroid of the
-// part's pixels inside a fixed crop, so a part big enough to reach the edge of
-// that crop loses pixels on the leading side as it travels and its centroid
-// lags the hand — an artefact of the ruler, not of the pan. Small enough to
-// stay wholly inside the crop, the two agree to a pixel or two.
-s = pinchAbout((await sample()).at, 190, 45)
-g = await sweep(s.from, s.to)
-await g.lift()
+// Read off a point element's label, which is drawn where the point projects:
+// an exact ruler. The centroid of the part's pixels in a fixed crop is not —
+// it read 5/6 of a pan the label shows was 1:1.
+// The spots nearest the middle of the stage first: a label near an edge is
+// held inside the view and would not follow the pan.
+const centre = [CROP.x + CROP.width / 2, CROP.y + CROP.height / 2]
+const spot = (await sample()).spots.sort((p, q) => Math.hypot(p[0] - centre[0], p[1] - centre[1]) - Math.hypot(q[0] - centre[0], q[1] - centre[1]))
+let pointMade = false
+for (const at of spot) {
+  await page.click('[data-test="fit-point"]')
+  await page.mouse.click(...at)
+  pointMade = await page
+    .waitForSelector('[data-test="create-element"]:not([disabled])', { timeout: 4000 })
+    .then(() => true)
+    .catch(() => false)
+  if (pointMade) break
+  await page.click('[data-test="cancel-draft"]').catch(() => {})
+}
+check(pointMade, 'a point to read the pan by')
+await page.click('[data-test="create-element"]')
+await page.click('[data-test="cancel-draft"]').catch(() => {})
+await sleep(300)
+const labelAt = () =>
+  page.$eval('.element-label', (e) => {
+    const r = e.getBoundingClientRect()
+    return [r.x + r.width / 2, r.y + r.height / 2]
+  })
 
 const before = await sample()
-check(before.area < 0.09, `the part is clear of the crop edges to pan — area ${before.area.toFixed(4)}`)
+const labelBefore = await labelAt()
 const PAN = [150, -60]
 const pair = [
   [before.at[0] - 60, before.at[1]],
@@ -210,13 +229,16 @@ const pair = [
 g = await sweep(pair, pair.map(([x, y]) => [x + PAN[0], y + PAN[1]]))
 const panning = await sample()
 await g.lift()
-const panned = await sample()
-const moved = [panned.at[0] - before.at[0], panned.at[1] - before.at[1]]
+const labelAfter = await labelAt()
+const moved = [labelAfter[0] - labelBefore[0], labelAfter[1] - labelBefore[1]]
 check(panning.red === 0, `two fingers pan, not orbit — no pivot marker (${panning.red} px)`)
 check(
-  Math.hypot(moved[0] - PAN[0], moved[1] - PAN[1]) < 12,
-  `the part follows the fingers 1:1 — asked [${PAN}], moved [${moved.map((v) => v.toFixed(0))}]`,
+  Math.hypot(moved[0] - PAN[0], moved[1] - PAN[1]) < 2,
+  `the part follows the fingers 1:1 — asked [${PAN}], moved [${moved.map((v) => v.toFixed(1))}]`,
 )
+// The point goes again: what follows is about taps and the brush.
+await page.click('[data-test="element-row"] button[title^="Delete"]')
+await sleep(300)
 
 // ---- a pinch is not a pick ------------------------------------------------
 // Both fingers land and lift inside the click threshold, which is exactly the
@@ -281,9 +303,12 @@ if (picked) {
   await g.lift()
   const strokeCount = await marked()
   check(strokeCount > 0, `one finger paints when the brush is armed (${strokeCount} marked)`)
-  check(brushing.red === 0, `and does not orbit underneath it (${brushing.red} pivot px)`)
-
+  // The marking is drawn in the element's colour, which may be the red the
+  // pivot is counted by; but it stays when the finger lifts, and the pivot
+  // marker goes. Red during the stroke past what stays is the pivot.
   const afterStroke = await sample()
+  check(brushing.red <= afterStroke.red + 4, `and does not orbit underneath it (${brushing.red - afterStroke.red} pivot px)`)
+
   const twoPair = [
     [on[0] - 60, on[1]],
     [on[0] + 60, on[1]],

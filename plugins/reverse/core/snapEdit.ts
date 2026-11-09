@@ -31,6 +31,7 @@ import { resolveAxis } from './resolve'
 import { findRegions, matchRegions } from './regions'
 import { addConstraint, addEntity, cloneSketch, removeConstraint, removeEntities, type Sketch, type SketchEntity } from './sketch'
 import { solveSketch } from './solver'
+import { unlinkSlot } from './parameters'
 import type { FaceFingerprint } from './topo'
 import { round3, round4, roundTo } from '../../../src/core/round'
 import { lengthDecimals, toDisplay, unitWord, type DisplayUnits } from '../../../src/core/units'
@@ -100,7 +101,10 @@ function moveCap(features: readonly Feature[], maker: ExtrudeFeature, sketch: Sk
   const after = round4(before + along * offset)
   const next = { ...ends, [side]: after }
   if (Math.abs(next.to - next.from) < 1e-6) return { route: 'direct', why: `${maker.name} would have no length left` }
-  const edited: ExtrudeFeature = { ...maker, extent: { kind: 'distance', from: next.from, to: next.to } }
+  // The end moved is a number now, not what an expression made it: left
+  // linked, the next parameter pass put the end back and undid the move
+  // (issue 34). A symmetric extent's total goes too — it is one no more.
+  const edited: ExtrudeFeature = unlinkSlot(unlinkSlot({ ...maker, extent: { kind: 'distance', from: next.from, to: next.to } }, `extent.${side}`), 'extent.total')
   return {
     route: 'extent',
     features: features.map((f) => (f.id === maker.id ? edited : f)),
@@ -194,7 +198,15 @@ function resizeRound(features: readonly Feature[], maker: ExtrudeFeature, sketch
   // typed; the scan overrules it here, and the dimension reads the new
   // value. With none, one holds the radius for the length of the solve.
   const typed = next.constraints.find((c) => (c.kind === 'radius' || c.kind === 'diameter') && c.entity === id)
-  if (typed) next.constraints = next.constraints.map((c) => (c === typed && 'value' in c ? { ...c, value: c.kind === 'diameter' ? 2 * radius : radius } : c))
+  // Its expression, if it had one, goes with the value it no longer gives.
+  if (typed) {
+    next.constraints = next.constraints.map((c) => {
+      if (c !== typed || !('value' in c)) return c
+      const { expr: _expr, ...rest } = c as typeof c & { expr?: string }
+      void _expr
+      return { ...rest, value: c.kind === 'diameter' ? 2 * radius : radius } as typeof c
+    })
+  }
   const hold = typed ? null : addConstraint(next, { kind: 'radius', entity: id, value: radius })
   const report = solveSketch(next, { datums: datumTraces(sketch.frame) })
   if (hold !== null) removeConstraint(next, hold)

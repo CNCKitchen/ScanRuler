@@ -23,9 +23,19 @@ export function useNetworkReport(): NetworkReport | null {
   return last.current
 }
 
+/** Whether the report on hand is of the draft as it stands: false while a
+ *  build of a later change runs and the last report is still shown. Its
+ *  patch and cell numbers are the last build's then, and an action that
+ *  takes them would apply them to a draft they no longer describe
+ *  (issue 34). */
+export function useNetworkReportCurrent(): boolean {
+  return useReverse((s) => s.featureDraft?.kind === 'network' && s.preview?.status === 'ok')
+}
+
 export function useNetworkLayer(sceneRef: RefObject<SceneManager | null>): void {
   const draft = useReverse((s) => (s.featureDraft?.kind === 'network' ? s.featureDraft : null))
   const report = useNetworkReport()
+  const current = useNetworkReportCurrent()
   const nextId = useReverse((s) => s.nextFeatureId)
   const color = bodyColor(draft?.featureId ?? nextId)
   const bodies = useReverse((s) => s.bodies)
@@ -39,8 +49,8 @@ export function useNetworkLayer(sceneRef: RefObject<SceneManager | null>): void 
     const layer = networkLayerOf(scene)
     layer.onEdit = (change) => useReverse.getState().editNetwork(change)
     layer.bodyColors = new Map(bodies.map((b) => [b.id, b.color ?? bodyColor(b.id)]))
-    layer.setDraft(draft, report, color)
-  }, [draft, report, color, bodies, sceneRef])
+    layer.setDraft(draft, report, color, current)
+  }, [draft, report, color, bodies, sceneRef, current])
   const open = draft !== null
   useEffect(() => {
     if (!open) return

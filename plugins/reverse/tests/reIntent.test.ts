@@ -149,6 +149,23 @@ describe('the relations the pieces nearly have', () => {
     expect(find(held, 'horizontal', bottom)).toBeDefined()
   })
 
+  it('offers a turned sketch its square relations as well as level and upright (issue 34)', () => {
+    // A rectangle drawn 2° turned, within the 5° the axes are offered by:
+    // if level and upright are turned down, parallel and perpendicular are
+    // what holds it square.
+    const sk = emptySketch()
+    const t = (2 * Math.PI) / 180
+    const turn = ([x, y]: [number, number]): [number, number] => [x * Math.cos(t) - y * Math.sin(t), x * Math.sin(t) + y * Math.cos(t)]
+    const [p0, p1, p2, p3] = ([[0, 0], [40, 0], [40, 20], [0, 20]] as [number, number][]).map(turn)
+    const bottom = line(sk, p0, p1)
+    const right = line(sk, p1, p2, 30, 0.02, 2)
+    const top = line(sk, p2, p3, 40, 0.02, 3)
+    const cs = candidatesOf(sk.entities, [], { angleDeg: 5, mm: 1 })
+    expect(find(cs, 'horizontal', bottom)).toBeDefined()
+    expect(find(cs, 'parallel', bottom, top)).toBeDefined()
+    expect(find(cs, 'perpendicular', bottom, right)).toBeDefined()
+  })
+
   it('offers parallel, perpendicular and in line between lines off the axes, and a 45° chamfer', () => {
     const sk = emptySketch()
     const t = (deg: number) => (deg * Math.PI) / 180

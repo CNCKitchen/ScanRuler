@@ -113,6 +113,49 @@ export function transformFingerprint(face: FaceFingerprint, m: Rigid): FaceFinge
 /** An edge's fingerprint carried through a rigid motion of the part, as a
  *  face's is (transformFingerprint): its middle moved, its direction and
  *  its faces' turned, made canonical again where they have no sign. */
+/** Whether `o` is a face's fingerprint: a centroid, a direction and an area. */
+function isFaceFingerprint(o: Record<string, unknown>): o is FaceFingerprint & Record<string, unknown> {
+  return typeof o.kind === 'string' && typeof o.area === 'number' && isVec3(o.centroid) && isVec3(o.dir)
+}
+
+/** Whether `o` is an edge's fingerprint: a midpoint, a direction, a length
+ *  and the faces beside it. */
+function isEdgeFingerprint(o: Record<string, unknown>): o is EdgeFingerprint & Record<string, unknown> {
+  return typeof o.kind === 'string' && typeof o.length === 'number' && isVec3(o.mid) && isVec3(o.dir) && Array.isArray(o.faces)
+}
+
+const isVec3 = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number')
+
+/**
+ * `x` with every face and edge fingerprint in it carried by `m`, wherever
+ * it is kept — a fillet's edges, a shell's faces, a draft's, a hole's axis
+ * face and the point on it, a cut up to a face, a mirror across one, the
+ * found faces of a stored pick, a projected sketch piece's edge — each
+ * once, and nothing else touched. A datum alignment moved a few of them by
+ * hand and left the rest where the faces used to be, so the next build no
+ * longer found them (issue 34).
+ */
+export function movedFingerprints<T>(x: T, m: Rigid): T {
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk)
+    if (v === null || typeof v !== 'object' || ArrayBuffer.isView(v)) return v
+    const o = v as Record<string, unknown>
+    if (isFaceFingerprint(o)) return transformFingerprint(o, m)
+    if (isEdgeFingerprint(o)) return transformEdgeFingerprint(o, m)
+    const out: Record<string, unknown> = {}
+    for (const [k, value] of Object.entries(o)) out[k] = walk(value)
+    // A hole started at a point on a face: the point is in the part's
+    // frame as the face is.
+    if (o.kind === 'point' && 'face' in o && isVec3(o.at)) {
+      const p = new Float64Array(3)
+      rigidApply(m, o.at[0], o.at[1], o.at[2], p)
+      out.at = [p[0], p[1], p[2]]
+    }
+    return out
+  }
+  return walk(x) as T
+}
+
 export function transformEdgeFingerprint(edge: EdgeFingerprint, m: Rigid): EdgeFingerprint {
   const out = new Float64Array(3)
   const turn = (d: Vec3): Vec3 => {

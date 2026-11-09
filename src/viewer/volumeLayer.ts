@@ -27,6 +27,8 @@ export class VolumeLayer {
   private through: THREE.MeshBasicMaterial | null = null
   private geometries: THREE.BufferGeometry[] = []
   private hovered: number | null = null
+  /** The section view's cut, as the reference is cut — see setClipping. */
+  private clipping: THREE.Plane[] | null = null
 
   constructor() {
     this.group.visible = false
@@ -39,6 +41,8 @@ export class VolumeLayer {
     if (!volume?.meshes) return
     const front = (this.front ??= new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, opacity: 0.85, side: THREE.DoubleSide, roughness: 1, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1 }))
     const through = (this.through ??= new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthTest: false, depthWrite: false }))
+    front.clippingPlanes = this.clipping
+    through.clippingPlanes = this.clipping
     for (const kind of KINDS) {
       const shell = volume.meshes[kind]
       if (shell.indices.length === 0) continue
@@ -62,6 +66,25 @@ export class VolumeLayer {
 
   setVisible(visible: boolean): void {
     this.group.visible = visible && this.shells.length > 0
+  }
+
+  /** Cut as the section view cuts the reference, or whole (null): the
+   *  regions lie on and in the reference, and drawn whole over a cut one
+   *  they hid what the cut opened (issue 34). */
+  setClipping(planes: THREE.Plane[] | null): void {
+    if (planes === this.clipping) return
+    this.clipping = planes
+    for (const m of [this.front, this.through]) {
+      if (!m) continue
+      m.clippingPlanes = planes
+      m.needsUpdate = true
+    }
+  }
+
+  /** The meshes drawn, while shown — what an orbit may turn about. */
+  meshes(): THREE.Object3D[] {
+    // Solid and see-through alike are added in pairs; the solid of each.
+    return this.group.visible ? this.group.children.filter((_, i) => i % 2 === 0) : []
   }
 
   /** Light up one region, by its index in the measurement's list, or none. */

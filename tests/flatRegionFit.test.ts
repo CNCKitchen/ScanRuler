@@ -21,6 +21,19 @@ describe('fitLineRegion', () => {
     expect(fit.usedPoints).toBeLessThan(230)
   })
 
+  it('takes its scatter floor in pixels, not in the sheet’s millimetres (issue 34)', () => {
+    // 600 dpi: a pixel is 0.0423 mm. The edge with a micron of scatter, and
+    // a stray run 0.2 mm off it — five pixels, no scatter of the edge's.
+    const pixel = 25.4 / 600
+    const rand = mulberry32(3)
+    const pts: Vec2[] = []
+    for (let i = 0; i < 200; i++) pts.push([i * 0.05, 10 + (rand() - 0.5) * 0.002])
+    for (let i = 0; i < 40; i++) pts.push([i * 0.05, 10.2 + (rand() - 0.5) * 0.002])
+    expect(fitLineRegion(pts, pixel).usedPoints).toBe(200)
+    // Read as pixels, 0.2 is within the floor and the strays stay in.
+    expect(fitLineRegion(pts).usedPoints).toBe(240)
+  })
+
   it('refuses a region with too few points', () => {
     expect(() => fitLineRegion([[0, 0], [1, 1]])).toThrow(/too few/)
   })

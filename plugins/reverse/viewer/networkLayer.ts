@@ -197,6 +197,8 @@ export class NetworkLayer {
   private paths: ScanPaths | null = null
   private draft: Draft | null = null
   private report: NetworkReport | null = null
+  /** Whether `report` is of the draft as it stands — see setDraft. */
+  private reportCurrent = true
   private color = CURVE_COLOR
   private curves = new Map<number, DrawnCurve>()
   private dots: THREE.Points | null = null
@@ -285,12 +287,14 @@ export class NetworkLayer {
   }
 
   /** The draft to draw, and the last build's report on it; null puts the
-   *  layer away. */
-  setDraft(d: Draft | null, report: NetworkReport | null, color: string): void {
+   *  layer away. `current`: the report is of the draft as it stands, not
+   *  of one before a change whose build still runs. */
+  setDraft(d: Draft | null, report: NetworkReport | null, color: string, current = true): void {
     const was = this.draft
     const reported = this.report
     this.draft = d
     this.report = report
+    this.reportCurrent = current
     this.color = color
     if (!d) {
       this.clearAll()
@@ -709,7 +713,9 @@ export class NetworkLayer {
    *  has; false where there is none. */
   private deletePatch(patch: number | null): boolean {
     const report = this.report
-    if (patch === null || !report?.patches[patch]) return false
+    // A report of the draft before a change still building numbers its
+    // patches as they were: deleting by it takes the wrong one (issue 34).
+    if (patch === null || !this.reportCurrent || !report?.patches[patch]) return false
     this.edit((x) => removeReportedPatch(x, report, patch))
     this.hovered = null
     return true

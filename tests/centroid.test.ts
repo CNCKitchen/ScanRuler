@@ -29,6 +29,17 @@ describe('mesh centroid', () => {
     expect(c.volume![2]).toBeCloseTo(7, 4)
   })
 
+  it('calls a tube open at both ends open (issue 34)', () => {
+    // Top and bottom gone: the openings face each other, so the volume reads
+    // the same from any origin — but no z-flux passes through the walls.
+    const soup = boxMesh(SIZE, GRID)
+    const face = GRID * GRID * 2 * 9
+    const g = buildMeshGraph({ kind: 'soup', positions: soup.slice(2 * face) })
+    const c = meshCentroid(g.positions, g.indices)
+    expect(c.closed).toBe(false)
+    expect(c.volume).toBeNull()
+  })
+
   it('calls a box with its bottom missing open and falls back to the surface centroid', () => {
     // boxMesh lays the faces out top first and bottom second; each face is
     // GRID² quads of two triangles of nine floats.

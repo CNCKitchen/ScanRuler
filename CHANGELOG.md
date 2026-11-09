@@ -5,8 +5,37 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.10.0 — 2026-11-09
 
+- **The rest of the second code review's bugs** (2026-11-09, issue 34),
+  most of them in the Reverse engineer. Thanks to Jozkah for finding them.
+  - **Measurements and files:** a scan shaped like a tube open at both ends
+    is no longer taken for closed and given a volume centroid; the volume
+    error no longer fails on a reference past 16.7 million triangles.
+  - **2D Measure:** a construction can be built from an element made after
+    it; an edge fit on a calibrated sheet no longer keeps strays a third of
+    a millimetre off the edge; edge detection needs less than half the
+    memory, so very large scans open.
+  - **Viewer:** the brush no longer marks surface the section view has cut
+    away; the deviation map on the reference and the volume regions are cut
+    with the reference, and the view can turn about them.
+  - **Reverse engineer, sketches and parameters:** sketch ends a hair apart
+    always meet, so their region closes; Enter in a picture's Scale field
+    uses the length just typed; a sketch drawn a degree or two turned is
+    offered parallel and perpendicular, not only level and upright; an
+    expression no longer misreads names like `constructor`, and a decimal
+    comma says that the decimal point is a dot.
+  - **Reverse engineer, building:** which piece of a split or trim lies on
+    the scan is judged by area again; a combine is checked the same way on
+    every computer, however fast; Move face's edit lets go of the
+    expression of what it moved, so the next change does not move it back;
+    a datum alignment carries every face and edge the features name, so
+    rounds, shells and drafts still find theirs; a crash inside the CAD
+    kernel stops everything still running on it.
+  - **Reverse engineer, patch networks:** a closed network with a
+    T-junction closes into a solid; the ties next to a corner hold the
+    same spacing as the rest; patch actions wait for the build that
+    numbers the patches.
 - **More ways to construct points, lines and planes** (2026-11-08, issues
   45 and 46). Under Create element, 3D Measure now also builds:
   - points: the centre of a sphere, circle or torus; where three planes
@@ -37,18 +66,20 @@ saves carry the same number as `appVersion`. How a release is cut is in
   move of a two-finger gesture only set where it started, so a pan or pinch
   lost that move's travel and lagged the hand. It now starts where the
   fingers land.
-- **Opening a scan asks before it replaces your measurements**
-  (2026-11-08). A new scan clears the elements, dimensions and sections
-  measured on the one in place, and opening one from the panel, by drag and
-  drop, as the sample or from a link did so without a word. It now asks
-  first when there is something to lose. The idea came from Greg-J's pull
-  request 23.
+- **Opening a scan, a reference or an image asks before it replaces your
+  work** (2026-11-08). A new scan clears the elements, dimensions and
+  sections measured on the one in place; a new reference the best-fit
+  alignment to the old one and the pins on its map; a new image what was
+  measured on the image sheet. Opening one from the panel, by drag and drop,
+  as the sample or from a link did so without a word. It now asks first when
+  there is something to lose. The idea came from Greg-J's pull request 23.
 - **Keys stay with an open dialog** (2026-11-08, issue 34). With Settings,
   the imprint or another dialog open, Enter, a middle click and the view
   keys still acted on the workspace behind it: Enter could press "Align
   automatically" behind Settings. The units question no longer opens the
   file on Enter with Cancel focused, and Escape stops a running best fit
-  from the Reverse engineer as it does elsewhere. Thanks to Jozkah.
+  from the Reverse engineer as it does elsewhere. Thanks to Jozkah, and to
+  Greg-J for the units question (pull request 22).
 - **Smooth zoom on a trackpad** (2026-11-08, issue 34). Each scroll event
   zoomed a full step, so a trackpad jumped, and a sideways swipe zoomed out.
   The zoom now follows how far you scroll, one mouse notch as before, and a
@@ -123,7 +154,8 @@ saves carry the same number as `appVersion`. How a release is cut is in
   mirrored sheet. Thanks to Jozkah.
 - **STL files that write zero as −0 weld whole** (2026-11-08, issue 34).
   −0.0 and 0.0 were taken for different corners, which left a crack along
-  every plane through zero. Thanks to Jozkah.
+  every plane through zero. Thanks to Jozkah, and to Greg-J, whose pull
+  request 22 found it as well.
 
 ## 0.9.10 — 2026-11-08
 
