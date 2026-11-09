@@ -18,7 +18,9 @@ import {
   applyFlatPart,
   applyScanPart,
   applyThicknessPart,
+  blankManifest,
   collectProject,
+  readAs,
   sessionIsDirty,
 } from '../src/app/project'
 import { useStore, type Element } from '../src/state/store'
@@ -53,6 +55,31 @@ describe('the project archive', () => {
     expect(back.manifest.flat.image?.member).toBe('image.png')
     expect([...back.members.keys()].sort()).toEqual(['image.png', 'reference.step', 'scan.stl'])
     expect(back.members.get('reference.step')).toEqual(new Uint8Array(await sources().reference.file.arrayBuffer()))
+  })
+
+  it('saves an image or a reference with an odd name, and opens it again', async () => {
+    // No extension, and one a member name cannot carry: each was written as
+    // the member's extension, and the project refused to open.
+    useDeviation.setState({ nominalName: 'bracket' })
+    useFlat.setState({ imageName: 'sheet.jpé' })
+    const src = sources()
+    const { manifest, members } = collectProject(
+      { ...src, reference: { ...src.reference, name: 'bracket' }, image: { ...src.image, name: 'sheet.jpé' } },
+      null,
+      '0.1.0',
+    )
+    const back = unpackProject(packProject(manifest, await readMembers(members)))
+    expect(back.manifest.deviation.reference?.member).toBe('reference')
+    expect(back.manifest.flat.image?.member).toBe('image')
+    expect(back.manifest.flat.image?.fileName).toBe('sheet.jpé')
+    expect([...back.members.keys()].sort()).toEqual(['image', 'reference', 'scan.stl'])
+    // Read again under the names they came with.
+    expect(readAs('bracket', 'reference')).toBe('bracket')
+    expect(readAs('scan.stl', 'scan.ply')).toBe('scan.ply')
+  })
+
+  it('refuses on save a member no project could open', () => {
+    expect(() => packProject(blankManifest('0.1.0'), [{ name: 'image.p(n)g', bytes: new Uint8Array(1) }])).toThrow(/cannot hold a file named/)
   })
 
   it('remembers what units a mesh was read in, and only when not millimetres', async () => {

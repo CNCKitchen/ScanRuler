@@ -6,6 +6,7 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate'
 import { MANIFEST_NAME, validateManifest, type ProjectManifest } from './manifest'
 import { readSourceFile } from '../sourceFile'
+import { isMemberName } from './validation'
 
 /** A member as the session hands it over: the scan and the reference are
  *  the files they were opened from (see core/sourceFile), read only when the
@@ -56,7 +57,11 @@ export function packProject(manifest: ProjectManifest, members: ArchiveFile[], l
   const entries: Zippable = {
     [MANIFEST_NAME]: [manifestBytes, { level: 6 }],
   }
-  for (const m of members) entries[m.name] = [m.bytes, { level: 6 }]
+  for (const m of members) {
+    // Refused here rather than written into a file that will not open.
+    if (!isMemberName(m.name)) throw new Error(`The project cannot hold a file named "${m.name}".`)
+    entries[m.name] = [m.bytes, { level: 6 }]
+  }
   return zipSync(entries)
 }
 

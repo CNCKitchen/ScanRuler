@@ -19,6 +19,7 @@ import {
   elementToJson,
   extensionOf,
   IMAGE_STEM,
+  memberName,
   PROJECT_APP,
   PROJECT_SCHEMA,
   REFERENCE_STEM,
@@ -68,6 +69,8 @@ export const emptySources = (): SourceFiles => ({ scan: null, reference: null, i
  *  member's own extension — an edited scan is a PLY, kept under the name of
  *  the STL it was opened as. */
 export function readAs(fileName: string, member: string): string {
+  // A member saved under its stem alone kept no extension of its own.
+  if (!member.includes('.')) return fileName
   const ext = extensionOf(member)
   return extensionOf(fileName) === ext ? fileName : `${fileName.replace(/\.[^.]+$/, '')}.${ext}`
 }
@@ -213,12 +216,12 @@ function coreProject(
 
   let scan: ScanPart | null = null
   if (sources.scan && s.fileName) {
-    const member = `${SCAN_STEM}.${extensionOf(sources.scan.name)}`
+    const member = memberName(SCAN_STEM, sources.scan.name)
     members.push({ name: member, bytes: sources.scan.file })
     // What came with it, each under a member of its own and the name it came
     // under — the name is how the OBJ and its library find it again.
     const companions = (sources.scan.companions ?? []).map((c, i) => {
-      const extra = `${SCAN_STEM}-${i + 1}.${extensionOf(c.name)}`
+      const extra = memberName(`${SCAN_STEM}-${i + 1}`, c.name)
       members.push({ name: extra, bytes: c.bytes })
       return { fileName: c.name, member: extra }
     })
@@ -251,7 +254,7 @@ function coreProject(
 
   let reference: DeviationPart['reference'] = null
   if (sources.reference && dev.nominalName) {
-    const member = `${REFERENCE_STEM}.${extensionOf(sources.reference.name)}`
+    const member = memberName(REFERENCE_STEM, sources.reference.name)
     members.push({ name: member, bytes: sources.reference.file })
     reference = {
       fileName: dev.nominalName,
@@ -308,7 +311,7 @@ function coreProject(
 
   let image: FlatPart['image'] = null
   if (sources.image && f.imageName) {
-    const member = `${IMAGE_STEM}.${extensionOf(sources.image.name)}`
+    const member = memberName(IMAGE_STEM, sources.image.name)
     members.push({ name: member, bytes: sources.image.bytes })
     image = { fileName: f.imageName, member }
   }

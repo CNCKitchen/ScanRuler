@@ -57,11 +57,17 @@ function bands(value: unknown, path: string): void {
  *  starting a measurement with a billion rays or a scale of zero width. */
 const MAX_CONE_RAYS = 256
 const MAX_BANDS = 256
+/** What a member of the archive may be named — checked on open, and on
+ *  save too (packProject), so a project that saves also opens. */
+export function isMemberName(name: string): boolean {
+  return /^[\w .-]+$/.test(name) && name !== 'project.json'
+}
+
 function file(value: unknown, path: string): void {
   if (value === null) return
   const entry = object(value, path)
   fields(entry, 'fileName member', 'string', path)
-  if (!entry.fileName || !/^[\w .-]+$/.test(entry.member as string) || entry.member === 'project.json') invalid(`${path}.member`)
+  if (!entry.fileName || !isMemberName(entry.member as string)) invalid(`${path}.member`)
   if (entry.units !== undefined && !meshUnitsOf(entry.units)) invalid(`${path}.units`)
 }
 function rigid(value: unknown, path: string): void {
@@ -72,8 +78,18 @@ function rigid(value: unknown, path: string): void {
     if (values.length !== size || !values.every((v) => typeof v === 'number' && Number.isFinite(v))) invalid(path)
   }
 }
+/** A sheet's alignment: two picks in image pixels, or none. An empty
+ *  object passed for one and crashed datumFrame as the sheet was drawn. */
+function datum(value: unknown, path: string): void {
+  if (value === undefined || value === null) return
+  const d = object(value, path)
+  vector(d.originPx, 2, `${path}.originPx`)
+  vector(d.xRefPx, 2, `${path}.xRefPx`)
+}
 function sheet(value: unknown, path: string): void {
   const s = object(value, path)
+  datum(s.datum, `${path}.datum`)
+  if (s.mirror !== undefined && typeof s.mirror !== 'boolean') invalid(`${path}.mirror`)
   fields(s, 'nextId nextDimId nextCountId', 'number', path)
   fields(s, 'calSource', 'string', path)
   object(s.nameCounts, `${path}.nameCounts`)
@@ -98,8 +114,11 @@ function sheet(value: unknown, path: string): void {
     else invalid(`${path}.source.type`)
   })
   entries(s.dimensions, `${path}.dimensions`, (e) => { fields(e, 'type name', 'string', path); indices(e.refs, `${path}.refs`) })
-  entries(s.counts, `${path}.counts`, (e) => { fields(e, 'name color', 'string', path); array(e.picks, `${path}.picks`) })
-  if (s.notes !== undefined) entries(s.notes, `${path}.notes`, (e) => { fields(e, 'text', 'string', path); array(e.at, `${path}.at`) })
+  entries(s.counts, `${path}.counts`, (e) => {
+    fields(e, 'name color', 'string', path)
+    for (const p of array(e.picks, `${path}.counts.picks`)) vector(p, 2, `${path}.counts.picks`)
+  })
+  if (s.notes !== undefined) entries(s.notes, `${path}.notes`, (e) => { fields(e, 'text', 'string', path); vector(e.at, 2, `${path}.notes.at`) })
   if (s.pxPerMm !== null) {
     const scale = object(s.pxPerMm, `${path}.pxPerMm`)
     fields(scale, 'x y', 'number', path)
@@ -205,7 +224,12 @@ export function validateProjectParts(raw: unknown): void {
   fields(f, 'edgeSensitivity', 'number', 'flat')
   inRange(f.edgeSensitivity, 0, 1, 'flat.edgeSensitivity')
   if (f.turns !== undefined) inRange(f.turns, -1e6, 1e6, 'flat.turns', true)
-  if (f.datum !== undefined && f.datum !== null) object(f.datum, 'flat.datum')
+  if (f.mirror !== undefined && typeof f.mirror !== 'boolean') invalid('flat.mirror')
+  if (f.subject !== undefined) {
+    const subject = object(f.subject, 'flat.subject')
+    if (subject.kind === 'section') indices([subject.id], 'flat.subject.id')
+    else if (subject.kind !== 'image') invalid('flat.subject.kind')
+  }
   fields(f, 'splitAxes showEdges snapToEdge showGrid', 'boolean', 'flat')
   if (f.sheets !== undefined) for (const [key, value] of Object.entries(object(f.sheets, 'flat.sheets'))) sheet(value, `flat.sheets.${key}`)
 

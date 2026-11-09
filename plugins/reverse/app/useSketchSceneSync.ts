@@ -191,6 +191,12 @@ function snapMark(kind: SnapKind, at: Vec2, s: number): FlatFit[] {
  *  cursor passed over (snap.ts trackingSnap). */
 const TRACKING_TOOLS = new Set(['line', 'rectangle', 'polygon', 'circle', 'arc', 'spline', 'point'])
 
+/** How many points passed over are kept to track from. Two were not
+ *  enough: on the way from one centre to where it crosses another's level
+ *  the cursor passes a circle's quadrant or two, and each pushed out a
+ *  point that was wanted (issue 107). AutoCAD keeps seven. */
+const TRACK_KEEP = 6
+
 const GLYPHS: Partial<Record<Constraint['kind'], string>> = {
   coincident: '•',
   horizontal: 'H',
@@ -317,11 +323,14 @@ export function useSketchSceneSync({
    *  when the tool changes. */
   const tracked = useRef<{ tool: string; points: (Anchor | 'origin')[] }>({ tool: '', points: [] })
 
-  /** The tracked points where they lie now, for the tool in hand. */
+  /** The tracked points where they lie now, for the tool in hand: the
+   *  points already placed for the piece in hand — a line's start — and
+   *  the points the cursor passed over. */
   const trackPoints = (): Vec2[] => {
     const d = useReverse.getState().sketchDraft
-    if (!d || !TRACKING_TOOLS.has(d.tool) || tracked.current.tool !== d.tool) return []
-    const out: Vec2[] = []
+    if (!d || !TRACKING_TOOLS.has(d.tool)) return []
+    const out: Vec2[] = d.pending.map((p) => [p[0], p[1]] as Vec2)
+    if (tracked.current.tool !== d.tool) return out
     for (const t of tracked.current.points) {
       if (t === 'origin') out.push([0, 0])
       else {
@@ -333,7 +342,7 @@ export function useSketchSceneSync({
   }
 
   /** A point the drawing tool's cursor snapped to, taken as one to track
-   *  from: the newest first, the two newest kept, as CAD keeps a couple. */
+   *  from: the newest first, TRACK_KEEP of them kept. */
   const remember = (tool: string, snap: { kind: SnapKind | null; anchor: Anchor | null }) => {
     if (!TRACKING_TOOLS.has(tool)) return
     const point: Anchor | 'origin' | null = snap.kind === 'origin' ? 'origin' : snap.anchor && (snap.kind === 'anchor' || snap.kind === 'midpoint' || snap.kind === 'quadrant') ? snap.anchor : null
@@ -341,7 +350,7 @@ export function useSketchSceneSync({
     const same = (a: Anchor | 'origin', b: Anchor | 'origin') => (a === 'origin' || b === 'origin' ? a === b : a.entity === b.entity && a.at === b.at)
     const was = tracked.current.tool === tool ? tracked.current.points : []
     if (was[0] && same(was[0], point)) return
-    tracked.current = { tool, points: [point, ...was.filter((p) => !same(p, point))].slice(0, 2) }
+    tracked.current = { tool, points: [point, ...was.filter((p) => !same(p, point))].slice(0, TRACK_KEEP) }
   }
 
   /** What a click or a drag may land on besides the sketch: the slice

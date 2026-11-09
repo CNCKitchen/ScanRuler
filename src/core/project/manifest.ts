@@ -339,3 +339,14 @@ export function fileSafe(name: string): string {
 export function extensionOf(name: string): string {
   return name.split('.').pop()?.toLowerCase() ?? ''
 }
+
+/** The member a file is saved under: `stem`, then the file's extension
+ *  where it has one a member name can carry — letters and digits after a
+ *  dot. A name without one (`photo`), or with one past that (`scan.st~`,
+ *  `bild.jpé`), keeps the stem alone: the file is read by its own name
+ *  (readAs), which still carries whatever it was. */
+export function memberName(stem: string, fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  const ext = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+  return /^[a-z0-9]{1,16}$/.test(ext) ? `${stem}.${ext}` : stem
+}

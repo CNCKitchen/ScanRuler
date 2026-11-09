@@ -5,6 +5,29 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.10.2 — 2026-11-09
+
+- **A project with an oddly named file opens again** (2026-11-09, pull
+  request 121). A scan, reference or image whose name had no extension, or
+  one with a character such as "é" in it, went into the project under a
+  name the project then refused: it saved, and would not open. Such a file
+  is now saved under a name that opens, and a save refuses rather than
+  write one that would not. Thanks to Jozkah.
+- **A damaged 2D sheet in a project is refused on open** (2026-11-09, pull
+  request 121). A project whose 2D sheet had a malformed alignment, mirror,
+  count or note was taken in and crashed when the sheet was drawn. It is
+  now refused, naming what is wrong. Thanks to Jozkah.
+- **Binary STL files that begin with "solid" open** (2026-11-09, pull
+  request 122). A binary STL whose exporter wrote "solid" at the start of
+  its header and left extra bytes at the end was taken for a text STL and
+  opened empty. Thanks to Jozkah.
+- **Tracking lines from a line's start, and from more points** (2026-11-09,
+  issue 107). A line drawn from one centre to where it stood level with it
+  and upright with another got only one dashed tracking line: the sketch
+  kept the last two points passed over, and passing a circle's quadrant on
+  the way pushed a wanted one out. It now keeps six, and the start of the
+  line in hand is always tracked. Thanks to SphaeroX.
+
 ## 0.10.1 — 2026-11-09
 
 - **Form tolerances read the narrowest zone** (2026-11-09, pull request
