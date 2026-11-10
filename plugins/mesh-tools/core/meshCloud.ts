@@ -28,6 +28,9 @@ export interface MeshCloudSettings {
    *  two thousandth of its box's diagonal: about as many triangles as a
    *  scanner's own mesh of the cloud, well within its noise. */
   cell?: number
+  /** The most grid cells it may make, held in maps in the worker: past it
+   *  the mesh is refused before anything is made. Default MAX_CELLS. */
+  maxCells?: number
 }
 
 export interface MeshCloudReport {
@@ -53,10 +56,18 @@ const REACH_CELLS = 4
 const TRIM_CELLS = 1.5
 /** Pieces of fewer triangles are dropped. */
 const MIN_PIECE = 50
+/** Grid cells at most by default — the maps they are held in stay well
+ *  under what a JavaScript Map holds (some 16.7 million entries). */
+const MAX_CELLS = 6_000_000
+/** The cells made round each cell holding a point, about, on a surface:
+ *  its 3 × 3 × 3 neighbourhood, a third of which lies along it. */
+const CELLS_PER_HELD = 9
 /** The default cell, in spacings. */
 const CELL_SPACINGS = 2
 /** The grid's cells per box diagonal, at most. */
 const MAX_CELLS_PER_DIAGONAL = 2000
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
 
 export function meshCloud(
   positions: Float32Array,
@@ -79,7 +90,8 @@ export function meshCloud(
     if (z > z1) z1 = z
   }
   const diagonal = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
-  const h = settings.cell && settings.cell > 0 ? settings.cell : Math.max(CELL_SPACINGS * spacing, diagonal / MAX_CELLS_PER_DIAGONAL)
+  // Never finer than a two-thousandth of the part, asked or not.
+  const h = Math.max(settings.cell && settings.cell > 0 ? settings.cell : CELL_SPACINGS * spacing, diagonal / MAX_CELLS_PER_DIAGONAL)
   const empty = (): { positions: Float32Array; indices: Uint32Array; report: MeshCloudReport } => ({
     positions: new Float32Array(0),
     indices: new Uint32Array(0),
@@ -99,6 +111,22 @@ export function meshCloud(
   const pz = (g: number) => oz + Math.floor(g / plane) * h
 
   progress?.('Finding where the points are…')
+  // The cells it would make, counted off the cells holding a point before
+  // any is made: past the budget, refused with a cell that fits.
+  const budget = settings.maxCells ?? MAX_CELLS
+  const held = new Set<number>()
+  for (let i = 0; i < count && held.size * CELLS_PER_HELD <= budget; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2]
+    if (!Number.isFinite(x + y + z)) continue
+    held.add(Math.floor((x - ox) / h) + nx * Math.floor((y - oy) / h) + plane * Math.floor((z - oz) / h))
+  }
+  const estimate = held.size * CELLS_PER_HELD
+  if (estimate > budget) {
+    // The cells a surface takes go as one over the cell squared.
+    const fits = h * Math.sqrt(estimate / budget) * 1.1
+    throw new Error(`A grid of ${round3(h)} mm cells would take more than ${estimate.toLocaleString('en-US')} cells, past the ${budget.toLocaleString('en-US')} the worker holds — give a cell of at least ${round3(fits)} mm.`)
+  }
+  held.clear()
   // The cells holding a point, and their neighbours.
   const active = new Set<number>()
   for (let i = 0; i < count; i++) {

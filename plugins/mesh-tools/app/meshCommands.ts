@@ -897,10 +897,6 @@ const exportPart: Command<{ part: 'edited' | 'reduced' | 'piece'; format?: MeshF
   },
 }
 
-/** The workspace's commands, in the order a cleanup goes: what is there,
- *  islands and marked surface off, the normals the right way, the cut, a
- *  mirror, the holes, smoothing, densifying, a shrink
- *  or an expansion, a boolean, the shell, a wrap, and the reduction last. */
 const meshCloudCommand: Command<{ cell?: number }> = {
   name: 'mesh_cloud',
   title: 'Mesh this cloud',
@@ -916,6 +912,10 @@ const meshCloudCommand: Command<{ cell?: number }> = {
   },
 }
 
+/** The workspace's commands, in the order a cleanup goes: what is there,
+ *  islands and marked surface off, the normals the right way, the cut, a
+ *  mirror, the holes, smoothing, densifying, a shrink
+ *  or an expansion, a boolean, the shell, a wrap, and the reduction last. */
 export const meshCommands = [
   meshCloudCommand,
   parts,

@@ -24,8 +24,12 @@ const BAND_SPACINGS = 1.5
 const CELL_SPACINGS = 2
 /** Cells within this many cells of each other are joined. */
 const LINK_CELLS = 2.5
-/** A path is a loop when its ends lie this near and it has this many cells. */
+/** A path is a loop only when it has this many cells and its ends lie
+ *  within a link of each other. */
 const LOOP_MIN_CELLS = 8
+/** Cells whose sides lie further apart than this (cos of the angle) are
+ *  the two faces of a wall, never joined. */
+const OPPOSED = -0.5
 /** A side shorter than this, laid into the plane, says nothing. */
 const MIN_SIDE = 0.2
 
@@ -95,6 +99,18 @@ export function sliceCloud(
     sb[c] = sumB[c] / hits[c]
   }
 
+  // Each cell's side, unit, or null where it says nothing.
+  const side = (c: number): [number, number, number] | null => {
+    const x = sumN[c * 3] / hits[c], y = sumN[c * 3 + 1] / hits[c], z = sumN[c * 3 + 2] / hits[c]
+    const l = Math.hypot(x, y, z)
+    return l >= MIN_SIDE ? [x / l, y / l, z / l] : null
+  }
+  const opposed = (c: number, o: number): boolean => {
+    const p = side(c)
+    const q = side(o)
+    return p !== null && q !== null && p[0] * q[0] + p[1] * q[1] + p[2] * q[2] < OPPOSED
+  }
+
   // Links between cells near one another, shortest first, and the tree
   // they make (Kruskal).
   const reach = LINK_CELLS * cell
@@ -107,7 +123,9 @@ export function sliceCloud(
         const o = cells.get(`${ia + ka},${ib + kb}`)
         if (o === undefined || o <= c) continue
         const d = Math.hypot(sa[o] - sa[c], sb[o] - sb[c])
-        if (d <= reach) links.push({ a: c, b: o, d })
+        // Two faces of a thin wall lie near each other but face apart: never
+        // one chain across the wall.
+        if (d <= reach && !opposed(c, o)) links.push({ a: c, b: o, d })
       }
     }
   }
@@ -169,6 +187,9 @@ export function sliceCloud(
     const b = farthest(a, seen)
     const path: number[] = []
     for (let x = b; x >= 0; x = from[x]) path.push(x)
+    // A loop when its ends lie within a link of each other. A slit under
+    // about three spacings is finer than the cells read (two spacings
+    // across), and closes; one wider stays open.
     const ends = Math.hypot(sa[a] - sa[b], sb[a] - sb[b])
     if (size >= LOOP_MIN_CELLS && path.length >= LOOP_MIN_CELLS && ends <= reach) path.push(path[0])
     paths.push(path)

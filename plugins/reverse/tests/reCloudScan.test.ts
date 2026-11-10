@@ -27,15 +27,17 @@ const trim: Feature = { id: 7, kind: 'trim', name: 'Trim 7', tools: PLANES.map((
 describe('Reverse kernel on a point cloud', () => {
   it('takes the cloud as a surface of points', () => {
     const c = blockWithBoreCloud({ size: [20, 20, 20], boreRadius: 1, step: 0.5 })
-    expect(scanSurface({ positions: c.positions, indices: null, normals: c.normals, transform: null })).toBeInstanceOf(CloudSurface)
-    expect(scanSurface({ positions: c.positions, indices: null, normals: null, transform: null })).toBeNull()
+    expect(scanSurface({ positions: c.positions, indices: null, normals: c.normals, transform: null, cloud: true })).toBeInstanceOf(CloudSurface)
+    expect(scanSurface({ positions: c.positions, indices: null, normals: null, transform: null, cloud: true })).toBeNull()
+    // A mesh sent without its triangles (no viewport) is no cloud.
+    expect(scanSurface({ positions: c.positions, indices: null, normals: c.normals, transform: null, cloud: false })).toBeNull()
   })
 
   it('trims six planes to the box the cloud was scanned of', async () => {
     const c = blockWithBoreCloud({ size: [20, 20, 20], boreRadius: 1, step: 0.5 })
     const client = new ReClient(localKernel())
     await client.init()
-    await client.setScan(c.positions.slice(), null, null, c.normals.slice())
+    await client.setScan(c.positions.slice(), null, null, c.normals.slice(), true)
     const steps = resolveFeatures([trim], ctx(PLANES as ResolveContext['elements']), (f) => findRegions(f.sketch))
     const out = await client.build(steps, new Map<number, Sketch>())
     expect(out?.results[0].status, out?.results[0].message).toBe('ok')

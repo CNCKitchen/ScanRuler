@@ -697,7 +697,7 @@ export function createReverseSession({
     // none it could hand over.
     const fromWorker = scene && !s.scanIsCloud ? null : await scanFromWorker()
     const positions = fromWorker ? fromWorker.positions : (scene?.scanPositions() ?? null)
-    const sending = client.setScan(positions ? positions.slice() : null, null, scene && !fromWorker ? scene.scanIndices() : null, fromWorker?.normals ?? null)
+    const sending = client.setScan(positions ? positions.slice() : null, null, scene && !fromWorker ? scene.scanIndices() : null, fromWorker?.normals ?? null, s.scanIsCloud)
     scanSending = sending
     try {
       await sending

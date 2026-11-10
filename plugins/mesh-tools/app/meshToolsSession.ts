@@ -429,12 +429,6 @@ export function createMeshToolsSession({
   }
 
   /**
-   * Take the edited copy into use: it becomes the scan every workspace
-   * measures, loaded in place of it under everything measured on it — the
-   * elements fitted again on it, the maps measured again — as one step of
-   * the undo history. True when it was.
-   */
-  /**
    * Mesh this cloud: the point-cloud scan made a mesh (core/meshCloud) and
    * loaded in its place under everything measured on it, as one step of the
    * undo history. The marks and selections made on the cloud's points go —
@@ -476,6 +470,12 @@ export function createMeshToolsSession({
     return report
   }
 
+  /**
+   * Take the edited copy into use: it becomes the scan every workspace
+   * measures, loaded in place of it under everything measured on it — the
+   * elements fitted again on it, the maps measured again — as one step of
+   * the undo history. True when it was.
+   */
   const adoptEditedCopy = async (run?: EditRun): Promise<boolean> => {
     const copy = editedCopy.current
     if (!copy) return false

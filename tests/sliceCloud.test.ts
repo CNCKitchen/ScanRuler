@@ -81,4 +81,32 @@ describe('sliceCloud', () => {
     const cut = sliceCloud(c.positions, c.normals, 0.1, [0, 0, 0.03], [0, 0, 1], { minLength: 10 })
     expect(cut.offsets.length).toBe(1)
   })
+
+  it('keeps a thin wall’s two faces two loops', () => {
+    // A 1 mm wall at 0.25 spacing: its faces lie four spacings apart, nearer
+    // than the cells are joined across — but they face away from each other.
+    const outer = cylinderCloud({ radius: 10, length: 4, step: 0.25 })
+    const inner = cylinderCloud({ radius: 9, length: 4, step: 0.25 })
+    const positions = new Float32Array([...outer.positions, ...inner.positions])
+    const normals = new Float32Array([...outer.normals, ...[...inner.normals].map((v) => -v)])
+    const cs = chains(sliceCloud(positions, normals, 0.25, [0, 0, 0.03], [0, 0, 1]))
+    expect(cs).toHaveLength(2)
+    for (const ch of cs) {
+      expect(closed(ch)).toBe(true)
+      const r = Math.hypot(ch[0], ch[1])
+      for (let i = 0; i < ch.length; i += 3) expect(Math.abs(Math.hypot(ch[i], ch[i + 1]) - r)).toBeLessThan(0.15)
+    }
+  })
+
+  it('leaves a split ring open across its gap', () => {
+    // A ring cut through by a 0.8 mm slot, a little over three spacings: wider
+    // than the cells read (two spacings), so it shows.
+    const ring = cylinderCloud({ radius: 10, length: 4, step: 0.25 })
+    const keep: number[] = []
+    for (let i = 0; i < ring.positions.length / 3; i++) if (!(ring.positions[i * 3] > 0 && Math.abs(ring.positions[i * 3 + 1]) < 0.4)) keep.push(i)
+    const pick = (a: Float32Array) => Float32Array.from(keep.flatMap((i) => [a[i * 3], a[i * 3 + 1], a[i * 3 + 2]]))
+    const cs = chains(sliceCloud(pick(ring.positions), pick(ring.normals), 0.25, [0, 0, 0.03], [0, 0, 1]))
+    expect(cs).toHaveLength(1)
+    expect(closed(cs[0])).toBe(false)
+  })
 })

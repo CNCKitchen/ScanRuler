@@ -77,4 +77,16 @@ describe('meshCloud', () => {
     expect(m.report.pieces).toBe(1)
     for (let i = 2; i < m.positions.length; i += 3) expect(Math.abs(m.positions[i])).toBeLessThan(0.05)
   })
+
+  it('refuses a grid past its budget before it is made, naming a cell that fits', () => {
+    const c = sphereCloud({ radius: 10, step: 0.3 })
+    expect(() => meshCloud(c.positions, c.normals, 0.3, { maxCells: 1000 })).toThrow(/cells.*give a cell of at least [\d.]+ mm/)
+  })
+
+  it('takes no cell finer than a two-thousandth of the part', () => {
+    const c = sphereCloud({ radius: 10, step: 0.3 })
+    const m = meshCloud(c.positions, c.normals, 0.3, { cell: 1e-6, maxCells: 2_000_000 })
+    // The box of the points, a little under the sphere's, sets the floor.
+    expect(m.report.cell).toBeGreaterThan(0.99 * (Math.hypot(20, 20, 20) / 2000))
+  })
 })
