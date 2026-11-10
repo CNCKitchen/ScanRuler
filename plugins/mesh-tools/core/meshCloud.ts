@@ -124,7 +124,7 @@ export function meshCloud(
   if (estimate > budget) {
     // The cells a surface takes go as one over the cell squared.
     const fits = h * Math.sqrt(estimate / budget) * 1.1
-    throw new Error(`A grid of ${round3(h)} mm cells would take more than ${estimate.toLocaleString('en-US')} cells, past the ${budget.toLocaleString('en-US')} the worker holds — give a cell of at least ${round3(fits)} mm.`)
+    throw new Error(`A grid of ${round3(h)} mm cells would take more than ${estimate.toLocaleString('en-US')} cells, past the ${budget.toLocaleString('en-US')} the worker holds — give a cell of at least ${round3(fits)} mm.`) // units-ok: the worker's refusal names mesh.mesh_cloud's cell, which is mm; the worker has no display units
   }
   held.clear()
   // The cells holding a point, and their neighbours.
