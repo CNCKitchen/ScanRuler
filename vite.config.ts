@@ -15,6 +15,10 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },
+  server: {
+    // Native build/test DLLs can be locked while Windows is loading them.
+    watch: { ignored: ['**/windows/project-preview/bin/**'] },
+  },
   build: {
     chunkSizeWarningLimit: 1500,
     // The libraries change far less often than the app, so each gets a chunk

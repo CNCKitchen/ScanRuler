@@ -1032,6 +1032,19 @@ interface theme, colour mode, navigation scheme, line widths, STEP style,
 scanner profiles — are not part
 of a project.
 
+Save Project also embeds a fitted preview image. It keeps the viewing angle
+and fits the visible model or active 2D sheet with a small border, without
+changing the live zoom, alignment or visibility. Hidden objects stay hidden.
+The image is for recognizing the project, not a drawing export: HTML labels
+and interface panels are not included. With nothing visible, it shows an
+explicit placeholder.
+
+An optional [Windows preview handler](../windows/project-preview/README.md)
+displays that image in Explorer and compatible standard Open dialogs. It is
+installed separately; the website cannot add a Windows preview pane itself.
+Older projects still open normally, but need to be opened and saved with a
+preview-enabled build to acquire an image. Previews never rewrite older files.
+
 A project has a **name**, typed in the top bar beside the workspace tabs and
 kept in the file: Save Project saves it under it, every export is named on it,
 and the browser tab carries it. Left unnamed, those go by the scan's name, or

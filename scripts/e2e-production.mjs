@@ -33,6 +33,8 @@ try {
   const manifest = JSON.parse(strFromU8(archive['project.json']))
   check(manifest.scan.fileName === 'production.obj' && strFromU8(archive[manifest.scan.member]) === mesh,
     'built project worker downloads an archive containing the original mesh')
+  check(archive['preview.png']?.[0] === 137 && new DataView(archive['preview.png'].buffer, archive['preview.png'].byteOffset).getUint32(16) === 1024,
+    'built app includes the fitted PNG project preview')
 
   await page.reload({ waitUntil: 'networkidle0' })
   await drop(bytes, 'roundtrip.scanruler')
