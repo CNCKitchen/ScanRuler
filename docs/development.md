@@ -56,9 +56,20 @@ node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
+node scripts/e2e-project-revisions.mjs # production UI: filename-only revision numbering, reopen, rename and dispatch failure
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
+
+Run `e2e-project-revisions.mjs` against `npm run build` plus `npm run preview`,
+with `APP_URL` targeting the preview server. CI runs it against production too.
+It uses generated geometry, an isolated browser and intercepted downloads.
+No directory permission, file picker, local writer or location-branch helper is
+needed. It checks revision transitions, actual project bytes, reopening manual
+filenames, title changes, failed dispatch without advancing the counter or
+marking saved, and resetting filename history. Browser downloads are intercepted,
+so this does not certify OS dialogs, download completion, cancellation or names
+manually changed outside the app.
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
 known before the app is started: the reference is a STEP cube and the scan is a

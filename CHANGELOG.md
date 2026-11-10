@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Numbered project save filenames**. Save suggests `-001`, `-002` and later
+  revisions, continuing an opened project's filename or the last save dispatched
+  in this session. Existing unpadded revisions are recognized; numbering continues
+  past 999. This does not scan folders or change save locations. Browser download
+  settings still control the destination and actual filename.
 - **Right-click menus on list rows** (2026-11-10, pull request 131). A
   right click on an element, dimension or tolerance row opens a menu with
   Edit, Hide or Show in viewport and Delete, and on a dimension or

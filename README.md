@@ -162,6 +162,18 @@ files, projects and agent answers stay in millimetres.
 
 ## Good to know
 
+- **Project revision names**: Save suggests `Part-001.scanruler`, then `-002`,
+  continuing from the opened file or last successfully dispatched save in this
+  session. Opening `Part-9.scanruler` suggests `Part-010.scanruler`; numbering
+  continues past 999. Renaming the project starts a new sequence. No folders
+  are scanned, so higher revisions elsewhere are not detected. Browser download
+  settings still control locations, overwrite prompts and any renamed filename.
+  ScanRuler cannot detect download cancellation or a filename changed in a
+  browser save dialog; reopen that saved file to continue its chosen name.
+  Recovery starts from the project title, not a synthetic checkpoint filename.
+  This feature does not require the separate remembered-location contribution.
+  Agent commands returning project bytes keep their existing unnumbered names.
+
 - **Activity status** (bottom left): **READY** means no tracked work is active;
   **WORKING** names the active phase and shows a percentage only when measured.
   **ERROR** retains priority. See [activity status](docs/activity-status.md) for
