@@ -29,14 +29,14 @@ afterEach(() => {
 })
 
 describe('workspaceUnavailable', () => {
-  it('is null on a mesh and the refusal on a cloud, for Mesh Tools, Reverse engineer and Wall Thickness', () => {
+  it('is null on a mesh and the refusal on a cloud, for Mesh Tools and Wall Thickness; Reverse engineer opens on both', () => {
     expect(workspaceUnavailable('mesh')).toBeNull()
     expect(workspaceUnavailable('reverse')).toBeNull()
     expect(workspaceUnavailable('thickness')).toBeNull()
     expect(workspaceUnavailable('elements')).toBeNull()
     setCloud(true)
     expect(workspaceUnavailable('mesh')).toBe(CLOUD_REFUSAL)
-    expect(workspaceUnavailable('reverse')).toBe(CLOUD_REFUSAL)
+    expect(workspaceUnavailable('reverse')).toBeNull()
     expect(workspaceUnavailable('thickness')).toBe(CLOUD_REFUSAL)
     expect(workspaceUnavailable('elements')).toBeNull()
     expect(workspaceUnavailable('deviation')).toBeNull()
@@ -119,9 +119,9 @@ describe('workspace.set on a cloud', () => {
 })
 
 describe('plugin commands on a cloud', () => {
-  it('refuses a mesh.* and a reverse.* command that changes things', async () => {
+  it('refuses a mesh.* command that changes things, and a reverse.* one that needs a surface', async () => {
     setCloud(true)
     await expect(runCommand('mesh.cut', { plane: 'XY', offset: 0, keep: 'plus' })).rejects.toMatchObject({ message: CLOUD_REFUSAL })
-    await expect(runCommand('reverse.feature.clear', {})).rejects.toMatchObject({ message: CLOUD_REFUSAL })
+    await expect(runCommand('reverse.body.volume_compare', {})).rejects.toMatchObject({ message: CLOUD_REFUSAL })
   })
 })
