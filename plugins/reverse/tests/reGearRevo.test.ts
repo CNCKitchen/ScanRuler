@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { run, startHeadless, type Headless } from '../../../tests/commandKit'
 import { revo } from '../../../tests/revoFixtures'
+import { useStore } from '../../../src/state/store'
 import { createReverseSession, installReverseSession } from '../app/reSession'
 import { ReClient } from '../core/reClient'
 import { localKernel } from './reLocal'
@@ -43,6 +44,10 @@ const gearOf = async (path: string, name: string) => {
 describe.skipIf(!R.exists)('the Revo gear, from its cloud and from Revo’s mesh', () => {
   it('comes out the same model either way', async () => {
     const cloud = await gearOf(R.mergeCloud(), 'Merge_02 cloud.ply')
+    // Every feature built clean, and no section the recipe read by left in the scene.
+    const rows = (await run<{ features: { name: string; status: string; warning?: string }[] }>('reverse.feature.list', {})).features
+    expect(rows.filter((f) => f.status !== 'ok' || f.warning).map((f) => `${f.name}: ${f.warning ?? f.status}`)).toEqual([])
+    expect(useStore.getState().sections).toEqual([])
     const mesh = await gearOf(R.mergeMesh(), 'Merge_02 mesh.ply')
     const pick = (g: typeof cloud) => ({ teeth: g.teeth, tip: g.tip, root: g.root, bore: g.bore, hub: g.hub, width: g.teethTop - g.bottom, p50: g.compare.p50, p95: g.compare.p95 })
     console.log(`cloud ${JSON.stringify(pick(cloud))}\nmesh  ${JSON.stringify(pick(mesh))}`)

@@ -592,4 +592,24 @@ const render: Command<{ section?: number | string; plane?: PlaneIn; offsets?: nu
   },
 }
 
-export const sectionCommands = [cut, get, render]
+const remove: Command<{ section: number | string }> = {
+  name: 'remove',
+  title: 'Delete a section',
+  description:
+    'Delete a section — and with it every element built on it — as the panel’s delete key does: a section cut only to read the scan, once read. Returns what went. One undo step.',
+  input: obj({ section: oneOf([int('The section’s id.', { minimum: 1 }), str('Its name — "Section 1".', { minLength: 1 })], 'The section, by id or name.') }, ['section']),
+  label: () => 'delete section',
+  run: async ({ section }) => {
+    requireMeasureFree()
+    const sec = findSection(section)
+    const before = useStore.getState()
+    useStore.getState().removeSection(sec.id)
+    const after = useStore.getState()
+    return {
+      removed: [{ id: sec.id, name: sec.name }],
+      elementsRemoved: before.elements.filter((e) => !after.elements.some((x) => x.id === e.id)).map((e) => ({ id: e.id, name: e.name })),
+    }
+  },
+}
+
+export const sectionCommands = [cut, get, render, remove]

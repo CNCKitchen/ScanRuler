@@ -1,6 +1,6 @@
 {
   "app": "0.11.1",
-  "saved": "2026-11-09T21:02:58.183Z",
+  "saved": "2026-11-10T04:00:07.995Z",
   "commands": [
     {
       "name": "align.auto",
@@ -4322,6 +4322,38 @@
         "additionalProperties": false
       },
       "readOnly": true,
+      "returnsFile": false,
+      "returnsImage": false
+    },
+    {
+      "name": "section.remove",
+      "title": "Delete a section",
+      "description": "Delete a section — and with it every element built on it — as the panel’s delete key does: a section cut only to read the scan, once read. Returns what went. One undo step.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "section": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The section’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "Its name — \"Section 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "The section, by id or name."
+          }
+        },
+        "required": [
+          "section"
+        ],
+        "additionalProperties": false
+      },
+      "readOnly": false,
       "returnsFile": false,
       "returnsImage": false
     },

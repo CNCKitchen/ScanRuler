@@ -5,6 +5,7 @@
 // patterned round the axis in one sketch — and lying on the cloud.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { run, startHeadless, type Headless } from '../../../tests/commandKit'
+import { useStore } from '../../../src/state/store'
 import { gearCloud, writePlyCloud } from '../../../tests/cloudFixtures'
 import { createReverseSession, installReverseSession } from '../app/reSession'
 import { ReClient } from '../core/reClient'
@@ -44,6 +45,10 @@ describe('a gear from its point cloud', () => {
     // The model lies on the cloud: most of it within a tenth.
     expect(g.compare.share).toBeGreaterThan(0.95)
     expect(g.compare.p95).toBeLessThan(0.2)
+    // Every feature built clean, and the sections it read by gone.
+    const rows = (await run<{ features: { name: string; status: string; warning?: string }[] }>('reverse.feature.list', {})).features
+    expect(rows.filter((f) => f.status !== 'ok' || f.warning)).toEqual([])
+    expect(useStore.getState().sections).toEqual([])
     // One body, closed.
     const bodies = (await run<{ bodies: { closed: boolean }[] }>('reverse.body.describe', {})).bodies
     expect(bodies).toHaveLength(1)
