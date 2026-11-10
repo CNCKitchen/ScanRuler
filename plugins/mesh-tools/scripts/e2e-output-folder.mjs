@@ -1,204 +1,183 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { check, finish, launchApp } from '../../../scripts/e2e-lib.mjs'
-import { openReverse } from '../../reverse/scripts/lib.mjs'
+// UI-only: run against the static production build, with no /src or local writer.
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
+import { check, fail, finish, launchApp, shotPath } from '../../../scripts/e2e-lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp()
-try {
-  const first = await page.evaluate(async () => {
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/150.0.0.0' })
+const requests = []
+page.on('request', (request) => { requests.push(new URL(request.url()).pathname) })
+page.on('dialog', (dialog) => dialog.accept())
+await page.evaluateOnNewDocument(() => {
+  window.folderChoices = []
+  window.saveChoices = []
+  window.downloads = []
+  window.folderMode = 'save'
+  window.showDirectoryPicker = async ({ id }) => {
+    if (!navigator.userActivation.isActive) throw new Error('Folder picker lost user activation')
+    if (window.folderMode === 'cancel') throw new DOMException('Cancelled', 'AbortError')
+    window.folderChoices.push(id)
     const root = await navigator.storage.getDirectory()
-    const directory = await root.getDirectoryHandle('output-folder-test', { create: true })
-    window.showDirectoryPicker = async () => directory
-    const { projectOutputDirectory, writeProjectRevision } = await import('/src/app/projectRevisions.ts')
-    const selected = await projectOutputDirectory()
-    return writeProjectRevision(selected, 'Persisted', new Uint8Array([1, 2, 3]))
-  })
-  check(first === 'Persisted-001.scanruler', 'the first selection writes a three-digit numbered revision')
-  await page.reload({ waitUntil: 'networkidle0' })
-  const second = await page.evaluate(async () => {
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (X11; Linux x86_64) Chrome/150.0.0.0' })
-    window.showDirectoryPicker = async () => { throw new Error('The folder picker must not reopen.') }
-    const { projectOutputDirectory, writeProjectRevision } = await import('/src/app/projectRevisions.ts')
-    return writeProjectRevision(await projectOutputDirectory(), 'Persisted', new Uint8Array([4, 5, 6]))
-  })
-  check(second === 'Persisted-002.scanruler', 'reload restores the actual directory handle without selecting a folder again')
-  await page.click('[data-test="new-project"]')
-  const retained = await page.evaluate(async () => {
-    const { projectOutputDirectory } = await import('/src/app/projectRevisions.ts')
-    return (await projectOutputDirectory()).name === 'output-folder-test'
-  })
-  check(retained, 'starting a new project retains the selected output folder')
-  await page.evaluate(() => {
-    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/150.0.0.0 Edg/150.0.0.0' })
-    window.showDirectoryPicker = async () => { throw new Error('Windows Save As must not ask for a folder first.') }
-    window.localOutputRequests = []
-    window.fetch = async (input, options) => {
-      window.localOutputRequests.push({ url: String(input), method: options?.method })
-      if (String(input).includes('?choose=')) return Response.json({ token: 'native-selection', name: 'Renamed.scanruler', directory: 'D:\\Other' })
-      if (options?.method === 'POST') return new Response('Disk full', { status: 500 })
-      return Response.json({ name: 'C:\\Local\\Mods', names: [] })
+    if (window.consumeFolderActivation) {
+      Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: false } })
     }
-  })
-  const local = await page.evaluate(async () => {
-    const { chooseProjectSave, projectOutputDirectory, rememberOutputDirectory } = await import('/src/app/projectRevisions.ts')
-    rememberOutputDirectory(null)
-    const directory = await projectOutputDirectory()
-    const target = await chooseProjectSave(directory, 'Roof')
-    try { await target.write(new Uint8Array([1])) }
-    catch (error) {
-      return { name: directory.name, path: target.path, message: error.message, retained: directory === await projectOutputDirectory(), requests: window.localOutputRequests }
-    }
-    throw new Error('Expected the disk-full response to fail.')
-  })
-  check(local.name === 'C:\\Local\\Mods' && local.message.includes('Disk full') && local.retained,
-    'local Windows browsers use the configured local writer without a folder picker, surface errors, and retain the folder')
-  check(local.path === 'D:\\Other\\Renamed.scanruler' &&
-    local.requests.some((r) => r.method === 'POST' && r.url.includes('choose=Roof-001.scanruler')) &&
-    local.requests.some((r) => r.method === 'POST' && r.url.includes('selection=native-selection')),
-    'local Windows browsers honor renamed/moved native selections and upload only with their authorization token')
-  await page.evaluate(() => {
-    window.__nativeExports = []
-    window.__nativeWrites = []
-    window.__nativeMode = 'save'
-    window.fetch = async (input, options) => {
-      const url = new URL(String(input), location.origin)
-      if (url.pathname !== '/__scanruler/output') throw new Error(`Unexpected request: ${input}`)
-      if (url.searchParams.has('choose')) {
-        window.__nativeExports.push({ name: url.searchParams.get('choose'), kind: url.searchParams.get('kind') })
-        if (window.__nativeMode === 'cancel') return new Response(null, { status: 204 })
-        if (window.__nativeMode === 'error') return new Response('Export folder unavailable', { status: 500 })
-        return Response.json({ token: 'export-selection', name: url.searchParams.get('choose'), directory: 'D:\\Exports' })
-      }
-      if (url.searchParams.get('selection') === 'export-selection') {
-        window.__nativeWrites.push({ text: await options.body.text(), size: options.body.size })
-        return new Response(null, { status: 201 })
-      }
-      throw new Error(`Unapproved write: ${input}`)
-    }
-    URL.createObjectURL = () => { throw new Error('Native exports must not silently download.') }
-  })
-  const native = await page.evaluate(async () => {
-    const { saveBuilt, runExport } = await import('/src/app/exports.ts')
-    const { projectOutputDirectory } = await import('/src/app/projectRevisions.ts')
-    const { useStore } = await import('/src/state/store.ts')
-    const before = await projectOutputDirectory()
-    for (const extension of ['step', 'stp', 'stl', '3mf', 'ply', 'xyz', 'csv', 'svg', 'dxf']) {
-      await runExport(async () => saveBuilt({ name: `Export.${extension}`, bytes: new TextEncoder().encode(extension), mimeType: 'application/octet-stream', status: 'Export complete.' }))
-    }
-    const status = useStore.getState().statusText
-    window.__nativeMode = 'cancel'
-    await runExport(async () => saveBuilt({ name: 'Cancel.csv', bytes: new Uint8Array([1]), mimeType: 'text/csv', status: 'Must not report success' }))
-    const cancelled = useStore.getState().statusText
-    window.__nativeMode = 'error'
-    await runExport(async () => saveBuilt({ name: 'Error.svg', bytes: new Uint8Array([1]), mimeType: 'image/svg+xml', status: 'Must not report success' }))
-    const error = useStore.getState().errorText
-    window.__nativeMode = 'save'
-    return { selected: window.__nativeExports, writes: window.__nativeWrites, status, cancelled, error, sameProjectFolder: before === await projectOutputDirectory() }
-  })
-  check(native.selected.length === 11 && native.selected.every((s) => s.kind === 'export') && native.writes.length === 9,
-    'every supported format uses export Save As and only approved selections write bytes')
-  check(native.sameProjectFolder && native.status.includes('D:\\Exports\\Export.dxf'),
-    'export status reports the chosen path without changing the remembered project folder')
-  check(native.cancelled.includes('cancelled') && native.error.includes('Export folder unavailable'),
-    'cancel and failed export dialogs are explicit and never fall back to Downloads')
-  await openReverse(page)
-  await page.evaluate(async () => {
-    const { runCommand } = await import('/src/commands/registry.ts')
-    await runCommand('reverse.feature.add', { feature: { kind: 'sketch', name: 'Export profile', plane: { kind: 'world', axis: 'z' }, sketch: { entities: [{ id: 1, kind: 'circle', c: [0, 0], r: 10 }] } } })
-    await runCommand('reverse.feature.add', { feature: { kind: 'extrude', name: 'Native export solid', sketchId: 'Export profile', regions: 'all', extent: { kind: 'distance', from: 0, to: 5 }, op: 'new' } })
-  })
-  await page.click('[data-test=export-body-step]')
-  await page.waitForFunction(() => /exported to D:\\Exports\\.*as a STEP solid/.test(window.__re.measure.getState().statusText))
-  check(await page.evaluate(() => window.__nativeWrites.at(-1).text.startsWith('ISO-10303-21;')),
-    'the actual Reverse engineer STEP button awaits the native writer and reports the saved location')
-  await page.evaluate(() => { window.__nativeMode = 'cancel' })
-  await page.click('[data-test=export-body-step]')
-  await page.waitForFunction(() => /STEP export cancelled/.test(window.__re.measure.getState().statusText))
-  check(!await page.$eval('[data-test=export-body-step]', (e) => e.disabled),
-    'cancelling native STEP Save As releases the button without a success claim')
-  await page.evaluate(async () => {
-    const { runCommand } = await import('/src/commands/registry.ts')
-    window.__nativeMode = 'save'
-    const fetch = window.fetch
-    window.fetch = async (input, options) => {
-      if (window.__holdMeshWrite && String(input).includes('selection=export-selection')) {
-        await new Promise((resolve) => { window.__releaseMeshWrite = resolve })
-      }
-      return fetch(input, options)
-    }
-    window.__holdMeshWrite = true
-  })
-  const exportBodyMesh = async (format) => {
-    await page.click('[data-test=export-body-mesh]')
-    await page.click(`[data-test=export-body-mesh-${format}]`)
+    return root.getDirectoryHandle(id === 'scanruler-exports' ? 'Sample Exports' : 'Sample Projects', { create: true })
   }
-  await exportBodyMesh('stl')
-  await page.waitForFunction(() => typeof window.__releaseMeshWrite === 'function')
-  check(await page.evaluate(() => !/bodies? exported to/.test(window.__re.measure.getState().statusText)),
-    'CAD mesh export does not claim success while the native write is pending')
-  await page.evaluate(() => { window.__holdMeshWrite = false; window.__releaseMeshWrite() })
-  await page.waitForFunction(() => /body exported to D:\\Exports\\.*\.stl/.test(window.__re.measure.getState().statusText))
-  check(await page.evaluate(() => window.__nativeWrites.at(-1).size > 84),
-    'the actual CAD STL button awaits the native write and reports its saved path')
-  await page.evaluate(() => { window.__nativeMode = 'cancel' })
-  const beforeCancel = await page.evaluate(() => window.__nativeWrites.length)
-  await exportBodyMesh('3mf')
-  await page.waitForFunction(() => /Mesh export cancelled/.test(window.__re.measure.getState().statusText))
-  check(await page.evaluate(() => window.__nativeWrites.length) === beforeCancel,
-    'cancelling CAD mesh Save As writes nothing and does not claim success')
-  await page.evaluate(() => { window.__nativeMode = 'error' })
-  await exportBodyMesh('stl')
-  await page.waitForFunction(() => /Mesh export failed:.*Export folder unavailable/.test(window.__re.measure.getState().errorText ?? ''))
-  check(await page.evaluate(() => window.__nativeWrites.length) === beforeCancel,
-    'CAD mesh native-writer errors are reported without an unhandled rejection or a download')
-  const meshExports = await page.evaluate(async () => {
-    const { editedCopy } = await import('/plugins/mesh-tools/state/editedCopy.ts')
-    const { buildBinaryPly } = await import('/plugins/mesh-tools/core/plyWriter.ts')
-    const { exportEditedMesh } = await import('/plugins/mesh-tools/app/exportEdited.ts')
-    const { useStore } = await import('/src/state/store.ts')
-    const { rememberOutputDirectory } = await import('/src/app/projectRevisions.ts')
-    const previous = editedCopy.current
-    const fileName = useStore.getState().fileName
-    const initial = window.__nativeExports.length
-    try {
-      useStore.setState({ fileName: 'Export test.ply' })
-      editedCopy.current = {
-        source: { name: 'Export test.ply', bytes: buildBinaryPly(Float32Array.from([0, 0, 0, 10, 0, 0, 0, 10, 0]), Uint32Array.from([0, 1, 2])) },
-        map: Int32Array.from([0, 1, 2]),
-      }
-      window.__nativeMode = 'save'
-      await exportEditedMesh('stl')
-      await exportEditedMesh('3mf')
-      const selected = window.__nativeExports.slice(initial)
-      Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'X11; Linux x86_64' })
-      let written = 0
-      rememberOutputDirectory({
-        name: 'Browser mesh folder',
-        async *keys() {},
-        async getFileHandle() {
-          return { async createWritable() { return { async write(blob) { written = blob.size }, async close() {}, async abort() {} } } }
-        },
-      })
-      await exportEditedMesh('stl')
-      window.showDirectoryPicker = undefined
-      let downloaded = false
-      URL.createObjectURL = () => 'blob:isolated-edited-export'
-      HTMLAnchorElement.prototype.click = function () { downloaded = this.download.endsWith('.stl') }
-      await exportEditedMesh('stl')
-      return { selected, written, downloaded, extraNativeRequests: window.__nativeExports.length - initial - selected.length }
-    } finally {
-      editedCopy.current = previous
-      useStore.setState({ fileName })
+  const query = FileSystemDirectoryHandle.prototype.queryPermission
+  const request = FileSystemDirectoryHandle.prototype.requestPermission
+  FileSystemDirectoryHandle.prototype.queryPermission = function (options) {
+    return this.name === 'Sample Exports' && window.denyExports ? Promise.resolve('denied') : query.call(this, options)
+  }
+  FileSystemDirectoryHandle.prototype.requestPermission = function (options) {
+    return this.name === 'Sample Exports' && window.denyExports ? Promise.resolve('denied') : request.call(this, options)
+  }
+  window.showSaveFilePicker = async ({ suggestedName, startIn }) => {
+    if (!navigator.userActivation.isActive) throw new Error('Save picker lost user activation')
+    window.saveChoices.push({ name: suggestedName, folder: startIn.name })
+    if (window.cancelSave) throw new DOMException('Cancelled', 'AbortError')
+    return startIn.getFileHandle(window.saveName ?? suggestedName, { create: true })
+  }
+  const create = FileSystemFileHandle.prototype.createWritable
+  FileSystemFileHandle.prototype.createWritable = async function (...args) {
+    const stream = await create.apply(this, args)
+    if (!window.failWrite && !window.holdWrite) return stream
+    return {
+      async write(blob) {
+        if (window.failWrite) throw new Error('Test disk full')
+        await stream.write(blob)
+      },
+      async close() {
+        if (window.holdWrite) await new Promise((resolve) => { window.completeWrite = resolve })
+        await stream.close()
+      },
+      async abort() { await stream.abort() },
     }
+  }
+  HTMLAnchorElement.prototype.click = function () { window.downloads.push(this.download) }
+})
+const drop = async (data, name) => page.evaluate((contents, filename) => {
+  const transfer = new DataTransfer()
+  transfer.items.add(new File([typeof contents === 'string' ? contents : new Uint8Array(contents)], filename))
+  window.dispatchEvent(new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true }))
+}, data, name)
+const status = () => page.$eval('footer', (node) => node.textContent)
+const files = (kind) => page.evaluate(async (name) => {
+  const root = await navigator.storage.getDirectory()
+  return Array.fromAsync((await root.getDirectoryHandle(name)).keys())
+}, kind === 'project' ? 'Sample Projects' : 'Sample Exports')
+try {
+  await page.reload({ waitUntil: 'networkidle0' })
+  await page.click('[data-test="open-settings"]')
+  await page.click('[data-test="choose-project-folder"]')
+  await page.waitForFunction(() => document.querySelector('[data-test="project-folder-name"]').textContent === 'Sample Projects')
+  await page.click('[data-test="choose-export-folder"]')
+  await page.waitForFunction(() => document.querySelector('[data-test="export-folder-name"]').textContent === 'Sample Exports')
+  check(true, 'production Settings selects separate project and export folders from user clicks')
+  await (await page.$('[data-test="output-folders"]')).screenshot({ path: shotPath('hosted-output-folders.png') })
+  await page.evaluate(() => { window.folderMode = 'cancel' })
+  await page.click('[data-test="choose-project-folder"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Folder selection cancelled'))
+  check(await page.$eval('[data-test="project-folder-name"]', (node) => node.textContent) === 'Sample Projects',
+    'cancelled folder changes keep the previous project destination')
+  await page.evaluate(() => { window.folderMode = 'save' })
+  await page.click('[data-test="settings-close"]')
+  await drop('v 0 0 0\nv 10 0 0\nv 0 10 0\nf 1 2 3\n', 'sample.obj')
+  await page.waitForFunction(() => document.querySelector('.file-info')?.textContent.includes('1 triangles'))
+  const nameInput = await page.$('input[placeholder="Untitled project"]')
+  await nameInput.click({ clickCount: 3 })
+  await nameInput.type('Sample Bracket')
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Project saved: Sample Bracket-001.scanruler'))
+  await page.waitForFunction(() => document.querySelector('[data-test="project-save-status"]')?.textContent.includes('No unsaved changes'))
+  check((await files('project')).includes('Sample Bracket-001.scanruler'), 'hosted save writes a padded editable project to the project folder')
+  await page.evaluate(() => { window.cancelSave = true })
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Save cancelled.'))
+  check(!(await files('project')).includes('Sample Bracket-002.scanruler'), 'cancelled Save As writes no next revision')
+  await page.evaluate(() => { window.cancelSave = false })
+  const bytes = await page.evaluate(async () => {
+    const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('Sample Projects')
+    return Array.from(new Uint8Array(await (await directory.getFileHandle('Sample Bracket-001.scanruler')).getFile().then((file) => file.arrayBuffer())))
   })
-  check(meshExports.selected.length === 2 && meshExports.selected.every((s) => s.kind === 'export') &&
-    meshExports.selected[0].name.endsWith('.stl') && meshExports.selected[1].name.endsWith('.3mf'),
-    'edited STL and 3MF exports use the shared native export dialog rather than project Save')
-  check(meshExports.written > 0 && meshExports.extraNativeRequests === 0,
-    'non-Windows edited exports retain their existing browser-directory flow')
-  check(meshExports.downloaded, 'edited exports retain browser downloads when directory access is unavailable')
-} catch (error) {
-  consoleErrors.push(error.stack ?? error.message)
-} finally {
-  await finish(browser, consoleErrors)
-}
+  const archive = unzipSync(Uint8Array.from(bytes))
+  const manifest = JSON.parse(strFromU8(archive['project.json']))
+  manifest.scan.elements = [{
+    id: 1, kind: 'point', name: 'Sample point', color: '#ff0000', visible: true, status: 'done',
+    source: { type: 'picked' }, fit: { kind: 'point', center: [1, 2, 0], sigma: 0, usedPoints: 1, regionSize: 1 },
+  }]
+  manifest.scan.nextId = 2
+  archive['project.json'] = strToU8(JSON.stringify(manifest))
+  const fixture = Array.from(zipSync(archive))
+  await drop(fixture, 'Sample Bracket-001.scanruler')
+  await page.waitForFunction(() => document.querySelector('[data-test="export-step"]')?.disabled === false)
+  await page.evaluate(() => { window.holdWrite = true })
+  await page.click('[data-test="export-step"]')
+  await page.waitForFunction(() => typeof window.completeWrite === 'function')
+  check(!(await status()).includes('Saved to Sample Exports'), 'hosted export does not report saved before its write closes')
+  await page.evaluate(() => { window.holdWrite = false; window.completeWrite() })
+  await page.waitForFunction(() => document.body.textContent.includes('Saved to Sample Exports'))
+  const step = await page.evaluate(async () => {
+    const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('Sample Exports')
+    const names = await Array.fromAsync(dir.keys())
+    return (await (await dir.getFileHandle(names[0])).getFile()).text()
+  })
+  check(step.startsWith('ISO-10303-21;') && step.includes('Sample point'), 'production STEP output contains actual geometry in the independent export folder')
+  await page.click('[data-test="export-step"]')
+  await page.waitForFunction(() => document.body.textContent.includes('-2.step'))
+  check((await files('export')).length === 2, 'export collisions create new filenames without overwriting')
+  check((await files('project')).every((name) => name.endsWith('.scanruler')), 'exports never enter the project folder')
+  await page.evaluate(() => { window.failWrite = true })
+  await page.click('[data-test="export-cloud"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Test disk full'))
+  check(await page.evaluate(() => window.downloads.length) === 0, 'write failures are explicit and never silently download')
+  await page.evaluate(() => { window.failWrite = false; window.denyExports = true })
+  await page.click('[data-test="export-step"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Write permission for the saved export folder was not granted'))
+  check(await page.evaluate(() => window.downloads.length) === 0, 'denied export permission does not silently download')
+  await page.evaluate(() => { window.denyExports = false })
+  await page.reload({ waitUntil: 'networkidle0' })
+  await page.click('[data-test="open-settings"]')
+  await page.waitForFunction(() => document.querySelector('[data-test="export-folder-name"]').textContent === 'Sample Exports')
+  check(await page.$eval('[data-test="project-folder-name"]', (node) => node.textContent) === 'Sample Projects',
+    'reload restores both real persisted directory handles independently')
+  await page.click('[data-test="settings-close"]')
+  await drop(fixture, 'Sample Bracket-001.scanruler')
+  await page.waitForFunction(() => document.querySelector('[data-test="export-step"]')?.disabled === false)
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Sample Bracket-002.scanruler'))
+  check((await files('project')).includes('Sample Bracket-002.scanruler'), 'reopened project continues its padded revision sequence after reload')
+  await page.click('[data-test="export-cloud"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Saved to Sample Exports'))
+  check(await page.evaluate(() => window.folderChoices.length) === 0, 'post-reload saves and exports reuse folders without reselecting them')
+  await page.evaluate(() => { window.showDirectoryPicker = undefined })
+  await page.click('[data-test="export-step"]')
+  await page.waitForFunction(() => window.downloads.length > 0)
+  check(true, 'unsupported browser retains normal export downloads')
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => window.downloads.some((name) => name.endsWith('.scanruler')))
+  check(true, 'unsupported browser retains normal project downloads')
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase('scanruler-output')
+    request.onsuccess = () => resolve()
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => reject(new Error('Output storage is still open'))
+  }))
+  await page.reload({ waitUntil: 'networkidle0' })
+  await drop(fixture, 'Sample Bracket-001.scanruler')
+  await page.waitForFunction(() => document.querySelector('[data-test="export-step"]')?.disabled === false)
+  await page.evaluate(() => { window.folderMode = 'cancel' })
+  await page.click('[data-test="export-step"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Export cancelled. No file was written.'))
+  check(await page.evaluate(() => window.downloads.length) === 0, 'cancelling the first export-folder picker never starts a download')
+  await page.evaluate(() => { window.folderMode = 'save'; window.consumeFolderActivation = true })
+  const before = (await files('project')).length
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Project folder ready. Click Save again'))
+  check((await files('project')).length === before, 'initial folder selection explicitly requests a second Save click when activation is consumed')
+  await page.evaluate(() => { delete navigator.userActivation })
+  await page.click('[data-test="save-project"]')
+  await page.waitForFunction(() => document.body.textContent.includes('Project saved: Sample Bracket-003.scanruler'))
+  check((await files('project')).includes('Sample Bracket-003.scanruler'), 'the next user click opens Save As and saves after first-time folder setup')
+  check(!requests.some((path) => path.startsWith('/__scanruler/') || path.startsWith('/src/')),
+    'static production workflow makes no local-writer or source-module requests')
+} catch (error) { fail(error.stack ?? String(error)) }
+finally { await finish(browser, consoleErrors) }

@@ -162,14 +162,20 @@ files, projects and agent answers stay in millimetres.
 | **2D sheet** | SVG and DXF at 1:1, CSV of elements and dimensions |
 | **Reports** | Plain text to the clipboard (*Copy summary*, *Copy report*) |
 
-In Chrome and Edge, the first project save asks for an output folder and later
-saves continue as numbered revisions there. Browsers without folder access keep
-the standard project download. Windows development builds can use the native
-Save As dialog when a local output folder is configured; exports then use a
-separate remembered folder. Set the initial local folder in the ignored
-`.scanruler-output.local` file, for example
-`{"directory":"C:\\Your\\Project\\Mods"}`. Elsewhere, exports keep the browser's
-normal download.
+**The hosted website supports separate remembered project and export folders**
+in desktop Chrome and Edge with folder access. No local server, installation or
+local configuration file is required. In **Settings → Output folders**, choose
+or change **Project folder** and **Export folder** independently. Choosing a
+folder grants the website access to that folder; it does not write a file.
+
+The first Save or export can also ask for its folder if none is selected.
+If selecting or reauthorizing the project folder consumes the browser's user
+activation, Save explicitly asks you to click Save again before opening Save As.
+Subsequent project saves suggest the next numbered revision. Export buttons,
+including Reverse engineer and Mesh Tools, write to the separate export folder,
+adding `-2`, `-3`, etc. for existing names rather than replacing them.
+Browsers without folder access keep normal downloads; their destination is
+controlled by browser settings, not ScanRuler.
 
 Revision suggestions use at least three digits: `Part-001.scanruler`,
 `Part-010.scanruler`, `Part-100.scanruler`. Existing padded and unpadded
@@ -179,14 +185,20 @@ saves continue its stem; changing the project title starts a new sequence.
 Save As cancellation writes nothing and does not mark the project saved.
 A failed write leaves changes unsaved and reports the error.
 
-The browser remembers its chosen folder in site storage; clearing site data
-removes it, and renewed permission may be needed after a reload. Uploaded files
-do not expose their source directory, so the first folder choice is explicit.
-Local Windows Save As remembers a selected folder only after a successful
-write. Export formats share their own remembered folder independently of project
-saves. Overwrites require native confirmation; cancellation never falls back
-to Downloads. Native output is limited to 512 MB per file and is provided only
-by the configured local development server, not a static production deployment.
+The browser stores the two directory handles separately in site storage for
+this website/profile. Clearing site data removes them; browser permission may
+need renewal after a reload. A denied permission or cancelled folder selection
+is reported, with no silent download fallback. These choices do not control the
+Open dialog's starting folder. Uploaded files do not disclose their source
+directory, so the initial choices are explicit.
+
+Save As starts in the chosen project folder and permits explicit filename and
+destination changes. Standard browser file handles do not disclose their parent
+folder: choosing a different destination in Save As does **not** retarget future
+revision searches. To change the folder used for future saves, use Settings.
+Only the selected folder name, not an arbitrary full disk path, is available to
+the app. Saves/exports confirm successful writes only after the write closes;
+normal download fallbacks can confirm dispatch, not completion on disk.
 
 ## Good to know
 

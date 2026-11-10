@@ -9,7 +9,6 @@ import { buildMeshFile, type MeshFormat } from '../../../src/core/exportMesh'
 import { parsePLY } from '../../../src/core/parsers/ply'
 import { rigidApplyToPoints } from '../../../src/core/deviation/rigid'
 import { exportStem, runExport, saveBuilt, type BuiltFile } from '../../../src/app/exports'
-import { projectOutputDirectory, usesLocalOutput, writeMeshExport } from '../../../src/app/projectRevisions'
 import { useStore } from '../../../src/state/store'
 import { useDeviation } from '../../../src/state/deviationStore'
 import { editedCopy } from '../state/editedCopy'
@@ -50,18 +49,9 @@ export const exportEditedMesh = (format: MeshFormat): Promise<void> => runExport
   exporting = true
   try {
     if (!editedCopy.current) throw new Error('There is no edited copy to export.')
-    const browser = window as Window & { showDirectoryPicker?: unknown }
-    if (usesLocalOutput() || typeof browser.showDirectoryPicker !== 'function') {
-      const file = buildEditedMesh(format)
-      if (!file) throw new Error('There is no edited copy to export.')
-      await saveBuilt(file)
-    } else {
-      const directory = await projectOutputDirectory()
-      const file = buildEditedMesh(format)
-      if (!file) throw new Error('There is no edited copy to export.')
-      const name = await writeMeshExport(directory, file.name, file.bytes, file.mimeType)
-      useStore.getState().setStatus(`Edited copy exported to ${directory.name}\\${name}.`)
-    }
+    const file = buildEditedMesh(format)
+    if (!file) throw new Error('There is no edited copy to export.')
+    await saveBuilt(file)
   } finally {
     exporting = false
   }

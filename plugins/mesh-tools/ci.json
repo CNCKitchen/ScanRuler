@@ -1,1 +1,1 @@
-{ "e2e": ["scripts/e2e-output-folder.mjs", "scripts/e2e-mesh-edits.mjs", "scripts/e2e-mesh-trim.mjs", "scripts/e2e-agent-mesh.mjs"] }
+{ "e2e": ["scripts/e2e-output-folder.mjs", "scripts/e2e-export-formats.mjs", "scripts/e2e-mesh-edits.mjs", "scripts/e2e-mesh-trim.mjs", "scripts/e2e-agent-mesh.mjs"] }

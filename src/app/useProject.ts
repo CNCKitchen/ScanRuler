@@ -18,7 +18,7 @@ import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
 import { ProjectClient } from '../core/project/projectClient'
 import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
-import { chooseProjectSave, projectOutputDirectory, revisionBase, usesLocalOutput } from './projectRevisions'
+import { chooseProjectSave, projectOutputDirectory, revisionBase, supportsOutputFolders } from './projectRevisions'
 import { saveFile } from './exports'
 import {
   blankManifest,
@@ -139,8 +139,7 @@ export function useProject({
     saving.current = true
     useTaskActivity.getState().setTask('project-save-dialog', { text: 'Choosing project save location...', percent: null })
     try {
-      const browser = window as Window & { showDirectoryPicker?: unknown }
-      if (!usesLocalOutput() && typeof browser.showDirectoryPicker !== 'function') {
+      if (!supportsOutputFolders()) {
         const packed = await packProject()
         if ('bytes' in packed) {
           await saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
@@ -150,6 +149,10 @@ export function useProject({
       // The browser requires this folder permission from a button click,
       // before asynchronous packing consumes the user activation.
       const directory = await projectOutputDirectory()
+      if (navigator.userActivation && !navigator.userActivation.isActive) {
+        useStore.getState().setStatus('Project folder ready. Click Save again to choose the revision filename.')
+        return
+      }
       const store = useStore.getState()
       const name = `${projectStem(store.projectName, store.fileName, useFlat.getState().imageName)}.${PROJECT_EXTENSION}`
       const target = await chooseProjectSave(directory, revisionBase(name, openedProjectName.current, previousProjectFileName.current), openedProjectName.current)

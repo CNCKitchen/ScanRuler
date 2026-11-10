@@ -19,21 +19,27 @@ import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useSupportAsk } from '../state/supportAskStore'
 import { useTaskActivity } from '../state/taskActivity'
 import type { SceneManager } from '../viewer/SceneManager'
-import { saveLocalExport, usesLocalOutput } from './projectRevisions'
+import { exportOutputDirectory, supportsOutputFolders, writeMeshExport } from './projectRevisions'
 
 let nextExportId = 0
+let writingExport = false
 
-/** Save locally through native Save As, or hand a file to the browser.
+/** Write to the independent export folder, or hand a file to the browser.
  *  The link goes into the document for the
  *  length of the click — WebKit ignores `download` on an anchor that was never
  *  in the page — and the object URL outlives it by long enough for the
  *  download to start, then goes. The support card is asked for after the
  *  click, so the file never waits on it. */
 export const saveFile = async (name: string, blob: Blob): Promise<string | null> => {
-  if (usesLocalOutput()) {
-    const path = await saveLocalExport(name, blob)
-    useSupportAsk.getState().ask()
-    return path
+  if (supportsOutputFolders()) {
+    if (writingExport) throw new Error('Another export is being saved. Wait for it to finish, then try again.')
+    writingExport = true
+    try {
+      const directory = await exportOutputDirectory()
+      const saved = await writeMeshExport(directory, name, new Uint8Array(await blob.arrayBuffer()), blob.type)
+      useSupportAsk.getState().ask()
+      return `${directory.name}\\${saved}`
+    } finally { writingExport = false }
   }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -62,6 +68,7 @@ export async function runExport(job: () => Promise<void>): Promise<void> {
   const id = `export-${++nextExportId}`
   useTaskActivity.getState().setTask(id, { text: 'Preparing or saving export...', percent: null })
   try {
+    if (supportsOutputFolders()) await exportOutputDirectory()
     await job()
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {

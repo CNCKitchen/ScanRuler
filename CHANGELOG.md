@@ -10,8 +10,10 @@ saves carry the same number as `appVersion`. How a release is cut is in
 - **Save projects as numbered revisions**. Choose a project output folder once
   in Chrome or Edge, then continue with `-001`, `-002` and later `.scanruler`
   revisions. Existing unpadded filenames are recognized without renaming them.
-  Windows development builds can use a native Save As dialog, and local exports
-  use a separate remembered folder.
+  The hosted app remembers separate project and export folders in supported
+  desktop browsers; choose or change either in Settings without a local server.
+  Exports use their own folder and add a suffix instead of overwriting.
+  Browsers without folder access keep normal downloads.
 - **Right-click menus on list rows** (2026-11-10, pull request 131). A
   right click on an element, dimension or tolerance row opens a menu with
   Edit, Hide or Show in viewport and Delete, and on a dimension or

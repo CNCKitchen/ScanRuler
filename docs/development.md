@@ -57,7 +57,8 @@ node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
 node scripts/e2e-project-revisions.mjs # numbered Save As, approval/cancel/failure, reopen and download fallback
-node plugins/mesh-tools/scripts/e2e-output-folder.mjs # retained folders, native export selections and CAD/mesh writes
+node plugins/mesh-tools/scripts/e2e-output-folder.mjs # UI-only hosted folder selection, persistence, independent writes and download fallback
+node plugins/mesh-tools/scripts/e2e-export-formats.mjs # generated CAD/edited mesh exports use the independent export folder (dev server)
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
@@ -66,10 +67,17 @@ The save/output checks use generated geometry, isolated profiles and intercepted
 save destinations, never the operator's configured folder or live session.
 The revisions script writes a non-private workflow screenshot to ignored
 `e2e-out/project-revision-save.png`. Core import/history/recovery/production
-checks use `captureProjectSaves` to exercise the save flow without native dialogs.
-The Windows dialog placement tests create and cancel their own dialogs on each
-monitor; they check actual centering before cancellation with a bounded wait.
-They do not save files or change the Windows configuration.
+checks use `captureProjectSaves` to exercise the save flow without real dialogs.
+Run `e2e-output-folder.mjs` against `npm run build` plus `npm run preview` with
+`APP_URL` targeting the preview server. It uses only public UI, real persisted
+OPFS directory handles returned by controlled browser-picker doubles, and
+generated geometry. The doubles assert user activation when opening a picker.
+It checks independent folders after reload, cancellation, denied permission,
+write completion/errors, collision names, and unsupported-browser downloads.
+It asserts no local-writer or source-module requests, so a development endpoint
+cannot mask missing hosted behavior. It writes `e2e-out/hosted-output-folders.png`.
+OPFS-backed test doubles do not certify every OS picker or browser permission UI;
+those still require manual browser checks.
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
 known before the app is started: the reference is a STEP cube and the scan is a

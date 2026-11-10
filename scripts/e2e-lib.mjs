@@ -96,22 +96,6 @@ export async function captureProjectSaves(page) {
       async getFileHandle(name) { return file(name) },
     })
     window.showSaveFilePicker = async ({ suggestedName }) => file(suggestedName)
-    const fetch = window.fetch
-    let selectedName
-    window.fetch = async (input, options) => {
-      const url = new URL(String(input), location.origin)
-      if (url.origin !== location.origin || url.pathname !== '/__scanruler/output') return fetch(input, options)
-      if (url.searchParams.has('choose')) {
-        selectedName = url.searchParams.get('choose')
-        return Response.json({ token: 'isolated-project-save', name: selectedName, directory: 'Isolated test output' })
-      }
-      if (url.searchParams.get('selection') === 'isolated-project-save') {
-        capture(selectedName, options.body)
-        return new Response(null, { status: 201 })
-      }
-      if (options?.method === 'POST') throw new Error('Unapproved test output write.')
-      return Response.json({ name: 'Isolated test output', names: [...savedNames] })
-    }
   }
   await page.evaluateOnNewDocument(setup)
   await page.evaluate(setup)

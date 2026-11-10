@@ -54,6 +54,7 @@ import type { SketchOverlayItem } from '../viewer/sketchOverlay'
 import type { VaryingEdgeEnds } from '../viewer/varyingEnds'
 import { sketchPalette } from '../viewer/sketchPalette'
 import { saveFile } from '../../../src/app/exports'
+import { exportOutputDirectory, supportsOutputFolders } from '../../../src/app/projectRevisions'
 import type { MeshFormat } from '../../../src/core/exportMesh'
 import { meshResolution, tinyPartNote } from '../core/meshResolution'
 import { drivenBy } from '../core/parameters'
@@ -1373,6 +1374,7 @@ export function useReverseWorkspace({
       return
     }
     try {
+      if (supportsOutputFolders()) await exportOutputDirectory()
       const { name, text } = await session.stepFile(ids)
       const path = await saveFile(name, new Blob([text], { type: 'model/step' }))
       useStore.getState().setStatus(`${ids.length} bod${ids.length === 1 ? 'y' : 'ies'} exported to ${path ?? name} as a STEP solid.`)
@@ -1398,6 +1400,7 @@ export function useReverseWorkspace({
     const res = meshResolution(useRePrefs.getState().meshResolution)
     const units = usePrefs.getState().units
     try {
+      if (supportsOutputFolders()) await exportOutputDirectory()
       useStore.getState().setStatus(`Meshing the bodies, ${res.label.toLowerCase()} — ${fmtLen(res.chord, units)} and ${Math.round(res.angleDeg * 10) / 10}° at most…`)
       const f = await session.meshFile(picked, res.chord, format, res.angleDeg)
       if (!f) {

@@ -13,7 +13,6 @@ export interface RevisionDirectory {
   getFileHandle(name: string, options?: { create: boolean }): Promise<RevisionFile>
   queryPermission?(options: { mode: 'readwrite' }): Promise<PermissionState>
   requestPermission?(options: { mode: 'readwrite' }): Promise<PermissionState>
-  chooseSave?(name: string): Promise<ProjectSaveTarget>
 }
 
 export interface ProjectSaveTarget {
@@ -22,12 +21,13 @@ export interface ProjectSaveTarget {
   write(bytes: Uint8Array): Promise<void>
 }
 
-type DirectoryPicker = (options: { id: string; mode: 'readwrite' }) => Promise<RevisionDirectory>
+type DirectoryPicker = (options: { id: string; mode: 'readwrite'; startIn?: RevisionDirectory }) => Promise<RevisionDirectory>
 
-let outputDirectory: RevisionDirectory | null = null
-const savedDirectoryKey = 'output-directory'
+export type OutputKind = 'project' | 'export'
+const directories: Record<OutputKind, RevisionDirectory | null> = { project: null, export: null }
+const directoryKeys: Record<OutputKind, string> = { project: 'output-directory', export: 'export-directory' }
 
-async function directoryStore(mode: IDBTransactionMode, directory?: RevisionDirectory): Promise<RevisionDirectory | null> {
+async function directoryStore(kind: OutputKind, mode: IDBTransactionMode, directory?: RevisionDirectory): Promise<RevisionDirectory | null> {
   if (typeof indexedDB === 'undefined') return null
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open('scanruler-output', 1)
@@ -39,7 +39,7 @@ async function directoryStore(mode: IDBTransactionMode, directory?: RevisionDire
     return await new Promise((resolve, reject) => {
       const transaction = db.transaction('settings', mode)
       const store = transaction.objectStore('settings')
-      const request = directory ? store.put(directory, savedDirectoryKey) : store.get(savedDirectoryKey)
+      const request = directory ? store.put(directory, directoryKeys[kind]) : store.get(directoryKeys[kind])
       transaction.oncomplete = () => resolve(directory ?? request.result ?? null)
       transaction.onerror = () => reject(transaction.error)
       transaction.onabort = () => reject(transaction.error ?? new Error('Output folder storage was aborted.'))
@@ -47,103 +47,46 @@ async function directoryStore(mode: IDBTransactionMode, directory?: RevisionDire
   } finally { db.close() }
 }
 
-async function localDirectory(): Promise<RevisionDirectory> {
-  const request = async (name?: string, data?: Blob): Promise<Response> => {
-    const response = await fetch(`/__scanruler/output${name ? `?name=${encodeURIComponent(name)}` : ''}`, {
-      method: data ? 'POST' : 'GET',
-      headers: { 'X-ScanRuler-Output': '1' },
-      body: data,
-    })
-    if (!response.ok) throw new Error(`Local output folder: ${await response.text()}`)
-    return response
-  }
-  const info: { name: string; names: string[] } = await (await request()).json()
-  return {
-    name: info.name,
-    async chooseSave(name) {
-      const response = await fetch(`/__scanruler/output?choose=${encodeURIComponent(name)}`, {
-        method: 'POST', headers: { 'X-ScanRuler-Output': '1' },
-      })
-      if (response.status === 204) throw new DOMException('Save cancelled.', 'AbortError')
-      if (!response.ok) throw new Error(await response.text())
-      const selected: { token: string; name: string; directory: string } = await response.json()
-      return {
-        name: selected.name,
-        path: `${selected.directory}\\${selected.name}`,
-        async write(bytes) {
-          const result = await fetch(`/__scanruler/output?selection=${encodeURIComponent(selected.token)}`, {
-            method: 'POST', headers: { 'X-ScanRuler-Output': '1' }, body: new Blob([bytes as BlobPart]),
-          })
-          if (!result.ok) throw new Error(await result.text())
-          rememberOutputDirectory(await localDirectory())
-        },
-      }
-    },
-    async *keys() {
-      const current: { names: string[] } = await (await request()).json()
-      yield* current.names
-    },
-    async getFileHandle(name) {
-      return {
-        async createWritable() {
-          let data: Blob | null = null
-          return {
-            async write(blob) { data = blob },
-            async close() {
-              if (!data) throw new Error('No output data was supplied.')
-              await request(name, data)
-            },
-            async abort() { data = null },
-          }
-        },
-      }
-    },
-  }
-}
-
 export function rememberOutputDirectory(directory: RevisionDirectory | null): void {
-  outputDirectory = directory
+  directories.project = directory
 }
 
-export function usesLocalOutput(): boolean {
-  return (import.meta.env.DEV || import.meta.env.VITE_LOCAL_REVIEW === '1') && ((/Windows NT/.test(navigator.userAgent) &&
-    /^(127\.0\.0\.1|localhost)$/.test(window.location.hostname)) || /\bElectron\//.test(navigator.userAgent))
+export function supportsOutputFolders(): boolean {
+  return typeof window !== 'undefined' && typeof (window as Window & { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function'
 }
 
-/** Export selections have their own remembered folder on the local server. */
-export async function saveLocalExport(name: string, blob: Blob): Promise<string> {
-  const response = await fetch(`/__scanruler/output?choose=${encodeURIComponent(name)}&kind=export`, {
-    method: 'POST', headers: { 'X-ScanRuler-Output': '1' },
+export async function savedOutputDirectory(kind: OutputKind): Promise<RevisionDirectory | null> {
+  return directories[kind] ?? await directoryStore(kind, 'readonly')
+}
+
+export async function chooseOutputDirectory(kind: OutputKind): Promise<RevisionDirectory> {
+  const browser = window as Window & { showDirectoryPicker?: DirectoryPicker }
+  if (!browser.showDirectoryPicker) throw new Error('Output folders require a browser with folder access, such as desktop Chrome or Edge.')
+  // Open the picker before storage I/O can consume the click's user activation.
+  const directory = await browser.showDirectoryPicker({
+    id: kind === 'project' ? 'scanruler-project-revisions' : 'scanruler-exports',
+    mode: 'readwrite', ...(directories[kind] ? { startIn: directories[kind] } : {}),
   })
-  if (response.status === 204) throw new DOMException('Export cancelled.', 'AbortError')
-  if (!response.ok) throw new Error(await response.text())
-  const selected: { token: string; name: string; directory: string } = await response.json()
-  const written = await fetch(`/__scanruler/output?selection=${encodeURIComponent(selected.token)}`, {
-    method: 'POST', headers: { 'X-ScanRuler-Output': '1' }, body: blob,
-  })
-  if (!written.ok) throw new Error(await written.text())
-  return `${selected.directory}\\${selected.name}`
+  if (directory.queryPermission) await directoryStore(kind, 'readwrite', directory)
+  directories[kind] = directory
+  return directory
 }
 
-export async function projectOutputDirectory(): Promise<RevisionDirectory> {
-  if (outputDirectory) return outputDirectory
-  if (usesLocalOutput()) {
-    outputDirectory = await localDirectory()
-    return outputDirectory
-  }
-  const saved = await directoryStore('readonly')
+async function outputDirectory(kind: OutputKind): Promise<RevisionDirectory> {
+  const saved = await savedOutputDirectory(kind)
   if (saved) {
     const permission = await saved.queryPermission?.({ mode: 'readwrite' })
-    if (permission === 'granted' || await saved.requestPermission?.({ mode: 'readwrite' }) === 'granted') {
-      outputDirectory = saved
+    if (!saved.queryPermission || permission === 'granted' || await saved.requestPermission?.({ mode: 'readwrite' }) === 'granted') {
+      directories[kind] = saved
       return saved
     }
-    throw new Error('Write permission for the saved output folder was not granted. Allow access in the browser, then try Save again.')
+    throw new Error(`Write permission for the saved ${kind} folder was not granted. Allow access or choose another folder in Settings, then try again.`)
   }
-  outputDirectory = await chooseRevisionDirectory()
-  if (outputDirectory.queryPermission) await directoryStore('readwrite', outputDirectory)
-  return outputDirectory
+  return chooseOutputDirectory(kind)
 }
+
+export const projectOutputDirectory = () => outputDirectory('project')
+export const exportOutputDirectory = () => outputDirectory('export')
 
 export function projectRevisionName(base: string, names: string[], openedName?: string): string {
   const opened = openedName && /^(.*)-(\d+)\.scanruler$/i.exec(openedName)
@@ -168,11 +111,7 @@ export function revisionBase(projectFileName: string, openedName?: string, previ
 }
 
 export async function chooseRevisionDirectory(): Promise<RevisionDirectory> {
-  const browser = window as Window & { showDirectoryPicker?: DirectoryPicker }
-  if (!browser.showDirectoryPicker) {
-    throw new Error('Saving numbered revisions directly to a folder requires Chrome or Edge. Open this local app there and select your output folder.')
-  }
-  return browser.showDirectoryPicker({ id: 'scanruler-project-revisions', mode: 'readwrite' })
+  return chooseOutputDirectory('project')
 }
 
 export async function writeProjectRevision(
@@ -192,14 +131,13 @@ export async function chooseProjectSave(directory: RevisionDirectory, base: stri
   const names: string[] = []
   for await (const name of directory.keys()) names.push(name)
   const suggestedName = projectRevisionName(base, names, openedName)
-  if (directory.chooseSave) return directory.chooseSave(suggestedName)
   const browser = window as Window & {
     showSaveFilePicker?: (options: {
       id: string; suggestedName: string; startIn: RevisionDirectory
       types: { description: string; accept: Record<string, string[]> }[]
-    }) => Promise<RevisionFile & { name: string; getParent?: () => Promise<RevisionDirectory | null> }>
+    }) => Promise<RevisionFile & { name: string }>
   }
-  if (!browser.showSaveFilePicker) throw new Error('Save As requires Chrome or Edge, or the configured Windows local app.')
+  if (!browser.showSaveFilePicker) throw new Error('Save As requires a browser with file access, such as desktop Chrome or Edge.')
   const file = await browser.showSaveFilePicker({
     id: 'scanruler-project-revisions', suggestedName, startIn: directory,
     types: [{ description: 'ScanRuler project', accept: { 'application/zip': ['.scanruler'] } }],
@@ -209,21 +147,16 @@ export async function chooseProjectSave(directory: RevisionDirectory, base: stri
     path: file.name,
     async write(bytes) {
       await writeRevisionFile(file, bytes, 'application/zip')
-      const parent = await file.getParent?.()
-      if (parent) {
-        rememberOutputDirectory(parent)
-        await directoryStore('readwrite', parent)
-      }
     },
   }
 }
 
-/** Export under a new name, never replacing an existing mesh export. */
+/** Export under a new name without deliberately replacing an existing file. */
 export async function writeMeshExport(directory: RevisionDirectory, name: string, bytes: Uint8Array, mimeType: string): Promise<string> {
   const names = new Set<string>()
   for await (const existing of directory.keys()) names.add(existing.toLowerCase())
   const dot = name.lastIndexOf('.')
-  if (dot <= 0) throw new Error('The mesh export filename must have an extension.')
+  if (dot <= 0) throw new Error('The export filename must have an extension.')
   const stem = name.slice(0, dot), extension = name.slice(dot)
   let saved = name, revision = 2
   while (names.has(saved.toLowerCase())) saved = `${stem}-${revision++}${extension}`

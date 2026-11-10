@@ -23,21 +23,30 @@ try {
     window.revisionDirectory = {
       name: 'Isolated project folder',
       async *keys() { yield* window.revisionFiles },
-      async chooseSave(name) {
+    }
+    window.showSaveFilePicker = async ({ suggestedName: name }) => {
         window.revisionSuggestions.push(name)
         if (window.revisionMode === 'cancel') throw new DOMException('Cancelled', 'AbortError')
         await new Promise((resolve) => { window.approveRevision = resolve })
         const selected = window.revisionSelection ?? name
         return {
-          name: selected, path: `Isolated project folder\\${selected}`,
-          async write(bytes) {
-            if (window.revisionMode === 'fail') throw new Error('Test disk full')
-            window.revisionFiles.push(selected)
-            window.revisionWrites.push(selected)
-            window.savedProject = new Blob([bytes])
+          name: selected,
+          async createWritable() {
+            let pending
+            return {
+              async write(blob) {
+                if (window.revisionMode === 'fail') throw new Error('Test disk full')
+                pending = blob
+              },
+              async close() {
+                window.revisionFiles.push(selected)
+                window.revisionWrites.push(selected)
+                window.savedProject = pending
+              },
+              async abort() { pending = undefined },
+            }
           },
         }
-      },
     }
     rememberOutputDirectory(window.revisionDirectory)
   })

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chooseProjectSave, projectRevisionName, revisionBase, writeProjectRevision, writeMeshExport, projectOutputDirectory, rememberOutputDirectory, saveLocalExport, type RevisionDirectory } from '../src/app/projectRevisions'
+import { chooseProjectSave, projectRevisionName, revisionBase, writeProjectRevision, writeMeshExport, projectOutputDirectory, rememberOutputDirectory, type RevisionDirectory } from '../src/app/projectRevisions'
 
 afterEach(() => {
   rememberOutputDirectory(null)
@@ -8,53 +8,47 @@ afterEach(() => {
 })
 
 describe('numbered project revisions', () => {
-  it('uses the export Save As selection without changing the remembered project directory', async () => {
+  it('selects separate browser export and project folders without using a server', async () => {
+    vi.resetModules()
+    const folders = await import('../src/app/projectRevisions')
     const directory: RevisionDirectory = { name: 'Projects', async *keys() {}, getFileHandle: vi.fn() }
+    const exports: RevisionDirectory = { name: 'Exports', async *keys() {}, getFileHandle: vi.fn() }
+    folders.rememberOutputDirectory(directory)
+    const picker = vi.fn(async () => exports)
+    vi.stubGlobal('window', { showDirectoryPicker: picker })
+    vi.stubGlobal('indexedDB', undefined)
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    expect(await folders.exportOutputDirectory()).toBe(exports)
+    expect(await folders.projectOutputDirectory()).toBe(directory)
+    expect(picker).toHaveBeenCalledWith({ id: 'scanruler-exports', mode: 'readwrite' })
+    expect(await folders.exportOutputDirectory()).toBe(exports)
+    expect(picker).toHaveBeenCalledOnce()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('preserves both folders when changing a folder is cancelled', async () => {
+    vi.resetModules()
+    const folders = await import('../src/app/projectRevisions')
+    const directory: RevisionDirectory = { name: 'Projects', async *keys() {}, getFileHandle: vi.fn() }
+    folders.rememberOutputDirectory(directory)
+    vi.stubGlobal('window', { showDirectoryPicker: vi.fn().mockRejectedValue(new DOMException('Cancelled', 'AbortError')) })
+    vi.stubGlobal('indexedDB', undefined)
+    await expect(folders.chooseOutputDirectory('project')).rejects.toMatchObject({ name: 'AbortError' })
+    expect(await folders.projectOutputDirectory()).toBe(directory)
+  })
+
+  it('renews a saved folder permission and explicitly rejects denial', async () => {
+    const requestPermission = vi.fn().mockResolvedValue('granted')
+    const directory: RevisionDirectory = {
+      name: 'Projects', async *keys() {}, getFileHandle: vi.fn(),
+      queryPermission: vi.fn().mockResolvedValue('prompt'), requestPermission,
+    }
     rememberOutputDirectory(directory)
-    const fetch = vi.fn(async (url: string) => url.includes('?choose=')
-      ? Response.json({ token: 'export-token', name: 'Renamed.step', directory: 'F:\\Exports' })
-      : new Response(null, { status: 201 }))
-    vi.stubGlobal('fetch', fetch)
-    const blob = new Blob(['STEP'], { type: 'model/step' })
-    expect(await saveLocalExport('Roof.step', blob)).toBe('F:\\Exports\\Renamed.step')
-    expect(fetch).toHaveBeenNthCalledWith(1, '/__scanruler/output?choose=Roof.step&kind=export', {
-      method: 'POST', headers: { 'X-ScanRuler-Output': '1' },
-    })
-    expect(fetch).toHaveBeenNthCalledWith(2, '/__scanruler/output?selection=export-token', {
-      method: 'POST', headers: { 'X-ScanRuler-Output': '1' }, body: blob,
-    })
     expect(await projectOutputDirectory()).toBe(directory)
-  })
-
-  it('propagates export cancellation and write errors without falling back to Downloads', async () => {
-    const fetch = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }))
-    vi.stubGlobal('fetch', fetch)
-    await expect(saveLocalExport('Roof.step', new Blob(['STEP']))).rejects.toMatchObject({ name: 'AbortError' })
-    expect(fetch).toHaveBeenCalledOnce()
-    fetch.mockResolvedValueOnce(Response.json({ token: 'export-token', name: 'Roof.step', directory: 'F:\\Exports' }))
-      .mockResolvedValueOnce(new Response('Disk full', { status: 500 }))
-    await expect(saveLocalExport('Roof.step', new Blob(['STEP']))).rejects.toThrow('Disk full')
-  })
-
-  it.each([
-    ['Edge', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0', '127.0.0.1'],
-    ['Chrome', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/150.0.0.0 Safari/537.36', 'localhost'],
-    ['VS Code', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Code/1.144.0 Electron/43.8.3', '127.0.0.1'],
-  ])('uses Windows Save As in local %s without asking for a directory', async (_browser, userAgent, hostname) => {
-    const picker = vi.fn(() => { throw new Error('The folder picker must not open.') })
-    vi.stubGlobal('navigator', { userAgent })
-    vi.stubGlobal('window', { location: { hostname }, showDirectoryPicker: picker })
-    const fetch = vi.fn(async (url: string) => url.includes('?choose=')
-      ? Response.json({ token: 'selection', name: 'Roof-5.scanruler', directory: 'F:\\Mods' })
-      : Response.json({ name: 'F:\\Mods', names: ['Roof-4.scanruler'] }))
-    vi.stubGlobal('fetch', fetch)
-    const directory = await projectOutputDirectory()
-    const target = await chooseProjectSave(directory, 'Roof')
-    expect(target.path).toBe('F:\\Mods\\Roof-5.scanruler')
-    expect(fetch).toHaveBeenLastCalledWith('/__scanruler/output?choose=Roof-005.scanruler', {
-      method: 'POST', headers: { 'X-ScanRuler-Output': '1' },
-    })
-    expect(picker).not.toHaveBeenCalled()
+    expect(requestPermission).toHaveBeenCalledWith({ mode: 'readwrite' })
+    requestPermission.mockResolvedValue('denied')
+    await expect(projectOutputDirectory()).rejects.toThrow('Write permission for the saved project folder was not granted')
   })
 
   it.each([
@@ -130,7 +124,7 @@ describe('numbered project revisions', () => {
     expect(stream.abort).toHaveBeenCalledOnce()
   })
 
-  it('exports to the shared project folder, numbers collisions and propagates write failures', async () => {
+  it('numbers export collisions and propagates write failures', async () => {
     const stream = { write: vi.fn().mockResolvedValue(undefined), close: vi.fn().mockResolvedValue(undefined), abort: vi.fn() }
     const directory: RevisionDirectory = {
       name: 'Mods',
@@ -152,21 +146,21 @@ describe('numbered project revisions', () => {
   })
 
   it('offers the next revision in Save As and honors a changed filename and destination', async () => {
-    const write = vi.fn()
-    const chooseSave = vi.fn(async (_name: string) => ({ name: 'Custom.scanruler', path: 'D:\\Other\\Custom.scanruler', write }))
+    const stream = { write: vi.fn(), close: vi.fn(), abort: vi.fn() }
+    const picker = vi.fn(async () => ({ name: 'Custom.scanruler', createWritable: async () => stream }))
+    vi.stubGlobal('window', { showSaveFilePicker: picker })
     const directory: RevisionDirectory = {
       name: 'Mods',
       async *keys() { yield 'Roof-4.scanruler' },
       getFileHandle: vi.fn(),
-      chooseSave,
     }
     const target = await chooseProjectSave(directory, 'Roof')
-    expect(chooseSave).toHaveBeenCalledWith('Roof-005.scanruler')
-    expect(target.path).toBe('D:\\Other\\Custom.scanruler')
+    expect(picker).toHaveBeenCalledWith(expect.objectContaining({ suggestedName: 'Roof-005.scanruler', startIn: directory }))
+    expect(target.path).toBe('Custom.scanruler')
     expect(target.name).toBe('Custom.scanruler')
-    expect(write).not.toHaveBeenCalled()
+    expect(stream.write).not.toHaveBeenCalled()
     await target.write(new Uint8Array([1]))
-    expect(write).toHaveBeenCalledOnce()
+    expect(stream.write).toHaveBeenCalledOnce()
     expect(directory.getFileHandle).not.toHaveBeenCalled()
   })
 })

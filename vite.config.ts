@@ -2,7 +2,6 @@
 import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
-import { localOutputPlugin } from './scripts/localOutput'
 
 // The version the app reports is the one package.json carries, read here and
 // substituted at build time — so bumping that one field is the whole of a
@@ -12,7 +11,7 @@ const { version } = JSON.parse(readFileSync(new URL('./package.json', import.met
 }
 
 export default defineConfig({
-  plugins: [react(), localOutputPlugin()],
+  plugins: [react()],
   define: {
     __APP_VERSION__: JSON.stringify(version),
   },

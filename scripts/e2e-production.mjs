@@ -66,6 +66,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[data-test="export-step"]')?.disabled === false)
   await page.waitForFunction(() => !document.querySelector('[data-test="save-project"]').disabled)
   await page.evaluate(() => {
+    window.showDirectoryPicker = undefined
     const createURL = URL.createObjectURL
     URL.createObjectURL = (blob) => { window.exportBlob = blob; return createURL(blob) }
     HTMLAnchorElement.prototype.click = function () {}
