@@ -5,9 +5,13 @@
 // came of it.
 
 import { useLength } from '../../../src/app/useUnits'
+import { workspaceUnavailable } from '../../../src/app/workspaceAvailability'
+import { plugins } from '../../../src/plugins/registry'
+import { useShell } from '../../../src/state/shellStore'
 import { useMark } from '../../../src/state/markStore'
 import { useStore } from '../../../src/state/store'
 import { InfoDot } from '../../../src/ui/InfoDot'
+import { MeshCloudOffer } from '../../../src/ui/MeshCloudOffer'
 import { MarkTools } from '../../../src/ui/MarkTools'
 import { ModelSlot } from '../../../src/ui/ModelSlot'
 import { NumberField } from '../../../src/ui/NumberField'
@@ -26,6 +30,45 @@ const AXES: { id: PlaneAxis; label: string }[] = [
 ]
 
 const count = (n: number) => n.toLocaleString('en-US')
+
+/** Where a cleaned cloud goes next to become a parametric model: the
+ *  workspace that builds one on the cloud, when this build has it. Named by
+ *  its id, never imported — a build stands without it. */
+const MODEL_WORKSPACE = 'reverse'
+
+function NextSteps({ busy }: { busy: boolean }) {
+  // Read as the scan changes: the workspace may say no to this scan.
+  useStore((s) => s.scanIsCloud)
+  const tab = plugins().find((p) => p.workspace?.id === MODEL_WORKSPACE)?.workspace
+  const why = tab ? workspaceUnavailable(MODEL_WORKSPACE) : null
+  return (
+    <div className="group" data-test="cloud-next">
+      <div className="sec-head">
+        Next
+        <InfoDot title="From a clean cloud to a model">
+          <p>
+            Once the cloud holds only the part, build the model over it: sketch on its sections,
+            extrude and revolve, and export a solid STEP body
+            {tab ? <> — in <b>{tab.label}</b>, which works on the cloud as it is</> : null}. The tools
+            that need a surface ask for a mesh: <b>Mesh this cloud</b> makes one, trimmed to the points.
+          </p>
+        </InfoDot>
+      </div>
+      {tab && (
+        <button
+          className="block"
+          data-test="cloud-next-model"
+          disabled={busy || why !== null}
+          title={why ?? `Open ${tab.label} on this cloud — sketch on its sections, extrude and revolve, export a solid STEP body`}
+          onClick={() => useShell.getState().setWorkspace(MODEL_WORKSPACE)}
+        >
+          Build the model in {tab.label} →
+        </button>
+      )}
+      <MeshCloudOffer busy={busy} />
+    </div>
+  )
+}
 
 export function CloudPanel({ onOpenScan, onDelete, onClear }: { onOpenScan: (file: File) => void; onDelete: () => void; onClear: () => void }) {
   const scanName = useStore((s) => s.fileName)
@@ -231,6 +274,8 @@ export function CloudPanel({ onOpenScan, onDelete, onClear }: { onOpenScan: (fil
         )}
         {ready && marked === 0 && !running && <p className="hint">Pick a tool above to mark what is to go.</p>}
       </div>
+
+      {ready && <NextSteps busy={busy} />}
     </aside>
   )
 }

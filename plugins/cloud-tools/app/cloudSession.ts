@@ -97,15 +97,20 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
     return null
   }
 
+  /** A marking may start now. `quiet`: the panel marking again on its own
+   *  as a setting or the scan changes — a refusal then is no one's error,
+   *  and it marks again once the work in the way is done. */
+  const mayMark = (quiet: boolean): boolean => {
+    const why = refusal()
+    if (why && !quiet) useStore.getState().setError(why)
+    return why === null
+  }
+
   /** Mark the pieces smaller than the panel's share of the main body.
    *  Resolves what was found, or null when it was refused, failed or
    *  overtaken by a newer marking. */
-  const markFloating = async (percent = useCloudTools.getState().percent) => {
-    const why = refusal()
-    if (why) {
-      useStore.getState().setError(why)
-      return null
-    }
+  const markFloating = async (percent = useCloudTools.getState().percent, { quiet = false } = {}) => {
+    if (!mayMark(quiet)) return null
     const mine = ++asked
     try {
       const survey = await call('floating', { percent })
@@ -132,12 +137,8 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
   }
 
   /** Mark the points past the panel's plane. Resolves how many, or null. */
-  const markPastPlane = async (plane = planeOf()): Promise<number | null> => {
-    const why = refusal()
-    if (why) {
-      useStore.getState().setError(why)
-      return null
-    }
+  const markPastPlane = async (plane = planeOf(), { quiet = false } = {}): Promise<number | null> => {
+    if (!mayMark(quiet)) return null
     const mine = ++asked
     try {
       const { vertices } = await call('past-plane', plane)

@@ -6,6 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import type { PluginHost, PluginRuntime } from '../../../src/plugins/api'
+import { useHistory } from '../../../src/state/historyStore'
 import { useShell } from '../../../src/state/shellStore'
 import { useStore } from '../../../src/state/store'
 import { useCloudTools } from '../state/cloudStore'
@@ -35,15 +36,16 @@ export function useCloudPlugin(host: PluginHost): PluginRuntime {
   const offset = useCloudTools((s) => s.offset)
   const side = useCloudTools((s) => s.side)
   const running = useCloudTools((s) => s.running !== null)
+  const restoring = useHistory((s) => s.restoring)
 
   // The tool's marking follows its settings, and the scan: a slider dragged
   // marks again as it goes (an answer overtaken by a newer one is dropped).
-  const live = onCloudTools && ready && !running
+  const live = onCloudTools && ready && !running && !restoring
   useEffect(() => {
-    if (live && tool === 'floating') void session.markFloating(percent)
+    if (live && tool === 'floating') void session.markFloating(percent, { quiet: true })
   }, [live, tool, percent, scanVersion, session])
   useEffect(() => {
-    if (live && tool === 'plane') void session.markPastPlane()
+    if (live && tool === 'plane') void session.markPastPlane(undefined, { quiet: true })
   }, [live, tool, axis, offset, side, scanVersion, session])
 
   return {

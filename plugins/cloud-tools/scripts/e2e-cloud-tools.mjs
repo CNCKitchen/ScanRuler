@@ -3,7 +3,8 @@
 // start screen, the Cloud Tools tab taken, Floating pieces marking the specks
 // off the main body (none at 0 %), Delete taking them as one step, Ctrl+Z
 // putting them back and Ctrl+Y taking them again; then Plane marking the
-// points below the middle of the part, deleted too.
+// points below the middle of the part, deleted too. Next takes the cleaned
+// cloud on to the Reverse engineer, where the model is built.
 //
 // The cloud is built here — a ball of radius 20 at 0.5 mm with a scrap and a
 // speck of dust floating off it — unless CLOUD_PLY names a scanner's cloud
@@ -63,6 +64,7 @@ const state = () =>
     const { useMark } = await import('/src/state/markStore.ts')
     const { useHistory } = await import('/src/state/historyStore.ts')
     const { useCloudTools } = await import('/plugins/cloud-tools/state/cloudStore.ts')
+    const { useShell } = await import('/src/state/shellStore.ts')
     const s = useStore.getState()
     const c = useCloudTools.getState()
     return {
@@ -76,6 +78,7 @@ const state = () =>
       marked: useMark.getState().count,
       floating: c.floating,
       running: c.running,
+      workspace: useShell.getState().workspace,
     }
   })
 
@@ -137,6 +140,9 @@ try {
     await page.keyboard.up(MOD)
     await until('the redo', (s) => s.points === cleaned.points && !s.busy)
     check(true, 'Ctrl+Y takes them again')
+    await sleep(500)
+    const settled = await state()
+    check(settled.error === null, `no error after the steps back and forth (${settled.error})`)
   }
 
   // ---- Plane ------------------------------------------------------------------------
@@ -150,6 +156,15 @@ try {
   const cut = await until('the cut', (s) => s.running === null && s.points === before - planed.marked)
   check(cut.points === before - planed.marked, `cut at the plane: ${cut.points} points left`)
   if (cut.error) fail(`error line: ${cut.error}`)
+
+  // ---- Next: the model ----------------------------------------------------------------
+  check((await page.$('[data-test=cloud-next]')) !== null, 'the panel offers the next step')
+  if (await page.$('[data-test=cloud-next-model]')) {
+    await click(page, '[data-test=cloud-next-model]')
+    const onModel = await until('the Reverse engineer', (s) => s.workspace === 'reverse')
+    check(onModel.points === cut.points && onModel.cloud, `Next opens the Reverse engineer on the cleaned cloud (${onModel.points} points)`)
+    await page.screenshot({ path: shotPath('cloud-next.png') })
+  }
 } catch (e) {
   fail(e instanceof Error ? e.message : String(e))
 } finally {
