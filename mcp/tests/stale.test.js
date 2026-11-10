@@ -70,12 +70,15 @@ test('the status says the tools the client holds are stale until it lists them a
     assert.equal(s.tools.removed, undefined)
     assert.equal(s.tools.changed, undefined)
     assert.equal(s.tools.listedFrom, 'the page, ScanRuler 0.0.0-test')
-    assert.match(s.tools.note, /start a new chat to get the current tools/)
+    assert.match(s.tools.note, /quit the AI app completely and open it again to get the current tools/)
+    assert.match(s.tools.note, /A new chat does not help/)
+    assert.match(s.tools.note, /scanruler_batch runs any of the page’s tools by name/)
     // Named once; counted after, with a short note.
     const later = await status()
     assert.equal(later.tools.added, 1)
     assert.equal(later.tools.listedFrom, 'the page, ScanRuler 0.0.0-test')
     assert.match(later.tools.note, /^Still stale, as an earlier answer named them/)
+    assert.match(later.tools.note, /scanruler_batch runs any of the page’s tools by name/)
     await client.listTools()
     assert.equal((await status()).tools, undefined, 'listed again: not stale')
   } finally {

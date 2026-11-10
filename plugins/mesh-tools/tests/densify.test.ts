@@ -37,6 +37,18 @@ function volume(p: Float32Array, idx: Uint32Array): number {
   return six / 6
 }
 
+/** The area of the triangles, summed in doubles. */
+function area(p: Float32Array, idx: Uint32Array): number {
+  let sum = 0
+  for (let t = 0; t < idx.length; t += 3) {
+    const [a, b, c] = [idx[t] * 3, idx[t + 1] * 3, idx[t + 2] * 3]
+    const u = [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]]
+    const v = [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]]
+    sum += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2
+  }
+  return sum
+}
+
 describe('densify', () => {
   it('cuts a box of long triangles until no edge is longer than asked, closed and of the same volume', () => {
     const { positions, indices } = box([60, 40, 6])
@@ -61,6 +73,30 @@ describe('densify', () => {
       const onFace = [x, 60 - x, y, 40 - y, z, 6 - z].some((s) => Math.abs(s) < 1e-5)
       expect(onFace, `${x} ${y} ${z}`).toBe(true)
     }
+  })
+
+  it('keeps a mesh closed whose vertices are numbered past 2^21', () => {
+    // An edge keyed as lower · 2^32 + higher is no longer an exact double
+    // past vertex 2,097,152: two edges shared a key, the second got the
+    // first's middle, and the mesh came out cracked.
+    const from = 3_000_000
+    const { positions: corners, indices: local } = box([20, 12, 8])
+    const positions = new Float32Array((from + 8) * 3)
+    positions.set(corners, from * 3)
+    const indices = local.map((i) => i + from)
+    const d = densifyMesh(positions, indices, from + 8, 1.5)
+    expect(d.report.longest).toBeLessThanOrEqual(1.5 + 1e-9)
+    expect(d.report.added).toBeGreaterThan(100)
+    const use = edgeUse(d.indices)
+    let unpaired = 0
+    for (const [key, n] of use) {
+      const [a, b] = key.split('>')
+      if (n !== 1 || use.get(`${b}>${a}`) !== 1) unpaired++
+    }
+    expect(unpaired).toBe(0)
+    const before = 2 * (20 * 12 + 20 * 8 + 12 * 8)
+    expect(area(positions, indices)).toBeCloseTo(before, 6)
+    expect(area(d.positions, d.indices)).toBeCloseTo(before, 6)
   })
 
   it('leaves a mesh with no edge too long as it is', () => {

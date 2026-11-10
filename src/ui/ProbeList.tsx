@@ -10,6 +10,7 @@ import { useLength } from '../app/useUnits'
 import type { Probe } from '../state/probes'
 import { Icon } from './icons'
 import { InfoDot } from './InfoDot'
+import { copyText, useContextMenu } from './ContextMenu'
 
 export function ProbeList({
   probes,
@@ -34,8 +35,6 @@ export function ProbeList({
 }) {
   const hidePinsBehind = usePrefs((s) => s.hidePinsBehind)
   const setHidePinsBehind = usePrefs((s) => s.setHidePinsBehind)
-  // Where each pin is, in the units shown.
-  const len = useLength()
   return (
     <div className={className}>
       <div className="g-label">
@@ -64,14 +63,7 @@ export function ProbeList({
             </InfoDot>
           </label>
           {probes.map((p, i) => (
-            <div className="kv" data-test={rowTestId} key={p.id}>
-              <span className="probeno">{i + 1}</span>
-              <span className="name">{p.point.map((v) => len.fmt(v, 1, { bare: true })).join(', ')}</span>
-              <b>{format(p.value)}</b>
-              <button className="x" title="Remove" onClick={() => onRemove(p.id)}>
-                <Icon name="bin" size={14} />
-              </button>
-            </div>
+            <ProbeRow key={p.id} probe={p} no={i + 1} rowTestId={rowTestId} format={format} onRemove={onRemove} />
           ))}
           <button className="block" onClick={onClear}>
             Clear pins
@@ -79,5 +71,29 @@ export function ProbeList({
         </>
       )}
     </div>
+  )
+}
+
+/** One pinned reading; a right click offers its value and spot to copy. */
+function ProbeRow({ probe: p, no, rowTestId, format, onRemove }: { probe: Probe; no: number; rowTestId: string; format: (value: number) => string; onRemove: (id: number) => void }) {
+  const len = useLength()
+  const spot = p.point.map((v) => len.fmt(v, 1, { bare: true })).join(', ')
+  const ctx = useContextMenu(`Pin ${no}`, () => [
+    { label: 'Copy reading', onSelect: () => copyText(format(p.value)) },
+    { label: 'Copy position', onSelect: () => copyText(spot) },
+    { label: 'Remove pin', danger: true, rule: true, onSelect: () => onRemove(p.id) },
+  ])
+  return (
+    <>
+      <div className="kv" data-test={rowTestId} onContextMenu={ctx.onContextMenu}>
+        <span className="probeno">{no}</span>
+        <span className="name">{spot}</span>
+        <b>{format(p.value)}</b>
+        <button className="x" title="Remove" onClick={() => onRemove(p.id)}>
+          <Icon name="bin" size={14} />
+        </button>
+      </div>
+      {ctx.menu}
+    </>
   )
 }
