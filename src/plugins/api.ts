@@ -47,6 +47,8 @@ import type { GripSide, PickHit, SceneManager } from '../viewer/SceneManager'
 // guide) adds a guide guide.read serves an agent before a task — the
 // plugin's workflow in Markdown, loaded when first read.
 
+export { registerCloudMesher, cloudMesher, useCloudMesher } from '../app/cloudMesher'
+export type { CloudMesher } from '../app/cloudMesher'
 export { registerCommands, registerSettle, runningChange } from '../commands/registry'
 export { registerStateSection } from '../commands/stateSections'
 export { registerBusy } from '../commands/activity'
