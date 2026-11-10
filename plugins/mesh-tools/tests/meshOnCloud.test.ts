@@ -36,9 +36,10 @@ describe('Mesh Tools on a point cloud', () => {
     expect(workspaceUnavailable('mesh')).toBe(CLOUD_REFUSAL)
   })
 
-  it('refuses every worker operation with CLOUD_REFUSAL', async () => {
+  it('refuses every worker operation but meshing with CLOUD_REFUSAL', async () => {
     const client = headless.session.clientRef.current!
-    for (const op of OPS) {
+    expect(OPS).toContain('mesh-cloud')
+    for (const op of OPS.filter((o) => o !== 'mesh-cloud')) {
       await expect(client.pluginCall('mesh-tools', op, {}), op).rejects.toThrow(CLOUD_REFUSAL)
     }
   })

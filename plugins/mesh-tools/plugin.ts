@@ -3,7 +3,7 @@
 // what each part of this is to the app.
 
 import type { HintStep } from '../../src/core/hints'
-import { registerBusy, registerCommands, registerStateSection, type ScanRulerPlugin } from '../../src/plugins/api'
+import { registerBusy, registerCloudMesher, registerCommands, registerStateSection, type ScanRulerPlugin } from '../../src/plugins/api'
 import { pick, registerHistory } from '../../src/state/historyStore'
 import { registerProjectSection } from '../../src/app/projectSections'
 import { meshSection } from './app/projectSection'
@@ -83,7 +83,13 @@ const plugin: ScanRulerPlugin = {
     // What an agent works through: the commands under the workspace's id —
     // the plugin's has a hyphen, which a command's name does not take — its
     // part of the readout, and what it is busy with.
-    registerCommands('mesh', meshCommands.map((c) => (c.readOnly ? c : { ...c, needsTriangles: true })))
+    // Every tool here works on triangles but Mesh this cloud, which makes them.
+    registerCommands('mesh', meshCommands.map((c) => (c.readOnly || c.name === 'mesh_cloud' ? c : { ...c, needsTriangles: true })))
+    registerCloudMesher({
+      label: 'Mesh this cloud',
+      command: 'mesh.mesh_cloud',
+      mesh: async () => (await meshToolsSession()?.meshThisCloud()) != null,
+    })
     registerStateSection('mesh', describeMesh)
     registerBusy('mesh', meshBusy, [useMeshTools], stopMeshWork)
     registerHistory({

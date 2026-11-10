@@ -59,9 +59,12 @@ try {
   console.log('loaded:', info)
   check(/plane-cylinder\.ply/.test(info), `the cloud is open: ${info}`)
 
-  // ---- a triangle-only tool says why it is off ---------------------------------
-  const section = await page.$eval('[data-test=fit-section]', (el) => ({ disabled: el.disabled, title: el.title }))
-  check(section.disabled && section.title === CLOUD_REFUSAL, `Section is off with the refusal as its tooltip: "${section.title}"`)
+  // ---- a section is read off the points; a triangle-only tool says why it is off
+  const section = await page.$eval('[data-test=fit-section]', (el) => ({ disabled: el.disabled }))
+  check(!section.disabled, 'Section is on for a cloud')
+  const exportMesh = await page.$eval('[data-test=export-mesh]', (el) => ({ disabled: el.disabled, title: el.title }))
+  check(exportMesh.disabled && exportMesh.title === CLOUD_REFUSAL, `Export mesh is off with the refusal as its tooltip: "${exportMesh.title}"`)
+  check(Boolean(await page.$('[data-test=mesh-cloud]')), 'the scan card offers Mesh this cloud')
 
   // ---- pick the plane, fit, read the value --------------------------------------
   const rect = await canvasRect(page)

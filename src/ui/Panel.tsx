@@ -33,6 +33,7 @@ import { ModelSlot } from './ModelSlot'
 import { SectionEditor } from './SectionEditor'
 import { CLOUD_REFUSAL } from '../core/capabilities'
 import { ExportMeshButton } from './ExportMeshButton'
+import { MeshCloudOffer } from './MeshCloudOffer'
 import type { MeshFormat } from '../core/exportMesh'
 import { useUnits } from '../app/useUnits'
 import { useCloudRefusal } from './cloudGate'
@@ -228,6 +229,7 @@ export function Panel({
           busy={busy}
           onOpenScan={onOpenScan}
         />
+        <MeshCloudOffer busy={busy} />
       </div>
 
       <AlignmentSection

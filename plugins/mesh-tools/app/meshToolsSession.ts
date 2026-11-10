@@ -52,6 +52,7 @@ import type { OfferedSolid, SolidMesh } from '../../../src/app/solids'
 import { booleanSolids, namesOf } from './booleanSolids'
 import { creaseSetting } from '../../../src/core/geometry/crease'
 import type { ReduceReport } from '../core/reduce'
+import type { MeshCloudReport, MeshCloudSettings } from '../core/meshCloud'
 import { WrapCancelled, WrapClient } from '../core/wrapClient'
 import type { WrapReport } from '../core/wrap'
 import { boundLength } from '../../../src/app/useUnits'
@@ -433,6 +434,48 @@ export function createMeshToolsSession({
    * elements fitted again on it, the maps measured again — as one step of
    * the undo history. True when it was.
    */
+  /**
+   * Mesh this cloud: the point-cloud scan made a mesh (core/meshCloud) and
+   * loaded in its place under everything measured on it, as one step of the
+   * undo history. The marks and selections made on the cloud's points go —
+   * a mesh has other vertices — and the elements are fitted again on it.
+   * Undone, the cloud is back. The report, or null when it did not go
+   * through (the error line says why).
+   */
+  const meshThisCloud = async (settings: MeshCloudSettings = {}, run?: EditRun): Promise<MeshCloudReport | null> => {
+    const c = clientRef.current
+    if (!c || !useStore.getState().scanIsCloud) return null
+    if (refused(run, 'Finish or cancel what is open first — the scan cannot change under it.')) return null
+    let report: MeshCloudReport | null = null
+    useMeshTools.getState().setEditing(true)
+    try {
+      await runImport(imports, 'Meshing the cloud…', async () => {
+        const made = await meshToolsOf(c).meshCloud(settings)
+        const s = useStore.getState()
+        const before = s.vertexCount
+        // Kept in the frame the scan was opened in, as an edited copy is, so
+        // the alignment goes on it as it goes on the scan.
+        const alignment = s.appliedAlignment
+        if (alignment) rigidApplyToPoints(rigidInvert(alignment), made.positions)
+        const name = s.fileName ?? 'scan'
+        const bytes = buildBinaryPly(made.positions, made.indices, `${name}, meshed in ScanRuler`)
+        await historyAsync('Mesh this cloud', async () => {
+          // units-ok: the file's own unit, an id — the mesh is written in mm.
+          await swapScan({ name: `${name.replace(/\.[^.]+$/, '')}.ply`, file: new Blob([bytes as BlobPart]), units: 'mm' }, alignment)
+          // No vertex of the mesh is a point of the cloud.
+          remapScan(new Int32Array(before).fill(-1))
+          await remeasureScan(true)
+        })
+        const len = lengthsOf(run?.units)
+        useStore.getState().setStatus(`The cloud is a mesh now — ${count(made.report.triangles)} triangles, ${len.fmt(made.report.cell)} cells. Ctrl+Z returns the cloud.`)
+        report = made.report
+      })
+    } finally {
+      useMeshTools.getState().setEditing(false)
+    }
+    return report
+  }
+
   const adoptEditedCopy = async (run?: EditRun): Promise<boolean> => {
     const copy = editedCopy.current
     if (!copy) return false
@@ -1078,6 +1121,7 @@ export function createMeshToolsSession({
     applyWrap,
     setEditedCopy,
     adoptEditedCopy,
+    meshThisCloud,
     discardEditedCopy,
     removeIslands,
     deleteMarked,

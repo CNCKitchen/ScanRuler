@@ -23,10 +23,10 @@ describe.skipIf(!R.exists)('Mesh this cloud on the Revo merge', () => {
     const cloud = parsePLY(load(R.mergeCloud()))
     if (cloud.kind !== 'cloud') throw new Error('Merge_02 cloud did not open as a cloud')
     const spacing = buildPointGraph(cloud).spacing!
-    const m = meshCloud(cloud.positions, cloud.normals, spacing)
+    const m = meshCloud(cloud.positions, cloud.normals!, spacing)
     const ref = parsePLY(load(R.mergeMesh()))
     if (ref.kind !== 'indexed') throw new Error('Merge_02 mesh did not open as a mesh')
-    const surface = new NominalSurface(ref.positions, ref.indices)
+    const surface = new NominalSurface(ref.positions, ref.indices!)
     const hit = emptyHit()
     const d: number[] = []
     for (let i = 0; i < m.positions.length; i += 3 * 7) {

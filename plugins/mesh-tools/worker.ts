@@ -28,6 +28,8 @@ import { loadManifold } from './core/manifold'
 import { defaultBreakSpeck, findBreak } from './core/breakSurface'
 import { prepareBody, trimToScan, type PreparedBody } from './core/trimToScan'
 import { selectVertices } from './core/select'
+import { meshCloud } from './core/meshCloud'
+import { isCloud } from '../../src/core/geometry/cloud'
 import { MESH_TOOLS, type MeshEditReport, type MeshToolsOps, type TrimBody } from './core/protocol'
 import { extentOf } from '../../src/core/geometry/bounds'
 import { tetraVolume6 } from '../../src/core/geometry/centroid'
@@ -60,6 +62,13 @@ async function preparedBody(tool: TrimBody, ctx: WorkerContext): Promise<Prepare
 }
 
 const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext) => WorkerReply | Promise<WorkerReply> } = {
+  'mesh-cloud'({ settings }, ctx) {
+    const g = ctx.scan()
+    if (!g || !isCloud(g)) throw new Error('The scan is not a point cloud.')
+    const made = meshCloud(g.positions, g.normals, g.spacing ?? 0, settings, ctx.progress)
+    return { result: made, transfer: [made.positions.buffer, made.indices.buffer] }
+  },
+
   async reduce({ settings }, ctx) {
     // The mesh the request came for: a copy put in place meanwhile waits
     // behind this, as every other request does.
@@ -297,6 +306,8 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
 
 const plugin: WorkerPlugin = {
   id: MESH_TOOLS,
+  // Only meshing works on a cloud; every other tool here needs triangles.
+  acceptsClouds: (op) => op === 'mesh-cloud',
   handle(op, payload, ctx) {
     const run = ops[op as keyof MeshToolsOps] as ((p: unknown, c: WorkerContext) => WorkerReply | Promise<WorkerReply>) | undefined
     if (!run) throw new Error(`Mesh Tools has no operation "${op}".`)

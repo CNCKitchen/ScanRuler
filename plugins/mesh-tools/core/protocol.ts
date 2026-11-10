@@ -18,6 +18,7 @@ import type { ReduceReport, ReduceSettings } from './reduce'
 import type { SmoothReport, SmoothSettings } from './smooth'
 import type { DensifyReport } from './densify'
 import type { TrimReport, TrimSettings } from './trimToScan'
+import type { MeshCloudReport, MeshCloudSettings } from './meshCloud'
 
 /** The plugin's id, which its worker part answers to. */
 export const MESH_TOOLS = 'mesh-tools'
@@ -140,6 +141,10 @@ export interface MeshToolsOps {
   /** The mesh reduced to a light one for CAD, held within a tolerance of it
    *  and measured against it — see core/reduce. Nothing changes. */
   reduce: { payload: { settings: ReduceSettings }; result: ReduceResult }
+  /** The point-cloud scan meshed — see core/meshCloud — in scan
+   *  coordinates, every alignment baked in. Nothing changes: the session
+   *  swaps it in. The one op taken on a cloud. */
+  'mesh-cloud': { payload: { settings: MeshCloudSettings }; result: { positions: Float32Array; indices: Uint32Array; report: MeshCloudReport } }
   /** The mesh's connected pieces, and which of them are islands, smaller
    *  across than `minSize` — by their triangles, nine floats each, and their
    *  middles, three each. Nothing changes. */
