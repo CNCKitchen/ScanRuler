@@ -196,7 +196,9 @@ export function applyMerge(value: MergeSnapshot): void {
  *  none is set by hand — or null with none. */
 export function autoDedupe(layers: readonly LayerRow[]): number | null {
   const s = layers.filter((l) => l.visible && l.isCloud && l.spacing > 0).map((l) => l.spacing).sort((a, b) => a - b)
-  return s.length > 0 ? s[s.length >> 1] : null
+  // Rounded to the micron: it is shown in an editable field, where the raw
+  // spacing would read 0.1007033…
+  return s.length > 0 ? Math.round(s[s.length >> 1] * 1000) / 1000 : null
 }
 
 /** The dedupe a merge runs with: the one set by hand, else the layers'. */
