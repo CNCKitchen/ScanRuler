@@ -2,7 +2,8 @@
 // End-to-end test of the sketch round from the public tracker, with the
 // mouse, on a blank stage: dashed tracking lines from a circle's centre the
 // cursor passed over, a line's start placed level with it and a point where
-// two tracking lines cross (issue 107); the Point tool held on a line's
+// two tracking lines cross (issue 107), and a line's start tracked with a
+// point passed over after quadrants on the way; the Point tool held on a line's
 // middle (issue 103); Trim lighting the stretch it would take and taking it
 // (issue 102); and a distance between two centres pulled above them to its
 // ΔX, then switched by its chip (issue 106).
@@ -91,6 +92,29 @@ const corner = (await draft()).pending[0]
 check(corner && Math.abs(corner[0] - 5) < 1e-9 && Math.abs(corner[1] - 30) < 1e-9, `and a click there lands on the crossing (${JSON.stringify(corner)})`)
 await page.keyboard.press('Escape')
 await page.keyboard.press('Escape')
+await sleep(150)
+// A line from one centre to where it stands level with that centre and
+// upright with another, the cursor passing both circles' quadrants on the
+// way: each pushed a wanted point out of a memory of two, so only one
+// tracking line was left (issue 107, second round). The sketch is put
+// back after, as the steps below expect it.
+const sketchBefore = await re(() => window.__re.store.getState().sketchDraft.sketch)
+await click(page, '[data-test=sketch-tool-line]')
+await clickAt([5, 5])
+await hover([8, 5])
+await hover([25, -8])
+await hover([25, -6])
+await hover([25, 5], 2, 2)
+const both = await guides()
+check(both.count === 2 && both.dashed === 2, `level with the line's start and upright with the other centre, both tracking lines show (${JSON.stringify(both)})`)
+await page.screenshot({ path: shotPath('sketch-round-track-both.png') })
+await clickAt([25, 5], 2, 2)
+const end = (await draft()).sketch.entities.find((e) => e.kind === 'line' && Math.abs(e.a[0] - 5) < 1e-9 && Math.abs(e.a[1] - 5) < 1e-9)
+check(end && Math.abs(end.b[0] - 25) < 1e-9 && Math.abs(end.b[1] - 5) < 1e-9, `and the line ends on the crossing (${JSON.stringify(end)})`)
+await page.keyboard.press('Escape')
+await page.keyboard.press('Escape')
+await sleep(150)
+await re((sketch) => window.__re.store.getState().setSketch(sketch), sketchBefore)
 await sleep(150)
 
 // ---- the Point tool on a line's middle ----------------------------------------------------------

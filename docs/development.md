@@ -134,7 +134,10 @@ The version is the `version` field in `package.json` and nowhere else. The
 build reads it into the app, which shows it in the caption under the ScanRuler
 name in the top bar and in the imprint, and writes it into every `.scanruler`
 project it saves as `appVersion`. Whether an older build can open a project is
-decided by the file's own `schemaVersion`, not by this number.
+decided by the file's own `schemaVersion` and the names in it, not by this
+number: a build refuses a higher `schemaVersion`, and an element kind, way of
+making an element or dimension type it does not know. When to raise
+`PROJECT_SCHEMA` is in `src/core/project/manifest.ts`.
 
 Numbers follow `major.minor.patch`: a patch release fixes, a minor one adds,
 and a major one is for a change that stops earlier projects or exports from

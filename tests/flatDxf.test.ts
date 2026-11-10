@@ -218,6 +218,25 @@ describe('buildFlatDxf', () => {
     expect([Number(val(note, 10)), Number(val(note, 20))]).toEqual([20, 30])
   })
 
+  it('keeps a name, note or title with a line break on one line of the file', () => {
+    const dxf = buildFlatDxf(
+      input({
+        title: 'ScanRuler 2D measurement\r\npart.png',
+        notes: [{ text: 'first line\nsecond\tline', at: [20, 30] }],
+        elements: [{ fit: flatPoint([5, 5]), color: '#778899', name: 'Point\n1', value: 'X 5.000 · Y 5.000 mm' }],
+      }),
+    )
+    // Every group is a code line then a value line, to the end of the file.
+    const lines = dxf.split('\n')
+    for (let i = 0; i + 1 < lines.length; i += 2) expect(lines[i], `line ${i + 1}`).toMatch(/^ *-?\d+$/)
+    expect(lines.slice(-3)).toEqual(['  0', 'EOF', ''])
+    const words = ofType(dxf, 'TEXT').map((t) => val(t, 1))
+    expect(words).toContain('first line second line')
+    expect(words).toContain('Point 1')
+    expect(groups(dxf)[0]).toEqual([999, 'ScanRuler 2D measurement part.png'])
+    expect(dxfText('a \r\n b')).toBe('a b')
+  })
+
   it('draws an arc counter-clockwise from its start angle, and a full one as a circle', () => {
     const el = (fit: FlatArcFit) => [{ fit, color: '#000000', name: 'Arc 1', value: '' }]
     const [quarter] = ofType(buildFlatDxf(input({ elements: el(arc(0, Math.PI / 2)) })), 'ARC')

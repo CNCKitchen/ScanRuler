@@ -163,6 +163,27 @@ describe('files larger than a piece', () => {
     expect(Array.from(parseSTL(buffer(facet)).positions)).toEqual([0, 0, 0, 1, 0, 0, 0, 1, 2.5])
     expect(() => parseSTL(buffer('solid s\nvertex 0 0 0\nvertex 1 0 0\n'))).toThrow(/Could not read/)
   })
+
+  it('reads a binary STL whose header says "solid" though its size is not exact', () => {
+    // Two triangles, a header an exporter began with "solid", and two
+    // bytes of padding after them, or a third triangle's worth cut short.
+    const binary = (extra: number) => {
+      const bytes = new Uint8Array(84 + 2 * 50 + extra)
+      bytes.set(new TextEncoder().encode('solid exported by a CAD system'))
+      const dv = new DataView(bytes.buffer)
+      dv.setUint32(80, 2, true)
+      for (let t = 0; t < 2; t++) for (let v = 0; v < 9; v++) dv.setFloat32(84 + t * 50 + 12 + v * 4, t * 10 + v, true)
+      return bytes.buffer
+    }
+    for (const extra of [2, 37]) {
+      const mesh = parseSTL(binary(extra))
+      expect(mesh.positions.length, `${extra} bytes after`).toBe(18)
+      expect(Array.from(mesh.positions.slice(9, 12))).toEqual([10, 11, 12])
+    }
+    // An ASCII STL named in UTF-8 is still read as text.
+    const named = new TextEncoder().encode('solid Bauteil_ä\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid\n')
+    expect(parseSTL(named.buffer as ArrayBuffer).positions.length).toBe(9)
+  })
 })
 
 describe('PLY parsing', () => {

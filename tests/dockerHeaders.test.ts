@@ -46,7 +46,8 @@ describe('Docker nginx headers', () => {
       expect(nginx.workerPattern.test(path.replace('*', 'abc123.js')), path).toBe(true)
       expect(nginx.worker, path).toBe(csp)
     }
-    expect(nginx.workerPattern.test('/assets/meshWorker-abc123.js')).toBe(false)
+    expect(nginx.workerPattern.test('/assets/edgeWorker-abc123.js')).toBe(false)
+    expect(nginx.workerPattern.test('/assets/wrapWorker-abc123.js')).toBe(false)
     expect(nginx.workerPattern.test('/assets/index-abc123.js')).toBe(false)
   })
 

@@ -38,7 +38,7 @@ export interface PartScaleDeps {
   imports: ImportQueue
   swapScan: (source: ScanSource, transform: Rigid | null) => Promise<void>
   remeasureScan: (refit: boolean) => Promise<void>
-  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<void>
+  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<unknown>
 }
 
 const listed = (items: string[]): string =>

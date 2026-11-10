@@ -33,7 +33,10 @@ body:
     id: files
     attributes:
       label: Example files
-      description: A scan or CAD file that shows the case helps a lot. Only share what you're allowed to share.
+      description: |
+        A scan or CAD file that shows the case helps a lot. GitHub doesn't take STL, PLY, OBJ or STEP files as they are, so zip it first: a zipped file under 25 MB attaches directly. For anything larger, post a link.
+
+        Only share what you're allowed to share.
     validations:
       required: false
   - type: checkboxes

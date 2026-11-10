@@ -51,7 +51,7 @@ describe('project input validation', () => {
   })
   it('accepts an unresolved flat construction with a null fit', () => {
     const manifest = project()
-    manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'intersection', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
+    manifest.flat.elements = [{ id: 1, kind: 'point', name: 'Point 1', color: '#000', source: { type: 'construct', method: 'flat-point-intersect', refs: [2, 3] }, fit: null, error: 'Missing source', visible: true }]
     expect(() => validateManifest(manifest)).not.toThrow()
   })
   it.each([
@@ -68,6 +68,13 @@ describe('project input validation', () => {
     ['flat', 'edgeSensitivity', -3],
     ['flat', 'turns', 2.5],
     ['flat', 'datum', 'x'],
+    ['flat', 'datum', {}],
+    ['flat', 'datum', { originPx: [0, 0], xRefPx: [1] }],
+    ['flat', 'mirror', 'yes'],
+    ['flat', 'subject', { kind: 'section', id: -1 }],
+    ['flat', 'subject', { kind: 'photo' }],
+    ['flat', 'counts', [{ id: 1, name: 'C', color: '#000', picks: [[1, 2], 'x'], visible: true }]],
+    ['flat', 'notes', [{ id: 1, text: 'n', at: 'here', visible: true }]],
     ['deviation', 'pairs', [1]],
     ['thickness', 'normalDeviationDeg', 'x'],
   ])('rejects %s.%s = %j', (part, key, value) => {
@@ -80,6 +87,14 @@ describe('project input validation', () => {
     Object.assign(manifest.thickness, { coneRays: 12, method: 'sphere', bands: 8, normalDeviationDeg: 30 })
     Object.assign(manifest.deviation, { bands: null, targetSide: -1, pairs: [{ scan: [0, 0, 0], nominal: [1, 2, 3] }] })
     Object.assign(manifest.flat, { turns: 3, datum: null })
+    expect(() => validateManifest(manifest)).not.toThrow()
+    Object.assign(manifest.flat, {
+      datum: { originPx: [10, 20], xRefPx: [110, 20] },
+      mirror: true,
+      subject: { kind: 'section', id: 4 },
+      counts: [{ id: 1, name: 'C', color: '#000', picks: [[1, 2], [3, 4]], visible: true }],
+      notes: [{ id: 1, text: 'n', at: [5, 6], visible: true }],
+    })
     expect(() => validateManifest(manifest)).not.toThrow()
   })
   it.each([0, -1, 1.5])('rejects unsupported schema %s', (version) => {

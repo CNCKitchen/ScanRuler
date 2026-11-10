@@ -4,11 +4,45 @@
 // The checks are exported for the plugins' parts, which a plugin checks
 // itself when a project is opened (see app/projectSections.ts).
 
+import { dimensionTypes } from '../dimensions'
+import { CREATION_METHODS } from '../elements/construct'
+import { FLAT_METHODS } from '../flat/construct'
+import { FLAT_DIMENSION_TYPES } from '../flat/dimensions'
 import { meshUnitsOf } from '../meshUnits'
 import { SCALE_MAX, SCALE_MIN } from '../scanScale'
+import type { FitMethodId } from '../types'
 
 export type RecordValue = Record<string, unknown>
 export function invalid(path: string): never { throw new Error(`Malformed project: ${path}.`) }
+
+/** What a project saved by a newer build is refused with: by its
+ *  schemaVersion (manifest.ts), or by a name in it this build has none for. */
+export const NEWER_PROJECT = 'This project was saved by a newer version of ScanRuler — please reload the app to open it.'
+
+/** A name this build does not know — an element kind, a way of making an
+ *  element, a dimension type — comes from a newer build, not a damaged
+ *  file: no name has ever been taken out of these lists (a test holds them
+ *  to that), so every project an older build saved names only known ones.
+ *  Refused whole, with the reload that brings the newer build, rather than
+ *  opened with the element failing and everything built on it. */
+function known(value: unknown, names: ReadonlySet<string>, what: string): void {
+  if (typeof value !== 'string') invalid(what)
+  if (!names.has(value)) throw new Error(`${NEWER_PROJECT} It has ${what} "${value}", which this version does not know.`)
+}
+
+/** Every name a project can hold that a newer build may add to: the open
+ *  lists the checks above refuse an unknown entry of. */
+export const PROJECT_NAMES = {
+  elementKinds: new Set<string>(CREATION_METHODS.map((m) => m.kind)),
+  /** A 3D element's way of being made, by kind: `fit` and `pick` are ways
+   *  for more than one kind. */
+  creationMethods: new Set<string>(CREATION_METHODS.map((m) => `${m.kind}:${m.id}`)),
+  fitMethods: new Set<string>(['gaussian'] satisfies FitMethodId[]),
+  dimensionTypes: new Set<string>(dimensionTypes().map((t) => t.id)),
+  flatKinds: new Set<string>(FLAT_METHODS.map((m) => m.kind)),
+  flatMethods: new Set<string>(FLAT_METHODS.map((m) => m.id)),
+  flatDimensionTypes: new Set<string>(FLAT_DIMENSION_TYPES.map((t) => t.id)),
+} as const
 export function object(value: unknown, path: string): RecordValue {
   if (!value || typeof value !== 'object' || Array.isArray(value)) invalid(path)
   return value as RecordValue
@@ -28,6 +62,22 @@ export function indices(value: unknown, path: string): void {
 export function vector(value: unknown, size: number, path: string): void {
   const values = array(value, path)
   if (values.length !== size || !values.every((v) => typeof v === 'number' && Number.isFinite(v))) invalid(path)
+}
+/** A fitted element's guide: each part optional, each as element.fit takes it. */
+function fitGuide(value: unknown): void {
+  const g = object(value, 'element.guide')
+  if (g.side !== undefined && g.side !== 'inside' && g.side !== 'outside') invalid('element.guide.side')
+  if (g.radius !== undefined) {
+    const r = object(g.radius, 'element.guide.radius')
+    for (const key of ['min', 'max'])
+      if (r[key] !== undefined && !(typeof r[key] === 'number' && Number.isFinite(r[key]) && r[key] > 0)) invalid(`element.guide.radius.${key}`)
+  }
+  if (g.axis !== undefined) vector(g.axis, 3, 'element.guide.axis')
+  if (g.within !== undefined) {
+    const w = object(g.within, 'element.guide.within')
+    vector(w.min, 3, 'element.guide.within.min')
+    vector(w.max, 3, 'element.guide.within.max')
+  }
 }
 export function entries(value: unknown, path: string, visit?: (entry: RecordValue) => void): void {
   const ids = new Set<number>()
@@ -57,11 +107,17 @@ function bands(value: unknown, path: string): void {
  *  starting a measurement with a billion rays or a scale of zero width. */
 const MAX_CONE_RAYS = 256
 const MAX_BANDS = 256
+/** What a member of the archive may be named — checked on open, and on
+ *  save too (packProject), so a project that saves also opens. */
+export function isMemberName(name: string): boolean {
+  return /^[\w .-]+$/.test(name) && name !== 'project.json'
+}
+
 function file(value: unknown, path: string): void {
   if (value === null) return
   const entry = object(value, path)
   fields(entry, 'fileName member', 'string', path)
-  if (!entry.fileName || !/^[\w .-]+$/.test(entry.member as string) || entry.member === 'project.json') invalid(`${path}.member`)
+  if (!entry.fileName || !isMemberName(entry.member as string)) invalid(`${path}.member`)
   if (entry.units !== undefined && !meshUnitsOf(entry.units)) invalid(`${path}.units`)
 }
 function rigid(value: unknown, path: string): void {
@@ -72,8 +128,18 @@ function rigid(value: unknown, path: string): void {
     if (values.length !== size || !values.every((v) => typeof v === 'number' && Number.isFinite(v))) invalid(path)
   }
 }
+/** A sheet's alignment: two picks in image pixels, or none. An empty
+ *  object passed for one and crashed datumFrame as the sheet was drawn. */
+function datum(value: unknown, path: string): void {
+  if (value === undefined || value === null) return
+  const d = object(value, path)
+  vector(d.originPx, 2, `${path}.originPx`)
+  vector(d.xRefPx, 2, `${path}.xRefPx`)
+}
 function sheet(value: unknown, path: string): void {
   const s = object(value, path)
+  datum(s.datum, `${path}.datum`)
+  if (s.mirror !== undefined && typeof s.mirror !== 'boolean') invalid(`${path}.mirror`)
   fields(s, 'nextId nextDimId nextCountId', 'number', path)
   fields(s, 'calSource', 'string', path)
   object(s.nameCounts, `${path}.nameCounts`)
@@ -81,6 +147,7 @@ function sheet(value: unknown, path: string): void {
   entries(s.elements, `${path}.elements`, (e) => {
     fields(e, 'kind name color', 'string', path)
     fields(e, 'visible', 'boolean', path)
+    known(e.kind, PROJECT_NAMES.flatKinds, '2D element kind')
     // A failed construction is saved with a null fit and its source intact.
     if (e.fit !== null) {
       const fit = object(e.fit, `${path}.fit`)
@@ -93,13 +160,21 @@ function sheet(value: unknown, path: string): void {
     }
     const source = object(e.source, `${path}.source`)
     fields(source, 'method', 'string', `${path}.source`)
+    known(source.method, PROJECT_NAMES.flatMethods, '2D element method')
     if (source.type === 'picks') for (const p of array(source.picks, `${path}.picks`)) vector(p, 2, `${path}.picks`)
     else if (source.type === 'construct') indices(source.refs, `${path}.refs`)
     else invalid(`${path}.source.type`)
   })
-  entries(s.dimensions, `${path}.dimensions`, (e) => { fields(e, 'type name', 'string', path); indices(e.refs, `${path}.refs`) })
-  entries(s.counts, `${path}.counts`, (e) => { fields(e, 'name color', 'string', path); array(e.picks, `${path}.picks`) })
-  if (s.notes !== undefined) entries(s.notes, `${path}.notes`, (e) => { fields(e, 'text', 'string', path); array(e.at, `${path}.at`) })
+  entries(s.dimensions, `${path}.dimensions`, (e) => {
+    fields(e, 'type name', 'string', path)
+    known(e.type, PROJECT_NAMES.flatDimensionTypes, '2D dimension type')
+    indices(e.refs, `${path}.refs`)
+  })
+  entries(s.counts, `${path}.counts`, (e) => {
+    fields(e, 'name color', 'string', path)
+    for (const p of array(e.picks, `${path}.counts.picks`)) vector(p, 2, `${path}.counts.picks`)
+  })
+  if (s.notes !== undefined) entries(s.notes, `${path}.notes`, (e) => { fields(e, 'text', 'string', path); vector(e.at, 2, `${path}.notes.at`) })
   if (s.pxPerMm !== null) {
     const scale = object(s.pxPerMm, `${path}.pxPerMm`)
     fields(scale, 'x y', 'number', path)
@@ -137,6 +212,7 @@ export function validateProjectParts(raw: unknown): void {
     object(s.nextOfDimGroup, 'scan.nextOfDimGroup')
     const settings = object(s.settings, 'scan.settings')
     fields(settings, 'method', 'string', 'scan.settings')
+    known(settings.method, PROJECT_NAMES.fitMethods, 'fit method')
     fields(settings, 'sigma', 'number', 'scan.settings')
     rigid(s.appliedAlignment, 'scan.appliedAlignment')
     if (s.scale !== undefined && !(typeof s.scale === 'number' && s.scale >= SCALE_MIN && s.scale <= SCALE_MAX)) invalid('scan.scale')
@@ -157,7 +233,12 @@ export function validateProjectParts(raw: unknown): void {
       if (source.type === 'fitted') indices(source.seeds, 'element.seeds')
       if (source.type === 'constructed') { indices(source.refs, 'element.refs'); array(source.params, 'element.params') }
       if (source.selection !== undefined) indices(source.selection, 'element.selection')
-      if (!['point', 'line', 'plane', 'sphere', 'cylinder', 'cone', 'circle', 'torus'].includes(e.kind as string)) invalid('element.kind')
+      known(e.kind, PROJECT_NAMES.elementKinds, 'element kind')
+      if (source.type === 'constructed') known(`${e.kind}:${source.method}`, PROJECT_NAMES.creationMethods, 'construction')
+      if (source.type === 'fitted' && source.settings !== undefined) {
+        known(object(source.settings, 'element.settings').method, PROJECT_NAMES.fitMethods, 'fit method')
+      }
+      if (source.type === 'fitted' && source.guide !== undefined) fitGuide(source.guide)
       if (e.fit !== undefined) {
         const fit = object(e.fit, 'element.fit')
         if (fit.kind !== e.kind) invalid('element.fit.kind')
@@ -166,7 +247,11 @@ export function validateProjectParts(raw: unknown): void {
         for (const key of ['axis', 'normal', 'dir', 'basisU', 'basisV']) if (fit[key] !== undefined) vector(fit[key], 3, `element.fit.${key}`)
       }
     })
-    entries(s.dimensions, 'scan.dimensions', (e) => { fields(e, 'type name', 'string', 'dimension'); indices(e.refs, 'dimension.refs') })
+    entries(s.dimensions, 'scan.dimensions', (e) => {
+      fields(e, 'type name', 'string', 'dimension')
+      known(e.type, PROJECT_NAMES.dimensionTypes, 'dimension type')
+      indices(e.refs, 'dimension.refs')
+    })
     if (s.sections !== undefined) entries(s.sections, 'scan.sections', (e) => object(e.frame, 'section.frame'))
   }
   const d = object(m.deviation, 'deviation')
@@ -205,7 +290,12 @@ export function validateProjectParts(raw: unknown): void {
   fields(f, 'edgeSensitivity', 'number', 'flat')
   inRange(f.edgeSensitivity, 0, 1, 'flat.edgeSensitivity')
   if (f.turns !== undefined) inRange(f.turns, -1e6, 1e6, 'flat.turns', true)
-  if (f.datum !== undefined && f.datum !== null) object(f.datum, 'flat.datum')
+  if (f.mirror !== undefined && typeof f.mirror !== 'boolean') invalid('flat.mirror')
+  if (f.subject !== undefined) {
+    const subject = object(f.subject, 'flat.subject')
+    if (subject.kind === 'section') indices([subject.id], 'flat.subject.id')
+    else if (subject.kind !== 'image') invalid('flat.subject.kind')
+  }
   fields(f, 'splitAxes showEdges snapToEdge showGrid', 'boolean', 'flat')
   if (f.sheets !== undefined) for (const [key, value] of Object.entries(object(f.sheets, 'flat.sheets'))) sheet(value, `flat.sheets.${key}`)
 

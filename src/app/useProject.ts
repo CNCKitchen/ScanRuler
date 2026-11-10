@@ -48,6 +48,16 @@ export const holdsProject = async (file: File): Promise<boolean> => {
   }
 }
 
+/** The status line's word on the elements whose surface was not found
+ *  again on opening — their saved fits stand; empty when there are none. */
+export function lostSurfaces(lost: readonly { name: string; failed: string | null }[]): string {
+  if (lost.length === 0) return ''
+  const names = lost.map((j) => j.name)
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  const one = lost.length === 1
+  return ` The surface${one ? '' : 's'} of ${list} could not be found again — ${one ? 'its saved fit stands' : 'their saved fits stand'} (${lost[0].failed}).`
+}
+
 export function useProject({
   sources,
   clientRef,
@@ -71,7 +81,8 @@ export function useProject({
   commitNominal: (nominal: PreparedNominal | null) => void
   commitImage: (image: PreparedImage | null) => void
   runEdgeDetect: () => Promise<void>
-  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<void>
+  /** Resolves to why the fit failed, or null. */
+  runFit: (id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean) => Promise<string | null>
   runDeviation: () => Promise<void>
   runThickness: () => Promise<void>
 }) {
@@ -169,15 +180,19 @@ export function useProject({
       for (const section of present) await section.restore?.(manifest[section.key], { manifest, members })
 
       // ---- everything measured rather than stored ----
-      const jobs: Promise<void>[] = []
+      const jobs: Promise<{ name: string; failed: string | null }>[] = []
       for (const el of useStore.getState().elements) {
         if (el.source.type !== 'fitted') continue
         // The fit as saved stands: only the surface it was measured on is
         // read again. Fitted anew it can land elsewhere, and what was built
         // on it moves with no edit (one without a saved fit is fitted).
-        jobs.push(runFit(el.id, el.kind, el.source.seeds, el.source.selection, true))
+        jobs.push(runFit(el.id, el.kind, el.source.seeds, el.source.selection, true).then((failed) => ({ name: el.name, failed })))
       }
-      await Promise.all(jobs)
+      // A surface not found again leaves its element's saved fit standing:
+      // the project is open, and the status says which. Its message is not
+      // the error of the open.
+      const lost = (await Promise.all(jobs)).filter((j) => j.failed !== null)
+      if (lost.some((j) => j.failed === useStore.getState().errorText)) useStore.setState({ errorText: null })
       if (manifest.scan && manifest.deviation.align && useDeviation.getState().nominalName) {
         await runDeviation()
       }
@@ -189,7 +204,7 @@ export function useProject({
       sceneRef.current?.frameAll()
       useStore.setState({
         busy: false,
-        statusText: `Project opened — ${file.name}.${unowned.length > 0 ? ' It also holds work this build has no workspace for; that is kept, and saved with the project.' : ''}`,
+        statusText: `Project opened — ${file.name}.${lostSurfaces(lost)}${unowned.length > 0 ? ' It also holds work this build has no workspace for; that is kept, and saved with the project.' : ''}`,
       })
       if (recovered) recovery.restored()
       else recovery.markSaved(capture())

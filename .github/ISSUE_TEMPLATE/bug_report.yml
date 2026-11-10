@@ -71,7 +71,7 @@ body:
     attributes:
       label: Files
       description: |
-        Format and size of the scan or CAD file (STL, PLY, OBJ, STEP; triangle count if known). If you can share it, drag it in here. A zipped file under 25 MB attaches directly. For anything larger, post a link. A saved project (`.scanruler`) brings us to exactly where you were.
+        Format and size of the scan or CAD file (STL, PLY, OBJ, STEP; triangle count if known). If you can share it, zip it and drag it in here: GitHub doesn't take STL, PLY, OBJ or STEP files as they are, but a zipped file under 25 MB attaches directly. For anything larger, post a link. A saved project (`.scanruler`) brings us to exactly where you were.
 
         Only share files you're allowed to share. If you can't, a small file that shows the same problem works just as well.
     validations:

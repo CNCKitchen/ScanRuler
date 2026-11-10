@@ -24,10 +24,21 @@ import type { FlatDimension } from '../flat/dimensions'
 import type { FlatDatum } from '../flat/datum'
 import type { PixelsPerMm } from '../flat/image'
 import type { Vec2 } from '../flat/types'
-import { validateProjectParts } from './validation'
+import { NEWER_PROJECT, validateProjectParts } from './validation'
 
 export const PROJECT_APP = 'ScanRuler'
-export const PROJECT_SCHEMA = 1
+/** The version a project is saved as. A build refuses a higher one, so it
+ *  goes up when a project starts to hold something an older build would
+ *  read wrongly without noticing: a field whose meaning changes, a new one
+ *  that changes what the rest means. A new element kind, way of making an
+ *  element or dimension type needs no raise: an older build refuses those
+ *  by name (validation.ts), and so still opens a project that does not use
+ *  them.
+ *
+ *  2 (after 0.10.2): the first builds to refuse names they do not know. Raised so
+ *  that 0.10.2 and older, which only read this number, turn away projects
+ *  from the constructions added since and do not open them half-built. */
+export const PROJECT_SCHEMA = 2
 export const PROJECT_EXTENSION = 'scanruler'
 
 /** Names the model files take inside the archive: a fixed stem, the original
@@ -309,7 +320,7 @@ export function validateManifest(raw: unknown): ProjectManifest {
   }
   if (!Number.isInteger(m.schemaVersion) || m.schemaVersion < 1) throw new Error('Unsupported project schema version.')
   if (m.schemaVersion > PROJECT_SCHEMA) {
-    throw new Error('This project was saved by a newer version of ScanRuler — please reload the app to open it.')
+    throw new Error(NEWER_PROJECT)
   }
   if (m.scan !== null && (typeof m.scan !== 'object' || typeof m.scan.fileName !== 'string')) {
     throw new Error('Malformed project: scan entry.')
@@ -338,4 +349,15 @@ export function fileSafe(name: string): string {
 
 export function extensionOf(name: string): string {
   return name.split('.').pop()?.toLowerCase() ?? ''
+}
+
+/** The member a file is saved under: `stem`, then the file's extension
+ *  where it has one a member name can carry — letters and digits after a
+ *  dot. A name without one (`photo`), or with one past that (`scan.st~`,
+ *  `bild.jpé`), keeps the stem alone: the file is read by its own name
+ *  (readAs), which still carries whatever it was. */
+export function memberName(stem: string, fileName: string): string {
+  const dot = fileName.lastIndexOf('.')
+  const ext = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+  return /^[a-z0-9]{1,16}$/.test(ext) ? `${stem}.${ext}` : stem
 }

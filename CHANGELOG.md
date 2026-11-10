@@ -5,6 +5,93 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.11.1 — 2026-11-09
+
+- **Mesh Tools' booleans, Hollow and Trim to scan work on scanruler.com
+  again** (2026-11-09, issues 123 and 126). Since the Content-Security-Policy
+  of 0.9.10, the hosted app refused them with "call to Function() blocked by
+  CSP": the mesh boolean they run on builds part of itself from strings,
+  and only the Reverse engineer's workers were allowed that. The mesh
+  worker is now too, in the hosted app and in the Docker image, and every
+  build is checked for a worker that needs it and is not allowed it.
+  Thanks to SphaeroX and jarmosaari for reporting it.
+- **A fit told what surface it is after opens again with the project**
+  (2026-11-09, issue 125). An element fitted with side, radius, axis or
+  within (element.fit) kept only its seeds, so on opening the project its
+  surface was grown from the seeds alone. A small bore beside a large curved
+  face was not found, and project.load answered "failed" for a project that
+  had opened. The guide is now part of the element and the project file,
+  moves and scales with the part, and every re-fit uses it again. And an
+  element whose surface is not found again no longer fails the open: its
+  saved fit stands, the status line names it, and project.load answers with
+  the session and a warning. Projects saved before keep opening as they did,
+  with no guide. Thanks to raxarot for the careful report.
+
+## 0.11.0 — 2026-11-09
+
+- **A 2D note stays where it was placed** (2026-11-09, pull request 70).
+  Once the Reverse engineer had loaded, a text note on the 2D sheet was
+  drawn 34 px right of and 17 px above the point clicked, and a long one
+  was cut short: the Reverse engineer's note pins shared the 2D note's
+  style. The pins now have their own. Thanks to Greg-J for finding it.
+- **A DXF with a line break in a name or note opens** (2026-11-09, issue
+  34). A note, element name or title holding a line break, as an agent or
+  a project can give one, was written into the DXF as it was, and CAD read
+  the rest of the file as nonsense. The break is now a space, as the sheet
+  and the SVG show it.
+- **STEP export of a torus alone, and a plain-ASCII STEP** (2026-11-09,
+  issue 34). Measured elements that were only tori were filed in the STEP
+  as curves rather than surfaces. And the file's product description held a
+  dash outside ASCII, which a strict reader can refuse; it is a plain
+  hyphen now.
+- **A project from a newer ScanRuler says so** (2026-11-09, issue 34).
+  Projects are saved in version 2 of the file format now, so 0.10.2 and
+  older turn them away with "saved by a newer version, please reload"
+  instead of opening them with the newest constructions failed and
+  everything built on them. From here on, a project holding an element
+  kind, a way of making an element or a dimension type the open build does
+  not know is turned away the same way, naming it, while a project that
+  uses none of them still opens. Projects saved before open as they did.
+- **The agent link says why it is still waiting** (2026-11-09, issue 100).
+  The chip said "listening" whatever held it up. When the browser takes
+  more than three seconds to let the page reach the agent's server, which
+  is most often its question whether the site may reach apps on this
+  computer, Settings → Agents and the chip's tip now say so and how to
+  allow it. When nothing answers on the port, they say so, with how to
+  start the connector and the `--serve` page for Safari. Thanks to Leafy1.
+- **scanruler-mcp fixes** (2026-11-09, issue 34, scanruler-mcp 0.6.3).
+  - The self-update ran npm from the system's temporary folder, where on a
+    computer shared with others someone could leave a scanruler-mcp that
+    would then run as you. It runs from a folder of its own in the
+    server's settings folder now.
+  - A second copy of the server, finding the port taken, waited for ever
+    for an answer from what held it. It gives up after five seconds and
+    says the port is taken, and only a scanruler-mcp turning it away
+    counts as a refusal.
+
+## 0.10.2 — 2026-11-09
+
+- **A project with an oddly named file opens again** (2026-11-09, pull
+  request 121). A scan, reference or image whose name had no extension, or
+  one with a character such as "é" in it, went into the project under a
+  name the project then refused: it saved, and would not open. Such a file
+  is now saved under a name that opens, and a save refuses rather than
+  write one that would not. Thanks to Jozkah.
+- **A damaged 2D sheet in a project is refused on open** (2026-11-09, pull
+  request 121). A project whose 2D sheet had a malformed alignment, mirror,
+  count or note was taken in and crashed when the sheet was drawn. It is
+  now refused, naming what is wrong. Thanks to Jozkah.
+- **Binary STL files that begin with "solid" open** (2026-11-09, pull
+  request 122). A binary STL whose exporter wrote "solid" at the start of
+  its header and left extra bytes at the end was taken for a text STL and
+  opened empty. Thanks to Jozkah.
+- **Tracking lines from a line's start, and from more points** (2026-11-09,
+  issue 107). A line drawn from one centre to where it stood level with it
+  and upright with another got only one dashed tracking line: the sketch
+  kept the last two points passed over, and passing a circle's quadrant on
+  the way pushed a wanted one out. It now keeps six, and the start of the
+  line in hand is always tracked. Thanks to SphaeroX.
+
 ## 0.10.1 — 2026-11-09
 
 - **Form tolerances read the narrowest zone** (2026-11-09, pull request
