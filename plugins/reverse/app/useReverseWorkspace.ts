@@ -1374,9 +1374,13 @@ export function useReverseWorkspace({
     }
     try {
       const { name, text } = await session.stepFile(ids)
-      saveFile(name, new Blob([text], { type: 'model/step' }))
-      useStore.getState().setStatus(`${ids.length} bod${ids.length === 1 ? 'y' : 'ies'} exported to ${name} as a STEP solid.`)
+      const path = await saveFile(name, new Blob([text], { type: 'model/step' }))
+      useStore.getState().setStatus(`${ids.length} bod${ids.length === 1 ? 'y' : 'ies'} exported to ${path ?? name} as a STEP solid.`)
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        useStore.getState().setStatus('STEP export cancelled. No file was written.')
+        return
+      }
       useStore.getState().setError(`STEP export failed: ${message(e)}`)
     }
   }
@@ -1400,7 +1404,7 @@ export function useReverseWorkspace({
         useStore.getState().setError('The bodies meshed to no triangle.')
         return
       }
-      saveFile(f.name, new Blob([f.bytes as BlobPart], { type: f.mimeType }))
+      const path = await saveFile(f.name, new Blob([f.bytes as BlobPart], { type: f.mimeType }))
       const lo = [Infinity, Infinity, Infinity]
       const hi = [-Infinity, -Infinity, -Infinity]
       for (const b of picked) {
@@ -1411,10 +1415,14 @@ export function useReverseWorkspace({
         }
       }
       const tiny = tinyPartNote(Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]), (mm) => fmtLen(mm, units, 4))
-      const said = `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} exported to ${f.name}, ${f.triangles.toLocaleString('en-US')} triangles (${res.label}).`
+      const said = `${picked.length} bod${picked.length === 1 ? 'y' : 'ies'} exported to ${path ?? f.name}, ${f.triangles.toLocaleString('en-US')} triangles (${res.label}).`
       if (tiny) useStore.getState().setError(`${said} ${tiny}`)
       else useStore.getState().setStatus(said)
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        useStore.getState().setStatus('Mesh export cancelled. No file was written.')
+        return
+      }
       useStore.getState().setError(`Mesh export failed: ${message(e)}`)
     }
   }

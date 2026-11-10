@@ -10,6 +10,7 @@ import type { ElementKind } from '../core/types'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
 import { useStore } from '../state/store'
+import { useTaskActivity } from '../state/taskActivity'
 import { creaseSetting } from '../core/geometry/crease'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
@@ -17,6 +18,7 @@ import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
 import { ProjectClient } from '../core/project/projectClient'
 import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
+import { chooseProjectSave, projectOutputDirectory, revisionBase, usesLocalOutput } from './projectRevisions'
 import { saveFile } from './exports'
 import {
   blankManifest,
@@ -87,13 +89,16 @@ export function useProject({
   runThickness: () => Promise<void>
 }) {
   const projectClient = useRef<ProjectClient | null>(null)
+  const openedProjectName = useRef<string | undefined>(undefined)
+  const previousProjectFileName = useRef<string | undefined>(undefined)
+  const saving = useRef(false)
   const client = () => (projectClient.current ??= new ProjectClient())
   const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
   const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true))
 
   /** The session as a project file, and the session marked saved — what
    *  Save Project downloads and project.save hands back. */
-  const packProject = () => imports.run(async (): Promise<PackedProject> => {
+  const packProject = (write?: (packed: { name: string; bytes: Uint8Array }) => Promise<string>) => imports.run(async (): Promise<PackedProject> => {
     const store = useStore.getState()
     if (!projectHasContent(sources.current)) return { error: 'There is nothing to save yet — no scan, image or work.' }
     store.setError(null)
@@ -103,14 +108,21 @@ export function useProject({
       const { manifest, members } = snapshot
       const bytes = await client().pack(manifest, members)
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
+      const packed = { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
+      const savedTo = write ? await write(packed) : null
       recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
-        statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
+        statusText: savedTo ? `Project saved: ${savedTo} — ${(bytes.byteLength / 1e6).toFixed(1)} MB.` : `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
       })
       return { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        const error = 'Save cancelled. No project revision was written.'
+        useStore.setState({ busy: false, statusText: error })
+        return { error }
+      }
       useStore.setState({ busy: false, statusText: '' })
       const error = `The project could not be saved — ${e instanceof Error ? e.message : String(e)}`
       store.setError(error)
@@ -118,9 +130,46 @@ export function useProject({
     }
   })
 
-  const saveProject = () => packProject().then((packed) => {
-    if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
-  })
+  const saveProject = async () => {
+    if (saving.current) return
+    if (!projectHasContent(sources.current)) {
+      useStore.getState().setError('There is nothing to save yet — no scan, image or work.')
+      return
+    }
+    saving.current = true
+    useTaskActivity.getState().setTask('project-save-dialog', { text: 'Choosing project save location...', percent: null })
+    try {
+      const browser = window as Window & { showDirectoryPicker?: unknown }
+      if (!usesLocalOutput() && typeof browser.showDirectoryPicker !== 'function') {
+        const packed = await packProject()
+        if ('bytes' in packed) {
+          await saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+        }
+        return
+      }
+      // The browser requires this folder permission from a button click,
+      // before asynchronous packing consumes the user activation.
+      const directory = await projectOutputDirectory()
+      const store = useStore.getState()
+      const name = `${projectStem(store.projectName, store.fileName, useFlat.getState().imageName)}.${PROJECT_EXTENSION}`
+      const target = await chooseProjectSave(directory, revisionBase(name, openedProjectName.current, previousProjectFileName.current), openedProjectName.current)
+      await packProject(async ({ bytes }) => {
+        await target.write(bytes)
+        openedProjectName.current = target.name
+        previousProjectFileName.current = name
+        return target.path
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        useStore.getState().setStatus('Save cancelled. No project revision was written.')
+      } else {
+        useStore.getState().setError(`The project could not be saved — ${error instanceof Error ? error.message : String(error)}`)
+      }
+    } finally {
+      saving.current = false
+      useTaskActivity.getState().setTask('project-save-dialog', null)
+    }
+  }
 
   /** Open a project in place of the session — after asking, when there is
    *  work to lose, unless the caller has settled that (`settled`). */
@@ -208,6 +257,9 @@ export function useProject({
       })
       if (recovered) recovery.restored()
       else recovery.markSaved(capture())
+      openedProjectName.current = file.name
+      const store = useStore.getState()
+      previousProjectFileName.current = `${projectStem(store.projectName, store.fileName, useFlat.getState().imageName)}.${PROJECT_EXTENSION}`
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       throw e
@@ -239,6 +291,8 @@ export function useProject({
     sceneRef.current?.frameAll()
     useStore.setState({ busy: false, statusText: 'New project.' })
     recovery.markSaved(capture())
+    openedProjectName.current = undefined
+    previousProjectFileName.current = undefined
   }, () => settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.'))
 
   return { saveProject, packProject, openProject, newProject, recovery }

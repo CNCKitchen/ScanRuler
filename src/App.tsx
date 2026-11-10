@@ -469,7 +469,7 @@ function Workbench() {
     useStore.getState().setStatus('2D measurement report copied to the clipboard.')
   }
 
-  const handleFlatExportCsv = () => saveBuilt(buildFlatCsvFile(usePrefs.getState().units))
+  const handleFlatExportCsv = () => runExport(async () => saveBuilt(buildFlatCsvFile(usePrefs.getState().units)))
 
   /** The sheet gathered for a drawing export — see core/flat/drawing. What
    *  is on the sheet is what is exported: the edges while they are shown,

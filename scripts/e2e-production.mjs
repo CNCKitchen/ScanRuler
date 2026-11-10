@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Public UI only: this must work against dist/, where /src imports do not exist.
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate'
-import { launchApp, check, fail, finish } from './e2e-lib.mjs'
+import { launchApp, captureProjectSaves, check, fail, finish } from './e2e-lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp()
+await captureProjectSaves(page)
 page.on('dialog', (dialog) => dialog.accept())
 const mesh = 'v 0 0 0\nv 10 0 0\nv 0 10 0\nf 1 2 3\n'
 const drop = async (contents, name) => page.evaluate((data, filename) => {
@@ -21,18 +22,13 @@ try {
   await page.waitForFunction(() => !document.querySelector('[data-test="save-project"]').disabled)
   check(true, 'built app imports a mesh through its bundled worker')
 
-  await page.evaluate(() => {
-    const createURL = URL.createObjectURL
-    URL.createObjectURL = (blob) => { window.savedProject = blob; return createURL(blob) }
-    HTMLAnchorElement.prototype.click = function () {}
-  })
   await page.click('[data-test="save-project"]')
   await page.waitForFunction(() => window.savedProject instanceof Blob)
   const bytes = await page.evaluate(async () => Array.from(new Uint8Array(await window.savedProject.arrayBuffer())))
   const archive = unzipSync(Uint8Array.from(bytes))
   const manifest = JSON.parse(strFromU8(archive['project.json']))
   check(manifest.scan.fileName === 'production.obj' && strFromU8(archive[manifest.scan.member]) === mesh,
-    'built project worker downloads an archive containing the original mesh')
+    'built project worker saves an archive containing the original mesh')
 
   await page.reload({ waitUntil: 'networkidle0' })
   await drop(bytes, 'roundtrip.scanruler')

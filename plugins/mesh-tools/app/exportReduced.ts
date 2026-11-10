@@ -7,7 +7,7 @@
 import { meshSceneOf } from '../viewer/meshScene'
 import type { RefObject } from 'react'
 import { buildMeshFile, type MeshFormat } from '../../../src/core/exportMesh'
-import { exportStem, saveBuilt, type BuiltFile } from '../../../src/app/exports'
+import { exportStem, runExport, saveBuilt, type BuiltFile } from '../../../src/app/exports'
 import { useStore } from '../../../src/state/store'
 import { useDeviation } from '../../../src/state/deviationStore'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
@@ -58,4 +58,4 @@ export function buildReducedMesh(scene: SceneManager | null, format: MeshFormat,
 
 /** Hand the reduced mesh over as an STL or a 3MF — see buildReducedMesh. */
 export const exportReducedMesh = (sceneRef: RefObject<SceneManager | null>, format: MeshFormat, units: DisplayUnits = 'mm') =>
-  saveBuilt(buildReducedMesh(sceneRef.current, format, units))
+  runExport(async () => saveBuilt(buildReducedMesh(sceneRef.current, format, units)))

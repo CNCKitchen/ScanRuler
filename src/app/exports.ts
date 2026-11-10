@@ -19,13 +19,22 @@ import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useSupportAsk } from '../state/supportAskStore'
 import { useTaskActivity } from '../state/taskActivity'
 import type { SceneManager } from '../viewer/SceneManager'
+import { saveLocalExport, usesLocalOutput } from './projectRevisions'
 
-/** Hand a built file to the browser. The link goes into the document for the
+let nextExportId = 0
+
+/** Save locally through native Save As, or hand a file to the browser.
+ *  The link goes into the document for the
  *  length of the click — WebKit ignores `download` on an anchor that was never
  *  in the page — and the object URL outlives it by long enough for the
  *  download to start, then goes. The support card is asked for after the
  *  click, so the file never waits on it. */
-export const saveFile = (name: string, blob: Blob) => {
+export const saveFile = async (name: string, blob: Blob): Promise<string | null> => {
+  if (usesLocalOutput()) {
+    const path = await saveLocalExport(name, blob)
+    useSupportAsk.getState().ask()
+    return path
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -36,6 +45,7 @@ export const saveFile = (name: string, blob: Blob) => {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
   useSupportAsk.getState().ask()
+  return null
 }
 
 /** The stem every export is built on: the project's name, else the scan's
@@ -51,15 +61,18 @@ export const exportStem = (fallback = 'scan'): string => {
 export async function runExport(job: () => Promise<void>): Promise<void> {
   const id = `export-${++nextExportId}`
   useTaskActivity.getState().setTask(id, { text: 'Preparing or saving export...', percent: null })
-  try { await job() }
-  catch (error) {
-    useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+  try {
+    await job()
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      useStore.getState().setStatus('Export cancelled. No file was written.')
+    } else {
+      useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+    }
   } finally {
     useTaskActivity.getState().setTask(id, null)
   }
 }
-
-let nextExportId = 0
 
 /** Every section with something measured on its sheet, the elements stood
  *  up in the part under the section's name — what the STEP export writes
@@ -108,10 +121,11 @@ export interface BuiltFile {
 export const textBytes = (text: string) => new TextEncoder().encode(text)
 
 /** Save a built file the way every export button does, and say so. */
-export const saveBuilt = (file: BuiltFile | null) => {
+export const saveBuilt = async (file: BuiltFile | null): Promise<void> => {
   if (!file) return
-  saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }))
-  useStore.getState().setStatus(file.status)
+  useStore.getState().setError(null)
+  const path = await saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }))
+  useStore.getState().setStatus(path ? `${file.status} Saved to ${path}.` : file.status)
 }
 
 /** The created elements as analytic STEP geometry — and with them, in a

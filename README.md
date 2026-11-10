@@ -140,7 +140,9 @@ stage it works like a small parametric CAD tool.
    **Copy summary** puts every result on the clipboard.
 4. Everything stays editable: the **✎** key on any row reopens it, and
    **Undo / Redo** (`Ctrl+Z`, `Ctrl+Shift+Z`) work across all workspaces.
-5. **Save** writes the whole session to one `.scanruler` project file.
+5. **Save** writes the whole session to a `.scanruler` project file. Chrome and
+   Edge can save numbered revisions in a chosen folder; browsers without folder
+   access keep the standard download flow.
 
 New here? An amber ring points to the control to press next and retires once
 you have used a workspace twice. You can switch it off under **⚙ Settings**.
@@ -159,6 +161,32 @@ files, projects and agent answers stay in millimetres.
 | **Scan** | STL or 3MF mesh; PLY or XYZ point cloud with normals, in the pose it is aligned to |
 | **2D sheet** | SVG and DXF at 1:1, CSV of elements and dimensions |
 | **Reports** | Plain text to the clipboard (*Copy summary*, *Copy report*) |
+
+In Chrome and Edge, the first project save asks for an output folder and later
+saves continue as numbered revisions there. Browsers without folder access keep
+the standard project download. Windows development builds can use the native
+Save As dialog when a local output folder is configured; exports then use a
+separate remembered folder. Set the initial local folder in the ignored
+`.scanruler-output.local` file, for example
+`{"directory":"C:\\Your\\Project\\Mods"}`. Elsewhere, exports keep the browser's
+normal download.
+
+Revision suggestions use at least three digits: `Part-001.scanruler`,
+`Part-010.scanruler`, `Part-100.scanruler`. Existing padded and unpadded
+filenames both count toward the next revision; nothing is renamed. Numbering
+continues past 999. Changing the suggested filename is allowed, and later
+saves continue its stem; changing the project title starts a new sequence.
+Save As cancellation writes nothing and does not mark the project saved.
+A failed write leaves changes unsaved and reports the error.
+
+The browser remembers its chosen folder in site storage; clearing site data
+removes it, and renewed permission may be needed after a reload. Uploaded files
+do not expose their source directory, so the first folder choice is explicit.
+Local Windows Save As remembers a selected folder only after a successful
+write. Export formats share their own remembered folder independently of project
+saves. Overwrites require native confirmation; cancellation never falls back
+to Downloads. Native output is limited to 512 MB per file and is provided only
+by the configured local development server, not a static production deployment.
 
 ## Good to know
 

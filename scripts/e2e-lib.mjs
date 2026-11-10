@@ -74,6 +74,49 @@ export async function finish(browser, consoleErrors) {
 
 // ---- browser and app --------------------------------------------------------
 
+/** Keep project-save checks out of native dialogs and the user's output folder. */
+export async function captureProjectSaves(page) {
+  const setup = () => {
+    const savedNames = new Set()
+    const capture = (name, blob) => { savedNames.add(name); window.savedProject = blob }
+    const file = (name) => ({
+      name,
+      async createWritable() {
+        let pending
+        return {
+          async write(blob) { pending = blob },
+          async close() { capture(name, pending) },
+          async abort() { pending = undefined },
+        }
+      },
+    })
+    window.showDirectoryPicker = async () => ({
+      name: 'Isolated test output',
+      async *keys() { yield* savedNames },
+      async getFileHandle(name) { return file(name) },
+    })
+    window.showSaveFilePicker = async ({ suggestedName }) => file(suggestedName)
+    const fetch = window.fetch
+    let selectedName
+    window.fetch = async (input, options) => {
+      const url = new URL(String(input), location.origin)
+      if (url.origin !== location.origin || url.pathname !== '/__scanruler/output') return fetch(input, options)
+      if (url.searchParams.has('choose')) {
+        selectedName = url.searchParams.get('choose')
+        return Response.json({ token: 'isolated-project-save', name: selectedName, directory: 'Isolated test output' })
+      }
+      if (url.searchParams.get('selection') === 'isolated-project-save') {
+        capture(selectedName, options.body)
+        return new Response(null, { status: 201 })
+      }
+      if (options?.method === 'POST') throw new Error('Unapproved test output write.')
+      return Response.json({ name: 'Isolated test output', names: [...savedNames] })
+    }
+  }
+  await page.evaluateOnNewDocument(setup)
+  await page.evaluate(setup)
+}
+
 /** Launch Chrome, open the app, and collect console/page errors as they come.
  *  `url` opens it at another address than APP_URL — with a fragment, say;
  *  `headless: false` opens a window on the screen (a real tab, which a
