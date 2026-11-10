@@ -62,7 +62,7 @@ describe('capabilities', () => {
     expect(refusesOnCloud('section', mesh)).toBeNull()
     expect(refusesOnCloud('section', null)).toBeNull()
     expect(refusesOnCloud('bounds', cloud)).toBeNull()
-    expect(CLOUD_REFUSAL).toBe('Needs a mesh — this scan is a point cloud.')
+    expect(CLOUD_REFUSAL).toBe('Needs a mesh — this scan is a point cloud. Mesh it first (in your scanner software, MeshLab or CloudCompare) and open the mesh.')
   })
 })
 

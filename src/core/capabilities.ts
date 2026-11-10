@@ -7,7 +7,7 @@ import type { MeshGraph } from './types'
 import type { WorkerRequest } from './workerProtocol'
 import { isCloud } from './geometry/cloud'
 
-export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud.'
+export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Mesh it first (in your scanner software, MeshLab or CloudCompare) and open the mesh.'
 
 /** Every request type, classified once (the `satisfies` makes a type missing
  *  here a compile error). `align` is one type with several variants — auto,
