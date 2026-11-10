@@ -44,6 +44,7 @@ import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap 
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
 import { computeThicknessParallel, helpersFor } from './thickness/parallel'
 import { sliceMesh } from './section/slice'
+import { sliceCloud } from './section/sliceCloud'
 import { shadowMesh } from './section/shadow'
 import { meshCentroid } from './geometry/centroid'
 import { trianglesWithin } from './geometry/region'
@@ -928,7 +929,8 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       fail(new Error(`No worker part for the plugin "${msg.plugin}".`))
       return
     }
-    if (graph && isCloud(graph) && !plugin.acceptsClouds) {
+    const takesCloud = typeof plugin.acceptsClouds === 'function' ? plugin.acceptsClouds(msg.op) : plugin.acceptsClouds === true
+    if (graph && isCloud(graph) && !takesCloud) {
       fail(new Error(CLOUD_REFUSAL))
       return
     }
@@ -975,9 +977,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     try {
       // The vertices here carry every alignment baked so far, so the cut
       // lands in the same frame the elements are measured in.
-      const cut = sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, {
-        minLength: msg.minLength,
-      })
+      // A cloud has no triangles to cut: the cut is read off its points.
+      const cut = isCloud(graph)
+        ? sliceCloud(graph.positions, graph.normals, graph.spacing ?? 0, msg.origin, msg.normal, { minLength: msg.minLength })
+        : sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, { minLength: msg.minLength })
       post(
         { type: 'section-ok', requestId: msg.requestId, points: cut.points, offsets: cut.offsets, normals: cut.normals },
         cut.normals ? [cut.points.buffer, cut.offsets.buffer, cut.normals.buffer] : [cut.points.buffer, cut.offsets.buffer],

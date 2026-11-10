@@ -135,8 +135,8 @@ describe('commands on a point cloud', () => {
     expect(refusedNames.sort()).toEqual(
       [
         'align.symmetry', 'deviation.export', 'deviation.hotspots', 'deviation.settings', 'deviation.volume',
-        'element.construct', 'scan.heightmap', 'scan.outline', 'scan.pattern', 'scan.qa',
-        'section.cut', 'section.get', 'thickness.measure',
+        'element.construct', 'scan.heightmap', 'scan.outline', 'scan.qa',
+        'thickness.measure',
       ].sort(),
     )
     // Those the mesh itself does not answer here, so there is nothing to compare: no state to clear, no browser.
@@ -158,7 +158,7 @@ describe('commands on a point cloud', () => {
     const client = headless.session.clientRef.current!
     const section = vi.spyOn(client, 'section')
     const before = undoLabels()
-    const e = await refused('section.cut', { across: 'XY' })
+    const e = await refused('section.cut', { across: 'XY', kind: 'shadow' })
     expect(e.message).toBe(CLOUD_REFUSAL)
     expect(section).not.toHaveBeenCalled()
     expect(undoLabels()).toEqual(before)

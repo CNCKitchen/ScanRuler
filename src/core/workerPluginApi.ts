@@ -41,10 +41,10 @@ export interface WorkerReply {
 export interface WorkerPlugin {
   /** The plugin's id, as its plugin.ts gives it. */
   id: string
-  /** The plugin handles a point cloud scan itself (one with no triangles).
-   *  Default false: the worker refuses its requests on a cloud before
-   *  `handle` is called. */
-  acceptsClouds?: boolean
+  /** The plugin handles a point cloud scan itself (one with no triangles):
+   *  all its ops, or those the function says yes to. Default false: the
+   *  worker refuses its requests on a cloud before `handle` is called. */
+  acceptsClouds?: boolean | ((op: string) => boolean)
   /** Answer a request. An answer that is a promise holds every other request
    *  back until it settles: nothing may run inside the wait that would
    *  change what it is working on. Throw to answer with an error. */

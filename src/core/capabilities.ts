@@ -7,7 +7,7 @@ import type { MeshGraph } from './types'
 import type { WorkerRequest } from './workerProtocol'
 import { isCloud } from './geometry/cloud'
 
-export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Mesh it first (in your scanner software, MeshLab or CloudCompare) and open the mesh.'
+export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Use Mesh this cloud (on the scan’s card, or mesh.mesh_cloud), or mesh it in your scanner software and open the mesh.'
 
 /** Every request type, classified once (the `satisfies` makes a type missing
  *  here a compile error). `align` is one type with several variants — auto,
@@ -16,13 +16,14 @@ export const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Mesh 
  *
  *  Audit of the scan's triangle data (`.indices`, `triangleCount`, face
  *  areas, `scanSurfaceOf`) reached from a worker op:
- *   - section, shadow: sliceMesh / shadowMesh
+ *   - shadow: shadowMesh
  *   - centroid: meshCentroid; symmetry: trianglesWithin / scanSurfaceOf
  *   - curvature: triangle areas
  *   - heights, scan-qa, scan-rim: solid index, rim loops
  *   - thickness: solid index; closed-shells (scan): closedVertices
  *   - deviate-reference, deviate-volume: scanSurfaceOf, WindingTree
- *  Taken on a cloud after all: segment and auto-align (each point weighs its
+ *  Taken on a cloud after all: section (sliceCloud reads the cut off the
+ *  points in a band about the plane), segment and auto-align (each point weighs its
  *  density-based patch, vertexAreas, in place of a third of each triangle),
  *  nearest (the spot is the nearest point, with no
  *  triangle) and plane-region (vertexAreas gives each point its density-based
@@ -48,7 +49,7 @@ export const OP_CAPS = {
   'deviate-volume': { needsTriangles: true },
   thickness: { needsTriangles: true },
   transform: { needsTriangles: false },
-  section: { needsTriangles: true },
+  section: { needsTriangles: false },
   shadow: { needsTriangles: true },
   centroid: { needsTriangles: true },
   symmetry: { needsTriangles: true },

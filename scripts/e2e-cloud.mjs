@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { canvasRect, check, click, fail, finish, launchApp, previewReady, shotPath, sleep } from './e2e-lib.mjs'
 
-const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Mesh it first (in your scanner software, MeshLab or CloudCompare) and open the mesh.'
+const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Use Mesh this cloud (on the scan’s card, or mesh.mesh_cloud), or mesh it in your scanner software and open the mesh.'
 
 function cloudPly() {
   const rows = []

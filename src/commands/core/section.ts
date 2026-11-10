@@ -40,7 +40,8 @@ function radialRefOf(across: RadialIn): SectionPlaneRef {
 
 const cut: Command<{ across: ElementRef | RadialIn; offset?: number; name?: string; kind?: 'cut' | 'shadow'; play?: number; tolerance?: number; smoothDeg?: number; extrude?: boolean }> = {
   name: 'cut',
-  scanOps: ['section', 'shadow'],
+  // A cut reads the scan's section — on a cloud too; a shadow needs triangles.
+  scanOps: (i) => (i.kind === 'shadow' ? ['shadow'] : ['section']),
   title: 'Cut a section',
   description:
     'Cut the scan with a plane and keep the cut as a section, put on the 2D sheet. across: an element with a direction (plane, cylinder, cone, line, circle) by id or name; "XY", "YZ" or "XZ" through the part’s centre; or { axis, angleDeg }, a plane through an axis turned angleDeg about it — a half section of a turned part. offset slides the plane along its normal, mm (a coordinate plane: the coordinate itself). kind "shadow" keeps the scan’s shadow instead: the whole part projected onto the plane, its outer boundary as loops read as lines and arcs (tolerance, play, smoothDeg), stood up as a block for export.step (extrude). Trap: a shadow takes no offset. Returns the section: its plane and chain count — a shadow also its loops, area and band. One undo step.',

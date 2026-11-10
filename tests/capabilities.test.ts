@@ -22,7 +22,6 @@ const NEEDS: Record<string, Req> = {
   'deviate-reference': { type: 'deviate-reference', transform: ID, facingDeg: null, spacing: 1 },
   'deviate-volume': { type: 'deviate-volume', transform: ID, tolerance: 0.1 },
   thickness: { type: 'thickness', method: 'ray', coneRays: 1, coneAngleDeg: 0, normalDeviationDeg: null, maxThickness: 50 },
-  section: { type: 'section', origin: [0, 0, 0], normal: [0, 0, 1], minLength: 0 },
   shadow: { type: 'shadow', frame, tolerance: 0.1, play: 0, smoothDeg: 0 },
   centroid: { type: 'centroid' },
   symmetry: { type: 'symmetry', seed: null },
@@ -58,11 +57,12 @@ describe('capabilities', () => {
     const c = planeCloud({ size: 3, step: 1 })
     const cloud = buildPointGraph({ kind: 'cloud', positions: c.positions, normals: c.normals })
     const mesh = buildMeshGraph({ kind: 'indexed', positions: Float32Array.from([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: Uint32Array.from([0, 1, 2]) })
-    expect(refusesOnCloud('section', cloud)).toBe(CLOUD_REFUSAL)
-    expect(refusesOnCloud('section', mesh)).toBeNull()
-    expect(refusesOnCloud('section', null)).toBeNull()
+    expect(refusesOnCloud('shadow', cloud)).toBe(CLOUD_REFUSAL)
+    expect(refusesOnCloud('shadow', mesh)).toBeNull()
+    expect(refusesOnCloud('shadow', null)).toBeNull()
+    expect(refusesOnCloud('section', cloud)).toBeNull()
     expect(refusesOnCloud('bounds', cloud)).toBeNull()
-    expect(CLOUD_REFUSAL).toBe('Needs a mesh — this scan is a point cloud. Mesh it first (in your scanner software, MeshLab or CloudCompare) and open the mesh.')
+    expect(CLOUD_REFUSAL).toBe('Needs a mesh — this scan is a point cloud. Use Mesh this cloud (on the scan’s card, or mesh.mesh_cloud), or mesh it in your scanner software and open the mesh.')
   })
 })
 
@@ -102,6 +102,7 @@ describe('worker gate', () => {
     expect(send({ type: 'bounds' }, 2).type).toBe('bounds-ok')
     expect(send({ type: 'nearest', vertex: 0 }, 4)).toMatchObject({ type: 'nearest-ok', result: { vertex: 0, triangle: null } })
     expect(send({ type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) }, 5).type).toBe('plane-region-ok')
+    expect(send({ type: 'section', origin: [0, 0, 0], normal: [1, 0, 0], minLength: 0 }, 6).type).toBe('section-ok')
     expect(send({ type: 'closed-shells', which: 'nominal' }, 3)).toMatchObject({ type: 'error', message: 'No model loaded.' })
   })
 
@@ -168,12 +169,12 @@ describe('plugin gate', () => {
     vi.resetModules()
     const handle = () => ({ result: 'ran' })
     vi.doMock('../src/core/workerPlugins', () => ({
-      workerPlugins: [{ id: 'plain', handle }, { id: 'cloudy', acceptsClouds: true, handle }],
+      workerPlugins: [{ id: 'plain', handle }, { id: 'cloudy', acceptsClouds: true, handle }, { id: 'some', acceptsClouds: (op: string) => op === 'x', handle }],
     }))
     await import('../src/core/meshWorker')
-    const ask = (plugin: string, id: number) => {
+    const ask = (plugin: string, id: number, op = 'x') => {
       replies.length = 0
-      scope.onmessage!({ data: { type: 'plugin', requestId: id, plugin, op: 'x', payload: null } })
+      scope.onmessage!({ data: { type: 'plugin', requestId: id, plugin, op, payload: null } })
       return replies.at(-1)
     }
     const load = (buffer: ArrayBuffer) => scope.onmessage!({ data: { type: 'load', requestId: 1, name: 'a.ply', buffer, crease: { mode: 'on', angleDeg: 30 } } })
@@ -192,5 +193,12 @@ describe('plugin gate', () => {
     const { ask, load } = await setup()
     load(cloudPly())
     expect(ask('cloudy', 2)).toMatchObject({ type: 'plugin-ok', result: 'ran' })
+  })
+
+  it('a plugin that accepts clouds for some ops runs those and is refused the rest', async () => {
+    const { ask, load } = await setup()
+    load(cloudPly())
+    expect(ask('some', 2, 'x')).toMatchObject({ type: 'plugin-ok', result: 'ran' })
+    expect(ask('some', 3, 'y')).toMatchObject({ type: 'error', message: CLOUD_REFUSAL })
   })
 })
