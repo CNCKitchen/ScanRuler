@@ -35,7 +35,7 @@ it('keeps independent activities until each completes', () => {
 it('shows exports while pending and clears activity after success, failure or cancellation', async () => {
   for (const error of [null, new Error('test export failure'), new DOMException('Cancelled', 'AbortError')]) {
     useStore.setState({ errorText: null, statusText: '' })
-    await runExport(async () => {
+    await runExport('Sample.step', async () => {
       expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'Preparing or saving export...', percent: null }])
       if (error) throw error
     })

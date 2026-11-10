@@ -7,13 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
-- **Save projects as numbered revisions**. Choose a project output folder once
-  in Chrome or Edge, then continue with `-001`, `-002` and later `.scanruler`
-  revisions. Existing unpadded filenames are recognized without renaming them.
-  The hosted app remembers separate project and export folders in supported
-  desktop browsers; choose or change either in Settings without a local server.
-  Exports use their own folder and add a suffix instead of overwriting.
-  Browsers without folder access keep normal downloads.
+- **Save where you are working**. Save and export buttons open Save As in
+  supported desktop Chrome and Edge, on the hosted website without a local
+  server. Navigate to another folder right in the dialog; the browser remembers
+  project and export locations independently. No fixed-folder Settings or
+  automatic revision numbering. Unsupported browsers keep normal downloads.
 - **Right-click menus on list rows** (2026-11-10, pull request 131). A
   right click on an element, dimension or tolerance row opens a menu with
   Edit, Hide or Show in viewport and Delete, and on a dimension or

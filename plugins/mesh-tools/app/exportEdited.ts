@@ -8,7 +8,7 @@
 import { buildMeshFile, type MeshFormat } from '../../../src/core/exportMesh'
 import { parsePLY } from '../../../src/core/parsers/ply'
 import { rigidApplyToPoints } from '../../../src/core/deviation/rigid'
-import { exportStem, runExport, saveBuilt, type BuiltFile } from '../../../src/app/exports'
+import { exportStem, meshCopyExportName, runExport, saveBuilt, type BuiltFile } from '../../../src/app/exports'
 import { useStore } from '../../../src/state/store'
 import { useDeviation } from '../../../src/state/deviationStore'
 import { editedCopy } from '../state/editedCopy'
@@ -32,7 +32,7 @@ export function buildEditedMesh(format: MeshFormat): BuiltFile | null {
   const stem = exportStem()
   const file = buildMeshFile(format, [{ name: `${stem} edited`, positions, indices: parsed.indices }], align?.transform ?? null, `ScanRuler edited mesh - ${stem}`)
   if (!file) throw new Error('the copy has no triangles.')
-  const name = `${stem}-edited${moved ? '-aligned' : ''}.${file.extension}`
+  const name = meshCopyExportName('edited', format)
   return {
     name,
     mimeType: file.mimeType,
@@ -42,17 +42,8 @@ export function buildEditedMesh(format: MeshFormat): BuiltFile | null {
 }
 
 /** Hand the edited copy over as an STL or a 3MF — see buildEditedMesh. */
-let exporting = false
-
-export const exportEditedMesh = (format: MeshFormat): Promise<void> => runExport(async () => {
-  if (exporting) return
-  exporting = true
-  try {
-    if (!editedCopy.current) throw new Error('There is no edited copy to export.')
-    const file = buildEditedMesh(format)
-    if (!file) throw new Error('There is no edited copy to export.')
-    await saveBuilt(file)
-  } finally {
-    exporting = false
-  }
+export const exportEditedMesh = (format: MeshFormat): Promise<void> => runExport(meshCopyExportName('edited', format), async (target) => {
+  const file = buildEditedMesh(format)
+  if (!file) throw new Error('There is no edited copy to export.')
+  await saveBuilt(file, target)
 })

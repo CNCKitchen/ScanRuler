@@ -162,43 +162,28 @@ files, projects and agent answers stay in millimetres.
 | **2D sheet** | SVG and DXF at 1:1, CSV of elements and dimensions |
 | **Reports** | Plain text to the clipboard (*Copy summary*, *Copy report*) |
 
-**The hosted website supports separate remembered project and export folders**
-in desktop Chrome and Edge with folder access. No local server, installation or
-local configuration file is required. In **Settings → Output folders**, choose
-or change **Project folder** and **Export folder** independently. Choosing a
-folder grants the website access to that folder; it does not write a file.
+**Save where you are working on the hosted website.** In supported desktop
+Chrome and Edge over HTTPS, **Save** and export buttons open the browser's Save As dialog.
+Choose the folder and filename there; navigate to another folder whenever you
+change work. The browser remembers project-save and export locations separately,
+and all export formats, including Reverse engineer and Mesh Tools, share the
+export location history. No fixed-folder Settings, installation, helper or local
+server is needed after this change is merged and deployed.
 
-The first Save or export can also ask for its folder if none is selected.
-If selecting or reauthorizing the project folder consumes the browser's user
-activation, Save explicitly asks you to click Save again before opening Save As.
-Subsequent project saves suggest the next numbered revision. Export buttons,
-including Reverse engineer and Mesh Tools, write to the separate export folder,
-adding `-2`, `-3`, etc. for existing names rather than replacing them.
-Browsers without folder access keep normal downloads; their destination is
-controlled by browser settings, not ScanRuler.
+The app suggests its normal filenames; this feature does not add automatic
+revision numbering or collision suffixes. The dialog handles existing-file
+overwrite confirmation. Save As opens before packing or generating the export,
+so cancelling does not start that expensive work. A cancelled or failed save
+does not mark changes saved. Permission and write errors are reported rather
+than silently switching to Downloads.
 
-Revision suggestions use at least three digits: `Part-001.scanruler`,
-`Part-010.scanruler`, `Part-100.scanruler`. Existing padded and unpadded
-filenames both count toward the next revision; nothing is renamed. Numbering
-continues past 999. Changing the suggested filename is allowed, and later
-saves continue its stem; changing the project title starts a new sequence.
-Save As cancellation writes nothing and does not mark the project saved.
-A failed write leaves changes unsaved and reports the error.
-
-The browser stores the two directory handles separately in site storage for
-this website/profile. Clearing site data removes them; browser permission may
-need renewal after a reload. A denied permission or cancelled folder selection
-is reported, with no silent download fallback. These choices do not control the
-Open dialog's starting folder. Uploaded files do not disclose their source
-directory, so the initial choices are explicit.
-
-Save As starts in the chosen project folder and permits explicit filename and
-destination changes. Standard browser file handles do not disclose their parent
-folder: choosing a different destination in Save As does **not** retarget future
-revision searches. To change the folder used for future saves, use Settings.
-Only the selected folder name, not an arbitrary full disk path, is available to
-the app. Saves/exports confirm successful writes only after the write closes;
-normal download fallbacks can confirm dispatch, not completion on disk.
+Location history belongs to the browser and this website/profile, not the
+project file. The browser can forget it, for example after clearing site data;
+the app cannot guarantee a permanent folder or read a full filesystem path.
+This does not change the Open dialog. In browsers without `showSaveFilePicker`,
+ordinary downloads remain available and their destination is controlled by the
+browser's download settings. Direct file saves report success after the write
+closes; download fallbacks confirm dispatch, not completion on disk.
 
 ## Good to know
 

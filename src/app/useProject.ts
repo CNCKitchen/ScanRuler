@@ -18,7 +18,7 @@ import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
 import { ProjectClient } from '../core/project/projectClient'
 import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
-import { chooseProjectSave, projectOutputDirectory, revisionBase, supportsOutputFolders } from './projectRevisions'
+import { chooseSaveTarget } from './saveTarget'
 import { saveFile } from './exports'
 import {
   blankManifest,
@@ -89,8 +89,6 @@ export function useProject({
   runThickness: () => Promise<void>
 }) {
   const projectClient = useRef<ProjectClient | null>(null)
-  const openedProjectName = useRef<string | undefined>(undefined)
-  const previousProjectFileName = useRef<string | undefined>(undefined)
   const saving = useRef(false)
   const client = () => (projectClient.current ??= new ProjectClient())
   const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
@@ -119,7 +117,7 @@ export function useProject({
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       if (e instanceof DOMException && e.name === 'AbortError') {
-        const error = 'Save cancelled. No project revision was written.'
+        const error = 'Save cancelled. No project was written.'
         useStore.setState({ busy: false, statusText: error })
         return { error }
       }
@@ -137,34 +135,17 @@ export function useProject({
       return
     }
     saving.current = true
+    useStore.getState().setError(null)
     useTaskActivity.getState().setTask('project-save-dialog', { text: 'Choosing project save location...', percent: null })
     try {
-      if (!supportsOutputFolders()) {
-        const packed = await packProject()
-        if ('bytes' in packed) {
-          await saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
-        }
-        return
-      }
-      // The browser requires this folder permission from a button click,
-      // before asynchronous packing consumes the user activation.
-      const directory = await projectOutputDirectory()
-      if (navigator.userActivation && !navigator.userActivation.isActive) {
-        useStore.getState().setStatus('Project folder ready. Click Save again to choose the revision filename.')
-        return
-      }
       const store = useStore.getState()
       const name = `${projectStem(store.projectName, store.fileName, useFlat.getState().imageName)}.${PROJECT_EXTENSION}`
-      const target = await chooseProjectSave(directory, revisionBase(name, openedProjectName.current, previousProjectFileName.current), openedProjectName.current)
-      await packProject(async ({ bytes }) => {
-        await target.write(bytes)
-        openedProjectName.current = target.name
-        previousProjectFileName.current = name
-        return target.path
-      })
+      const target = await chooseSaveTarget('project', name)
+      await packProject(async (packed) =>
+        await saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }), target) ?? '')
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        useStore.getState().setStatus('Save cancelled. No project revision was written.')
+        useStore.getState().setStatus('Save cancelled. No project was written.')
       } else {
         useStore.getState().setError(`The project could not be saved — ${error instanceof Error ? error.message : String(error)}`)
       }
@@ -260,9 +241,6 @@ export function useProject({
       })
       if (recovered) recovery.restored()
       else recovery.markSaved(capture())
-      openedProjectName.current = file.name
-      const store = useStore.getState()
-      previousProjectFileName.current = `${projectStem(store.projectName, store.fileName, useFlat.getState().imageName)}.${PROJECT_EXTENSION}`
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       throw e
@@ -294,8 +272,6 @@ export function useProject({
     sceneRef.current?.frameAll()
     useStore.setState({ busy: false, statusText: 'New project.' })
     recovery.markSaved(capture())
-    openedProjectName.current = undefined
-    previousProjectFileName.current = undefined
   }, () => settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.'))
 
   return { saveProject, packProject, openProject, newProject, recovery }

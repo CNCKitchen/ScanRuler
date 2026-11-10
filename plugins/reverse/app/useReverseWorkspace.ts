@@ -53,8 +53,8 @@ import type { SceneManager } from '../../../src/viewer/SceneManager'
 import type { SketchOverlayItem } from '../viewer/sketchOverlay'
 import type { VaryingEdgeEnds } from '../viewer/varyingEnds'
 import { sketchPalette } from '../viewer/sketchPalette'
-import { saveFile } from '../../../src/app/exports'
-import { exportOutputDirectory, supportsOutputFolders } from '../../../src/app/projectRevisions'
+import { exportExtension, exportStem, saveFile } from '../../../src/app/exports'
+import { chooseSaveTarget } from '../../../src/app/saveTarget'
 import type { MeshFormat } from '../../../src/core/exportMesh'
 import { meshResolution, tinyPartNote } from '../core/meshResolution'
 import { drivenBy } from '../core/parameters'
@@ -1374,9 +1374,9 @@ export function useReverseWorkspace({
       return
     }
     try {
-      if (supportsOutputFolders()) await exportOutputDirectory()
+      const target = await chooseSaveTarget('export', `${exportStem('model')}-body.step`)
       const { name, text } = await session.stepFile(ids)
-      const path = await saveFile(name, new Blob([text], { type: 'model/step' }))
+      const path = await saveFile(name, new Blob([text], { type: 'model/step' }), target)
       useStore.getState().setStatus(`${ids.length} bod${ids.length === 1 ? 'y' : 'ies'} exported to ${path ?? name} as a STEP solid.`)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -1400,14 +1400,14 @@ export function useReverseWorkspace({
     const res = meshResolution(useRePrefs.getState().meshResolution)
     const units = usePrefs.getState().units
     try {
-      if (supportsOutputFolders()) await exportOutputDirectory()
+      const target = await chooseSaveTarget('export', `${exportStem('model')}-body.${exportExtension(format)}`)
       useStore.getState().setStatus(`Meshing the bodies, ${res.label.toLowerCase()} — ${fmtLen(res.chord, units)} and ${Math.round(res.angleDeg * 10) / 10}° at most…`)
       const f = await session.meshFile(picked, res.chord, format, res.angleDeg)
       if (!f) {
         useStore.getState().setError('The bodies meshed to no triangle.')
         return
       }
-      const path = await saveFile(f.name, new Blob([f.bytes as BlobPart], { type: f.mimeType }))
+      const path = await saveFile(f.name, new Blob([f.bytes as BlobPart], { type: f.mimeType }), target)
       const lo = [Infinity, Infinity, Infinity]
       const hi = [-Infinity, -Infinity, -Infinity]
       for (const b of picked) {

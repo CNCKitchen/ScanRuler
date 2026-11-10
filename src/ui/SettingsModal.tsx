@@ -7,8 +7,7 @@
 // are not here: those change with the job in hand and live on the view bar,
 // in the corner of the stage.
 
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import { chooseOutputDirectory, savedOutputDirectory, supportsOutputFolders, type OutputKind } from '../app/projectRevisions'
+import { useState, useSyncExternalStore } from 'react'
 import { COLORMAPS, colormapById, cssRgb, legendGradient } from '../core/field/colormap'
 import { CREASE_ANGLE_DEG, CREASE_ANGLE_MAX, CREASE_ANGLE_MIN, CREASE_ANGLE_STEP, type CreaseMode } from '../core/geometry/crease'
 import { MESH_UNITS, type MeshUnits } from '../core/meshUnits'
@@ -85,62 +84,6 @@ function BetaWorkspaces() {
         </div>
       )}
     </>
-  )
-}
-
-function OutputFolders() {
-  const [names, setNames] = useState({ project: 'Not selected', export: 'Not selected' })
-  const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState('')
-  const supported = supportsOutputFolders()
-  useEffect(() => {
-    let active = true
-    if (supported) void Promise.all([savedOutputDirectory('project'), savedOutputDirectory('export')])
-      .then(([project, exports]) => {
-        if (active) setNames({ project: project?.name ?? 'Not selected', export: exports?.name ?? 'Not selected' })
-      })
-      .catch((error: unknown) => {
-        if (active) setNotice(`Could not read output folders: ${error instanceof Error ? error.message : String(error)}`)
-      })
-    return () => { active = false }
-  }, [supported])
-  const choose = async (kind: OutputKind) => {
-    setBusy(true)
-    setNotice('')
-    try {
-      const directory = await chooseOutputDirectory(kind)
-      setNames((previous) => ({ ...previous, [kind]: directory.name }))
-      setNotice(`${kind === 'project' ? 'Project' : 'Export'} folder selected. No files were written.`)
-    } catch (error) {
-      setNotice(error instanceof DOMException && error.name === 'AbortError'
-        ? 'Folder selection cancelled. The previous folder is unchanged.'
-        : `Could not select folder: ${error instanceof Error ? error.message : String(error)}`)
-    } finally { setBusy(false) }
-  }
-  return (
-    <section data-test="output-folders">
-      <h3>Output folders</h3>
-      {supported ? (
-        <>
-          <p className="dim">Projects and exports remember separate folders on this website in this browser.
-            Permission may need renewal. Clearing site data forgets these folders. No local server is required.</p>
-          {(['project', 'export'] as const).map((kind) => (
-            <div className="setting output-folder" key={kind}>
-              <span>{kind === 'project' ? 'Project folder' : 'Export folder'}</span>
-              <button type="button" disabled={busy} data-test={`choose-${kind}-folder`} onClick={() => { void choose(kind) }}>
-                Choose {kind} folder…
-              </button>
-              <small data-test={`${kind}-folder-name`}>{names[kind]}</small>
-            </div>
-          ))}
-          <p className="dim">Save As starts in the project folder. To change the folder used for future revision
-            searches, choose it here; the browser does not disclose the parent folder of a Save As selection.
-            Exports write directly to the export folder, adding a suffix instead of overwriting existing files.</p>
-        </>
-      ) : <p className="dim">This browser does not support output folder access. Saves and exports use normal
-        downloads; their destination is controlled by the browser. Use desktop Chrome or Edge for remembered folders.</p>}
-      {notice && <p role="status">{notice}</p>}
-    </section>
   )
 }
 
@@ -229,7 +172,6 @@ export function SettingsModal() {
           property of the part, and none of it is saved with a project.
         </p>
 
-        <OutputFolders />
         <h3>Units</h3>
         <div className="setting">
           <span id="units-label">Lengths in</span>

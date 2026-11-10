@@ -2986,10 +2986,6 @@ button.x:disabled {
   color: var(--dim);
 }
 
-.setting.output-folder > small {
-  overflow-wrap: anywhere;
-}
-
 /* The switch sits in a well like the dropdowns beside it, not on the stage. */
 .setting .keys {
   justify-self: start;

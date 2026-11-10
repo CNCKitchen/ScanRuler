@@ -56,28 +56,29 @@ node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
-node scripts/e2e-project-revisions.mjs # numbered Save As, approval/cancel/failure, reopen and download fallback
-node plugins/mesh-tools/scripts/e2e-output-folder.mjs # UI-only hosted folder selection, persistence, independent writes and download fallback
-node plugins/mesh-tools/scripts/e2e-export-formats.mjs # generated CAD/edited mesh exports use the independent export folder (dev server)
+node scripts/e2e-save-locations.mjs # production UI: independent Save As histories, folder changes, cancel/errors and downloads
+node plugins/mesh-tools/scripts/e2e-export-formats.mjs # generated CAD/edited mesh exports select files before building (dev server)
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
 
 The save/output checks use generated geometry, isolated profiles and intercepted
 save destinations, never the operator's configured folder or live session.
-The revisions script writes a non-private workflow screenshot to ignored
-`e2e-out/project-revision-save.png`. Core import/history/recovery/production
-checks use `captureProjectSaves` to exercise the save flow without real dialogs.
-Run `e2e-output-folder.mjs` against `npm run build` plus `npm run preview` with
-`APP_URL` targeting the preview server. It uses only public UI, real persisted
-OPFS directory handles returned by controlled browser-picker doubles, and
-generated geometry. The doubles assert user activation when opening a picker.
-It checks independent folders after reload, cancellation, denied permission,
-write completion/errors, collision names, and unsupported-browser downloads.
+Core import/history/recovery/production checks use `captureProjectSaves` to
+exercise the save flow without real dialogs. Run `e2e-save-locations.mjs`
+against `npm run build` plus `npm run preview` with `APP_URL` targeting the
+preview server. CI runs it against production too. It uses only public UI,
+generated geometry and OPFS files selected by controlled Save As doubles.
+The doubles assert user activation, separate stable project/export picker IDs,
+and no forced `startIn`. They simulate browser directory memory to check that
+the app does not override folder changes. Tests cover manual filenames,
+reload, cancellation, denied permission, write completion/errors, unsaved
+status and unsupported-browser downloads.
 It asserts no local-writer or source-module requests, so a development endpoint
-cannot mask missing hosted behavior. It writes `e2e-out/hosted-output-folders.png`.
-OPFS-backed test doubles do not certify every OS picker or browser permission UI;
-those still require manual browser checks.
+cannot mask missing hosted behavior. Picker doubles do not prove the browser's
+native directory-history or overwrite-confirmation implementation; those still
+require manual browser checks. No automatic revision tests belong to this
+location-only contribution.
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
 known before the app is started: the reference is a STEP cube and the scan is a

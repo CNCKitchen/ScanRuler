@@ -77,8 +77,7 @@ export async function finish(browser, consoleErrors) {
 /** Keep project-save checks out of native dialogs and the user's output folder. */
 export async function captureProjectSaves(page) {
   const setup = () => {
-    const savedNames = new Set()
-    const capture = (name, blob) => { savedNames.add(name); window.savedProject = blob }
+    const capture = (_name, blob) => { window.savedProject = blob }
     const file = (name) => ({
       name,
       async createWritable() {
@@ -89,11 +88,6 @@ export async function captureProjectSaves(page) {
           async abort() { pending = undefined },
         }
       },
-    })
-    window.showDirectoryPicker = async () => ({
-      name: 'Isolated test output',
-      async *keys() { yield* savedNames },
-      async getFileHandle(name) { return file(name) },
     })
     window.showSaveFilePicker = async ({ suggestedName }) => file(suggestedName)
   }
