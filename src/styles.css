@@ -785,6 +785,120 @@ select:disabled {
   color: var(--dim);
 }
 
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Every dropdown in the app — the panel's, the dialogs', the plugins' — is a
+   <select>, and the browser draws the list that opens from one in its own
+   chrome (system blue, system font). Where the browser lets the page style it
+   (`appearance: base-select`, Chromium), the closed face and the open list take
+   the picker's look (ui/RefPicker, .picklist/.pickoption above), so no dropdown
+   stands apart from the instrument. Elsewhere the native select stays as it
+   was. */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) {
+    appearance: base-select;
+  }
+
+  select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  select::picker-icon {
+    content: '▾';
+    color: var(--dim);
+    font-size: 11px;
+    transition: rotate 120ms ease;
+  }
+
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+
+  select:open {
+    border-color: var(--accent);
+  }
+
+  select:disabled {
+    cursor: default;
+  }
+
+  select::picker(select) {
+    font-family: var(--ui);
+    font-size: 12.5px;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    padding: 3px;
+    margin: 3px 0;
+    max-height: 260px;
+    min-width: anchor-size(width);
+    top: anchor(bottom);
+    position-try-fallbacks: flip-block;
+  }
+
+  select option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--ink);
+    background: none;
+  }
+
+  select option:hover,
+  select option:focus-visible,
+  select option:checked:focus-visible {
+    background: var(--accent);
+    color: #fff;
+    outline: none;
+  }
+
+  select option:checked {
+    font-weight: 600;
+  }
+
+  select option:disabled {
+    color: var(--dim);
+    cursor: default;
+  }
+
+  select option:disabled:hover {
+    background: none;
+    color: var(--dim);
+  }
+
+  select option::checkmark {
+    display: none;
+  }
+
+  select optgroup {
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 5px 7px 2px;
+  }
+
+  select optgroup option {
+    text-transform: none;
+    letter-spacing: 0;
+  }
+}
+
 /* ---------------- left panel ---------------- */
 
 .panel {
