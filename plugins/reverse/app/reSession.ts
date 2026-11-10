@@ -692,9 +692,12 @@ export function createReverseSession({
       return 'same'
     }
     scanSent = now
-    const fromWorker = scene ? null : await scanFromWorker()
-    const positions = scene ? scene.scanPositions() : (fromWorker?.positions ?? null)
-    const sending = client.setScan(positions ? positions.slice() : null, null, scene ? scene.scanIndices() : null, fromWorker?.normals ?? null)
+    // A cloud comes from the worker with its normals, even with a viewport:
+    // the kernel reads its points as a surface by them, and the scene keeps
+    // none it could hand over.
+    const fromWorker = scene && !s.scanIsCloud ? null : await scanFromWorker()
+    const positions = fromWorker ? fromWorker.positions : (scene?.scanPositions() ?? null)
+    const sending = client.setScan(positions ? positions.slice() : null, null, scene && !fromWorker ? scene.scanIndices() : null, fromWorker?.normals ?? null)
     scanSending = sending
     try {
       await sending

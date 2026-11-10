@@ -92,27 +92,8 @@ export function buildPointGraph(parsed: ParsedMesh, onProgress?: (text: string, 
   }
   const bboxDiag = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
 
-  // Spacing: median non-zero nearest-neighbour distance over (a deterministic
-  // sample of) the points, found on a grid sized for about a point a cell.
   onProgress?.('Measuring point spacing…')
-  const floor = bboxDiag > 0 ? 1e-6 * bboxDiag : 1e-9
-  let spacing = floor
-  if (n > 1 && bboxDiag > 0) {
-    const coarse = new PointGrid(positions, bboxDiag / Math.cbrt(n))
-    const step = Math.max(1, Math.floor(n / SPACING_SAMPLE))
-    const one = new Int32Array(1)
-    const dists: number[] = []
-    for (let i = 0; i < n; i += step) {
-      if (coarse.kNearest(i, 1, Infinity, one) === 0) continue
-      const j = one[0]
-      const d = Math.hypot(positions[3 * i] - positions[3 * j], positions[3 * i + 1] - positions[3 * j + 1], positions[3 * i + 2] - positions[3 * j + 2])
-      if (d > 0) dists.push(d)
-    }
-    if (dists.length > 0) {
-      dists.sort((a, b) => a - b)
-      spacing = Math.max(dists[dists.length >> 1], floor)
-    }
-  }
+  const spacing = spacingOf(positions, n, bboxDiag)
 
   // Neighbours: each point's nearest within 2.5 spacings, at most 12, then
   // the union of both directions so the graph is undirected.
@@ -162,4 +143,46 @@ export function buildPointGraph(parsed: ParsedMesh, onProgress?: (text: string, 
     spacing,
     vertexMap,
   }
+}
+
+/** A cloud's typical point spacing, mm: the median non-zero distance from a
+ *  point to its nearest neighbour, over a sample — what buildPointGraph
+ *  measures, for positions that come without their graph. */
+export function cloudSpacing(positions: Float32Array): number {
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
+  const n = Math.floor(positions.length / 3)
+  for (let i = 0; i < n; i++) {
+    const x = positions[3 * i], y = positions[3 * i + 1], z = positions[3 * i + 2]
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+    if (z < z0) z0 = z
+    if (z > z1) z1 = z
+  }
+  return spacingOf(positions, n, n > 0 ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0)
+}
+
+function spacingOf(positions: Float32Array, n: number, bboxDiag: number): number {
+  // Spacing: median non-zero nearest-neighbour distance over (a deterministic
+  // sample of) the points, found on a grid sized for about a point a cell.
+  const floor = bboxDiag > 0 ? 1e-6 * bboxDiag : 1e-9
+  let spacing = floor
+  if (n > 1 && bboxDiag > 0) {
+    const coarse = new PointGrid(positions, bboxDiag / Math.cbrt(n))
+    const step = Math.max(1, Math.floor(n / SPACING_SAMPLE))
+    const one = new Int32Array(1)
+    const dists: number[] = []
+    for (let i = 0; i < n; i += step) {
+      if (coarse.kNearest(i, 1, Infinity, one) === 0) continue
+      const j = one[0]
+      const d = Math.hypot(positions[3 * i] - positions[3 * j], positions[3 * i + 1] - positions[3 * j + 1], positions[3 * i + 2] - positions[3 * j + 2])
+      if (d > 0) dists.push(d)
+    }
+    if (dists.length > 0) {
+      dists.sort((a, b) => a - b)
+      spacing = Math.max(dists[dists.length >> 1], floor)
+    }
+  }
+  return spacing
 }
