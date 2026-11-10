@@ -276,3 +276,63 @@ export function applyRigidCloud(c: Cloud, r: Rigid): Cloud {
   rigidRotateVectors(r, normals)
   return { positions, normals }
 }
+
+/** A spur gear about z: `teeth` straight trapezoid teeth between rootRadius
+ *  and tipRadius, `width` thick (z -width/2…width/2), a bore through it.
+ *  Side walls face out of the material, the faces ±z, the bore the axis. */
+export function gearCloud(o: { teeth: number; tipRadius: number; rootRadius: number; width: number; boreRadius: number; step: number }): Cloud {
+  const { teeth, tipRadius: rt, rootRadius: rr, width, boreRadius, step } = o
+  // The outline's radius at angle a: per tooth period, root, flank up, tip,
+  // flank down, root.
+  const radiusAt = (a: number): number => {
+    const period = (2 * Math.PI) / teeth
+    const f = ((a % period) + period) % period / period
+    if (f < 0.1 || f >= 0.65) return rr
+    if (f < 0.25) return rr + ((f - 0.1) / 0.15) * (rt - rr)
+    if (f < 0.5) return rt
+    return rt - ((f - 0.5) / 0.15) * (rt - rr)
+  }
+  // The outline as a fine polygon, walked at about `step`.
+  const fine = Math.max(teeth * 40, Math.round((2 * Math.PI * rt) / (step / 4)))
+  const poly: [number, number][] = []
+  for (let i = 0; i < fine; i++) {
+    const a = (2 * Math.PI * i) / fine
+    const r = radiusAt(a)
+    poly.push([r * Math.cos(a), r * Math.sin(a)])
+  }
+  const outline: { x: number; y: number; nx: number; ny: number }[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const [ax, ay] = poly[i]
+    const [bx, by] = poly[(i + 1) % poly.length]
+    const len = Math.hypot(bx - ax, by - ay)
+    const n = Math.max(1, Math.round(len / step))
+    // Counter-clockwise outline: out is the edge direction turned clockwise.
+    const nx = (by - ay) / len
+    const ny = -(bx - ax) / len
+    for (let k = 0; k < n; k++) outline.push({ x: ax + ((bx - ax) * k) / n, y: ay + ((by - ay) * k) / n, nx, ny })
+  }
+  // Thin the outline back to about one point per step of arc.
+  const b = new Builder()
+  const kept: typeof outline = []
+  let lastX = Infinity, lastY = Infinity
+  for (const p of outline) {
+    if (Math.hypot(p.x - lastX, p.y - lastY) < step * 0.999) continue
+    kept.push(p)
+    lastX = p.x
+    lastY = p.y
+  }
+  for (const z of ticks(width, step)) for (const p of kept) b.add(p.x, p.y, z, p.nx, p.ny, 0)
+  for (const s of [-1, 1]) {
+    for (const x of ticks(2 * rt, step)) {
+      for (const y of ticks(2 * rt, step)) {
+        const r = Math.hypot(x, y)
+        if (r > boreRadius + step / 2 && r < radiusAt(Math.atan2(y, x)) - step / 2) b.add(x, y, (s * width) / 2, 0, 0, s)
+      }
+    }
+  }
+  const bore = ringsCloud(boreRadius, boreRadius, width, step, 0, 6)
+  for (let i = 0; i < bore.positions.length; i += 3) {
+    b.add(bore.positions[i], bore.positions[i + 1], bore.positions[i + 2], -bore.normals[i], -bore.normals[i + 1], -bore.normals[i + 2])
+  }
+  return b.done()
+}
