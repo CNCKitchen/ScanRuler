@@ -51,6 +51,13 @@ describe.skipIf(!R.exists)('the Revo gear, from its cloud and from Revo’s mesh
     expect(Math.abs(cloud.root - mesh.root)).toBeLessThan(MM)
     expect(Math.abs(cloud.bore - mesh.bore)).toBeLessThan(MM)
     expect(Math.abs(cloud.teethTop - cloud.bottom - (mesh.teethTop - mesh.bottom))).toBeLessThan(MM)
+    // What the cloud's model has beyond a plain gear, and how close it lies:
+    // the scan's own noise (σ 0.06–0.09 mm on its faces) caps the share
+    // within ±0.1 mm near 0.7.
+    expect(cloud.lugs).toBe(2)
+    expect(cloud.pocket?.count).toBe(8)
+    expect(cloud.compare.share).toBeGreaterThan(0.99)
+    expect(cloud.compare.withinShare).toBeGreaterThan(0.58)
     expect(cloud.hub).not.toBeNull()
     expect(Math.abs(cloud.hub - mesh.hub)).toBeLessThan(MM)
   })
