@@ -805,37 +805,68 @@ export class ReKernel {
     })
   }
 
-  /** The faces sewn into a shell, and the shell made a solid where it
-   *  closes; a shell (or a compound of shells) otherwise. Healed to the
-   *  tolerance when it came out a solid, and its faces on one surface made
-   *  one face: what cut them apart were the cells of the other tools, not
-   *  anything of the part's — a boss's wall kept as the two halves either
-   *  side of a plane that crossed it is not a cylinder going the whole way
-   *  round to a Hole or a Snap face. */
-  sewFaces(faces: readonly Shape[], tolerance: number): Shape {
+  /** The overlap of two coplanar faces, as faces rather than a solid. */
+  commonFaces(a: Shape, b: Shape): Shape[] {
+    return run('Clipping the faces', () => {
+      const common = this.occt.common(a, b) as Shape
+      try {
+        return this.occt.isNull(common) ? [] : this.occt.getSubShapes(common, 'face') as Shape[]
+      } finally {
+        this.release(common)
+      }
+    })
+  }
+
+  /** Combine overlapping pieces of one plane without duplicating their area. */
+  unionFaces(faces: readonly Shape[]): Shape[] {
+    return run('Combining the faces', () => {
+      const fused = this.occt.fuseAll([...faces]) as Shape
+      try {
+        return this.occt.getSubShapes(fused, 'face') as Shape[]
+      } finally {
+        this.release(fused)
+      }
+    })
+  }
+
+  /** Sew the trim faces into one manifold solid, if possible. Unify
+   *  faces cut from the same surface only if the result still closes. */
+  sewTrimSolid(faces: readonly Shape[], tolerance: number): Shape | null {
     return run('Sewing the faces', () => {
       if (faces.length === 0) throw new KernelError('no faces to sew.')
-      const sewn = this.occt.sewAndSolidify([...faces], tolerance) as Shape
-      if (this.occt.getShapeType(sewn) !== 'solid') return sewn
-      let solid = sewn
-      try {
-        const healed = this.occt.healSolid(sewn, tolerance) as Shape
-        this.occt.release(sewn)
-        solid = healed
-      } catch {
-        // The sewn solid as it is.
+      const o = this.occt
+      const closes = (shape: Shape) => {
+        if (o.isNull(shape) || o.getShapeType(shape) !== 'solid' || !this.isClosedSolid(shape)) return false
+        const { counts } = oddEdges(o, shape, { limit: 0 })
+        return counts.free === 0 && counts.nonManifold === 0
       }
-      try {
-        const unified = this.occt.unifySameDomain(solid) as Shape
-        if (!this.occt.isNull(unified) && this.occt.getShapeType(unified) === 'solid' && this.isClosedSolid(unified)) {
-          this.occt.release(solid)
-          return unified
+      let shape = o.sewAndSolidify([...faces], tolerance) as Shape
+      let keep = false
+      const tryShape = (make: (source: Shape) => number) => {
+        let candidate: Shape | undefined
+        try {
+          candidate = make(shape) as Shape
+          if (!closes(candidate)) return false
+          if (candidate !== shape) {
+            this.release(shape)
+            shape = candidate
+          }
+          return true
+        } catch {
+          return false
+        } finally {
+          if (candidate !== undefined && candidate !== shape) this.release(candidate)
         }
-        this.occt.release(unified)
-      } catch {
-        // Not unified: the faces stay as they were cut.
       }
-      return solid
+      try {
+        if (o.isNull(shape) || o.getShapeType(shape) !== 'solid') return null
+        if (!closes(shape) && !tryShape((source) => o.healSolid(source, tolerance))) return null
+        tryShape((source) => o.unifySameDomain(source))
+        keep = true
+        return shape
+      } finally {
+        if (!keep) this.release(shape)
+      }
     })
   }
 
@@ -1458,6 +1489,10 @@ export class ReKernel {
   /** The hashes of a shape's faces, in the kernel's order. */
   faceHashes(shape: Shape): number[] {
     return run('Listing the faces', () => this.occt.subShapeHashes(shape, 'face', HASH_BOUND))
+  }
+
+  edgeHashes(shape: Shape): number[] {
+    return run('Listing the edges', () => this.occt.subShapeHashes(shape, 'edge', HASH_BOUND))
   }
 
   /** Every face with the geometry a fingerprint is made of. */

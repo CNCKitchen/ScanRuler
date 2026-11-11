@@ -680,7 +680,7 @@ describe('the automatic trim', () => {
     for (let i = 0; i < indices.length; i++) indices[i] = i
     return { positions: soup, indices }
   }
-  const trim = (id: number, tools: TrimTool[], tolerance = 0.3): Feature => ({ id, kind: 'trim', name: `Trim ${id}`, tools, tolerance, overlap: 0.5, visible: true })
+  const trim = (id: number, tools: TrimTool[], tolerance = 0.3): Extract<Feature, { kind: 'trim' }> => ({ id, kind: 'trim', name: `Trim ${id}`, tools, tolerance, overlap: 0.5, visible: true })
 
   it('closes six measured planes into the box they were measured on, and five into a surface with open edges', async () => {
     const builder = new Builder(await kernelPromise)
@@ -716,6 +716,95 @@ describe('the automatic trim', () => {
     expect(none.results[0].status).toBe('failed')
     expect(none.results[0].message).toMatch(/lies on the scan/)
     builder.dispose()
+  })
+
+  it('keeps two scan-close caps as a surface and marks the joins they cannot share', async () => {
+    const builder = new Builder(await kernelPromise)
+    try {
+      const scan = boxScan()
+      builder.setScan(new NominalSurface(scan.positions, scan.indices), scan.positions)
+      const planes = [
+        plane(1, [10, 0, 0], [1, 0, 0]), plane(2, [-10, 0, 0], [-1, 0, 0]),
+        plane(3, [0, 10, 0], [0, 1, 0]), plane(4, [0, -10, 0], [0, -1, 0]),
+        plane(5, [0, 0, 10], [0, 0, 1]), plane(6, [0, 0, -10], [0, 0, -1]),
+        plane(7, [0, 0, 9.9], [0, 0, 1]),
+      ]
+      const result = await build(builder, [trim(8, planes.map(({ id }) => ({ kind: 'element', id })))], ctx(planes))
+      expect(result.results[0].status).toBe('ok')
+      expect(result.bodies[0]).toMatchObject({ surface: true, closed: false })
+      expect(builder.check(8, 0.01)?.solids).toBe(0)
+      const joins = result.results[0].trim?.nonManifoldEdges ?? []
+      expect(joins).toHaveLength(4)
+      for (const line of joins) {
+        expect(line.length).toBeGreaterThanOrEqual(6)
+        for (let i = 2; i < line.length; i += 3) expect(line[i]).toBeCloseTo(9.9, 4)
+      }
+    } finally {
+      builder.dispose()
+    }
+  })
+
+  it('does not keep a wall fragment below its bottom cutter using nearby floor triangles', async () => {
+    const kernel = await kernelPromise
+    const builder = new Builder(kernel)
+    try {
+      const scan = boxScan()
+      builder.setScan(new NominalSurface(scan.positions, scan.indices), scan.positions)
+      const planes = [
+        plane(1, [9.7, 0, 0], [1, 0, 0]), plane(2, [-10, 0, 0], [-1, 0, 0]),
+        plane(3, [0, 10, 0], [0, 1, 0]), plane(4, [0, -10, 0], [0, -1, 0]),
+        plane(5, [0, 0, 10], [0, 0, 1]), plane(6, [0, 0, -10], [0, 0, -1]),
+      ]
+      const feature = { ...trim(7, planes.map(({ id }) => ({ kind: 'element', id })), 1), overlap: 0.2 }
+      const result = await build(builder, [feature], ctx(planes))
+      expect(result.results[0].status).toBe('ok')
+      const shape = builder.body(7)!
+      const wall = kernel.faces(shape).filter((f) => f.kind === 'plane' && Math.abs(f.centroid[0] - 9.7) < 1e-5 && Math.abs(f.dir[0]) > 0.99)
+      expect(wall.length).toBeGreaterThan(0)
+      for (const { hash } of wall) {
+        const face = kernel.faceCopy(shape, hash)
+        try { expect(kernel.bounds(face).min[2]).toBeGreaterThanOrEqual(-10.001) } finally { kernel.release(face) }
+      }
+    } finally {
+      builder.dispose()
+    }
+  })
+
+  it('keeps the measured wall beyond an unsupported cut when a long fragment dilutes its coverage', async () => {
+    const kernel = await kernelPromise
+    const builder = new Builder(kernel)
+    try {
+      const scan = boxScan()
+      const positions = new Float32Array(scan.positions.length + 9)
+      positions.set(scan.positions)
+      positions.set([50, 65, 0, 50, 65, 1, 50, 64, 0], scan.positions.length)
+      const indices = Uint32Array.from({ length: positions.length / 3 }, (_, i) => i)
+      builder.setScan(new NominalSurface(positions, indices), positions)
+      const region = Uint32Array.from(Array.from(scan.indices).filter((i) => scan.positions[3 * i] === -10))
+      const wall: Feature = { id: 10, kind: 'surface', name: 'Left wall', shape: 'plane', region, fit: { net: null, degree: 3, smoothness: 0.01, expandPct: 0 }, visible: true }
+      const shortWall: Feature = { ...wall, id: 12, name: 'Left wall on the near side', region: region.filter((i) => positions[3 * i + 1] <= -5) }
+      const planes = [
+        plane(1, [0, -10, 0], [0, -1, 0]), plane(2, [0, 0, 0], [0, 1, 0]),
+        plane(3, [0, 0, -10], [0, 0, -1]), plane(4, [0, 0, 10], [0, 0, 1]),
+        plane(5, [0, 59, 0], [0, 1, 0]),
+      ]
+      for (const fitted of [[shortWall, wall], [wall, shortWall]]) {
+        const tools: TrimTool[] = [...fitted.map(({ id }) => ({ kind: 'body' as const, id })), ...planes.map(({ id }) => ({ kind: 'element' as const, id }))]
+        const result = await build(builder, [...fitted, { ...trim(11, tools, 0.25), overlap: 0.2 }], ctx(planes))
+        expect(result.results[2].trim?.closed).toBe(false)
+        const shape = builder.body(11)!
+        const faces = kernel.faces(shape).filter((f) => f.kind === 'plane' && Math.abs(f.dir[0]) > 0.99)
+        const wallBounds = faces.map(({ hash }) => {
+          const face = kernel.faceCopy(shape, hash)
+          try { return kernel.bounds(face) } finally { kernel.release(face) }
+        })
+        const original = kernel.bounds(builder.body(10)!)
+        expect(Math.max(...wallBounds.map((b) => b.max[1]))).toBeCloseTo(original.max[1], 4)
+        expect(Math.min(...wallBounds.map((b) => b.min[1]))).toBeCloseTo(-10, 3)
+      }
+    } finally {
+      builder.dispose()
+    }
   })
 
   it('closes a fitted surface with the planes round it, and a cylinder element between two planes', async () => {

@@ -247,13 +247,14 @@ export interface RoundTripFind {
 
 /** An automatic trim's reading of itself: how many faces the tools cut
  *  space into, how many lay on the scan and were kept, whether they closed
- *  into a solid, and the open edges where they did not — as polylines,
+ *  into a solid, and the free and non-manifold edges — as polylines,
  *  for drawing on the part. */
 export interface TrimReport {
   faces: number
   kept: number
   closed: boolean
   openEdges: Float32Array[]
+  nonManifoldEdges: Float32Array[]
 }
 
 /** A Fit Surface's reading of itself: the residuals along the normal and

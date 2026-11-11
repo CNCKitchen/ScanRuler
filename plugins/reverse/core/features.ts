@@ -1075,7 +1075,11 @@ export interface TrimFeature extends FeatureFlags {
 /** A measured element as a trim tool, resolved: a plane by its frame,
  *  the others as the primitives Extract makes, which the builder oversizes
  *  to reach past the part. */
-export type TrimPrimitive = { kind: 'plane'; origin: Vec3; normal: Vec3; basisU: Vec3; basisV: Vec3 } | Exclude<Primitive, { kind: 'slab' | 'prism' }>
+export type TrimPrimitive = {
+  kind: 'plane'; origin: Vec3; normal: Vec3; basisU: Vec3; basisV: Vec3
+  /** Convex outline of the marked region projected onto a fitted plane. */
+  footprint?: Vec3[]
+} | Exclude<Primitive, { kind: 'slab' | 'prism' }>
 
 export type BodyFeature = ShellFeature | FilletFeature | ChamferFeature | HoleFeature | ThreadFeature | CutPlaneFeature | MirrorFeature | BooleanFeature | SplitFeature | PatternFeature | DraftFeature | MoveFaceFeature | DeleteFaceFeature | OffsetBodyFeature
 export type Feature = SketchFeature | ExtrudeFeature | RevolveFeature | ExtractFeature | SheetFeature | LoftFeature | SweepFeature | ThickenFeature | SurfaceFeature | NetworkFeature | TrimFeature | ImportFeature | MoveBodyFeature | BodyFeature

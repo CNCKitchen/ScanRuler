@@ -23,7 +23,7 @@
 import { fitCylinderOnAxis, refineCylinderGeometric } from '../../../src/core/fit/cylinder'
 import { orthoBasis, symmetricEigen3 } from '../../../src/core/fit/linalg'
 import type { Cylinder, Vec3 } from '../../../src/core/types'
-import { cross, dot, len, normalize, scale, sub } from '../../../src/core/vec'
+import { addScaled, cross, dot, len, normalize, scale, sub } from '../../../src/core/vec'
 
 /** Within this of parallel or square, a fit is taken to be meant so. */
 export const TILT_TOLERANCE_DEG = 0.5
@@ -351,7 +351,9 @@ export function constrainCylinder(points: Float32Array, refs: readonly Constrain
  *  as they fall on the plane, its sides along the way the region runs, grown
  *  by `expandPct` of each extent — a surface is trimmed against its
  *  neighbours and has to reach them. */
-export function planePatch(points: Float32Array, plane: { origin: Vec3; normal: Vec3 }, expandPct: number): { corner: Vec3; u: Vec3; v: Vec3; width: number; height: number } {
+export function planePatch(points: Float32Array, plane: { origin: Vec3; normal: Vec3 }, expandPct: number): {
+  corner: Vec3; u: Vec3; v: Vec3; width: number; height: number; footprint: Vec3[]
+} {
   const [u0, v0] = orthoBasis(plane.normal)
   // The region's long way within the plane: the larger eigenvector of the
   // points' 2 × 2 scatter there.
@@ -373,9 +375,11 @@ export function planePatch(points: Float32Array, plane: { origin: Vec3; normal: 
   const turn = 0.5 * Math.atan2(2 * ab, aa - bb)
   const u: Vec3 = [u0[0] * Math.cos(turn) + v0[0] * Math.sin(turn), u0[1] * Math.cos(turn) + v0[1] * Math.sin(turn), u0[2] * Math.cos(turn) + v0[2] * Math.sin(turn)]
   const v = cross(plane.normal, u)
+  const projected: [number, number][] = []
   let uLo = Infinity, uHi = -Infinity, vLo = Infinity, vHi = -Infinity
   for (let i = 0; i < points.length; i += 3) {
     const a = at(i, u), b = at(i, v)
+    projected.push([a, b])
     if (a < uLo) uLo = a
     if (a > uHi) uHi = a
     if (b < vLo) vLo = b
@@ -383,12 +387,30 @@ export function planePatch(points: Float32Array, plane: { origin: Vec3; normal: 
   }
   const gu = Math.max((uHi - uLo) * (expandPct / 100), 1e-3)
   const gv = Math.max((vHi - vLo) * (expandPct / 100), 1e-3)
-  const corner: Vec3 = [
-    plane.origin[0] + (uLo - gu) * u[0] + (vLo - gv) * v[0],
-    plane.origin[1] + (uLo - gu) * u[1] + (vLo - gv) * v[1],
-    plane.origin[2] + (uLo - gu) * u[2] + (vLo - gv) * v[2],
-  ]
-  return { corner, u, v, width: uHi - uLo + 2 * gu, height: vHi - vLo + 2 * gv }
+  // Coverage on a fragment is measured over the marked points' envelope.
+  // The displayed rectangle's corners can be far outside an oblique region.
+  const footprint = planeHull(projected).map(([a, b]) => addScaled(addScaled(plane.origin, u, a), v, b))
+  const corner = addScaled(addScaled(plane.origin, u, uLo - gu), v, vLo - gv)
+  return { corner, u, v, width: uHi - uLo + 2 * gu, height: vHi - vLo + 2 * gv, footprint }
+}
+
+/** Convex hull of the marked region in the fitted plane. */
+function planeHull(points: [number, number][]): [number, number][] {
+  const side = (ordered: readonly [number, number][]) => {
+    const hull: [number, number][] = []
+    for (const p of ordered) {
+      while (hull.length >= 2) {
+        const [a, b] = [hull[hull.length - 2], hull[hull.length - 1]]
+        if ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) > 1e-9) break
+        hull.pop()
+      }
+      hull.push(p)
+    }
+    hull.pop()
+    return hull
+  }
+  points.sort(([ax, ay], [bx, by]) => ax - bx || ay - by)
+  return side(points).concat(side(points.reverse()))
 }
 
 /** The stretch of a fitted cylinder that is drawn: along the axis from

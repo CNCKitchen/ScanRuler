@@ -159,6 +159,7 @@ export class NominalSurface {
   private probe = new THREE.Vector3()
   private target = { point: new THREE.Vector3(), distance: 0, faceIndex: 0 }
   private scratch = new Float64Array(4)
+  private normalRay = new THREE.Ray()
   /** Closest point on the triangle currently under test by closestFacing. */
   private facingNear = new THREE.Vector3()
 
@@ -331,6 +332,24 @@ export class NominalSurface {
     if (!hit) return false
     this.fillHit(x, y, z, hit.faceIndex, out)
     return true
+  }
+
+  /** Scan support for an unoriented surface. If the nearest triangle faces
+   *  across the query normal, look along that normal for the actual wall.
+   *  Searching on the normal avoids borrowing support around its edge. */
+  hasAlignedSurface(x: number, y: number, z: number, nx: number, ny: number, nz: number, minDot: number, out: ClosestHit, tolerance: number): boolean {
+    if (!this.closest(x, y, z, out, tolerance)) return false
+    const faces = this.faceNormal
+    const aligned = (face: number) => {
+      const f = face * 3
+      return Math.abs(faces[f] * nx + faces[f + 1] * ny + faces[f + 2] * nz) >= minDot
+    }
+    // An interior closest point projects onto an actual triangle. A hit
+    // clamped to its rim may lie just beyond the extent of the scan.
+    if (this.scratch[3] === Feature.Face && aligned(out.faceIndex)) return true
+    this.normalRay.origin.set(x - nx * tolerance, y - ny * tolerance, z - nz * tolerance)
+    this.normalRay.direction.set(nx, ny, nz)
+    return this.bvh.raycast(this.normalRay, THREE.DoubleSide, 0, 2 * tolerance).some((hit) => hit.faceIndex != null && aligned(hit.faceIndex))
   }
 
   /** The signed reading off one triangle already known to be the nearest —

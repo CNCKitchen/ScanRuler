@@ -863,6 +863,9 @@ export function useReverseWorkspace({
       if (re.preview.status !== 'idle') re.setPreview({ status: 'idle' })
       return
     }
+    // Editing Trim rolls the build back to its cutting sheets. Wait for
+    // those bodies before drawing joins from the edited feature.
+    if (featureDraft?.kind === 'trim' && featureDraft.featureId !== undefined && re.building) return
     // A snapped face that goes into the history — the extrude's distance,
     // the sketch's line — has no one step to preview: the whole list
     // builds again. What is shown is where the face will lie. A move
@@ -1094,13 +1097,13 @@ export function useReverseWorkspace({
     // Runs on the listed dependencies only, not on everything it reads.
   }, [filletKey])
 
-  // The open edges of a trim that did not close, drawn on the part: the
+  // The failed joins of a trim that did not close, drawn on the part: the
   // preview's while a trim box is open, else those of every visible trim
   // body — where the next surface has to go. In the same red, where a
   // round, a chamfer or a shell fails: the edges or the face outlines the
   // kernel cannot do at the size asked — the preview's while its box is
   // open, else those of every built feature that failed so.
-  const previewOpen = useReverse((s) => (s.featureDraft?.kind === 'trim' && s.preview.status === 'ok' ? s.preview.trim?.openEdges : undefined))
+  const previewTrim = useReverse((s) => (s.featureDraft?.kind === 'trim' && s.preview.status === 'ok' ? s.preview.trim : undefined))
   const previewWhere = useReverse((s) => (s.featureDraft ? (s.preview.status === 'failed' ? s.preview.where : s.preview.status === 'ok' ? s.preview.failure?.where : undefined) : undefined))
   const results = useReverse((s) => s.results)
   useEffect(() => {
@@ -1111,7 +1114,7 @@ export function useReverseWorkspace({
       return
     }
     if (featureDraft?.kind === 'trim') {
-      reSceneOf(scene).setOpenEdges(previewOpen ?? [])
+      reSceneOf(scene).setOpenEdges(previewTrim ? [...previewTrim.openEdges, ...previewTrim.nonManifoldEdges] : [])
       return
     }
     if (previewWhere && previewWhere.length > 0) {
@@ -1121,12 +1124,12 @@ export function useReverseWorkspace({
     const open: Float32Array[] = []
     for (const b of bodies) {
       const r = results[b.id]
-      if (b.visible && r?.trim && !r.trim.closed) open.push(...r.trim.openEdges)
+      if (!bodiesHidden && b.visible && r?.trim && !r.trim.closed) open.push(...r.trim.openEdges, ...r.trim.nonManifoldEdges)
     }
     for (const r of Object.values(results)) if (r.status === 'failed' && r.where) open.push(...r.where)
     reSceneOf(scene).setOpenEdges(open)
     // Runs on the listed dependencies only, not on everything it reads.
-  }, [onReverse, featureDraft?.kind, previewOpen, previewWhere, results, bodies, sceneRef])
+  }, [onReverse, featureDraft?.kind, previewTrim, previewWhere, results, bodies, bodiesHidden, sceneRef])
 
   // A surface's region is shown on the scan as a marking while its box is
   // open — the same layer the tools paint into, so a flood and a brush
