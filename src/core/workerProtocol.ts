@@ -228,6 +228,26 @@ export type WorkerRequest =
       smoothing: number
       positions?: Float32Array
     }
+  /** The reference cut to a longest edge — how many triangles that makes,
+   *  exactly, for the count beside the density slider. The cut is kept here,
+   *  so the file that follows it is not cut twice (deviation/preDeform.ts). */
+  | { type: 'pre-deform-plan'; requestId: number; maxEdge: number }
+  /** The reference moved against the deformation the map shows, as a mesh
+   *  to be written out (deviation/preDeform.ts preDeform). `transform` takes
+   *  the scan into the reference's frame. `positions` as for 'deflection'. */
+  | {
+      type: 'pre-deform'
+      requestId: number
+      values: Float32Array
+      directions: Int8Array
+      limit: number
+      maxDistance: number
+      smoothing: number
+      transform: Rigid
+      scale: number
+      maxEdge: number
+      positions?: Float32Array
+    }
   /** The map against a fitted element — see deviation/elementField.ts
    *  computeElementDeviation — measured here, off the main thread, over the
    *  scan's vertices as held here: the render thread's own bit for bit, as
@@ -384,6 +404,17 @@ export type WorkerResponse =
   | { type: 'closed-shells-ok'; requestId: number; closed: Uint8Array }
   /** Three floats per scan vertex, the offset to draw it moved by. */
   | { type: 'deflection-ok'; requestId: number; vectors: Float32Array }
+  | { type: 'pre-deform-plan-ok'; requestId: number; triangles: number; capped: boolean; longest: number }
+  | {
+      type: 'pre-deform-ok'
+      requestId: number
+      positions: Float32Array
+      indices: Uint32Array
+      unmoved: number
+      maxMove: number
+      capped: boolean
+      longest: number
+    }
   /** The map against an element, the direction each reading was taken
    *  along, and the colour scale the tool would choose for it, in mm. */
   | { type: 'element-deviation-ok'; requestId: number; values: Float32Array; directions: Int8Array; suggestedRange: number }

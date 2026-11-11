@@ -33,6 +33,8 @@ export function CompareView({
   role,
   name,
   active,
+  flat = false,
+  captionAtTop = false,
 }: {
   /** The main viewport, whose camera this half follows — and which follows it
    *  back when the hand is on this side. */
@@ -43,8 +45,18 @@ export function CompareView({
   /** Whether the half is on the stage. False keeps it, and its context, alive
    *  but paused and out of the layout. */
   active: boolean
+  /** Drawn faceted, for a mesh that has no normals. */
+  flat?: boolean
+  /** The caption in the top corner, where the view bar does not reach: a long
+   *  one under it is read through it. */
+  captionAtTop?: boolean
 }) {
   const holder = useRef<HTMLDivElement>(null)
+  // What a half built now starts with; the effects below keep it current.
+  const geometryRef = useRef(geometry)
+  geometryRef.current = geometry
+  const flatRef = useRef(flat)
+  flatRef.current = flat
   const compareRef = useRef<CompareScene | null>(null)
   const navScheme = useStore((s) => s.navScheme)
   const viewTheme = useStore((s) => s.viewTheme)
@@ -55,9 +67,10 @@ export function CompareView({
   useEffect(() => {
     const compare = new CompareScene(
       holder.current!,
-      geometry,
+      geometryRef.current,
       sceneTheme(useStore.getState().viewTheme, usePrefs.getState().dark),
     )
+    if (flatRef.current) compare.setGeometry(geometryRef.current, true)
     compare.setNavScheme(schemeById(useStore.getState().navScheme))
     compare.setProjection(useStore.getState().projection)
     // Read from the store rather than from the prop, so a half opened with the
@@ -75,7 +88,13 @@ export function CompareView({
       compare.dispose()
       compareRef.current = null
     }
-  }, [geometry, scene])
+  }, [scene])
+
+  // Another mesh in the same half: swapped in place, so the context and the
+  // pose stay.
+  useEffect(() => {
+    compareRef.current?.setGeometry(geometry, flat)
+  }, [geometry, flat])
 
   // Shown again: the scan's camera has moved on while this half stood still, so
   // the link is made afresh, which puts this half in the scan's pose (see
@@ -118,7 +137,7 @@ export function CompareView({
   return (
     <div className="comparehalf" data-test="compare-half" hidden={!active}>
       <div className="compareview" ref={holder} />
-      <div className="splitcap">
+      <div className={captionAtTop ? 'splitcap top' : 'splitcap'}>
         <b>{role}</b>
         <span>{name}</span>
       </div>

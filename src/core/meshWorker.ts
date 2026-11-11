@@ -31,6 +31,7 @@ import {
 import type { Steps } from './deviation/steps'
 import { computeDeviation, defaultMaxDistance, suggestRange } from './deviation/deviation'
 import { deflectionVectors } from './deviation/deflection'
+import { preDeform, refineMesh, type RefinedMesh } from './deviation/preDeform'
 import { computeElementDeviation } from './deviation/elementField'
 import { GPU_MIN_VERTICES, gpuNearestFaces } from './deviation/gpuNearest'
 import { icpPoolFor } from './deviation/icpPool'
@@ -75,6 +76,10 @@ const PREPARE_SHARE = 0.3
  *  across requests so an alignment and the deviation map that follows it do
  *  not each pay for the tree. */
 let nominal: NominalSurface | null = null
+/** The reference cut to the last edge length asked for, for the pre-deformed
+ *  export (deviation/preDeform.ts); it goes when the reference does, since it
+ *  is keyed by it. */
+let refinedCache: { of: NominalSurface; edge: number; cut: RefinedMesh & { capped: boolean; longest: number } } | null = null
 /** A tree over the scan itself, for the wall thickness rays. Built on first
  *  use — most sessions never ask for it — and dropped whenever the scan's
  *  vertices change under it. */
@@ -627,6 +632,50 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       smoothing: msg.smoothing,
     })
     post({ type: 'deflection-ok', requestId: msg.requestId, vectors }, [vectors.buffer])
+    return
+  }
+
+  if (msg.type === 'pre-deform-plan' || msg.type === 'pre-deform') {
+    if (!nominal) {
+      post({ type: 'error', requestId: msg.requestId, message: 'Load a reference geometry first.' })
+      return
+    }
+    try {
+      // The reference cut once per edge length: the count beside the slider
+      // and the file written from it come of the same cut.
+      let cut = refinedCache && refinedCache.of === nominal && refinedCache.edge === msg.maxEdge ? refinedCache.cut : null
+      if (!cut) {
+        progress('Cutting the reference to the density asked for…')
+        cut = refineMesh(nominal.positions, nominal.index, msg.maxEdge)
+        refinedCache = { of: nominal, edge: msg.maxEdge, cut }
+      }
+      if (msg.type === 'pre-deform-plan') {
+        post({ type: 'pre-deform-plan-ok', requestId: msg.requestId, triangles: cut.indices.length / 3, capped: cut.capped, longest: cut.longest })
+        return
+      }
+      if (!graph) {
+        post({ type: 'error', requestId: msg.requestId, message: 'No scan loaded.' })
+        return
+      }
+      progress('Moving the reference against the scan’s deformation…')
+      const out = preDeform(msg.values, msg.directions, {
+        model: { positions: nominal.positions, indices: nominal.index },
+        refined: cut,
+        scanPositions: msg.positions ?? graph.positions,
+        transform: msg.transform,
+        scale: msg.scale,
+        maxEdge: msg.maxEdge,
+        limit: msg.limit,
+        maxDistance: msg.maxDistance,
+        smoothing: msg.smoothing,
+      })
+      // The cut stays here for the next ask, so what is sent is a copy of its
+      // triangles: transferred, the cached ones would be detached under it.
+      const indices = out.indices.slice()
+      post({ type: 'pre-deform-ok', requestId: msg.requestId, ...out, indices }, [out.positions.buffer, indices.buffer])
+    } catch (e) {
+      post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
+    }
     return
   }
 
