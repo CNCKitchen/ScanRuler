@@ -5,6 +5,13 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Trim surface selection** (2026-11-11). Select or deselect every tool
+  from the Trim panel, or click a sheet, body or measured surface in the
+  viewport to toggle it. Selected surfaces stay highlighted while Trim
+  is open.
+
 ## 0.11.2 — 2026-11-11
 
 - **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and

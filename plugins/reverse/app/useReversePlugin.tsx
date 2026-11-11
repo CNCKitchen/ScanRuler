@@ -11,6 +11,7 @@ import type { PluginHost, PluginRuntime } from '../../../src/plugins/api'
 import { useStore } from '../../../src/state/store'
 import { dimensionKind } from '../core/parameters'
 import { isDimension } from '../core/sketch'
+import { isTrimElement } from '../state/reDrafts'
 import { gripSlotPath } from '../state/reStore'
 import { useShell } from '../../../src/state/shellStore'
 import { useMark } from '../../../src/state/markStore'
@@ -228,6 +229,10 @@ export function useReversePlugin(host: PluginHost): PluginRuntime {
     const el = store.elements.find((e) => e.id === id)
     if (!el?.fit) return
     const re = useReverse.getState()
+    if (re.featureDraft?.kind === 'trim') {
+      if (isTrimElement(el.fit)) re.setTrimTools({ kind: 'element', id })
+      return
+    }
     // A hole takes an element with an axis; an extract takes one with a
     // volume.
     if (re.featureDraft?.kind === 'hole') {
@@ -313,7 +318,9 @@ export function useReversePlugin(host: PluginHost): PluginRuntime {
     reSceneOf(scene).onBodyFacePick = (hit, x, y, additive) => {
       const re = useReverse.getState()
       if (useNotes.getState().placing) pinNoteOnBody(scene, { type: 'face', ...hit }, x, y)
-      else if (re.featureDraft) {
+      else if (re.featureDraft?.kind === 'trim') {
+        if (hit.bodyId !== re.featureDraft.featureId) re.setTrimTools({ kind: 'body', id: hit.bodyId })
+      } else if (re.featureDraft) {
         // A Delete face takes the whole round, hole or boss clicked.
         const d = re.featureDraft
         re.toggleDraftFace(hit.bodyId, hit.face, d.kind === 'deleteFace' ? reverseSession()?.deleteFacesAt(hit.bodyId, hit.face.hash, d.tangent) : undefined)

@@ -44,6 +44,7 @@ import { usePrefs } from '../../../src/state/prefsStore'
 import { fmtLen, toDisplay, unitWord } from '../../../src/core/units'
 import { useRePrefs } from '../state/rePrefs'
 import { bodyColor, coordinatePlaneShown, featureOfDraft, gripFieldValue, historyEditOf, reEditorOpen, selectionItems, sketchesUsedBy, snapDraftOf, useReverse, type BodyPick } from '../state/reStore'
+import { isTrimElement } from '../state/reDrafts'
 import type { NetworkData } from '../state/reTypes'
 import { useShell } from '../../../src/state/shellStore'
 import { useStore } from '../../../src/state/store'
@@ -281,6 +282,9 @@ export function useReverseWorkspace({
   // The feature on a body being set up, read early: the bodies drawn on
   // the part stand in for one of them while it is edited (see below).
   const featureDraft = useReverse((s) => s.featureDraft)
+  const trimDraft = featureDraft?.kind === 'trim' ? featureDraft : null
+  const trimTools = trimDraft?.tools
+  const measured = useStore((s) => s.elements)
   const editingOnBody = featureDraft?.featureId !== undefined && 'body' in featureDraft && featureDraft.body !== null ? { step: featureDraft.featureId, body: featureDraft.body } : null
   // ---- a feature on a body, being set up -------------------------------------------
   // What it asks the viewport for: a shell its faces, a fillet its edges,
@@ -300,6 +304,8 @@ export function useReverseWorkspace({
       // moves the thread there.
       case 'thread':
         return { mode: 'faces', bodies: null }
+      case 'trim':
+        return { mode: 'faces', bodies: d.featureId === undefined ? null : useReverse.getState().bodies.filter((b) => b.id !== d.featureId).map((b) => b.id) }
       // Faces to move are clicked on their body — any body for the first;
       // snapping one onto the scan, the clicks are the scan's instead.
       case 'moveFace':
@@ -361,9 +367,11 @@ export function useReverseWorkspace({
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
-    const lit = new Set([...(listHover ?? []), ...bodiesOfPick(bodyFolders, listSelection)])
-    reSceneOf(scene).setLitBodies(onReverse ? [...lit].sort((a, b) => a - b) : [])
-  }, [listHover, listSelection, bodyFolders, onReverse, bodiesVersion, sceneRef])
+    const lit = trimTools
+      ? bodies.filter((b) => b.visible && !bodiesHidden && trimTools.some((t) => t.kind === 'body' && t.id === b.id)).map((b) => b.id)
+      : [...new Set([...(listHover ?? []), ...bodiesOfPick(bodyFolders, listSelection)])]
+    reSceneOf(scene).setLitBodies(onReverse ? lit.sort((a, b) => a - b) : [])
+  }, [listHover, listSelection, bodyFolders, onReverse, bodiesVersion, bodies, bodiesHidden, trimTools, sceneRef])
 
   // Two solid bodies shown that run into each other: what they share is
   // drawn red over them, where the faces they have in common would fight
@@ -562,6 +570,11 @@ export function useReverseWorkspace({
       scene.setHintedElements([])
       return clear
     }
+    if (trimTools) {
+      reSceneOf(scene).setPlaneHint(null, '#ffffff', '')
+      scene.setHintedElements(trimTools.filter((t) => t.kind === 'element').map((t) => t.id))
+      return clear
+    }
     if (!hint) {
       clear()
       return
@@ -580,7 +593,7 @@ export function useReverseWorkspace({
     scene.setHintedElements(hint.ref.kind === 'element' ? [hint.ref.id] : [])
     return clear
     // Runs on the listed dependencies only, not on everything it reads.
-  }, [hint, onReverse, sketchFrameKey, sketchName, sceneRef])
+  }, [hint, onReverse, sketchFrameKey, sketchName, trimTools, sceneRef])
 
   // ---- the sketches on the part ----------------------------------------------------------
   // Every visible committed sketch, stood up in its plane, with its closed
@@ -657,18 +670,26 @@ export function useReverseWorkspace({
     // A feature picks its profiles through the part; a click with no
     // editor open takes a region only where the scan does not hide it. A
     // hole or an extract takes an element too.
-    const wantsElement = (featureOpen && revolveDraft !== null) || (featureDraft?.kind === 'hole' || featureDraft?.kind === 'extract')
+    const wantsElement = (featureOpen && revolveDraft !== null) || featureDraft?.kind === 'hole' || featureDraft?.kind === 'extract'
     reSceneOf(scene).setSketchProfilePick(profileOpen || idle, picked, profileOpen)
     reSceneOf(scene).setSketchLinePick((featureOpen && revolveDraft !== null) || idle)
     reSceneOf(scene).setCoordinatePlanePick(idle, idle && selection?.kind === 'coordinatePlane' ? selection.axis : null)
     if (onReverse) {
-      scene.setElementPickEnabled(wantsElement || idle)
+      scene.setElementPickEnabled(wantsElement || idle || trimDraft !== null)
       scene.setElementHoverLights(wantsElement || idle)
     }
     return () => {
       if (onReverse) scene.setElementHoverLights(false)
     }
-  }, [featureOpen, draft, revolveDraft, featureDraft, onReverse, editorOpen, selection, sceneRef])
+  }, [featureOpen, draft, revolveDraft, featureDraft, onReverse, editorOpen, selection, trimDraft, sceneRef])
+
+  const trimOpen = onReverse && trimDraft !== null
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !trimOpen) return
+    scene.setElementPickOnly(new Set(measured.filter((e) => isTrimElement(e.fit)).map((e) => e.id)))
+    return () => scene.setElementPickOnly(null)
+  }, [trimOpen, measured, sceneRef])
 
   // The bodies' faces and edges as click targets: what an editor asks for
   // (a fillet its edges, a shell its faces, on the bodies it names), or,
@@ -1257,7 +1278,6 @@ export function useReverseWorkspace({
   }, [onReverse, kernelStatus, featureOpen, previewStatus, ghostTick, scanTick, liveMapOn, liveMapRange, colormap, bodyMap, visibleBodyIds, bodiesVersion, building, sceneRef])
 
   // Measure's elements, where the Reverse store can read them.
-  const measured = useStore((s) => s.elements)
   useEffect(() => {
     useReverse.getState().setElementRefs(measured.map((e) => ({ id: e.id, name: e.name, fit: e.fit })))
   }, [measured])

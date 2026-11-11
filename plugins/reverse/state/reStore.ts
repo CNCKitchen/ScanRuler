@@ -16,7 +16,7 @@ import type { EdgeInfo, FaceInfo, FeatureResult } from '../core/build'
 import type { TangentEdges } from '../core/edgeLines'
 import { type FitOptions } from '../core/fitOptions'
 import { type SnapContext } from '../core/snap'
-import { dependentsOf, movedList, stepFileKey, type AxisRef, type Feature, type ResolveContext, type PlaneRef, type StepFileRef } from '../core/features'
+import { dependentsOf, movedList, stepFileKey, type AxisRef, type Feature, type ResolveContext, type PlaneRef, type StepFileRef, type TrimTool } from '../core/features'
 import { moveInto, nextFolderId, nextFolderName, NO_PICK, withoutFolder, type BodyFolder, type FolderMove, type ListPick } from '../core/bodyFolders'
 import { itemKey, type PickedItem } from '../core/selectionInfo'
 import { type FeatureGripSide } from '../core/preview'
@@ -501,6 +501,8 @@ export interface ReState {
   startFeature: (kind: FeatureDraftKind, init?: Partial<FeatureDraft>) => void
   editFeature: (id: number) => void
   setFeatureDraft: (patch: Partial<FeatureDraft>) => void
+  /** Replace the Trim selection, or toggle one tool. */
+  setTrimTools: (selection: TrimTool[] | TrimTool) => void
   cancelFeature: () => void
   commitFeature: () => number | null
   /** A click on a body's face or edge while a feature is asking: picked or
