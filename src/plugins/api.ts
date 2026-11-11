@@ -218,6 +218,11 @@ export interface PluginRuntime {
   hideModelKeys?: boolean
   /** Always read. Whether the plugin holds work worth saving as a project. */
   canSave?: boolean
+  /** Always read, and drawn only while another workspace is the one on
+   *  screen: a note on the stage about something of the plugin's that bears
+   *  on what that workspace measures — work of its own that is not in use
+   *  there, say. It goes under the stage's hint chip, and takes clicks. */
+  elsewhere?: ReactNode
   /** Always read. A grip dragged in the viewport; true when it was one of
    *  the plugin's. */
   gripDrag?(side: GripSide, delta: number, phase: 'start' | 'move' | 'end'): boolean

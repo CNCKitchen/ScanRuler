@@ -5,8 +5,30 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.11.2 — 2026-11-11
 
+- **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and
+  is it an arc at all? A checkbox under the edges in 2D Measure, and under
+  the sections in 3D Measure, draws a curvature comb along every edge: a
+  section's cut, an image's detected edges, a shadow's outline, and every
+  arc, circle and spline fitted on the sheet — on the sheet, and standing
+  in each section's plane on the part, the area under the teeth filled
+  faintly. The teeth are sized to the edge's own rounds, not to the
+  section's length, with a slider to scale them. A true arc's teeth are all
+  one length; a blend that is no arc grows and shrinks them. Scanned edges are
+  read smoothed over a length you set (2 mm by default), with the arc's
+  shrinkage taken back so a round reads its true radius; fitted curves are
+  exact. On the sheet the radius under the cursor is read off, convex or
+  concave, and an agent reads the comb in numbers with `flat.curvature`.
+  Off by default. Thanks to shdwx-dev.
+- **The other workspaces say when Mesh Tools has an edited copy waiting**
+  (2026-11-10, issue 128). An edit in Mesh Tools works on a copy of the
+  scan, and the other workspaces go on measuring the scan as it was; only
+  Mesh Tools said so. Now 3D Measure, Deviation, Thickness and Reverse
+  engineer say it on their stage too, with the number of edits, Show to go
+  to the copy and Use for analysis to take it into use from there. The
+  note can be put away, and comes back after the next edit. Thanks to
+  ImagineerNL.
 - **Right-click menus on list rows** (2026-11-10, pull request 131). A
   right click on an element, dimension or tolerance row opens a menu with
   Edit, Hide or Show in viewport and Delete, and on a dimension or

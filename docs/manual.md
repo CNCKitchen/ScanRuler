@@ -50,6 +50,7 @@ workspaces have references of their own, in
   - [Edges, and the three ways to fit](#edges-and-the-three-ways-to-fit)
   - [Alignment, dimensions, and what leaves the tool](#alignment-dimensions-and-what-leaves-the-tool)
   - [Measuring a section](#measuring-a-section)
+  - [The curvature comb](#the-curvature-comb)
 
 ## Undo and redo
 
@@ -766,6 +767,10 @@ are on the sheet, and the section's row says how many elements it carries.
 section. That is the reverse-engineering hand-off: cut a section through a
 bore, fit its circle on the sheet, and CAD receives a circle in space, in
 the right plane, to sketch on.
+
+**Curvature comb**, under the sections in the panel, draws on every section
+how sharply its cut bends along it — where a fillet starts, and whether it
+is an arc. See [The curvature comb](#the-curvature-comb).
 
 ### The assumed dimension — what the feature was designed at
 
@@ -1863,3 +1868,51 @@ over finds it there; deleting a section there takes its sheet with it. And
 what is fitted on a section's sheet goes back the other way: it is drawn on
 the cut in the 3D view and exported with the section in the STEP file — see
 [Sections](#sections-cutting-the-scan-to-measure-the-cut).
+
+### The curvature comb
+
+Where does a fillet start, and is it an arc at all? **Curvature comb**, a
+checkbox under the sheet's edges (and in 3D Measure under the sections), draws
+how sharply every edge bends, along it: a tooth square to the edge every few
+screen pixels, as long as the edge is curved there, and a line through the
+tips, the area between filled faintly. A straight run has no teeth. A true arc has teeth all of one length, so
+the line through their tips runs parallel to the edge; a blend that is no arc
+— a curvature-continuous fillet, a cam, a spline — has teeth that grow and
+shrink. The teeth stand on the side away from the centre of the bend, so
+where they cross over to the other side the edge turns the other way. It is
+off when the app opens.
+
+It runs along every kind of edge on the sheet: a section's cut and an image's
+detected edges in pink (while they are shown), a shadow's outline, and every
+arc, circle and spline fitted there in that element's colour. In the 3D view
+each section wears the same comb, in the section's colour, standing in its
+plane — drawn through the part, so the teeth of a hollow, which point into the
+material, still show. With the cursor near an edge on the sheet, the reading
+there is pinned to it: **R 4.82 mm, convex** — a round; concave is a fillet's
+hollow (a section's cut knows which side its material is on; an image's edge
+does not), *straight* where the radius is past a metre.
+
+A scanned or detected edge scatters from point to point by more than it
+bends at that scale, so it is read **smoothed**: resampled evenly along its
+length, smoothed with a Gaussian over the **Smoothing** length (2 mm by
+default), and its curvature read off the smooth curve. Smoothing shrinks an
+arc a little, and that is taken back, so a round reads its own radius at any
+smoothing shorter than it. What smoothing does cost is sharpness along the
+edge: a flat running into a tangent arc, a sudden change, comes out as a ramp
+about the smoothing long, the tangent point at its middle. A ramp much longer
+than that is the blend itself. Wider smoothing is calmer on a rough scan;
+narrower follows smaller rounds — on a fine scan, 1 mm resolves a 2 mm round.
+The ends of an open edge are left out, one smoothing length each, where the
+reading would run off it. Fitted curves and a shadow's outline are exact and
+not smoothed: a spline's comb laid over the scan's comb shows whether the
+spline follows the part or adds a wiggle of its own.
+
+**Length** scales the teeth, from an eighth to eight times the length the
+comb picks by itself. That length comes from the edges' own rounds, not from
+how big the section is: the usual bend's tooth reaches a little over half its
+radius (never more than 5 % of the sheet across), so a 3 mm fillet wears the
+same comb on a long section as on a short one, and the comb stays about as
+thick as the part's walls. Teeth past two and a half times that — a sharp
+corner's spike, a thin wall's rounded end — are cut short and drawn fainter. An agent reads the same in
+numbers with `flat.curvature`: an edge told as straight runs, arcs with their
+radius and how near to one radius they hold, and the transitions between.

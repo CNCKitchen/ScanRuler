@@ -1929,6 +1929,60 @@ button.x:disabled {
   text-overflow: ellipsis;
 }
 
+/* A plugin's word from outside its own workspace (PluginRuntime.elsewhere):
+   under the hint chip, so the two never cover each other, and a card rather
+   than a chip, since it carries buttons. */
+.stagenotes {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(560px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+
+.stagenote {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: rgba(var(--glass), 0.96);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.stagenote .note-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.stagenote .note-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.stagenote button.x {
+  min-width: 26px;
+  min-height: 26px;
+  font-size: 16px;
+}
+
+@media (max-width: 700px) {
+  .stagenote {
+    flex-wrap: wrap;
+  }
+}
+
 /* The uncalibrated alarm on the 2D Measure stage. Deliberately louder than a
    hint chip: every number in that workspace rests on the scale, so an
    unverified scale is a fact about the measurements, not a tip. */

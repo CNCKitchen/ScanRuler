@@ -24,6 +24,7 @@ import {
   useFlat,
 } from '../state/flatStore'
 import { useStore } from '../state/store'
+import { CombControls } from './CombControls'
 import { CopyButton } from './CopyButton'
 import { ElementRow } from './ElementRow'
 import { ShowAllButton } from './ShowAllButton'
@@ -860,6 +861,7 @@ export function FlatPanel({
             />
             <span>Show section edges</span>
           </label>
+          <CombControls where="sheet" />
         </div>
       )}
 
@@ -908,6 +910,7 @@ export function FlatPanel({
             />
             <span>Show detected edges</span>
           </label>
+          <CombControls where="sheet" />
         </div>
       )}
     </aside>

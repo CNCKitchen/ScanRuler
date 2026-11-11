@@ -11,6 +11,7 @@ import { exportStem } from '../../app/exports'
 import { round4, roundTo } from '../../core/round'
 import { canCutAlong, isWorldAxis, tiltOf, worldPlaneName, type SectionRef } from '../../core/section/frame'
 import type { Vec3 } from '../../core/types'
+import { useComb } from '../../state/combStore'
 import { useDeviation } from '../../state/deviationStore'
 import { usePrefs } from '../../state/prefsStore'
 import { sectionViewFrames, useSectionView } from '../../state/sectionViewStore'
@@ -70,6 +71,8 @@ export function baseToggles(scene: SceneManager): ViewToggle[] {
     { key: 'sections', description: 'the sections cut through the scan', shown: () => scene.sectionsShown(), show: (on) => scene.setSectionsShown(on) },
     { key: 'elements', description: 'the measured elements and dimensions drawn on the part', shown: () => scene.elementsShown(), show: (on) => scene.setElementsShown(on) },
     { key: 'labels', description: 'the name tags and readouts over the part', shown: () => scene.labelsShown(), show: (on) => scene.setLabelsVisible(on) },
+    // One comb for both views, as its switch in either panel is.
+    { key: 'comb', description: 'the curvature comb along the sections and the 2D sheet’s edges and curves (flat.curvature reads it in numbers)', shown: () => useComb.getState().on, show: (on) => useComb.getState().setOn(on) },
     // The Deviation workspace's map, under the key Reverse engineer's map
     // has, so the one call reads in both (issue 42): its Map switch — off,
     // the bare surface, the map still measured.
@@ -77,12 +80,12 @@ export function baseToggles(scene: SceneManager): ViewToggle[] {
   ]
 }
 
-const BASE_KEYS = ['scan', 'reference', 'sections', 'elements', 'labels', 'map']
+const BASE_KEYS = ['scan', 'reference', 'sections', 'elements', 'labels', 'comb', 'map']
 
 const showSchema = (): JsonSchema => ({
   type: 'object',
   description:
-    'Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).',
+    'Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).',
   properties: Object.fromEntries(BASE_KEYS.map((k) => [k, bool()])),
 })
 

@@ -16,6 +16,10 @@ import type { FlatObject, FlatObjects } from '../../core/flat/objects'
 import type { ProfileAbout } from '../../core/flat/profile'
 import { flatRoleOf } from '../../core/flat/refs'
 import { simplifyRun } from '../../core/flat/simplify'
+import { chainCurvature, COMB_WINDOW_DEFAULT, COMB_WINDOW_MAX, COMB_WINDOW_MIN, curvatureScatter, curvatureStretches, fitCurvature, type CurvatureRun } from '../../core/flat/curvature'
+import { projectCutNormals } from '../../core/section/slice'
+import { useComb } from '../../state/combStore'
+import { useStore } from '../../state/store'
 import { thinEdgePoints, type EdgeIndex } from '../../core/flat/snap'
 import type { FlatElementKind, Vec2 } from '../../core/flat/types'
 import { buildFlatReport } from '../../core/flat/report'
@@ -688,6 +692,94 @@ const edges: Command<{ box?: Box; near?: Vec2; reach?: number; minLength?: numbe
   },
 }
 
+const sig = (v: number) => +v.toPrecision(5)
+const sigPt = (p: Vec2): Vec2 => [sig(p[0]), sig(p[1])]
+
+/** One run of a comb told as flat.curvature answers it. */
+function describeRun(run: CurvatureRun, minLength: number, straightBelow: number | undefined, tolerance: number | undefined, step: number | undefined) {
+  const n = run.kappa.length
+  const spacing = n > 1 ? (run.at[n - 1] - run.at[0]) / (n - 1) : 1
+  const stretches = curvatureStretches(run, {
+    minLength,
+    ...(straightBelow !== undefined ? { straightBelow } : {}),
+    ...(tolerance !== undefined ? { tolerance } : {}),
+  }).map((st) => ({
+    kind: st.kind,
+    from: sig(st.from),
+    to: sig(st.to),
+    start: sigPt(st.start),
+    end: sigPt(st.end),
+    ...(st.radius !== undefined ? { radius: sig(st.radius), radiusMin: sig(st.radiusMin!), radiusMax: sig(st.radiusMax!) } : {}),
+    ...(st.convex !== undefined ? { convex: st.convex } : {}),
+  }))
+  let samples: { at: number; spot: Vec2; curvature: number }[] | undefined
+  if (step !== undefined) {
+    samples = []
+    let next = run.at[0]
+    for (let i = 0; i < n && samples.length < 2000; i++) {
+      if (run.at[i] + 1e-9 < next) continue
+      next = run.at[i] + step
+      samples.push({ at: sig(run.at[i]), spot: sigPt([run.points[i * 2], run.points[i * 2 + 1]]), curvature: sig(run.kappa[i]) })
+    }
+  }
+  return {
+    closed: run.closed,
+    from: sig(run.at[0] ?? 0),
+    to: sig(run.at[n - 1] ?? 0),
+    ...(run.exact ? {} : { scatter: sig(curvatureScatter(run, minLength / Math.max(spacing, 1e-9))) }),
+    stretches,
+    ...(samples ? { samples } : {}),
+  }
+}
+
+const curvature: Command<{ chains?: number[]; element?: number | string; window?: number; straightBelow?: number; tolerance?: number; step?: number }> = {
+  name: 'curvature',
+  title: 'Read how an edge bends',
+  description:
+    'The curvature along detected edges (chains, by number as flat.edges lists them) or along a fitted arc, circle or spline (element) — what the curvature comb draws — told as stretches in order: straight, arc (with the radius its middle reading gives, and the least and most read — how near to one radius it holds; on a section, whether it is convex, a round, or concave, a fillet’s hollow) or the transition between. from and to are the arc length along the chain, in the sheet’s units. A chain is read smoothed over window (the comb’s Smoothing, 2 by default), which leaves one window off each end of an open chain and turns a sudden change into a ramp about a window long, the change in its middle — so a fillet’s tangent point is the middle of the transition before it; a transition much longer than the window is a blend that is no arc. A fitted curve is read exactly. straightBelow is the curvature (1/unit) under which an edge is straight — by default four times the chain’s own scatter; tolerance how far as a share an arc’s readings may stray from its middle one (0.1). step adds the readings every step along it (2000 at most), curvature signed: positive turning left as the chain runs. Changes nothing.',
+  input: obj({
+    chains: chainIdsSchema('Chains to read, by number.'),
+    element: flatRefSchema('An arc, circle or spline on the sheet to read instead.'),
+    window: num('The smoothing window for chains, in the sheet’s units.', { minimum: COMB_WINDOW_MIN, maximum: COMB_WINDOW_MAX }),
+    straightBelow: num('Curvature under this, 1/unit, is straight.', { exclusiveMinimum: 0 }),
+    tolerance: num('How far an arc’s readings may stray from its middle one, as a share — 0.1.', { exclusiveMinimum: 0, maximum: 1 }),
+    step: num('Add the readings this far apart.', { exclusiveMinimum: 0 }),
+  }),
+  readOnly: true,
+  run: async ({ chains: ids, element, window, straightBelow, tolerance, step }) => {
+    requireSheet()
+    if ((ids === undefined) === (element === undefined)) throw new CommandError('invalid_input', 'Name chains or an element — one of them.')
+    if (element !== undefined) {
+      const el = findFlatElement(element)
+      if (!el.fit) throw new CommandError('invalid_state', `${el.name} has no fit yet.`)
+      const [run] = fitCurvature([el.fit], 0.05)
+      if (!run) throw new CommandError('invalid_input', `${el.name} is a ${el.kind}: only an arc, a circle or a spline bends.`)
+      return { element: el.name, kind: el.kind, unit: unitNow(), ...describeRun(run, 0.5, straightBelow, tolerance, step) }
+    }
+    const { chains } = await settledEdges()
+    checkChains(chains, ids!)
+    const f = useFlat.getState()
+    const w = window ?? useComb.getState().window ?? COMB_WINDOW_DEFAULT
+    // A section's cut knows which side its material is on.
+    const subject = f.subject
+    const sec = subject.kind === 'section' ? useStore.getState().sections.find((x) => x.id === subject.id) : undefined
+    const normals = sec?.cut && !sec.cut.shadow ? projectCutNormals(sec.cut, sec.frame) : null
+    const scale = sheetScale(f)
+    return {
+      unit: unitNow(),
+      window: w,
+      items: ids!.map((id) => {
+        const a = chains.offsets[id]
+        const b = chains.offsets[id + 1]
+        const one = { points: chains.points.subarray(a * 2, b * 2), offsets: new Uint32Array([0, b - a]) }
+        const [run] = chainCurvature(one, { window: w, scale, normals: normals ? normals.subarray(a * 2, b * 2) : null })
+        if (!run) return { chain: id, tooShort: `Chain ${id} is too short to read: an open chain loses one window at each end.` }
+        return { chain: id, ...describeRun(run, w, straightBelow, tolerance, step) }
+      }),
+    }
+  },
+}
+
 /** The parts the last flat.objects found, kept for flat.profile to take an
  *  outline from — with the image they were found on (its grey levels, a
  *  buffer each image has its own) and the scale they were measured at, so
@@ -946,4 +1038,4 @@ const report: Command = {
   },
 }
 
-export const flatCommands = [openImage, calibrate, setAlignment, detectEdges, fit, dimensionAdd, noteAdd, edit, remove, render, edges, objects, profile, report]
+export const flatCommands = [openImage, calibrate, setAlignment, detectEdges, fit, dimensionAdd, noteAdd, edit, remove, render, edges, curvature, objects, profile, report]
