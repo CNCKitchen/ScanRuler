@@ -77,7 +77,10 @@ try {
   } finally { await dev.close() }
 
   const production = await preview({ root, preview: { host: '127.0.0.1', port: 5194, strictPort: false, open: false } })
-  try { await run('e2e-production', production.resolvedUrls.local[0]) }
+  try {
+    await run('e2e-production', production.resolvedUrls.local[0])
+    await run('e2e-save-locations', production.resolvedUrls.local[0])
+  }
   finally {
     await new Promise((resolve, reject) => {
       production.httpServer.close((error) => error ? reject(error) : resolve())

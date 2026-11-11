@@ -74,6 +74,65 @@ export async function finish(browser, consoleErrors) {
 
 // ---- browser and app --------------------------------------------------------
 
+/** Keep project-save checks out of native dialogs and the user's output folder. */
+export async function captureProjectSaves(page) {
+  const setup = () => {
+    const capture = (_name, blob) => { window.savedProject = blob }
+    const file = (name) => ({
+      name,
+      async createWritable() {
+        let pending
+        return {
+          async write(blob) { pending = blob },
+          async close() { capture(name, pending) },
+          async abort() { pending = undefined },
+        }
+      },
+    })
+    window.showSaveFilePicker = async ({ suggestedName }) => file(suggestedName)
+  }
+  await page.evaluateOnNewDocument(setup)
+  await page.evaluate(setup)
+}
+
+/** Capture files written through the Save As picker without opening a native
+ *  dialog or writing into the test runner's downloads folder. */
+export async function captureSaveFilePicker(page) {
+  const setup = () => {
+    window.savedFiles = []
+    window.showSaveFilePicker = async ({ suggestedName }) => ({
+      name: suggestedName,
+      async createWritable() {
+        let pending
+        return {
+          async write(blob) { pending = blob },
+          async close() {
+            window.savedFiles.push({
+              name: suggestedName,
+              bytes: Array.from(new Uint8Array(await pending.arrayBuffer())),
+            })
+          },
+          async abort() { pending = undefined },
+        }
+      },
+    })
+  }
+  await page.evaluateOnNewDocument(setup)
+  await page.evaluate(setup)
+}
+
+/** Return the captured file, or null when the picker was never written. */
+export async function awaitSavedFile(page, index = 0) {
+  try {
+    await page.waitForFunction((i) => window.savedFiles?.length > i, { timeout: 20_000 }, index)
+  } catch (error) {
+    if (error.name === 'TimeoutError') return null
+    throw error
+  }
+  const file = await page.evaluate((i) => window.savedFiles[i], index)
+  return { name: file.name, bytes: Buffer.from(file.bytes) }
+}
+
 /** Launch Chrome, open the app, and collect console/page errors as they come.
  *  `url` opens it at another address than APP_URL — with a fragment, say;
  *  `headless: false` opens a window on the screen (a real tab, which a

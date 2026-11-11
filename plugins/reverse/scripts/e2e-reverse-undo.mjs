@@ -8,9 +8,10 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node plugins/reverse/scripts/e2e-reverse-undo.mjs
 // Env: CHROME (chrome.exe path), APP_URL.
-import { launchApp, check, fail, finish } from '../../../scripts/e2e-lib.mjs'
+import { launchApp, captureProjectSaves, check, fail, finish } from '../../../scripts/e2e-lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp({ protocolTimeout: 180_000 })
+await captureProjectSaves(page)
 page.on('dialog', (dialog) => dialog.accept())
 try {
   const checks = await page.evaluate(async () => {
@@ -86,17 +87,13 @@ try {
 
     // Undo after saving rebuilds the CAD model, and redo back to the saved
     // state leaves the project clean.
-    let saved
-    const createURL = URL.createObjectURL, anchorClick = HTMLAnchorElement.prototype.click
-    URL.createObjectURL = (blob) => { saved = blob; return createURL(blob) }
-    HTMLAnchorElement.prototype.click = function () { if (!this.download) anchorClick.call(this) }
     const dirty = () => {
       const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event)
       return event.defaultPrevented
     }
-    try {
+    {
       click('save-project')
-      await wait(() => saved && !m().busy, 'project saved')
+      await wait(() => window.savedProject && !m().busy, 'project saved')
       record(!dirty(), 'saving marks the project with CAD features saved')
       await travel()
       record(dirty(), 'undo after saving marks the project dirty')
@@ -104,7 +101,7 @@ try {
       await travel(true)
       await wait(() => !r().building, 'saved CAD redo rebuilt')
       record(!dirty(), 'redo back to the saved document clears its dirty flag')
-    } finally { URL.createObjectURL = createURL; HTMLAnchorElement.prototype.click = anchorClick }
+    }
     return results
   })
   for (const { ok, name } of checks) check(ok, name)

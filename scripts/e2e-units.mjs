@@ -14,11 +14,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeBinarySTL } from 'meshstep'
 import {
-  awaitDownload,
+  awaitSavedFile,
   canvasRect,
+  captureSaveFilePicker,
   check,
   click,
-  downloadsTo,
   fail,
   finish,
   launchApp,
@@ -73,6 +73,7 @@ const STL = join(dir, 'cylinder.stl')
 writeFileSync(STL, Buffer.from(writeBinarySTL(cylinder())))
 
 const { browser, page, consoleErrors } = await launchApp()
+await captureSaveFilePicker(page)
 
 const text = (sel) => page.$eval(sel, (e) => e.textContent.replace(/\s+/g, ' ').trim()).catch(() => null)
 const texts = (sel) => page.$$eval(sel, (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()))
@@ -172,14 +173,12 @@ check(pins.length > 0 && pins.every(inInches), 'the pin on the part reads in inc
 await page.screenshot({ path: shotPath('e2e-units-inches.png') })
 
 // ---- the scan as an STL in inches ------------------------------------------------
-const downloads = mkdtempSync(join(tmpdir(), 'scanruler-units-stl-'))
-await downloadsTo(page, downloads)
 await click(page, '[data-test="export-mesh"]')
 await click(page, '[data-test="export-mesh-stl-in"]')
-const file = await awaitDownload(downloads, '.stl')
-if (!file) fail('the STL in inches did not download')
+const file = await awaitSavedFile(page)
+if (!file || !/\.stl$/i.test(file.name)) fail('the STL in inches was not saved')
 else {
-  const buf = readFileSync(join(downloads, file))
+  const buf = file.bytes
   const triangles = buf.readUInt32LE(80)
   let rMax = 0
   let zMax = -Infinity

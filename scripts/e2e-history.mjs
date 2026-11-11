@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Generated fixtures; real UI controls, geometry worker and effects.
-import { launchApp, check, fail, finish } from './e2e-lib.mjs'
+import { launchApp, captureProjectSaves, check, fail, finish } from './e2e-lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp({ protocolTimeout: 180_000 })
+await captureProjectSaves(page)
 page.on('dialog', (dialog) => dialog.accept())
 try {
   const checks = await page.evaluate(async () => {
@@ -158,30 +159,26 @@ try {
 
     // Saving leaves session history usable; dirty tracking follows the state
     // reached by undo/redo, and reopening the saved archive starts fresh.
-    let saved
-    const createURL = URL.createObjectURL, anchorClick = HTMLAnchorElement.prototype.click
-    URL.createObjectURL = (blob) => { saved = blob; return createURL(blob) }
-    HTMLAnchorElement.prototype.click = function () { if (!this.download) anchorClick.call(this) }
     const dirty = () => {
       const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event)
       return event.defaultPrevented
     }
-    try {
+    {
       const count = history.useHistory.getState().past.length
       click('save-project')
-      await wait(() => saved && !m().busy, 'project saved')
+      await wait(() => window.savedProject && !m().busy, 'project saved')
       record(!dirty() && history.useHistory.getState().past.length === count, 'saving keeps session undo history and marks the project saved')
       await travel()
       record(dirty(), 'undo after saving marks the project dirty')
       await travel(true)
       record(!dirty(), 'redo back to the saved document clears its dirty flag')
-    } finally { URL.createObjectURL = createURL; HTMLAnchorElement.prototype.click = anchorClick }
+    }
 
     const beforeFailedImport = history.useHistory.getState().past.length
     drop(new File(['not geometry'], 'broken.obj'))
     await wait(() => !m().busy && !!m().errorText, 'failed import finished')
     record(history.useHistory.getState().past.length === beforeFailedImport, 'failed imports preserve undo history')
-    drop(new File([saved], 'history.scanruler'))
+    drop(new File([window.savedProject], 'history.scanruler'))
     await wait(() => !m().busy && m().statusText.includes('Project opened'), 'saved project reopened')
     record(history.useHistory.getState().past.length === 0 && history.useHistory.getState().future.length === 0,
       'reopening a project starts fresh history')

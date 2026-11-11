@@ -15,11 +15,10 @@
 // Prereqs: dev server running (npm run dev), Chrome installed.
 //   node plugins/mesh-tools/scripts/e2e-mesh-trim.mjs
 // Env: CHROME (chrome.exe path), APP_URL, SHOT_DIR.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeBinarySTL } from 'meshstep'
-import { awaitDownload, check, click, downloadsTo, fieldSetter, finish, launchApp, loadScan, OUT_DIR, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
+import { awaitSavedFile, captureSaveFilePicker, check, click, fieldSetter, finish, launchApp, loadScan, OUT_DIR, shotPath, sleep } from '../../../scripts/e2e-lib.mjs'
 import { reverseHelpers } from '../../reverse/scripts/lib.mjs'
 
 const W = 30, H = 20
@@ -113,6 +112,7 @@ const footprint = (W + 2 * OVER) ** 2
 const kept = aboveFracture()
 
 const { browser, page, consoleErrors } = await launchApp({ width: 1600, height: 1000, protocolTimeout: 600_000 })
+await captureSaveFilePicker(page)
 const text = (sel) => page.$eval(sel, (el) => el.textContent.replace(/\s+/g, ' ').trim())
 const { re, clickAt } = reverseHelpers(page)
 const number = (s) => Number(String(s).replace(/[^\d.]/g, ''))
@@ -232,13 +232,10 @@ await sleep(200)
 check(!(await page.$('[data-test=trim-gap-legend]')), 'and Piece puts the legend away')
 
 // ---- exported as an STL, read back ------------------------------------------------------
-const dir = mkdtempSync(join(tmpdir(), 'scanruler-trim-'))
-const cdp = await downloadsTo(page, dir)
 await click(page, '[data-test=export-trimmed-mesh]')
 await click(page, '[data-test=export-trimmed-mesh-stl]')
-const stlFile = await awaitDownload(dir, '.stl')
-const stl = stlFile ? { name: stlFile, bytes: readFileSync(join(dir, stlFile)) } : null
-check(Boolean(stl) && /Solid-1-trimmed\.stl$/.test(stl.name), `the piece downloaded${stl ? ` as ${stl.name}` : ''}`)
+const stl = await awaitSavedFile(page)
+check(Boolean(stl) && /Solid-1-trimmed\.stl$/.test(stl.name), `the piece was saved${stl ? ` as ${stl.name}` : ''}`)
 if (stl) {
   const n = stl.bytes.readUInt32LE(80)
   const lo = [Infinity, Infinity, Infinity]

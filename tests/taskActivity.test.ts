@@ -34,13 +34,21 @@ it('keeps independent activities until each completes', () => {
 
 it('shows exports while pending and clears activity after success, failure or cancellation', async () => {
   for (const error of [null, new Error('test export failure'), new DOMException('Cancelled', 'AbortError')]) {
-    useStore.setState({ errorText: null })
-    await runExport(async () => {
+    useStore.setState({ errorText: null, statusText: '' })
+    await runExport('Sample.step', async () => {
       expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'Preparing or saving export...', percent: null }])
       if (error) throw error
     })
     expect(useTaskActivity.getState().tasks).toEqual({})
-    if (error) expect(useStore.getState().errorText).toContain(error.message)
-    else expect(useStore.getState().errorText).toBeNull()
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      expect(useStore.getState().errorText).toBeNull()
+      expect(useStore.getState().statusText).toBe('Export cancelled. No file was written.')
+    } else if (error) {
+      expect(useStore.getState().errorText).toContain(error.message)
+      expect(useStore.getState().statusText).toBe('')
+    } else {
+      expect(useStore.getState().errorText).toBeNull()
+      expect(useStore.getState().statusText).toBe('')
+    }
   }
 })

@@ -7,6 +7,11 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Save where you are working**. Save and export buttons open Save As in
+  supported desktop Chrome and Edge, on the hosted website without a local
+  server. Navigate to another folder right in the dialog; the browser remembers
+  project and export locations independently. No fixed-folder Settings or
+  automatic revision numbering. Unsupported browsers keep normal downloads.
 - **Right-click menus on list rows** (2026-11-10, pull request 131). A
   right click on an element, dimension or tolerance row opens a menu with
   Edit, Hide or Show in viewport and Delete, and on a dimension or

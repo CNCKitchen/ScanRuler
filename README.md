@@ -140,7 +140,9 @@ stage it works like a small parametric CAD tool.
    **Copy summary** puts every result on the clipboard.
 4. Everything stays editable: the **✎** key on any row reopens it, and
    **Undo / Redo** (`Ctrl+Z`, `Ctrl+Shift+Z`) work across all workspaces.
-5. **Save** writes the whole session to one `.scanruler` project file.
+5. **Save** writes the whole session to a `.scanruler` project file. Chrome and
+   Edge can save numbered revisions in a chosen folder; browsers without folder
+   access keep the standard download flow.
 
 New here? An amber ring points to the control to press next and retires once
 you have used a workspace twice. You can switch it off under **⚙ Settings**.
@@ -159,6 +161,29 @@ files, projects and agent answers stay in millimetres.
 | **Scan** | STL or 3MF mesh; PLY or XYZ point cloud with normals, in the pose it is aligned to |
 | **2D sheet** | SVG and DXF at 1:1, CSV of elements and dimensions |
 | **Reports** | Plain text to the clipboard (*Copy summary*, *Copy report*) |
+
+**Save where you are working on the hosted website.** In supported desktop
+Chrome and Edge over HTTPS, **Save** and export buttons open the browser's Save As dialog.
+Choose the folder and filename there; navigate to another folder whenever you
+change work. The browser remembers project-save and export locations separately,
+and all export formats, including Reverse engineer and Mesh Tools, share the
+export location history. No fixed-folder Settings, installation, helper or local
+server is needed after this change is merged and deployed.
+
+The app suggests its normal filenames; this feature does not add automatic
+revision numbering or collision suffixes. The dialog handles existing-file
+overwrite confirmation. Save As opens before packing or generating the export,
+so cancelling does not start that expensive work. A cancelled or failed save
+does not mark changes saved. Permission and write errors are reported rather
+than silently switching to Downloads.
+
+Location history belongs to the browser and this website/profile, not the
+project file. The browser can forget it, for example after clearing site data;
+the app cannot guarantee a permanent folder or read a full filesystem path.
+This does not change the Open dialog. In browsers without `showSaveFilePicker`,
+ordinary downloads remain available and their destination is controlled by the
+browser's download settings. Direct file saves report success after the write
+closes; download fallbacks confirm dispatch, not completion on disk.
 
 ## Good to know
 

@@ -6,12 +6,17 @@
 import { meshSceneOf } from '../viewer/meshScene'
 import type { RefObject } from 'react'
 import { buildMeshFile, type MeshFormat } from '../../../src/core/exportMesh'
-import { exportStem, saveBuilt, type BuiltFile } from '../../../src/app/exports'
+import { exportStem, meshCopyExportName, runExport, saveBuilt, type BuiltFile } from '../../../src/app/exports'
 import { useStore } from '../../../src/state/store'
 import { useDeviation } from '../../../src/state/deviationStore'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
 import { useMeshTools } from '../state/meshStore'
 import { fmtVol, type DisplayUnits } from '../../../src/core/units'
+
+const trimmedExportName = (format: MeshFormat) => {
+  const body = (useMeshTools.getState().trimMade?.name ?? '').replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'body'
+  return meshCopyExportName(`${body}-trimmed`, format)
+}
 
 /** The piece Trim to scan made as an STL or a 3MF — to print and glue
  *  in — in the
@@ -32,7 +37,6 @@ export function buildTrimmedMesh(scene: SceneManager | null, format: MeshFormat,
   const align = useDeviation.getState().align
   const moved = align !== null || store.appliedAlignment !== null
   const stem = exportStem()
-  const body = made.name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'body'
   const file = buildMeshFile(
     format,
     [{ name: `${made.name} trimmed`, positions, indices: index }],
@@ -41,7 +45,7 @@ export function buildTrimmedMesh(scene: SceneManager | null, format: MeshFormat,
     `ScanRuler trimmed piece - ${stem} - ${made.name} - ${made.report.offset} mm off the break`,
   )
   if (!file) return null
-  const name = `${stem}-${body}-trimmed${moved ? '-aligned' : ''}.${file.extension}`
+  const name = trimmedExportName(format)
   return {
     name,
     mimeType: file.mimeType,
@@ -54,4 +58,4 @@ export function buildTrimmedMesh(scene: SceneManager | null, format: MeshFormat,
 
 /** Hand the piece over as an STL or a 3MF — see buildTrimmedMesh. */
 export const exportTrimmedMesh = (sceneRef: RefObject<SceneManager | null>, format: MeshFormat, units: DisplayUnits = 'mm') =>
-  saveBuilt(buildTrimmedMesh(sceneRef.current, format, units))
+  runExport(trimmedExportName(format), async (target) => saveBuilt(buildTrimmedMesh(sceneRef.current, format, units), target))

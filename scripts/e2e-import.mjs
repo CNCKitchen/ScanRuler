@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // No external scan fixtures: exercises the real drop handler, workers, scene,
 // project reader and project writer with generated meshes and images.
-import { launchApp, check, fail, finish } from './e2e-lib.mjs'
+import { launchApp, captureProjectSaves, check, fail, finish } from './e2e-lib.mjs'
 
 const { browser, page, consoleErrors } = await launchApp()
+await captureProjectSaves(page)
 page.on('dialog', (dialog) => dialog.accept())
 try {
   const checks = await page.evaluate(async () => {
@@ -91,18 +92,13 @@ try {
     } finally { SceneManager.prototype.prepareMesh = prepareMesh }
 
     // Saving after the failed imports must still contain B's original bytes.
-    let saved = null
-    const createURL = URL.createObjectURL
-    const clickAnchor = HTMLAnchorElement.prototype.click
-    URL.createObjectURL = (blob) => { saved = blob; return createURL(blob) }
-    HTMLAnchorElement.prototype.click = function () { if (!this.download) clickAnchor.call(this) }
-    try {
+    {
       document.querySelector('[data-test="save-project"]').click()
-      await wait(() => saved !== null && !useStore.getState().busy)
-      const project = unpackProject(new Uint8Array(await saved.arrayBuffer()))
+      await wait(() => window.savedProject && !useStore.getState().busy)
+      const project = unpackProject(new Uint8Array(await window.savedProject.arrayBuffer()))
       record(project.manifest.scan.fileName === 'fast-B.obj' && new TextDecoder().decode(project.members.get(project.manifest.scan.member)) === bText,
         'saving after failure keeps the original bytes paired with their filename')
-    } finally { URL.createObjectURL = createURL; HTMLAnchorElement.prototype.click = clickAnchor }
+    }
 
     // A valid aligned project must still measure and render in the saved frame.
     candidate.manifest.flat.image = null

@@ -469,7 +469,7 @@ function Workbench() {
     useStore.getState().setStatus('2D measurement report copied to the clipboard.')
   }
 
-  const handleFlatExportCsv = () => saveBuilt(buildFlatCsvFile(usePrefs.getState().units))
+  const handleFlatExportCsv = () => runExport(`${flatExportStem()}-measurements.csv`, async (target) => saveBuilt(buildFlatCsvFile(usePrefs.getState().units), target))
 
   /** The sheet gathered for a drawing export — see core/flat/drawing. What
    *  is on the sheet is what is exported: the edges while they are shown,
@@ -527,7 +527,7 @@ function Workbench() {
     const { buildFlatSvg } = await import('./core/flat/svg')
     return { name, mimeType: 'image/svg+xml', bytes: textBytes(buildFlatSvg(input)), status: `Sheet exported to ${name} — ${summary}.` }
   }
-  const handleFlatExportSvg = () => runExport(async () => saveBuilt(await buildFlatSvgFile()))
+  const handleFlatExportSvg = () => runExport(`${flatExportStem()}-sheet.svg`, async (target) => saveBuilt(await buildFlatSvgFile(), target))
 
   /** The sheet as a DXF — for CAD: in `units` by declaration (the person's
    *  display units from the button, millimetres for the agent), y up, the
@@ -556,7 +556,7 @@ function Workbench() {
       status: `Drawing exported to ${name} — ${drawnSummary(input, input.edgePieces ? '' : `thinned to ${thinned}`, s.showEdges)}.`,
     }
   }
-  const handleFlatExportDxf = () => runExport(async () => saveBuilt(await buildFlatDxfFile(usePrefs.getState().units)))
+  const handleFlatExportDxf = () => runExport(`${flatExportStem()}-sheet.dxf`, async (target) => saveBuilt(await buildFlatDxfFile(usePrefs.getState().units), target))
 
 
   /** A marking gesture ended: re-fit on what is marked now, or fall back to an

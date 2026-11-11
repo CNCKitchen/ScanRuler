@@ -19,13 +19,22 @@ import { sectionElementsOf, useFlat } from '../state/flatStore'
 import { useSupportAsk } from '../state/supportAskStore'
 import { useTaskActivity } from '../state/taskActivity'
 import type { SceneManager } from '../viewer/SceneManager'
+import { chooseSaveTarget, type SaveTarget } from './saveTarget'
 
-/** Hand a built file to the browser. The link goes into the document for the
+let nextExportId = 0
+
+/** Write to a previously selected file, or hand a download to the browser.
+ *  The link goes into the document for the
  *  length of the click — WebKit ignores `download` on an anchor that was never
  *  in the page — and the object URL outlives it by long enough for the
  *  download to start, then goes. The support card is asked for after the
  *  click, so the file never waits on it. */
-export const saveFile = (name: string, blob: Blob) => {
+export const saveFile = async (name: string, blob: Blob, target: SaveTarget | null): Promise<string | null> => {
+  if (target) {
+    await target.write(blob)
+    useSupportAsk.getState().ask()
+    return target.name
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -36,6 +45,7 @@ export const saveFile = (name: string, blob: Blob) => {
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
   useSupportAsk.getState().ask()
+  return null
 }
 
 /** The stem every export is built on: the project's name, else the scan's
@@ -48,18 +58,23 @@ export const exportStem = (fallback = 'scan'): string => {
 
 /** Lazy export modules can fail to load (for example after a deployment).
  *  Keep the session usable and report the failure through the normal UI. */
-export async function runExport(job: () => Promise<void>): Promise<void> {
+export async function runExport(name: string, job: (target: SaveTarget | null) => Promise<void>): Promise<void> {
   const id = `export-${++nextExportId}`
+  useStore.getState().setError(null)
   useTaskActivity.getState().setTask(id, { text: 'Preparing or saving export...', percent: null })
-  try { await job() }
-  catch (error) {
-    useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+  try {
+    const target = await chooseSaveTarget('export', name)
+    await job(target)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      useStore.getState().setStatus('Export cancelled. No file was written.')
+    } else {
+      useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
+    }
   } finally {
     useTaskActivity.getState().setTask(id, null)
   }
 }
-
-let nextExportId = 0
 
 /** Every section with something measured on its sheet, the elements stood
  *  up in the part under the section's name — what the STEP export writes
@@ -108,10 +123,12 @@ export interface BuiltFile {
 export const textBytes = (text: string) => new TextEncoder().encode(text)
 
 /** Save a built file the way every export button does, and say so. */
-export const saveBuilt = (file: BuiltFile | null) => {
-  if (!file) return
-  saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }))
-  useStore.getState().setStatus(file.status)
+export const saveBuilt = async (file: BuiltFile | null, target: SaveTarget | null): Promise<void> => {
+  if (!file) throw new Error('There is nothing to export.')
+  useStore.getState().setError(null)
+  const savedName = await saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }), target)
+  const status = savedName ? file.status.replaceAll(file.name, () => savedName) : file.status
+  useStore.getState().setStatus(savedName ? `${status} Saved as ${savedName}.` : status)
 }
 
 /** The created elements as analytic STEP geometry — and with them, in a
@@ -158,7 +175,19 @@ export async function buildElementsStep(): Promise<BuiltFile | null> {
 }
 
 /** Hand the created elements over as analytic STEP geometry. */
-export const exportElementsStep = () => runExport(async () => saveBuilt(await buildElementsStep()))
+export const exportElementsStep = () => runExport(`${exportStem()}-elements.step`, async (target) => saveBuilt(await buildElementsStep(), target))
+
+export const exportExtension = (format: MeshFormat | CloudFormat) => format === 'stl-in' ? 'stl' : format
+
+export const scanExportName = (format: MeshFormat | CloudFormat): string => {
+  const moved = useDeviation.getState().align !== null || useStore.getState().appliedAlignment !== null
+  return `${exportStem()}-${moved ? 'aligned' : 'export'}.${exportExtension(format)}`
+}
+
+export const meshCopyExportName = (part: string, format: MeshFormat): string => {
+  const moved = useDeviation.getState().align !== null || useStore.getState().appliedAlignment !== null
+  return `${exportStem()}-${part}${moved ? '-aligned' : ''}.${exportExtension(format)}`
+}
 
 /** The scan as a mesh file — an STL or a 3MF — in the pose it is being
  *  shown in. Null with no scan on the viewport.
@@ -187,10 +216,8 @@ export function buildScanMesh(scene: SceneManager | null, format: MeshFormat): B
     `ScanRuler scan export - ${stem}`,
   )
   if (!file) return null
-  // Never the name it came in under, however little has happened to it: the
-  // export lands in the same folder the scan was picked from, and silently
-  // shadowing the original there is not a thing a measuring tool should do.
-  const name = `${stem}-${moved ? 'aligned' : 'export'}.${file.extension}`
+  // Suggest a distinct name so an unchanged scan does not shadow its input.
+  const name = scanExportName(format)
   return {
     name,
     mimeType: file.mimeType,
@@ -203,7 +230,7 @@ export function buildScanMesh(scene: SceneManager | null, format: MeshFormat): B
 
 /** Hand the scan back as a mesh file in the pose it is being shown in. */
 export const exportScanMesh = (sceneRef: RefObject<SceneManager | null>, format: MeshFormat) =>
-  runExport(async () => saveBuilt(buildScanMesh(sceneRef.current, format)))
+  runExport(scanExportName(format), async (target) => saveBuilt(buildScanMesh(sceneRef.current, format), target))
 
 /** The scan as a point cloud — every vertex with its normal, in the pose it
  *  is being shown in, as a binary PLY or an XYZ text file — for the
@@ -235,7 +262,7 @@ export async function buildScanPointCloud(scene: SceneManager | null, format: Cl
   const align = useDeviation.getState().align
   const moved = align !== null || store.appliedAlignment !== null
   const stem = exportStem()
-  const name = `${stem}-${moved ? 'aligned' : 'export'}.${format}`
+  const name = scanExportName(format)
   const transform = align?.transform ?? null
   const bytes =
     format === 'ply'
@@ -254,4 +281,4 @@ export async function buildScanPointCloud(scene: SceneManager | null, format: Cl
 
 /** Hand the scan back as a point cloud. */
 export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) =>
-  runExport(async () => saveBuilt(await buildScanPointCloud(sceneRef.current, format)))
+  runExport(scanExportName(format), async (target) => saveBuilt(await buildScanPointCloud(sceneRef.current, format), target))
