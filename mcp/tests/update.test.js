@@ -6,9 +6,9 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -21,9 +21,11 @@ import {
   launchPlan,
   loadState,
   newer,
+  npmFolder,
   npxHash,
   prefetch,
   runHandOff,
+  runNpm,
   saveState,
   START_GRACE_MS,
   startUpdates,
@@ -306,4 +308,27 @@ test('the launcher, run for real, hands off to the fetched copy with the same ar
   assert.match(failed.stderr, /src[\/]main\.js/)
   assert.deepEqual(loadState(config).failed, ['0.4.1'])
   assert.doesNotMatch(run([]).stderr, /Starting scanruler-mcp/)
+})
+
+test('npm runs in a folder of this user’s own, never the shared temp folder', async () => {
+  const config = await tempDir()
+  const env = { SCANRULER_MCP_CONFIG_DIR: config }
+  let cwd = null
+  const fake = new EventEmitter()
+  const ran = runNpm(['--version'], {
+    env,
+    spawnFn: (_file, _args, options) => {
+      cwd = options.cwd
+      queueMicrotask(() => fake.emit('close', 0))
+      return fake
+    },
+  })
+  assert.deepEqual(await ran, { code: 0, stdout: '' })
+  // npm exec takes a package from node_modules in the folder it runs in, so
+  // a planted /tmp/node_modules/scanruler-mcp would run as this user.
+  assert.equal(cwd, join(config, 'npm-run'))
+  assert.notEqual(cwd, tmpdir())
+  if (process.platform !== 'win32') assert.equal(statSync(cwd).mode & 0o077, 0, 'nobody else may write into it')
+  // Where the folder cannot be made, the home folder rather than the temp one.
+  assert.equal(npmFolder(env, () => { throw new Error('read-only') }), homedir())
 })

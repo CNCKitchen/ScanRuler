@@ -7,6 +7,7 @@
 import { verdictLines, type Verdict } from '../core/dimensions'
 import { ValueWindow, type ReadValue } from './DroValue'
 import { RowTools } from './RowTools'
+import { copyText, useContextMenu } from './ContextMenu'
 
 export function WarningNote({ text }: { text: string }) {
   return <p className="warnnote">⚠ {text}</p>
@@ -63,8 +64,15 @@ export function DimensionRow({
   onToggleVisible: () => void
   onDelete: () => void
 }) {
+  const ctx = useContextMenu(name, () => [
+    { label: 'Copy reading', disabled: !value.value || Boolean(value.invalid), onSelect: () => copyText(value.value ?? '') },
+    { label: 'Edit', disabled: editorOpen, onSelect: onEdit },
+    { label: visible ? 'Hide in viewport' : 'Show in viewport', onSelect: onToggleVisible },
+    { label: 'Delete', danger: true, rule: true, onSelect: onDelete },
+  ])
   return (
-    <div className={'dro hero dim' + (visible ? '' : ' ghost')} data-test={`${testPrefix}-row`}>
+    <>
+    <div className={'dro hero dim' + (visible ? '' : ' ghost')} data-test={`${testPrefix}-row`} onContextMenu={ctx.onContextMenu}>
       <div className="dro-label">
         <span>
           {name} · {value.label}
@@ -94,5 +102,7 @@ export function DimensionRow({
         <WarningNote text={(value.warning ?? value.invalid)!} />
       )}
     </div>
+    {ctx.menu}
+    </>
   )
 }

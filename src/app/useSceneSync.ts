@@ -30,6 +30,7 @@ import type {
   OverlayElement,
   OverlayPair,
   OverlayTag,
+  SectionOverlayItem,
 } from '../viewer/SceneManager'
 import { schemeById } from '../viewer/navSchemes'
 import { usePrefs } from '../state/prefsStore'
@@ -41,6 +42,8 @@ import { useUnits } from './useUnits'
 import { providersFor } from '../ui/RefSelect'
 import { MARK_COLOR, mapHeld, useDeviation } from '../state/deviationStore'
 import { sectionElementsOf, useFlat } from '../state/flatStore'
+import { useComb } from '../state/combStore'
+import { sectionSourceRuns, sheetComb } from './curvatureCombs'
 import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { useThickness } from '../state/thicknessStore'
@@ -502,25 +505,42 @@ export function useSceneSync({
   const flatSubject = useFlat((s) => s.subject)
   const flatElements = useFlat((s) => s.elements)
   const flatSheets = useFlat((s) => s.sheets)
+  // With the curvature comb on, each section wears the comb its sheet does:
+  // along its cut (or its shadow's outline) and its fitted curves, stood up
+  // in its plane — see app/curvatureCombs.
+  const combOn = useComb((s) => s.on)
+  const combWindow = useComb((s) => s.window)
+  const combScale = useComb((s) => s.scale)
   useEffect(() => {
     const flat = { subject: flatSubject, elements: flatElements, sheets: flatSheets }
     sceneRef.current?.setSections(
       sections
         .filter((sec) => (sec.visible || sec.id === peekSection) && sec.cut && sec.id !== editingSectionId)
-        .map((sec) => ({
-          id: sec.id,
-          name: sec.name,
-          color: sec.color,
-          frame: sec.frame,
-          cut: sec.cut!,
-          elements: sectionElementsOf(flat, sec.id)
+        .map((sec) => {
+          const fits = sectionElementsOf(flat, sec.id)
             .filter((el) => el.visible && el.fit)
-            .map((el) => liftFlatFit(sec.frame, el.fit!)),
-          ...(isExtruded(sec) ? { extrude: true } : {}),
-        })),
+            .map((el) => el.fit!)
+          let comb: SectionOverlayItem['comb']
+          if (combOn) {
+            const c = sheetComb(sectionSourceRuns(sec.cut!, sec.frame, combWindow), fits, combWindow, combScale)
+            // A shadow's outline lies on its own plane, in the middle of the
+            // part; its [u, v] are the section's.
+            comb = { runs: [...c.source, ...c.elements], reach: c.reach, frame: sec.cut!.shadow?.frame ?? sec.frame }
+          }
+          return {
+            id: sec.id,
+            name: sec.name,
+            color: sec.color,
+            frame: sec.frame,
+            cut: sec.cut!,
+            elements: fits.map((fit) => liftFlatFit(sec.frame, fit)),
+            ...(isExtruded(sec) ? { extrude: true } : {}),
+            ...(comb ? { comb } : {}),
+          }
+        }),
       showElements && !elementsKeyHides,
     )
-  }, [sections, editingSectionId, showElements, elementsKeyHides, flatSubject, flatElements, flatSheets, peekSection])
+  }, [sections, editingSectionId, showElements, elementsKeyHides, flatSubject, flatElements, flatSheets, peekSection, combOn, combWindow, combScale])
 
   // The name tags and readouts, the measure workspace's own switch: off, the
   // bodies, the cuts and the callout lines stay and only the text goes.

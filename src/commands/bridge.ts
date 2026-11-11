@@ -47,6 +47,23 @@ const REFUSED = new Set([4001, 4003, 4008, 4009])
 /** How long the page waits before trying again, doubling to ten seconds. */
 const retryDelay = (attempt: number) => Math.min(10_000, 1000 * 2 ** attempt)
 
+/** How long the hello may take before the page says what it is waiting
+ *  for. A server on this computer answers at once; a hello that hangs is the
+ *  browser holding it, most often on its question whether this site may
+ *  reach apps on this computer — easy to miss, and the console says nothing
+ *  meanwhile (issue 100). */
+export const HELLO_SLOW_MS = 3000
+
+/** What the link says while the browser holds the hello. */
+export const BROWSER_ASKING =
+  'Waiting for the browser to let this page reach apps on this computer. If it asks, allow it; if it asked before and was told no, allow local network access in the site settings (the icon left of the address), then reload.'
+
+/** What the link says while nothing answers the hello. */
+export const nothingAnswers = (port: number): string =>
+  `Nothing answers on port ${port} on this computer yet. Is the AI app running, with ScanRuler's connector (scanruler-mcp) on that port? ` +
+  '"npx -y scanruler-mcp@latest --pair" prints the port and the token. In Safari, or where the browser will not let this site reach this computer, ' +
+  'open the page "scanruler-mcp --serve" gives instead.'
+
 export interface BridgeOptions {
   port: number
   token: string
@@ -54,6 +71,8 @@ export interface BridgeOptions {
   socket?: (url: string) => WebSocket
   /** Whether the server's hello answers — a test's own, or a fetch. */
   reach?: (url: string) => Promise<boolean>
+  /** How long the hello may take before the link says the browser holds it. */
+  slowMs?: number
 }
 
 /** Fetch the server's hello as a request to this computer, which is what
@@ -95,7 +114,7 @@ const tabHidden = () => typeof document !== 'undefined' && document.visibilitySt
 
 /** Connect to the agent's server, and keep connecting while switched on.
  *  The returned function switches it off. */
-export function startBridge({ port, token, socket = (url) => new WebSocket(url), reach = fetchHello }: BridgeOptions): () => void {
+export function startBridge({ port, token, socket = (url) => new WebSocket(url), reach = fetchHello, slowMs = HELLO_SLOW_MS }: BridgeOptions): () => void {
   let stopped = false
   let ws: WebSocket | null = null
   let attempt = 0
@@ -157,9 +176,17 @@ export function startBridge({ port, token, socket = (url) => new WebSocket(url),
     const { registerCoreCommands } = await import('./core')
     registerCoreCommands()
     if (stopped) return
-    if (useAgentLink.getState().status !== 'refused') useAgentLink.setState({ status: 'waiting', detail: null })
+    // Waiting already, it keeps saying why until something changes.
+    const was = useAgentLink.getState().status
+    if (was !== 'refused' && was !== 'waiting') useAgentLink.setState({ status: 'waiting', detail: null })
+    const stillWaiting = () => !stopped && useAgentLink.getState().status === 'waiting'
+    const slow = setTimeout(() => {
+      if (stillWaiting()) useAgentLink.setState({ detail: BROWSER_ASKING })
+    }, slowMs)
     const answered = onThisComputer() || (await reach(`http://127.0.0.1:${port}/scanruler-mcp`))
+    clearTimeout(slow)
     if (stopped) return
+    if (answered && useAgentLink.getState().detail === BROWSER_ASKING) useAgentLink.setState({ detail: null })
     if (!answered) {
       const denied = typeof navigator !== 'undefined' && !!navigator.permissions && (await loopbackDenied())
       // The link may have been switched off while the browser answered; a
@@ -170,7 +197,7 @@ export function startBridge({ port, token, socket = (url) => new WebSocket(url),
           status: 'refused',
           detail: 'The browser keeps this site from reaching apps on this computer — allow local network access for it in the site settings (the icon left of the address), then reload.',
         })
-      }
+      } else if (stillWaiting()) useAgentLink.setState({ detail: nothingAnswers(port) })
       timer = setTimeout(() => void connect(), retryDelay(attempt++))
       return
     }

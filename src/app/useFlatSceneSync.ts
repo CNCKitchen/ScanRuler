@@ -7,10 +7,13 @@
 import { useEffect, useRef, type MutableRefObject } from 'react'
 import type { EdgeChains } from '../core/flat/edges'
 import type { Vec2 } from '../core/flat/types'
+import type { CurvatureRun } from '../core/flat/curvature'
+import { useComb } from '../state/combStore'
 import { useFlat } from '../state/flatStore'
 import { usePrefs } from '../state/prefsStore'
 import { useStore } from '../state/store'
 import type { FlatScene } from '../viewer/FlatScene'
+import { EDGE_COMB_COLOR, formatCurvature, imageSourceRuns, sectionSourceRuns, sheetComb } from './curvatureCombs'
 import {
   sheetAlignment,
   sheetCalibrationPicks,
@@ -50,6 +53,41 @@ export function useFlatSceneSync({
   const pushEdges = () => {
     const s = useFlat.getState()
     scene()?.setEdgeChains(s.showEdges ? (sheetOf()?.chains ?? null) : null)
+  }
+  /** The curvature comb, while it is on: along the subject's edges while
+   *  they are shown, and along every visible arc, circle and spline, each in
+   *  its own colour — the reach taken from the edges whether they are shown
+   *  or not, so hiding them leaves a spline's teeth as long as they were. */
+  const pushComb = () => {
+    const view = scene()
+    if (!view) return
+    const comb = useComb.getState()
+    if (!comb.on) {
+      view.setCurvatureComb(null)
+      return
+    }
+    const s = useFlat.getState()
+    let source: CurvatureRun[] = []
+    const subject = s.subject
+    if (subject.kind === 'section') {
+      const sec = useStore.getState().sections.find((x) => x.id === subject.id)
+      if (sec?.cut) source = sectionSourceRuns(sec.cut, sec.frame, comb.window)
+    } else {
+      const chains = sheetOf()?.chains
+      if (chains) source = imageSourceRuns(chains, sheetScale(s), comb.window)
+    }
+    const elements = sheetElements(s, units)
+    const { source: edges, elements: curves, reach } = sheetComb(source, elements.map((e) => e.fit), comb.window, comb.scale)
+    const layers = elements.map((e) => ({ runs: [] as CurvatureRun[], color: e.color }))
+    for (const run of curves) layers[run.source].runs.push(run)
+    if (s.showEdges) layers.unshift({ runs: edges, color: EDGE_COMB_COLOR })
+    // An image not yet calibrated is measured in its pixels.
+    const inPx = subject.kind === 'image' && !s.pxPerMm
+    view.setCurvatureComb({
+      layers,
+      reach,
+      format: (r) => (inPx && r.radius !== null ? `R ${r.radius.toFixed(1)} px` : formatCurvature(r, units)),
+    })
   }
   const pushNotes = () => scene()?.setNotes(sheetNotes(useFlat.getState()))
   const pushCounts = () => scene()?.setCounts(sheetCounts(useFlat.getState()))
@@ -107,6 +145,7 @@ export function useFlatSceneSync({
     pushCounts()
     pushNotes()
     pushGrid()
+    pushComb()
   }
 
   // A new image, a new subject, or a section's cut landing (a section from a
@@ -153,6 +192,11 @@ export function useFlatSceneSync({
   const draft = useFlat((s) => s.draft)
   const mirror = useFlat((s) => s.mirror)
   useEffect(pushElements, [elements, draft, scale, datum, mirror, units])
+
+  const combOn = useComb((s) => s.on)
+  const combWindow = useComb((s) => s.window)
+  const combScale = useComb((s) => s.scale)
+  useEffect(pushComb, [combOn, combWindow, combScale, edgeVersion, showEdges, elements, draft, scale, units])
 
   // The sheet aligned to the part, mirrored, or turned on the stage — the
   // camera moves, nothing is redrawn. The alignment's direction is read at

@@ -68,10 +68,13 @@ const TEXT_SPELLINGS: Record<string, string> = { 'Ø': '%%c', '°': '%%d', '±':
  *  The diameter, degree and plus-minus signs go as the %% codes CAD has
  *  always used, the middle dot the readings separate with becomes a comma,
  *  and anything else beyond ASCII goes as AutoCAD's \U+XXXX escape, which
- *  CAD decodes and a plain reader can still make out. */
+ *  CAD decodes and a plain reader can still make out. A line break or other
+ *  control character becomes a space, as the stage and the SVG show it: a
+ *  value is one line of the file, and a break inside it would be read as
+ *  the next group code, which leaves the rest of the file unreadable. */
 export function dxfText(s: string): string {
   let out = ''
-  for (const ch of s.replace(/\s*·\s*/g, ', ')) {
+  for (const ch of s.replace(/\s*[\x00-\x1f\x7f]+\s*/g, ' ').replace(/\s*·\s*/g, ', ')) {
     const code = ch.codePointAt(0)!
     out +=
       code < 127 ? ch : (TEXT_SPELLINGS[ch] ?? `\\U+${code.toString(16).toUpperCase().padStart(4, '0')}`)

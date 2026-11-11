@@ -14,14 +14,20 @@ import { Asker, frameOf, MAX_PAYLOAD, PageLink, waitForPage } from './link.js'
 
 /** How long a copy waits before trying a port it could not use again. */
 const RETRY_MS = 5_000
+/** How long a copy waits, once connected, for the holding copy to take it
+ *  in or turn it away. A scanruler-mcp answers at once; what holds the port
+ *  and never answers is taken for another program, as one that does not
+ *  speak WebSocket is. */
+export const WELCOME_MS = 5_000
 
 /** This copy's link through another copy that holds the port. */
 export class PeerLink extends Asker {
-  /** @param {{ port: number, token: string, version?: string, log?: (line: string) => void }} options */
-  constructor({ port, token, version = '', log = () => {} }) {
+  /** @param {{ port: number, token: string, version?: string, log?: (line: string) => void, welcomeMs?: number }} options */
+  constructor({ port, token, version = '', log = () => {}, welcomeMs = WELCOME_MS }) {
     super()
     this.port = port
     this.token = token
+    this.welcomeMs = welcomeMs
     this.version = version
     this.log = log
     /** The holding copy's version, as its welcome said; null from a copy
@@ -31,16 +37,26 @@ export class PeerLink extends Asker {
 
   /** Connect to the copy on the port. Resolves `{ ok: true }` once it took
    *  this one in, `{ refused }` when it turned it away, `{ error }` when
-   *  what holds the port is not a scanruler-mcp. */
+   *  what holds the port is not a scanruler-mcp: it does not speak
+   *  WebSocket, says something else first, or says nothing in welcomeMs. */
   connect() {
     return new Promise((resolve) => {
       const ws = new WebSocket(`ws://127.0.0.1:${this.port}/`, { maxPayload: MAX_PAYLOAD, handshakeTimeout: 3_000 })
       let greeted = false
       let accepted = false
+      const silent = setTimeout(() => {
+        resolve({ error: 'It did not answer.' })
+        ws.terminate()
+      }, this.welcomeMs)
+      silent.unref?.()
       const read = decoder((message) => {
         if (!greeted) {
           greeted = true
-          if (message.welcome) {
+          clearTimeout(silent)
+          if (!message.welcome && message.refused === undefined) {
+            resolve({ error: 'It did not answer as a scanruler-mcp.' })
+            ws.close(1002, 'Not a scanruler-mcp')
+          } else if (message.welcome) {
             accepted = true
             this.socket = ws
             this.holderVersion = typeof message.welcome.version === 'string' ? message.welcome.version : null
@@ -67,6 +83,7 @@ export class PeerLink extends Asker {
       })
       ws.on('error', (e) => resolve({ error: e.message }))
       ws.on('close', () => {
+        clearTimeout(silent)
         resolve({ error: 'It closed the connection.' })
         if (!accepted) return
         const had = this.page !== null

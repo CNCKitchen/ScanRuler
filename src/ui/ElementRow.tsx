@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react'
 import { Icon, type IconName } from './icons'
 import { RowTools } from './RowTools'
+import { useContextMenu } from './ContextMenu'
 
 export function ElementRow({
   name,
@@ -26,6 +27,7 @@ export function ElementRow({
   onDelete,
   eyeKey,
   onHover,
+  menu = true,
 }: {
   name: string
   color: string
@@ -64,17 +66,26 @@ export function ElementRow({
   /** The pointer onto the row (true) and off it (false) — the list's
    *  hover, lit in the viewport. */
   onHover?: (on: boolean) => void
+  /** False for a row whose list has a right-click menu of its own. */
+  menu?: boolean
 }) {
   // A double click on the row opens it too, as a feature row in a CAD
   // tree does — with the same standing down as the ✎ key.
   const canEdit = !editorOpen && !editDisabled
+  const ctx = useContextMenu(name, () => [
+    { label: 'Edit', disabled: !canEdit, onSelect: onEdit },
+    { label: visible ? 'Hide in viewport' : 'Show in viewport', onSelect: onToggleVisible },
+    { label: 'Delete', danger: true, rule: true, onSelect: onDelete },
+  ])
   return (
+    <>
     <div
       className={'kv' + (visible ? '' : ' ghost') + (selected ? ' sel' : '') + (muted ? ' rolled' : '') + (tone ? ` tone-${tone}` : '')}
       data-test={testId}
       data-rolled={muted ? 'true' : undefined}
       title={title}
       onDoubleClick={canEdit ? onEdit : undefined}
+      onContextMenu={menu ? ctx.onContextMenu : undefined}
       onPointerEnter={onHover ? () => onHover(true) : undefined}
       onPointerLeave={onHover ? () => onHover(false) : undefined}
     >
@@ -103,5 +114,7 @@ export function ElementRow({
         eyeKey={eyeKey}
       />
     </div>
+    {menu && ctx.menu}
+    </>
   )
 }

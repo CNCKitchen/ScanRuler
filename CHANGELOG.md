@@ -5,38 +5,123 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
-## Unreleased
+## 0.11.2 — 2026-11-11
 
-- **Export the reference pre-deformed** (2026-11-09). Under *Deformation* in
-  the Surface Deviation panel, **Export pre-deformed STL** saves your modelled
-  part, the reference, moved the opposite way to the deformation the animation
-  shows, so a process that warps the part as the scan did brings it out as
-  drawn. Every vertex moves by minus the **Correction** times the same
-  smoothed motion the animation plays: 1× undoes exactly the measured error,
-  less is for a warp that does not repeat in full. The reference is cut finer
-  first, to a **Longest edge** you set, with the exact triangle count beside
-  it; edges are cut in step with their neighbours, so a closed model stays
-  closed, and the cut stops at two million triangles and says so. Vertices
-  with no scan near them stay where they are, and the status line counts them.
-  **Preview pre-deformed** shows the model first, in a second viewport
-  beside the scan in the same view; **Update pre-deform** works it out again
-  from the settings as they stand, and the same key a second time puts the
-  viewport away. A **Smoothing** setting, under *Deformation*, says how far the
-  deformation is averaged over the part, for the animation and the model alike,
-  from the grain of the scan to a fifth of the part; past the default the field
-  is blurred rather than read off a coarser grid, so the model moves smoothly,
-  with no steps. The file is in the reference's own frame. The agent has it as
-  `deviation_pre_deform`. Tests: `preDeform` (the cut leaves no edge past the
-  length and a closed mesh closed with its volume, on a box and on a long thin
-  bar; the cap; the model moves against the scan and by the scale; a bend is
-  followed per vertex; the field is read in the scan's frame and applied in the
-  model's; vertices beyond the scan stay; a map with nothing measured is
-  refused; smoothing takes the scan's noise out, keeps a linear bend and turns
-  a step into a ramp as wide as it); `e2e-predeform` (the viewport opens in the scan's pose without
-  map colours, a changed setting says the preview is out of date and Update
-  brings it up in the same viewport, the same key puts it away, and the split
-  view takes its place).
-  A second export at the same density no longer fails on a detached buffer.
+- **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and
+  is it an arc at all? A checkbox under the edges in 2D Measure, and under
+  the sections in 3D Measure, draws a curvature comb along every edge: a
+  section's cut, an image's detected edges, a shadow's outline, and every
+  arc, circle and spline fitted on the sheet — on the sheet, and standing
+  in each section's plane on the part, the area under the teeth filled
+  faintly. The teeth are sized to the edge's own rounds, not to the
+  section's length, with a slider to scale them. A true arc's teeth are all
+  one length; a blend that is no arc grows and shrinks them. Scanned edges are
+  read smoothed over a length you set (2 mm by default), with the arc's
+  shrinkage taken back so a round reads its true radius; fitted curves are
+  exact. On the sheet the radius under the cursor is read off, convex or
+  concave, and an agent reads the comb in numbers with `flat.curvature`.
+  Off by default. Thanks to shdwx-dev.
+- **The other workspaces say when Mesh Tools has an edited copy waiting**
+  (2026-11-10, issue 128). An edit in Mesh Tools works on a copy of the
+  scan, and the other workspaces go on measuring the scan as it was; only
+  Mesh Tools said so. Now 3D Measure, Deviation, Thickness and Reverse
+  engineer say it on their stage too, with the number of edits, Show to go
+  to the copy and Use for analysis to take it into use from there. The
+  note can be put away, and comes back after the next edit. Thanks to
+  ImagineerNL.
+- **Right-click menus on list rows** (2026-11-10, pull request 131). A
+  right click on an element, dimension or tolerance row opens a menu with
+  Edit, Hide or Show in viewport and Delete, and on a dimension or
+  tolerance Copy reading too. A pinned reading's offers Copy reading, Copy
+  position and Remove pin. The Reverse engineer's feature rows keep the
+  menu they had. The browser's own right-click menu is no longer offered
+  elsewhere in the app, as it already was not over the viewport, but it
+  stays in text fields and over selected text. Thanks to Jozkah.
+- **Dropdowns in the app's own look** (2026-11-10, pull request 130). In
+  Chrome and Edge, a dropdown's list opens in the panel's colours, with the
+  option under the pointer in the accent colour, the chosen one in bold and
+  groups headed in small capitals, as the reference pickers already were:
+  in the panel, the dialogs, the Reverse engineer and Mesh Tools alike.
+  Escape closes the open list and leaves the box under it as it was. Other
+  browsers keep their own list. Thanks to Jozkah.
+- **Densify keeps a large mesh closed** (2026-11-10, pull request 120).
+  Densify told a long edge's middle by a key that is not exact past vertex
+  2,097,152, so on a mesh with more vertices two edges could share one
+  middle: a vertex off its edge and a crack where the triangles on it no
+  longer met. It keys edges the way the open-edge check and the volume
+  error have since 0.9.8. Thanks to kevbart for finding it.
+- **The agent's stale-tools note says what brings the current tools**
+  (2026-11-10, issue 134, scanruler-mcp 0.6.4). When the page was
+  updated while the AI app ran, `scanruler_status` told the agent to start
+  a new chat for the current tools. In Claude Desktop that never helps: the
+  app keeps one server for as long as it runs and does not list the tools
+  again. The note now says to quit the app completely and open it again,
+  and that `scanruler_batch` meanwhile runs any of the page's tools by name;
+  the connector's README says so too. Thanks to MarekO321.
+
+## 0.11.1 — 2026-11-09
+
+- **Mesh Tools' booleans, Hollow and Trim to scan work on scanruler.com
+  again** (2026-11-09, issues 123 and 126). Since the Content-Security-Policy
+  of 0.9.10, the hosted app refused them with "call to Function() blocked by
+  CSP": the mesh boolean they run on builds part of itself from strings,
+  and only the Reverse engineer's workers were allowed that. The mesh
+  worker is now too, in the hosted app and in the Docker image, and every
+  build is checked for a worker that needs it and is not allowed it.
+  Thanks to SphaeroX and jarmosaari for reporting it.
+- **A fit told what surface it is after opens again with the project**
+  (2026-11-09, issue 125). An element fitted with side, radius, axis or
+  within (element.fit) kept only its seeds, so on opening the project its
+  surface was grown from the seeds alone. A small bore beside a large curved
+  face was not found, and project.load answered "failed" for a project that
+  had opened. The guide is now part of the element and the project file,
+  moves and scales with the part, and every re-fit uses it again. And an
+  element whose surface is not found again no longer fails the open: its
+  saved fit stands, the status line names it, and project.load answers with
+  the session and a warning. Projects saved before keep opening as they did,
+  with no guide. Thanks to raxarot for the careful report.
+
+## 0.11.0 — 2026-11-09
+
+- **A 2D note stays where it was placed** (2026-11-09, pull request 70).
+  Once the Reverse engineer had loaded, a text note on the 2D sheet was
+  drawn 34 px right of and 17 px above the point clicked, and a long one
+  was cut short: the Reverse engineer's note pins shared the 2D note's
+  style. The pins now have their own. Thanks to Greg-J for finding it.
+- **A DXF with a line break in a name or note opens** (2026-11-09, issue
+  34). A note, element name or title holding a line break, as an agent or
+  a project can give one, was written into the DXF as it was, and CAD read
+  the rest of the file as nonsense. The break is now a space, as the sheet
+  and the SVG show it.
+- **STEP export of a torus alone, and a plain-ASCII STEP** (2026-11-09,
+  issue 34). Measured elements that were only tori were filed in the STEP
+  as curves rather than surfaces. And the file's product description held a
+  dash outside ASCII, which a strict reader can refuse; it is a plain
+  hyphen now.
+- **A project from a newer ScanRuler says so** (2026-11-09, issue 34).
+  Projects are saved in version 2 of the file format now, so 0.10.2 and
+  older turn them away with "saved by a newer version, please reload"
+  instead of opening them with the newest constructions failed and
+  everything built on them. From here on, a project holding an element
+  kind, a way of making an element or a dimension type the open build does
+  not know is turned away the same way, naming it, while a project that
+  uses none of them still opens. Projects saved before open as they did.
+- **The agent link says why it is still waiting** (2026-11-09, issue 100).
+  The chip said "listening" whatever held it up. When the browser takes
+  more than three seconds to let the page reach the agent's server, which
+  is most often its question whether the site may reach apps on this
+  computer, Settings → Agents and the chip's tip now say so and how to
+  allow it. When nothing answers on the port, they say so, with how to
+  start the connector and the `--serve` page for Safari. Thanks to Leafy1.
+- **scanruler-mcp fixes** (2026-11-09, issue 34, scanruler-mcp 0.6.3).
+  - The self-update ran npm from the system's temporary folder, where on a
+    computer shared with others someone could leave a scanruler-mcp that
+    would then run as you. It runs from a folder of its own in the
+    server's settings folder now.
+  - A second copy of the server, finding the port taken, waited for ever
+    for an answer from what held it. It gives up after five seconds and
+    says the port is taken, and only a scanruler-mcp turning it away
+    counts as a refusal.
 
 ## 0.10.2 — 2026-11-09
 

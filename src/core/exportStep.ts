@@ -163,7 +163,7 @@ function writeContext(w: StepWriter, sourceName: string): { shape: number; geomC
   w.add(`APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2010,#${appCtx})`)
   const prodCtx = w.add(`PRODUCT_CONTEXT('',#${appCtx},'mechanical')`)
   const product = w.add(
-    `PRODUCT('Measured elements','Measured elements — ${esc(sourceName)}','',(#${prodCtx}))`,
+    `PRODUCT('Measured elements','Measured elements - ${esc(sourceName)}','',(#${prodCtx}))`,
   )
   w.add(`PRODUCT_RELATED_PRODUCT_CATEGORY('part','',(#${product}))`)
   const formation = w.add(`PRODUCT_DEFINITION_FORMATION('','',#${product})`)
@@ -201,7 +201,7 @@ function writeSurfaceBody(w: StepWriter, elements: StepElement[], shape: number,
   if (elements.length === 0) return writeRoot(w, shape, geomCtx)
   const items = elements.map((el) => writeElement(w, el.name, el.fit))
   const hasSurface = elements.some((el) =>
-    ['plane', 'cylinder', 'cone', 'sphere'].includes(el.fit.kind),
+    ['plane', 'cylinder', 'cone', 'sphere', 'torus'].includes(el.fit.kind),
   )
   const set = w.add(
     `${hasSurface ? 'GEOMETRIC_SET' : 'GEOMETRIC_CURVE_SET'}('elements',(${items.map((i) => `#${i}`).join(',')}))`,

@@ -31,6 +31,7 @@ import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { SectionEditor } from './SectionEditor'
+import { CombControls } from './CombControls'
 import { ExportMeshButton } from './ExportMeshButton'
 import type { MeshFormat } from '../core/exportMesh'
 import { useUnits } from '../app/useUnits'
@@ -447,6 +448,7 @@ export function Panel({
             Measure a section in the <b>2D Measure</b> workspace. What you fit on its sheet is drawn
             on the cut here and goes into the STEP file with the section.
           </p>
+          <CombControls where="part" />
         </div>
       )}
 

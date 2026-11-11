@@ -1,6 +1,6 @@
 {
-  "app": "0.10.2",
-  "saved": "2026-11-09T16:18:18.485Z",
+  "app": "0.11.2",
+  "saved": "2026-11-11T18:55:21.207Z",
   "commands": [
     {
       "name": "align.auto",
@@ -1199,7 +1199,7 @@
     {
       "name": "element.fit",
       "title": "Fit an element",
-      "description": "Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place (or places) in at and is best-fitted to it; a point is the place itself; a circle goes through three or more places, or round an open rim (rim, numbered by scan.qa). A place is { vertex } or { point: [x, y, z] } (mm, current frame; the nearest vertex is taken). Trap: a seed near an edge can land on the wrong surface — say what is sought with side, radius, axis or within, and surfaces that do not match are passed over. Returns the element with its fit, the seeds used (inRegion, offMm, deg), the region grown (area, box, normalSpreadDeg, fill, sagitta) and a warning when the points look like two surfaces, a bore steps or is closed at an end, or a plane is a bead’s crown — the measure-reference guide (Elements) says how to read each. One undo step.",
+      "description": "Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place (or places) in at and is best-fitted to it; a point is the place itself; a circle goes through three or more places, or round an open rim (rim, numbered by scan.qa). A place is { vertex } or { point: [x, y, z] } (mm, current frame; the nearest vertex is taken). Trap: a seed near an edge can land on the wrong surface — say what is sought with side, radius, axis or within, and surfaces that do not match are passed over; that guide stays with the element, which is fitted with it again when the project reopens. Returns the element with its fit, the seeds used (inRegion, offMm, deg), the region grown (area, box, normalSpreadDeg, fill, sagitta) and a warning when the points look like two surfaces, a bore steps or is closed at an end, or a plane is a bead’s crown — the measure-reference guide (Elements) says how to read each. One undo step.",
       "input": {
         "type": "object",
         "properties": {
@@ -2009,6 +2009,66 @@
         "additionalProperties": false
       },
       "readOnly": false,
+      "returnsFile": false,
+      "returnsImage": false
+    },
+    {
+      "name": "flat.curvature",
+      "title": "Read how an edge bends",
+      "description": "The curvature along detected edges (chains, by number as flat.edges lists them) or along a fitted arc, circle or spline (element) — what the curvature comb draws — told as stretches in order: straight, arc (with the radius its middle reading gives, and the least and most read — how near to one radius it holds; on a section, whether it is convex, a round, or concave, a fillet’s hollow) or the transition between. from and to are the arc length along the chain, in the sheet’s units. A chain is read smoothed over window (the comb’s Smoothing, 2 by default), which leaves one window off each end of an open chain and turns a sudden change into a ramp about a window long, the change in its middle — so a fillet’s tangent point is the middle of the transition before it; a transition much longer than the window is a blend that is no arc. A fitted curve is read exactly. straightBelow is the curvature (1/unit) under which an edge is straight — by default four times the chain’s own scatter; tolerance how far as a share an arc’s readings may stray from its middle one (0.1). step adds the readings every step along it (2000 at most), curvature signed: positive turning left as the chain runs. Changes nothing.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "chains": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Chains to read, by number.",
+            "minItems": 1
+          },
+          "element": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "description": "The 2D element’s id.",
+                "minimum": 1
+              },
+              {
+                "type": "string",
+                "description": "Its name — \"Line 1\".",
+                "minLength": 1
+              }
+            ],
+            "description": "An arc, circle or spline on the sheet to read instead."
+          },
+          "window": {
+            "type": "number",
+            "description": "The smoothing window for chains, in the sheet’s units.",
+            "minimum": 0.2,
+            "maximum": 20
+          },
+          "straightBelow": {
+            "type": "number",
+            "description": "Curvature under this, 1/unit, is straight.",
+            "exclusiveMinimum": 0
+          },
+          "tolerance": {
+            "type": "number",
+            "description": "How far an arc’s readings may stray from its middle one, as a share — 0.1.",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "step": {
+            "type": "number",
+            "description": "Add the readings this far apart.",
+            "exclusiveMinimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "readOnly": true,
       "returnsFile": false,
       "returnsImage": false
     },
@@ -2908,7 +2968,7 @@
     {
       "name": "project.load",
       "title": "Open a project",
-      "description": "Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session. Not undoable: an opened project starts a new history.",
+      "description": "Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session, with a warning naming any fitted element whose surface was not found again (its saved fit stands). Not undoable: an opened project starts a new history.",
       "input": {
         "type": "object",
         "properties": {
@@ -4813,7 +4873,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -4828,6 +4888,9 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "comb": {
                 "type": "boolean"
               },
               "map": {
@@ -5009,7 +5072,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -5024,6 +5087,9 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "comb": {
                 "type": "boolean"
               },
               "map": {

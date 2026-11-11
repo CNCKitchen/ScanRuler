@@ -21,6 +21,7 @@ import type { PickHit } from '../../../src/viewer/SceneManager'
 import { DELETE_MARK_COLOR, FLIP_MARK_COLOR, OFFSET_MARK_COLOR, reductionApplied, SMOOTH_MARK_COLOR, TRIM_MARK_COLOR, useMeshTools, type MeshView, type TrimView, type WrapView } from '../state/meshStore'
 import { reductionScale } from '../core/reduce'
 import { MeshPanel } from '../ui/MeshPanel'
+import { EditedCopyNote } from '../ui/EditedCopyNote'
 import { exportReducedMesh } from './exportReduced'
 import { exportTrimmedMesh } from './exportTrimmed'
 import { exportEditedMesh } from './exportEdited'
@@ -138,6 +139,17 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   // and taking the stage from a view of the reduction when asked.
   const hasCopy = useMeshTools((s) => s.copyTriangles !== null)
   const copyDeviation = useMeshTools((s) => s.copyDeviation)
+  // The copy waiting while another workspace is on screen, which measures
+  // the scan as it was: said there once for each state of the copy — hidden,
+  // it stays hidden until an edit or an undo changes the list of edits. 2D
+  // Measure measures an image, not the scan, and is left out of it.
+  const pending = useMeshTools((s) => s.pending)
+  const onFlat = useShell((s) => s.workspace === 'flat')
+  const scanBusy = useStore((s) => s.busy)
+  const meshRunning = useMeshTools((s) => s.status === 'running' || s.trimStatus === 'running' || s.wrapStatus === 'running' || s.editing)
+  const noteBusy = scanBusy || meshRunning
+  const [noteHidden, setNoteHidden] = useState<unknown>(null)
+  const noteShown = hasCopy && pending.length > 0 && !onFlat && noteHidden !== pending
   const setCopyDeviation = useMeshTools((s) => s.setCopyDeviation)
   const copyStats = useMeshTools((s) => (s.copyDeviation ? s.copyDeviationStats : null))
   const copyMapVersion = useMeshTools((s) => s.copyDeviationVersion)
@@ -279,6 +291,15 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
       return null
     },
     fieldVersion: `${view}:${resultVersion}:${copyMapShown}:${copyMapVersion}`,
+    elsewhere: noteShown ? (
+      <EditedCopyNote
+        edits={pending.length}
+        busy={noteBusy}
+        onUse={() => void adoptEditedCopy()}
+        onShow={() => useShell.getState().setWorkspace('mesh')}
+        onDismiss={() => setNoteHidden(pending)}
+      />
+    ) : null,
     startPane: {
       title: 'Cleaning up and reducing a scan',
       blurb:

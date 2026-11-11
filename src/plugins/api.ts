@@ -118,8 +118,9 @@ export interface PluginHost {
    *  plugin made from the session's work with `fromSession` (see
    *  ReferenceOptions). */
   openReference(file: File, units?: MeshUnits, options?: ReferenceOptions): Promise<void>
-  /** Fit an element again, from its recipe. */
-  runFit(id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean): Promise<void>
+  /** Fit an element again, from its recipe. Resolves to why it failed, or
+   *  null — it did not, or was overtaken. */
+  runFit(id: number, kind: ElementKind, seeds: number[], selection?: Uint32Array, regionsOnly?: boolean): Promise<string | null>
   /** Measure the deviation map again, under the alignment in hand. */
   runDeviation(): Promise<void>
   /** Measure the wall thickness again. */
@@ -217,6 +218,11 @@ export interface PluginRuntime {
   hideModelKeys?: boolean
   /** Always read. Whether the plugin holds work worth saving as a project. */
   canSave?: boolean
+  /** Always read, and drawn only while another workspace is the one on
+   *  screen: a note on the stage about something of the plugin's that bears
+   *  on what that workspace measures — work of its own that is not in use
+   *  there, say. It goes under the stage's hint chip, and takes clicks. */
+  elsewhere?: ReactNode
   /** Always read. A grip dragged in the viewport; true when it was one of
    *  the plugin's. */
   gripDrag?(side: GripSide, delta: number, phase: 'start' | 'move' | 'end'): boolean

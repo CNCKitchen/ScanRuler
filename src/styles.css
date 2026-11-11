@@ -785,6 +785,120 @@ select:disabled {
   color: var(--dim);
 }
 
+select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Every dropdown in the app — the panel's, the dialogs', the plugins' — is a
+   <select>, and the browser draws the list that opens from one in its own
+   chrome (system blue, system font). Where the browser lets the page style it
+   (`appearance: base-select`, Chromium), the closed face and the open list take
+   the picker's look (ui/RefPicker, .picklist/.pickoption above), so no dropdown
+   stands apart from the instrument. Elsewhere the native select stays as it
+   was. */
+@supports (appearance: base-select) {
+  select,
+  select::picker(select) {
+    appearance: base-select;
+  }
+
+  select {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    cursor: pointer;
+  }
+
+  select::picker-icon {
+    content: '▾';
+    color: var(--dim);
+    font-size: 11px;
+    transition: rotate 120ms ease;
+  }
+
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+
+  select:open {
+    border-color: var(--accent);
+  }
+
+  select:disabled {
+    cursor: default;
+  }
+
+  select::picker(select) {
+    font-family: var(--ui);
+    font-size: 12.5px;
+    color: var(--ink);
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    padding: 3px;
+    margin: 3px 0;
+    max-height: 260px;
+    min-width: anchor-size(width);
+    top: anchor(bottom);
+    position-try-fallbacks: flip-block;
+  }
+
+  select option {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+    color: var(--ink);
+    background: none;
+  }
+
+  select option:hover,
+  select option:focus-visible,
+  select option:checked:focus-visible {
+    background: var(--accent);
+    color: #fff;
+    outline: none;
+  }
+
+  select option:checked {
+    font-weight: 600;
+  }
+
+  select option:disabled {
+    color: var(--dim);
+    cursor: default;
+  }
+
+  select option:disabled:hover {
+    background: none;
+    color: var(--dim);
+  }
+
+  select option::checkmark {
+    display: none;
+  }
+
+  select optgroup {
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 5px 7px 2px;
+  }
+
+  select optgroup option {
+    text-transform: none;
+    letter-spacing: 0;
+  }
+}
+
 /* ---------------- left panel ---------------- */
 
 .panel {
@@ -1813,6 +1927,60 @@ button.x:disabled {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* A plugin's word from outside its own workspace (PluginRuntime.elsewhere):
+   under the hint chip, so the two never cover each other, and a card rather
+   than a chip, since it carries buttons. */
+.stagenotes {
+  position: absolute;
+  top: 46px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(560px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+
+.stagenote {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px 7px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: rgba(var(--glass), 0.96);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.stagenote .note-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.stagenote .note-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.stagenote button.x {
+  min-width: 26px;
+  min-height: 26px;
+  font-size: 16px;
+}
+
+@media (max-width: 700px) {
+  .stagenote {
+    flex-wrap: wrap;
+  }
 }
 
 /* The uncalibrated alarm on the 2D Measure stage. Deliberately louder than a
@@ -4327,4 +4495,62 @@ button.x:disabled {
 .exportmesh .pickoption:focus-visible {
   background: var(--accent);
   color: #fff;
+}
+
+/* A list row's right-click menu, opened where the pointer is. */
+.ctx-menu {
+  position: fixed;
+  z-index: 60;
+  width: 200px;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--panel);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.17);
+}
+
+.ctx-head {
+  padding: 3px 12px 5px;
+  font-family: var(--cond);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ctx-menu button.rule {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.ctx-menu button:hover:not(:disabled) {
+  background: var(--well);
+  color: var(--accent-d);
+}
+
+.ctx-menu button.danger:hover:not(:disabled) {
+  color: var(--red);
+}
+
+.ctx-menu button:disabled {
+  color: var(--faint);
+  cursor: default;
 }

@@ -5,6 +5,7 @@
 import { buildElementsStep, buildScanMesh, buildScanPointCloud, type BuiltFile } from '../../app/exports'
 import { buildFlatCsvFile } from '../../app/flatReport'
 import { sessionHolds } from '../../app/project'
+import { hasSurface } from '../../app/surfaces'
 import { projectSections } from '../../app/projectSections'
 import { MESH_FORMATS, type MeshFormat } from '../../core/exportMesh'
 import type { CloudFormat } from '../../core/exportPointCloud'
@@ -142,7 +143,7 @@ const load: Command<{ bytes: Uint8Array; name?: string; discard?: boolean }> = {
   name: 'load',
   title: 'Open a project',
   description:
-    'Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session. Not undoable: an opened project starts a new history.',
+    'Open a .scanruler project in place of the session — its models, then every measurement in it, remeasured, each fit as it was saved. Refuses while the session holds measurements unless discard is true. Needs the browser. Returns the session, with a warning naming any fitted element whose surface was not found again (its saved fit stands). Not undoable: an opened project starts a new history.',
   input: obj({ bytes: bytes('The project file’s contents.'), name: str('Its name, for the status line.', { minLength: 1 }), discard: discardSchema }, ['bytes']),
   history: false,
   discards: ({ discard }) => discard === true,
@@ -152,7 +153,17 @@ const load: Command<{ bytes: Uint8Array; name?: string; discard?: boolean }> = {
     requireDiscardable(discard, 'opening a project')
     await project.open(fileOf(data, name ?? 'project.scanruler'), true)
     if (useStore.getState().errorText) throw new CommandError('failed', lastError('The project could not be opened.'))
-    return await sessionState()
+    // A fitted element whose surface was not found again keeps its saved fit:
+    // the project is open, and the answer says which surfaces are missing.
+    const lost = useStore.getState().elements.filter((e) => e.source.type === 'fitted' && !hasSurface(e.id))
+    const state = await sessionState()
+    if (lost.length === 0) return state
+    return {
+      ...state,
+      warning:
+        `The surface of ${lost.map((e) => e.name).join(', ')} could not be found again from the saved seeds; the saved fit stands, but what reads the surface (its region, element deviation) has nothing to read. ` +
+        'Fit it again with side, radius, axis or within — the guide is saved with the element — and save the project.',
+    }
   },
 }
 

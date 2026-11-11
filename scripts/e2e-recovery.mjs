@@ -112,7 +112,7 @@ try {
     window.projectSerializations = 0
     window.restoreStringify = () => { JSON.stringify = stringify }
     JSON.stringify = function (value, ...args) {
-      if (value?.app === 'ScanRuler' && value.schemaVersion === 1) window.projectSerializations++
+      if (value?.app === 'ScanRuler' && typeof value.schemaVersion === 'number') window.projectSerializations++
       return stringify.call(JSON, value, ...args)
     }
   })
