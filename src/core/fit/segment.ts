@@ -27,7 +27,7 @@ import { localNoise } from '../geometry/scanQa'
 import { cylinderResidual, fitCylinderOnAxis, refineCylinderGeometric, splitTwoCylinders } from './cylinder'
 import { fitHeight } from './heightSurface'
 import { normalizeOrZ, orthoBasis, rmsOver, symmetricEigen3 } from './linalg'
-import { PointGrid } from '../geometry/pointGrid'
+import { cloudGridOf } from '../geometry/cloudGrid'
 import { planeResidual, splitTwoPlanes } from './plane'
 
 const DEG = Math.PI / 180
@@ -58,7 +58,8 @@ function cloudAreas(g: MeshGraph, out: Float32Array): void {
   const nrm = g.normals
   const spacing = g.spacing ?? g.bboxDiag / Math.cbrt(n)
   const reach = 3 * spacing
-  const grid = new PointGrid(p, reach)
+  // The shared grid: any cell answers a query out to `reach`.
+  const grid = cloudGridOf(g, spacing)
   const near = new Int32Array(CLOUD_AREA_K + 1)
   const angles: number[] = []
   const d2 = (v: number, w: number) => (p[w * 3] - p[v * 3]) ** 2 + (p[w * 3 + 1] - p[v * 3 + 1]) ** 2 + (p[w * 3 + 2] - p[v * 3 + 2]) ** 2

@@ -277,10 +277,12 @@ export function ViewBar({
                 className={mapOn === 'reference' ? 'on' : undefined}
                 data-test="toggle-map-on-reference"
                 aria-pressed={mapOn === 'reference'}
-                disabled={!hasMap}
+                disabled={!hasMap || (scanIsCloud && mapOn !== 'reference')}
                 onClick={() => setMapOn(mapOn === 'reference' ? 'scan' : 'reference')}
                 title={
-                  hasMap
+                  scanIsCloud && mapOn !== 'reference'
+                    ? CLOUD_REFUSAL
+                    : hasMap
                     ? 'Paint the map on the reference instead of the scan: the reference coloured by its distance to the scan. It shows reference material the scan does not have, and grey where no scan stands behind the reference.'
                     : 'Nothing measured yet — the map on the reference comes with the map'
                 }

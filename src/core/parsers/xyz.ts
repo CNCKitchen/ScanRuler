@@ -9,26 +9,45 @@
 // the lines are counted first and every n-th one read (see thin.ts).
 
 import type { ParsedMesh } from '../types'
-import { countLines, gatherFloats, eachLine, TEXT_CHUNK } from './textChunks'
+import { countLines, gatherFloats, eachLine, isSpace, TEXT_CHUNK } from './textChunks'
 import { sourceOf, type ByteSource } from './byteSource'
 import { Thinning, thinTarget, type CloudReadOptions } from './thin'
 
 const NO_NORMALS = 'This point cloud has no normals — ScanRuler needs them to measure on points.'
 const SAMPLE = 2000
 
+/** What splits the numbers on a line: white space, a comma or a semicolon. */
+const isSeparator = (c: number) => c === 44 || c === 59 || isSpace(c)
+
+/** The numbers on a line put in `out` from its start, and how many there are,
+ *  or -1 when it is not a row of them. Scanned by hand rather than split on a
+ *  pattern: a cloud is tens of millions of lines, and a split makes an array
+ *  of strings for each. */
+export function numbersInto(line: string, out: number[]): number {
+  const len = line.length
+  let i = 0
+  while (i < len && isSeparator(line.charCodeAt(i))) i++
+  if (i === len) return -1
+  const first = line.charCodeAt(i)
+  if (first === 35 || (first === 47 && line.charCodeAt(i + 1) === 47)) return -1 // # or //
+  let n = 0
+  while (i < len) {
+    let end = i + 1
+    while (end < len && !isSeparator(line.charCodeAt(end))) end++
+    const v = Number(line.slice(i, end))
+    if (!Number.isFinite(v)) return -1
+    out[n++] = v
+    i = end + 1
+    while (i < len && isSeparator(line.charCodeAt(i))) i++
+  }
+  return n >= 3 ? n : -1
+}
+
 /** The numbers on a line, or null when it is not a row of them. */
 export function numbersOf(line: string): number[] | null {
-  const t = line.trim()
-  if (t === '' || t[0] === '#' || t.startsWith('//')) return null
-  const parts = t.split(/[\s,;]+/)
   const out: number[] = []
-  for (const p of parts) {
-    if (p === '') continue
-    const v = Number(p)
-    if (!Number.isFinite(v)) return null
-    out.push(v)
-  }
-  return out.length >= 3 ? out : null
+  const n = numbersInto(line, out)
+  return n < 0 ? null : out.slice(0, n)
 }
 
 /** Stops a pass over the lines early. */
@@ -87,10 +106,10 @@ export function parseXYZ(input: ArrayBuffer | ByteSource, onProgress?: (text: st
   const pos = gatherFloats(thinning ? thinning.kept * 3 : undefined)
   const nrm = gatherFloats(thinning ? thinning.kept * 3 : undefined)
   onProgress?.('Reading points…')
+  const row: number[] = []
   eachLine(bytes, (line) => {
     if (thinning && !thinning.keep()) return
-    const row = numbersOf(line)
-    if (!row || row.length !== width) return
+    if (numbersInto(line, row) !== width) return
     pos.push3(row[0], row[1], row[2])
     const nx = row[normalAt]
     const ny = row[normalAt + 1]

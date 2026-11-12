@@ -42,6 +42,9 @@ export const SCAN_FORMATS = 'STL, PLY, OBJ, 3MF, STEP or XYZ/ASC/PTS · mm' // u
 export const REFERENCE_FORMATS = 'STL, PLY, OBJ, 3MF or STEP'
 export const IMAGE_FORMATS = 'PNG or JPEG'
 
+/** Why a point cloud is refused as the reference, wherever it is caught. */
+export const REFERENCE_CLOUD_REFUSAL = 'A point cloud cannot be the reference yet — open a mesh or CAD file.'
+
 /** A second spelling of a format, not named again where the formats are listed. */
 const ALIASES: readonly string[] = ['stp', 'jpg']
 
@@ -73,6 +76,11 @@ export function is3mfFile(fileName: string): boolean {
 export function isStepFile(fileName: string): boolean {
   const ext = extensionOf(fileName)
   return ext === 'step' || ext === 'stp'
+}
+
+/** A point-cloud text file: XYZ, ASC or PTS. */
+export function isCloudTextFile(fileName: string): boolean {
+  return (CLOUD_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
 }
 
 export function isReferenceFile(fileName: string): boolean {

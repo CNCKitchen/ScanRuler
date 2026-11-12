@@ -13,7 +13,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { canvasRect, check, click, fail, finish, launchApp, previewReady, shotPath, sleep } from './e2e-lib.mjs'
+import { check, click, fail, finish, launchApp, previewReady, shotPath, sleep } from './e2e-lib.mjs'
 
 const CLOUD_REFUSAL = 'Needs a mesh — this scan is a point cloud. Use Mesh this cloud (on the scan’s card, or mesh.mesh_cloud), or mesh it in your scanner software and open the mesh.'
 
@@ -67,12 +67,21 @@ try {
   check(Boolean(await page.$('[data-test=mesh-cloud]')), 'the scan card offers Mesh this cloud')
 
   // ---- pick the plane, fit, read the value --------------------------------------
-  const rect = await canvasRect(page)
   await click(page, '[data-test=fit-plane]')
-  // The plane fills most of the stage; the cylinder stands to one side of it.
+  // Points of the plane well clear of the cylinder (at x = 10), put on the
+  // screen through the camera the view is drawn with — wherever the framing
+  // puts the part. Needs the app's development hook, window.__scanruler.
+  const toClient = (p) => page.evaluate((q) => {
+    const s = window.__scanruler.scene()
+    const c = s.viewport.renderer.domElement.getBoundingClientRect()
+    const cam = s.viewport.view
+    cam.updateMatrixWorld()
+    const v = cam.position.clone().set(q[0], q[1], q[2]).project(cam)
+    return [c.left + ((v.x + 1) / 2) * c.width, c.top + ((1 - v.y) / 2) * c.height]
+  }, p)
   let fitted = false
-  for (const [fx, fy] of [[0.4, 0.62], [0.35, 0.7], [0.45, 0.55], [0.3, 0.6], [0.5, 0.75], [0.5, 0.5]]) {
-    await page.mouse.click(rect.x + rect.w * fx, rect.y + rect.h * fy)
+  for (const at of [[-10, -10, 0], [-12, 6, 0], [-5, -14, 0], [-15, 0, 0], [0, 12, 0]]) {
+    await page.mouse.click(...(await toClient(at)))
     if (await previewReady(page, { tries: 40 })) {
       fitted = true
       break

@@ -9,6 +9,7 @@ import { PointGrid } from '../src/core/geometry/pointGrid'
 import { pickCloud } from '../src/viewer/cloudPick'
 import { SceneManager } from '../src/viewer/SceneManager'
 import { DEFAULT_THEME } from '../src/viewer/viewThemes'
+import { perPixelAt } from '../src/viewer/orthoViewport'
 import type { Rigid } from '../src/core/deviation/rigid'
 
 /** An n x n plane at z = 0, spacing 0.5, normals +z. */
@@ -92,6 +93,7 @@ function pickScene() {
     viewport: {
       raycaster,
       worldPerPixel: () => 0.01,
+      worldPerPixelAt: () => 0.01,
       setPickRay: (x: number, y: number) => raycaster.set(new THREE.Vector3(x, y, 10), new THREE.Vector3(0, 0, -1)),
     },
   })
@@ -144,5 +146,22 @@ describe('SceneManager.pick on a cloud', () => {
     expect(hits[0].index).toBe(13)
     expect(hits[0].distance).toBeCloseTo(10)
     expect(hits[0].point.x).toBeCloseTo(11)
+  })
+})
+
+describe('the pick radius at the point picked', () => {
+  it('is the same at every depth in parallel, and grows with depth in perspective', () => {
+    const target = new THREE.Vector3(0, 0, 0)
+    const ortho = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 100)
+    ortho.position.set(0, 0, 50)
+    ortho.lookAt(target)
+    expect(perPixelAt(ortho, target, new THREE.Vector3(0, 0, -30), 0.02)).toBe(0.02)
+    const eye = new THREE.PerspectiveCamera(30, 1, 0.1, 1000)
+    eye.position.set(0, 0, 50)
+    eye.lookAt(target)
+    eye.updateMatrixWorld(true)
+    expect(perPixelAt(eye, target, new THREE.Vector3(5, 0, 0), 0.02)).toBeCloseTo(0.02) // at the target's depth
+    expect(perPixelAt(eye, target, new THREE.Vector3(0, 0, -50), 0.02)).toBeCloseTo(0.04) // twice as far
+    expect(perPixelAt(eye, target, new THREE.Vector3(0, 0, 25), 0.02)).toBeCloseTo(0.01) // half as far
   })
 })

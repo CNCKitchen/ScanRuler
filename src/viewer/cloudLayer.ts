@@ -20,8 +20,10 @@ import { TINT_GLSL_FRAGMENT, TINT_GLSL_PREAMBLE, TINT_GLSL_VERTEX, TINT_GLSL_VER
  *  and the surface reads as a screen door. */
 export const SPLAT_SCALE = 1.6
 
-/** Pixel bounds on a splat: never under one pixel, so a far-off cloud
- *  still shows, and never a blob that hides its neighbours up close. */
+/** Pixel bounds on a splat, in CSS pixels: never under one, so a far-off
+ *  cloud still shows, and never a blob that hides its neighbours up close.
+ *  The splat is sized in the drawing buffer's pixels, so the bounds are
+ *  scaled by the device pixel ratio to hold on any screen. */
 const MIN_PX = 1
 const MAX_PX = 48
 
@@ -41,6 +43,7 @@ const VERTEX = `
 ${TINT_GLSL_VERTEX}${PAINT_GLSL_VERTEX}${DEFLECT_GLSL_VERTEX}
 uniform float uSplat;
 uniform float uHalfHeight;
+uniform float uPixelRatio;
 varying vec3 vNormal;
 varying vec3 vColor;
 #include <common>
@@ -57,7 +60,7 @@ void main() {
   vNormal = normalize( normalMatrix * normal );
   vec4 mvPosition = modelViewMatrix * vec4( transformed, 1.0 );
   gl_Position = projectionMatrix * mvPosition;
-  gl_PointSize = clamp( uSplat * projectionMatrix[1][1] * uHalfHeight / gl_Position.w, ${MIN_PX.toFixed(1)}, ${MAX_PX.toFixed(1)} );
+  gl_PointSize = clamp( uSplat * projectionMatrix[1][1] * uHalfHeight / gl_Position.w, ${MIN_PX.toFixed(1)} * uPixelRatio, ${MAX_PX.toFixed(1)} * uPixelRatio );
   #include <clipping_planes_vertex>
 }
 `
@@ -107,6 +110,7 @@ export class CloudLayer {
       uniforms: {
         uSplat: { value: spacing * SPLAT_SCALE },
         uHalfHeight: { value: 1 },
+        uPixelRatio: { value: 1 },
         uOpacity: { value: 1 },
         uPaintColor: shared?.paintColor ?? { value: new THREE.Color(1, 1, 1) },
         uSurfaceColor: shared?.surfaceColor ?? { value: new THREE.Color(0.7, 0.7, 0.7) },
@@ -122,10 +126,13 @@ export class CloudLayer {
     const size = new THREE.Vector2()
     points.onBeforeRender = (renderer) => {
       material.uniforms.uHalfHeight.value = renderer.getDrawingBufferSize(size).y / 2
+      material.uniforms.uPixelRatio.value = renderer.getPixelRatio()
     }
     this.object = points
   }
 
+  /** For a cloud drawn beside the scan (a plugin's layer): the scan's
+   *  own cloud is laid out and clipped by the scene, as a mesh is. */
   setAttribute(name: string, attr: THREE.BufferAttribute): void {
     this.object.geometry.setAttribute(name, attr)
   }

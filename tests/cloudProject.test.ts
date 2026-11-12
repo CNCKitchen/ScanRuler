@@ -19,6 +19,7 @@ import { useStore, type Element } from '../src/state/store'
 import type { PlaneFit } from '../src/core/types'
 import { useShell } from '../src/state/shellStore'
 import { cylinderCloud, planeCloud, writeXyz } from './cloudFixtures'
+import { fileScale, meshUnitsOf } from '../src/core/meshUnits'
 import { fresh } from './projectKit'
 import type { SceneManager } from '../src/viewer/SceneManager'
 
@@ -109,6 +110,22 @@ describe('a cloud scan in a project', () => {
     const b = parseXYZ(bufferOf(back.members.get('scan.xyz')!))
     expect(b.kind).toBe('cloud')
     expect(Array.from(b.positions)).toEqual(Array.from(a.positions))
+    expect(Array.from(b.normals!)).toEqual(Array.from(a.normals!))
+  })
+
+  it('keeps an XYZ cloud read in inches in inches, so it reads back at the same size', async () => {
+    cloudSession('part.xyz')
+    const xyz = new Uint8Array(writeXyz(cylinderCloud({ radius: 0.5, length: 1, step: 0.1 }), { delim: ' ', columns: 'xyzn' }))
+    const { manifest } = collectProject({ scan: { name: 'part.xyz', file: blobOf(xyz), units: 'in' }, reference: null, image: null }, null, '0.1.0')
+    const members = await readMembers(collectProject({ scan: { name: 'part.xyz', file: blobOf(xyz), units: 'in' }, reference: null, image: null }, null, '0.1.0').members)
+    const back = unpackProject(packProject(manifest, members))
+    expect(back.manifest.scan?.units).toBe('in')
+    const units = meshUnitsOf(back.manifest.scan?.units) ?? 'mm' // units-ok: the default a MeshUnits id falls back to
+    const scale = fileScale('part.xyz', units)
+    expect(scale).toBe(25.4)
+    const a = parseXYZ(bufferOf(xyz))
+    const b = parseXYZ(bufferOf(back.members.get('scan.xyz')!))
+    expect(Array.from(b.positions, (v) => v * scale)).toEqual(Array.from(a.positions, (v) => v * 25.4))
     expect(Array.from(b.normals!)).toEqual(Array.from(a.normals!))
   })
 

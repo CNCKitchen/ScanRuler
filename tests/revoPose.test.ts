@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Revo's pose convention and what alignment recovers on the real passes.
 // Skipped, loudly, where the project is absent (tests/revoFixtures.ts); heavy,
-// so each test states its own timeout. Numbers it logs are the ones the
-// LOW_OVERLAP and CONFIDENT_RMS_SPACINGS choices in src/core/deviation/poseScore.ts rest on.
+// so each test states its own timeout. With SCANRULER_HEAVY=1 it logs the
+// numbers the LOW_OVERLAP and CONFIDENT_RMS_SPACINGS choices in
+// src/core/deviation/poseScore.ts rest on; a default run keeps quiet.
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -20,6 +21,11 @@ const load = (n: RevoPass): PointGraph => {
   return buildPointGraph(parsePLY(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer))
 }
 const DEG = Math.PI / 180
+const HEAVY = process.env.SCANRULER_HEAVY === '1'
+/** The figures behind the thresholds, on a heavy run only. */
+const note = (line: string): void => {
+  if (HEAVY) process.stderr.write(`${line}\n`)
+}
 
 describe.skipIf(!R.exists)('Revo pose', () => {
   let ref: PointGraph
@@ -30,7 +36,7 @@ describe.skipIf(!R.exists)('Revo pose', () => {
     ref = load('0905_02')
     target = new CloudSurface(ref.positions, ref.normals, ref.spacing!)
     maxPair = 3 * ref.spacing!
-    console.log(`0905_02: ${ref.vertexCount} points, spacing ${ref.spacing}, maxPair ${maxPair}`)
+    note(`0905_02: ${ref.vertexCount} points, spacing ${ref.spacing}, maxPair ${maxPair}`)
   }
 
   it('pose convention: the matrix as given maps the pass into 0905_02', () => {
@@ -39,7 +45,7 @@ describe.skipIf(!R.exists)('Revo pose', () => {
     const m = oraclePose(R.oracle('0905_03'))
     const fwd = scorePose(target, pass, m, maxPair)
     const inv = scorePose(target, pass, rigidInvert(m), maxPair)
-    console.log(`0905_03 forward rms ${fwd.rms} matched ${fwd.matched}; inverse rms ${inv.rms} matched ${inv.matched}`)
+    note(`0905_03 forward rms ${fwd.rms} matched ${fwd.matched}; inverse rms ${inv.rms} matched ${inv.matched}`)
     expect(fwd.matched).toBeGreaterThanOrEqual(0.3)
     expect(inv.matched).toBeLessThan(0.05)
   }, 600_000)
@@ -47,15 +53,15 @@ describe.skipIf(!R.exists)('Revo pose', () => {
   it('oracle scores are confident', () => {
     setup()
     const self = scorePose(target, ref, oraclePose(R.oracle('0905_02')), maxPair)
-    console.log(`oracle 0905_02 (self): rms ${self.rms} matched ${self.matched}`)
+    note(`oracle 0905_02 (self): rms ${self.rms} matched ${self.matched}`)
     for (const n of ['0905_01', '0905_03', '0905_04', '0905_05'] as RevoPass[]) {
       const s = scorePose(target, load(n), oraclePose(R.oracle(n)), maxPair)
-      console.log(`oracle ${n}: rms ${s.rms} matched ${s.matched}`)
+      note(`oracle ${n}: rms ${s.rms} matched ${s.matched}`)
       expect(poseConfidence(s, ref.spacing!)).toEqual({ lowOverlap: false, confident: true })
     }
   }, 900_000)
 
-  it.skipIf(process.env.SCANRULER_HEAVY !== '1')('ICP from perturbed oracle and from identity', () => {
+  it.skipIf(!HEAVY)('ICP from perturbed oracle and from identity', () => {
     setup()
     // 25 k samples first, then 200 k from where they ended. Pairs reach 30 mm
     // (6 x the perturbation) and must face the same way.
@@ -70,8 +76,7 @@ describe.skipIf(!R.exists)('Revo pose', () => {
         const s = scorePose(target, pass, at, maxPair)
         const conf = poseConfidence(s, ref.spacing!)
         const { deg, mm } = delta(at, oracle, centroid)
-        process.stderr.write(`ICP ${n} ${name} ${count}: iters ${r.iterations} rms ${s.rms} matched ${s.matched} confident ${conf.confident} delta ${deg.toFixed(3)} deg ${mm.toFixed(3)} mm (${Math.round(performance.now() - t0)} ms)
-`)
+        note(`ICP ${n} ${name} ${count}: iters ${r.iterations} rms ${s.rms} matched ${s.matched} confident ${conf.confident} delta ${deg.toFixed(3)} deg ${mm.toFixed(3)} mm (${Math.round(performance.now() - t0)} ms)`)
         if (count === 200_000) {
           const right = deg <= 1 && mm <= 1
           if (mustBeRight) {
@@ -106,7 +111,7 @@ describe.skipIf(!R.exists)('Revo pose', () => {
         run(n, sign > 0 ? '+5deg+5mm' : '-5deg-5mm', rigidCompose(d, o), pass, o, own, true)
       }
       run(n, 'identity', identityRigid(), pass, o, own, false)
-      console.log(`${n} oracle rotation ${rigidRotationAngle(o) / DEG} deg`)
+      note(`${n} oracle rotation ${rigidRotationAngle(o) / DEG} deg`)
     }
   }, 3_600_000)
 })

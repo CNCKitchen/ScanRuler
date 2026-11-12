@@ -49,8 +49,9 @@ export function planeCloud(o: { size: number; step: number; noise?: number; seed
   if (!o.denseHalf) {
     for (const x of ticks(o.size, o.step)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
   } else {
-    for (const x of ticks(o.size, o.step).filter((v) => v < 0)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
     const fine = o.step / 2
+    // Short of the fine half's first column by more than rounding, so no two points meet at x = 0.
+    for (const x of ticks(o.size, o.step).filter((v) => v < -fine / 2)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
     const nx = Math.round(o.size / 2 / fine)
     for (let i = 0; i <= nx; i++) for (const y of ticks(o.size, fine)) b.add(i * fine, y, jitter(), 0, 0, 1)
   }
@@ -109,7 +110,12 @@ export function sphereCloud(o: { radius: number; step: number; noise?: number })
 }
 
 /** A box centred on the origin with a bore through it along z; the bore's
- *  normals point at the axis, the faces' away from the block. */
+ *  normals point at the axis, the faces' away from the block. Each face is
+ *  sampled whole, so an edge or corner point is there once per face meeting
+ *  it, with that face's normal — not as a scanner gives it, but what the
+ *  segment, merge and align tests built on this fixture are tuned to; giving
+ *  each edge point once moves the FPFH and pair-refine figures in
+ *  plugins/merge/tests. */
 export function blockWithBoreCloud(o: { size: Vec3; boreRadius: number; step: number }): Cloud {
   const [sx, sy, sz] = o.size
   const b = new Builder()

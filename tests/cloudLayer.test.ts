@@ -56,11 +56,25 @@ describe('CloudLayer', () => {
     const layer = new CloudLayer(positions, normals, 0.5)
     const material = layer.object.material as THREE.ShaderMaterial
     expect(material.clipping).toBe(true)
+    expect(material.vertexShader).toContain('#include <clipping_planes_vertex>')
+    expect(material.fragmentShader).toContain('#include <clipping_planes_fragment>')
     const planes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 0)]
     layer.setClipPlanes(planes)
     expect(material.clippingPlanes).toBe(planes)
     layer.setClipPlanes([])
     expect(material.clippingPlanes).toBeNull()
+    layer.dispose()
+  })
+
+  it('bounds its splats in screen pixels, whatever the pixel ratio', () => {
+    const { positions, normals } = grid(2)
+    const layer = new CloudLayer(positions, normals, 0.5)
+    const material = layer.object.material as THREE.ShaderMaterial
+    expect(material.vertexShader).toMatch(/clamp\(.*1\.0 \* uPixelRatio, 48\.0 \* uPixelRatio \)/)
+    const renderer = { getDrawingBufferSize: (v: THREE.Vector2) => v.set(1600, 1200), getPixelRatio: () => 2 }
+    layer.object.onBeforeRender(renderer as never, null as never, null as never, null as never, null as never, null as never)
+    expect(material.uniforms.uHalfHeight.value).toBe(600)
+    expect(material.uniforms.uPixelRatio.value).toBe(2)
     layer.dispose()
   })
 
@@ -132,6 +146,7 @@ function headlessScene(): { scene: SceneManager; moved: Rigid[]; group: THREE.Gr
     setPreview: nop,
     warmPrograms: nop,
     disposeMesh: nop,
+    updateCaps: nop,
   })
   return { scene, moved, group }
 }
@@ -172,5 +187,33 @@ describe('SceneManager with a cloud', () => {
     expect(g.boundingBox!.min.z).toBeCloseTo(5)
     expect(g.boundsTree).toBeUndefined()
     expect(moved).toEqual([m])
+    // The index over the points goes, and is built again where they now are
+    // when a pick wants it, not as the move lands.
+    expect((scene as unknown as { cloudGrid: unknown }).cloudGrid).toBeNull()
+  })
+
+  it('carries the part’s own colours when the file has them', () => {
+    const h = headlessScene()
+    const { positions, normals } = grid(5)
+    const surface = new Uint8Array(25 * 3).fill(200)
+    h.scene.prepareMesh(positions, new Uint32Array(0), normals, new Uint8Array(25), new Uint32Array(0), surface, { spacing: 0.5 }).commit()
+    const g = ((h.scene as unknown as { mesh: THREE.Points }).mesh).geometry
+    expect(g.getAttribute('surface')).toBeTruthy()
+    expect(g.getAttribute('surface').count).toBe(25)
+  })
+
+  it('goes see-through and hides as the scan does', () => {
+    const { scene, points } = loaded()
+    const material = (points as THREE.Points).material as THREE.ShaderMaterial
+    scene.setScanSeeThrough(true)
+    expect(material.uniforms.uOpacity.value).toBeLessThan(1)
+    expect(material.transparent).toBe(true)
+    scene.setScanSeeThrough(false)
+    expect(material.uniforms.uOpacity.value).toBe(1)
+    scene.setScanVisible(false)
+    expect(points.visible).toBe(false)
+    expect(scene.scanShown()).toBe(false)
+    scene.setScanVisible(true)
+    expect(scene.scanShown()).toBe(true)
   })
 })

@@ -120,7 +120,6 @@ describe('PointKdTree', () => {
       if (t.nearest(rr() * 200 - 100, rr() * 200 - 100, 30, 40) >= 0) found++
     }
     const ms = performance.now() - t0
-    console.log(`kd-tree: 25 000 queries 30 mm off a 1 M point plane in ${ms.toFixed(0)} ms`)
     expect(found).toBe(25_000)
     expect(ms).toBeLessThan(1000)
   })

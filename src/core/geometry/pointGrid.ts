@@ -87,7 +87,8 @@ export class PointGrid {
   }
 
   /** Insert the cell's points into the sorted scratch (sIdx/sD2, capacity k).
-   *  Returns the new count. */
+   *  Returns the new count. Points at the same distance are kept in index
+   *  order, so a tie comes out the same whichever cell is scanned first. */
   private scanCell(id: number, x: number, y: number, z: number, k: number, maxD2: number, exclude: number, count: number): number {
     const { pos, starts, items, sIdx, sD2 } = this
     for (let s = starts[id], e = starts[id + 1]; s < e; s++) {
@@ -96,9 +97,9 @@ export class PointGrid {
       const dx = pos[3 * j] - x, dy = pos[3 * j + 1] - y, dz = pos[3 * j + 2] - z
       const d = dx * dx + dy * dy + dz * dz
       if (d > maxD2) continue
-      if (count === k && d >= sD2[k - 1]) continue
+      if (count === k && (d > sD2[k - 1] || (d === sD2[k - 1] && j > sIdx[k - 1]))) continue
       let p = count < k ? count++ : k - 1
-      while (p > 0 && sD2[p - 1] > d) { sD2[p] = sD2[p - 1]; sIdx[p] = sIdx[p - 1]; p-- }
+      while (p > 0 && (sD2[p - 1] > d || (sD2[p - 1] === d && sIdx[p - 1] > j))) { sD2[p] = sD2[p - 1]; sIdx[p] = sIdx[p - 1]; p-- }
       sD2[p] = d; sIdx[p] = j
     }
     return count
@@ -143,7 +144,8 @@ export class PointGrid {
       if (bound === Infinity) break
       const b2 = bound > 0 ? bound * bound : 0
       if (b2 > maxD2) break
-      if (count === k && b2 >= sD2[k - 1]) break
+      // Strictly beyond: a point outside at the k-th distance may still win a tie by index.
+      if (count === k && b2 > sD2[k - 1]) break
     }
     return count
   }
@@ -195,7 +197,8 @@ export class PointGrid {
   }
 
   /** Point within `radius` (perpendicular) of the ray with the smallest ray
-   *  parameter t in [0, maxT], or -1. Direction need not be unit length. */
+   *  parameter t in [0, maxT], the lower index on a tie, or -1. Direction need
+   *  not be unit length. */
   nearestToRay(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, radius: number, maxT: number): number {
     const len = Math.hypot(dx, dy, dz)
     if (this.n === 0 || !(len > 0) || !Number.isFinite(len)) return -1
@@ -210,7 +213,7 @@ export class PointGrid {
         const j = this.items[s]
         const wx = pos[3 * j] - ox, wy = pos[3 * j + 1] - oy, wz = pos[3 * j + 2] - oz
         const t = wx * dx + wy * dy + wz * dz
-        if (t < 0 || t > maxT || t >= bestT) continue
+        if (t < 0 || t > maxT || t > bestT || (t === bestT && j > best)) continue
         if (wx * wx + wy * wy + wz * wz - t * t <= r2) { best = j; bestT = t }
       }
       return best
@@ -248,29 +251,41 @@ export class PointGrid {
     let tmy = dy !== 0 ? (this.minY + (dy > 0 ? iy + 1 : iy) * cell - oy) / dy : Infinity
     let tmz = dz !== 0 ? (this.minZ + (dz > 0 ? iz + 1 : iz) * cell - oz) / dz : Infinity
     let best = -1, bestT = Infinity
+    const scan = (id: number) => {
+      for (let s = starts[id], e = starts[id + 1]; s < e; s++) {
+        const j = items[s]
+        const wx = pos[3 * j] - ox, wy = pos[3 * j + 1] - oy, wz = pos[3 * j + 2] - oz
+        const t = wx * dx + wy * dy + wz * dz
+        if (t < 0 || t > maxT || t > bestT || (t === bestT && j > best)) continue
+        if (wx * wx + wy * wy + wz * wz - t * t <= r2) { best = j; bestT = t }
+      }
+    }
+    // The window of (2m+1)^3 cells about the walked cell is scanned whole at
+    // the start; each step after moves it one cell along one axis, so only
+    // the slab of cells it gains is new — m^2 cells a step, not m^3.
+    let step = -1 // the axis of the last step (0, 1, 2), or -1 for the whole window
+    let dir = 0
     for (;;) {
       const xa = Math.max(ix - m, 0), xb = Math.min(ix + m, nx - 1)
       const ya = Math.max(iy - m, 0), yb = Math.min(iy + m, ny - 1)
       const za = Math.max(iz - m, 0), zb = Math.min(iz + m, nz - 1)
-      for (let z = za; z <= zb; z++)
-        for (let y = ya; y <= yb; y++) {
-          const base = nx * (y + ny * z)
-          for (let x = xa; x <= xb; x++) {
-            const id = base + x
-            for (let s = starts[id], e = starts[id + 1]; s < e; s++) {
-              const j = items[s]
-              const wx = pos[3 * j] - ox, wy = pos[3 * j + 1] - oy, wz = pos[3 * j + 2] - oz
-              const t = wx * dx + wy * dy + wz * dz
-              if (t < 0 || t > maxT || t >= bestT) continue
-              if (wx * wx + wy * wy + wz * wz - t * t <= r2) { best = j; bestT = t }
-            }
-          }
-        }
+      if (step === 0) {
+        const x = ix + dir * m
+        if (x >= 0 && x < nx) for (let z = za; z <= zb; z++) for (let y = ya; y <= yb; y++) scan(x + nx * (y + ny * z))
+      } else if (step === 1) {
+        const y = iy + dir * m
+        if (y >= 0 && y < ny) for (let z = za; z <= zb; z++) for (let x = xa; x <= xb; x++) scan(x + nx * (y + ny * z))
+      } else if (step === 2) {
+        const z = iz + dir * m
+        if (z >= 0 && z < nz) for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) scan(x + nx * (y + ny * z))
+      } else {
+        for (let z = za; z <= zb; z++) for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) scan(x + nx * (y + ny * z))
+      }
       const next = Math.min(tmx, tmy, tmz)
       if (next > bestT || next > t1) break
-      if (tmx === next) { ix += sx; tmx += tdx }
-      else if (tmy === next) { iy += sy; tmy += tdy }
-      else { iz += sz; tmz += tdz }
+      if (tmx === next) { ix += sx; tmx += tdx; step = 0; dir = sx }
+      else if (tmy === next) { iy += sy; tmy += tdy; step = 1; dir = sy }
+      else { iz += sz; tmz += tdz; step = 2; dir = sz }
     }
     return best
   }

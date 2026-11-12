@@ -93,7 +93,7 @@ export function buildPointGraph(parsed: ParsedMesh, onProgress?: (text: string, 
   const bboxDiag = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
 
   onProgress?.('Measuring point spacing…')
-  const spacing = spacingOf(positions, n, bboxDiag)
+  const spacing = spacingOf(positions, n, [x1 - x0, y1 - y0, z1 - z0])
 
   // Neighbours: each point's nearest within 2.5 spacings, at most 12, then
   // the union of both directions so the graph is undirected.
@@ -160,16 +160,28 @@ export function cloudSpacing(positions: Float32Array): number {
     if (z < z0) z0 = z
     if (z > z1) z1 = z
   }
-  return spacingOf(positions, n, n > 0 ? Math.hypot(x1 - x0, y1 - y0, z1 - z0) : 0)
+  return spacingOf(positions, n, n > 0 ? [x1 - x0, y1 - y0, z1 - z0] : [0, 0, 0])
 }
 
-function spacingOf(positions: Float32Array, n: number, bboxDiag: number): number {
+/** The cell of the grid the spacing is measured on, for n points in a box of
+ *  extents ex, ey, ez: the finest with no more cells than points, starting
+ *  from the spacing of n points strung along the diagonal. A cell of
+ *  bboxDiag / cbrt(n) suits a cloud filling its box, but a near-1D one, a long
+ *  thin scan, would hold n^(2/3) points a cell, each scanned per query. */
+export function spacingCell(ex: number, ey: number, ez: number, n: number): number {
+  let c = Math.hypot(ex, ey, ez) / n
+  while ((Math.floor(ex / c) + 1) * (Math.floor(ey / c) + 1) * (Math.floor(ez / c) + 1) > n) c *= 1.5
+  return c
+}
+
+function spacingOf(positions: Float32Array, n: number, extents: [number, number, number]): number {
   // Spacing: median non-zero nearest-neighbour distance over (a deterministic
-  // sample of) the points, found on a grid sized for about a point a cell.
+  // sample of) the points, found on a grid of about a cell a point.
+  const bboxDiag = Math.hypot(...extents)
   const floor = bboxDiag > 0 ? 1e-6 * bboxDiag : 1e-9
   let spacing = floor
   if (n > 1 && bboxDiag > 0) {
-    const coarse = new PointGrid(positions, bboxDiag / Math.cbrt(n))
+    const coarse = new PointGrid(positions, spacingCell(extents[0], extents[1], extents[2], n))
     const step = Math.max(1, Math.floor(n / SPACING_SAMPLE))
     const one = new Int32Array(1)
     const dists: number[] = []

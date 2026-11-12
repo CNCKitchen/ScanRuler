@@ -6,7 +6,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { workspaceUnavailable, watchWorkspaceAvailability } from '../src/app/workspaceAvailability'
 import { CLOUD_REFUSAL } from '../src/core/capabilities'
-import { installPlugins } from '../src/plugins/registry'
+import { installPlugins, plugins } from '../src/plugins/registry'
 import { applyWorkspace } from '../src/app/project'
 import { useDeviation } from '../src/state/deviationStore'
 import { useShell } from '../src/state/shellStore'
@@ -71,8 +71,32 @@ describe('an open workspace that becomes unavailable', () => {
       setCloud(true)
       expect(useDeviation.getState().split).toBe(false)
       expect(useDeviation.getState().picking).toBe(false)
+      // Turned on while the cloud is up — by a command, say — it is closed again.
+      useDeviation.setState({ split: true })
+      expect(useDeviation.getState().split).toBe(false)
     } finally {
       stop()
+    }
+  })
+
+  it('settles only when what it rules on changes', () => {
+    const tab = plugins().find((p) => p.workspace?.id === 'mesh')!.workspace as { unavailable: () => string | null }
+    const own = tab.unavailable
+    let asked = 0
+    tab.unavailable = () => (asked++, own())
+    const stop = watchWorkspaceAvailability()
+    try {
+      useShell.getState().setWorkspace('mesh')
+      asked = 0
+      // A drag, a measurement: changes that cannot make a workspace unavailable.
+      for (let i = 0; i < 20; i++) useStore.setState({ busy: i % 2 === 0 })
+      expect(asked).toBe(0)
+      setCloud(true)
+      expect(asked).toBeGreaterThan(0)
+      expect(useShell.getState().workspace).toBe('elements')
+    } finally {
+      stop()
+      tab.unavailable = own
     }
   })
 

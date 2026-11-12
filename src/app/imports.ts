@@ -12,13 +12,14 @@ import type { Rigid } from '../core/deviation/rigid'
 import type { SceneManager } from '../viewer/SceneManager'
 import { grayscaleOf } from '../core/flat/edgeClient'
 import { assertImageDecodable, imagePixelsPerMm } from '../core/flat/image'
-import { is3mfFile, isModelFile, isReferenceFile, isTextureFile } from '../core/formats'
+import { is3mfFile, isCloudTextFile, isModelFile, isReferenceFile, isTextureFile, REFERENCE_CLOUD_REFUSAL } from '../core/formats'
 import type { MeshUnits } from '../core/meshUnits'
 import { useStore } from '../state/store'
 import { ImportQueue, type PreparedView } from './importQueue'
 import type { SourceFiles } from './project'
 import { companionBytes, companionsOf, scanCompanions } from './scanFiles'
 import { keptSource, nativeBlob, readInPieces, readOpenedFile } from '../core/sourceFile'
+import { cloudSizeOfFile } from '../core/parsers/cloudSize'
 
 export interface PreparedScan {
   id: number
@@ -115,6 +116,9 @@ async function withView(client: MeshWorkerClient, scene: SceneManager | null, id
 }
 
 export async function prepareNominal(client: MeshWorkerClient, scene: SceneManager | null, file: File, given: MeshUnits = 'mm'): Promise<PreparedNominal> {
+  // A cloud is refused before the file is read whole: by its name, or by the
+  // counts in a PLY's header.
+  if (isCloudTextFile(file.name) || (await cloudSizeOfFile(file))) throw new Error(REFERENCE_CLOUD_REFUSAL)
   if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, 3MF or STEP.')
   const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
   const buffer = await readOpenedFile(file, file.name)
