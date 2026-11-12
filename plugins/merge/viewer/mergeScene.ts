@@ -40,6 +40,11 @@ interface Entry {
 const scratch = new THREE.Matrix4()
 const toLocal = new THREE.Matrix4()
 const scratchVec = new THREE.Vector3()
+// A mesh pick's corners, hit point, weights and triangle, reused per hit.
+const triA = new THREE.Vector3(), triB = new THREE.Vector3(), triC = new THREE.Vector3()
+const hitLocal = new THREE.Vector3(), bary = new THREE.Vector3()
+const tri = new THREE.Triangle()
+const ndc = new THREE.Vector2()
 
 export class MergeScene implements SceneLayer {
   order = 20
@@ -146,7 +151,7 @@ export class MergeScene implements SceneLayer {
    *  among `ids` or all shown. The hit is in that layer's own frame. */
   pick(ndcX: number, ndcY: number, ids?: string[]): (PickHit & { layerId: string }) | null {
     const caster = this.caster
-    caster.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.host.camera())
+    caster.setFromCamera(ndc.set(ndcX, ndcY), this.host.camera())
     const ray = caster.ray.clone()
     const planes = this.host.clipPlanes() ?? []
     const world = scratchVec
@@ -168,12 +173,10 @@ export class MergeScene implements SceneLayer {
         if (found?.face) {
           const f = found.face
           const pos = e.mesh.geometry.getAttribute('position') as THREE.BufferAttribute
-          const a = new THREE.Vector3().fromBufferAttribute(pos, f.a)
-          const b = new THREE.Vector3().fromBufferAttribute(pos, f.b)
-          const c = new THREE.Vector3().fromBufferAttribute(pos, f.c)
-          const p = found.point.clone().applyMatrix4(toLocal)
-          const w = new THREE.Vector3()
-          new THREE.Triangle(a, b, c).getBarycoord(p, w)
+          tri.set(triA.fromBufferAttribute(pos, f.a), triB.fromBufferAttribute(pos, f.b), triC.fromBufferAttribute(pos, f.c))
+          const p = hitLocal.copy(found.point).applyMatrix4(toLocal)
+          const w = bary
+          tri.getBarycoord(p, w)
           hit = {
             vertices: [f.a, f.b, f.c],
             weights: [w.x, w.y, w.z],

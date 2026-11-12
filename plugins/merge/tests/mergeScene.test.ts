@@ -141,13 +141,19 @@ describe('MergeScene', () => {
 
   it('clips a layer added while a section is active', () => {
     const planes = [new THREE.Plane(new THREE.Vector3(1, 0, 0), 0)]
-    const s = new MergeScene(host(planes))
+    const h = host(planes)
+    const s = new MergeScene(h)
     s.add('a', patch(3), '#ff0000')
     s.add('m', { positions: Float32Array.from([-1, -1, 0, 1, -1, 0, 0, 1, 0]), normals: new Float32Array(9), indices: Uint32Array.from([0, 1, 2]) }, '#fff')
-    const root = (s as unknown as { root: THREE.Group }).root
-    const mat = (i: number) => ((root.children[i].children[0] as THREE.Mesh | THREE.Points).material as THREE.Material)
-    expect(mat(0).clippingPlanes).toBe(planes)
-    expect(mat(1).clippingPlanes).toBe(planes)
+    // Every drawn object under the part group, wherever the scene keeps it.
+    const materials: THREE.Material[] = []
+    h.partGroup.traverse((o) => {
+      if (o instanceof THREE.Mesh || o instanceof THREE.Points) materials.push(o.material as THREE.Material)
+    })
+    expect(materials.length).toBe(2)
+    for (const m of materials) expect(m.clippingPlanes).toBe(planes)
+    s.clippingChanged(null)
+    for (const m of materials) expect(m.clippingPlanes ?? null).toBe(null)
   })
 
   it('recolours a cloud and a mesh layer', () => {
