@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parseXYZ } from '../src/core/parsers/xyz'
-import { REFERENCE_ACCEPT, SCAN_ACCEPT } from '../src/core/formats'
+import { OPENABLE_FORMATS, REFERENCE_ACCEPT, SCAN_ACCEPT } from '../src/core/formats'
 import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { usePrefs } from '../src/state/prefsStore'
 import { asksUnits, meshUnitsFor, useUnitsPrompt } from '../src/state/unitsPromptStore'
@@ -110,5 +110,9 @@ describe('a cloud as reference', () => {
       expect(SCAN_ACCEPT).toContain(e)
       expect(REFERENCE_ACCEPT).not.toContain(e)
     }
+  })
+
+  it('the formats a refused file is told of name the clouds, PLY and each format once', () => {
+    expect(OPENABLE_FORMATS).toBe('STL, PLY, OBJ, 3MF, STEP, XYZ, ASC, PTS, PNG or JPEG')
   })
 })

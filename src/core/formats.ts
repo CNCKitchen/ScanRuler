@@ -42,6 +42,16 @@ export const SCAN_FORMATS = 'STL, PLY, OBJ, 3MF, STEP or XYZ/ASC/PTS · mm' // u
 export const REFERENCE_FORMATS = 'STL, PLY, OBJ, 3MF or STEP'
 export const IMAGE_FORMATS = 'PNG or JPEG'
 
+/** A second spelling of a format, not named again where the formats are listed. */
+const ALIASES: readonly string[] = ['stp', 'jpg']
+
+/** Every format the app opens on its own — a scan, a reference, a flat scan
+ *  — named once each, from the lists above: "STL, PLY, … PNG or JPEG". */
+export const OPENABLE_FORMATS = (() => {
+  const names = [...SCAN_EXTENSIONS, ...IMAGE_EXTENSIONS].filter((e) => !ALIASES.includes(e)).map((e) => e.toUpperCase())
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+})()
+
 export function extensionOf(fileName: string): string {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
 }

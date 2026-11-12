@@ -16,7 +16,7 @@ import { plugins } from '../plugins/registry'
 import { UndoRedo } from './UndoRedo'
 import { AGENT_STATUS, useAgentLink } from '../commands/agentLink'
 import { Icon, type IconName } from './icons'
-import { IMAGE_ACCEPT, SCAN_ACCEPT, isImageFile, isModelFile, isTextureFile } from '../core/formats'
+import { IMAGE_ACCEPT, OPENABLE_FORMATS, SCAN_ACCEPT, isImageFile, isModelFile, isTextureFile } from '../core/formats'
 import { bundleFiles } from '../app/scanFiles'
 import { PROJECT_ACCEPT, PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
 import { holdsProject, isProjectFile } from '../app/useProject'
@@ -221,7 +221,7 @@ export function TopBar({
                 .setError(
                   isTextureFile(file.name)
                     ? `${file.name} is part of a textured scan — open it together with its OBJ (select the OBJ, the .mtl and the image at once).`
-                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, STEP, PNG or JPEG.`,
+                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, ${OPENABLE_FORMATS}.`,
                 ),
         )
     }

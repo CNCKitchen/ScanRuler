@@ -45,6 +45,14 @@ describe('openFromAddress', () => {
     expect(at('/s/sheet.png')).toEqual({ url: 'https://files.example/sheet.png', name: 'sheet.png' })
   })
 
+  it('/s/<name> opens a point cloud as itself', () => {
+    for (const ext of ['xyz', 'asc', 'pts', 'XYZ']) {
+      expect(at(`/s/clouds/pass.${ext}`)).toEqual({ url: `https://files.example/clouds/pass.${ext}`, name: `pass.${ext}` })
+    }
+    expect(at('/s/scans/part.ply')).toEqual({ url: 'https://files.example/scans/part.ply', name: 'part.ply' })
+    expect(at('/s/scans/part.stp')).toEqual({ url: 'https://files.example/scans/part.stp', name: 'part.stp' })
+  })
+
   it('/s/<name> keeps to the store, whatever the base looks like', () => {
     expect(at('/s/hinge', '', 'https://files.example')).toEqual({ url: 'https://files.example/hinge.scanruler', name: 'hinge.scanruler' })
     expect(at('/s/hinge', '', 'https://files.example/designs/')).toEqual({
