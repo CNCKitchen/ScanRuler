@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ParsedMesh } from '../src/core/types'
 import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
-import { buildPointGraph } from '../src/core/geometry/buildPointGraph'
+import { buildPointGraph, cloudSpacing, spacingCell } from '../src/core/geometry/buildPointGraph'
 import { isCloud } from '../src/core/geometry/cloud'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { planeCloud, writePlyCloud, type Cloud } from './cloudFixtures'
@@ -20,15 +20,54 @@ describe('buildPointGraph', () => {
   })
 
   it('k is capped at 12', () => {
-    // A dense disc inside a sparse frame: the frame's spacing is large, so
-    // every point's radius takes in far more than 12 of the dense ones.
-    const g = buildPointGraph(asParsed(planeCloud({ size: 6, step: 0.1, denseHalf: false })))
-    // Each point asks for at most 12; symmetrising can add the ones that
-    // asked for it, never an unbounded number on a uniform grid.
-    for (let i = 0; i < g.vertexCount; i++) expect(neighbours(g, i).length).toBeLessThanOrEqual(24)
-    // At spacing 0.1 the 2.5-spacing radius holds ~20 points: the cap bit.
-    const mid = g.vertexCount >> 1
-    expect(neighbours(g, mid).length).toBeGreaterThanOrEqual(12)
+    // A uniform grid at spacing 0.1: the 2.5-spacing radius holds 20 other
+    // points about an inner point, more than the 12 each asks for.
+    const g = buildPointGraph(asParsed(planeCloud({ size: 6, step: 0.1 })))
+    const p = g.positions
+    const radius = 2.5 * g.spacing
+    let capped = 0
+    for (let i = 0; i < g.vertexCount; i++) {
+      const row = neighbours(g, i)
+      // Each point asks for at most 12; symmetrising adds only the ones that
+      // asked for it, never an unbounded number on a uniform grid.
+      expect(row.length).toBeLessThanOrEqual(24)
+      let within = 0
+      for (let j = 0; j < g.vertexCount; j++) {
+        if (j !== i && Math.hypot(p[3 * i] - p[3 * j], p[3 * i + 1] - p[3 * j + 1], p[3 * i + 2] - p[3 * j + 2]) <= radius) within++
+      }
+      if (within > 12 && row.length < within) capped++
+    }
+    // The cap bit: inner points are linked to fewer than all in their radius.
+    expect(capped).toBeGreaterThan(g.vertexCount / 2)
+  })
+
+  it('no row holds its own point or the same neighbour twice', () => {
+    for (const c of [planeCloud({ size: 6, step: 0.1 }), planeCloud({ size: 10, step: 1, noise: 0.3, seed: 5, denseHalf: true })]) {
+      const g = buildPointGraph(asParsed(c))
+      for (let i = 0; i < g.vertexCount; i++) {
+        const row = neighbours(g, i)
+        expect(row).not.toContain(i)
+        expect(new Set(row).size).toBe(row.length)
+      }
+    }
+  })
+
+  it('measures the spacing of a near-1D cloud on a grid fine enough for it', () => {
+    // 200 000 points along a line, 0.01 apart, a hair off it: on a grid of
+    // bboxDiag / cbrt(n) cells each cell held about 3 400 of them.
+    const n = 200_000
+    const positions = new Float32Array(3 * n)
+    for (let i = 0; i < n; i++) {
+      positions[3 * i] = i * 0.01
+      positions[3 * i + 1] = (i % 7) * 1e-4
+    }
+    expect(cloudSpacing(positions)).toBeCloseTo(0.01, 4)
+    const cell = spacingCell(n * 0.01, 6e-4, 0, n)
+    expect(cell).toBeLessThan(0.03) // a few points a cell
+    // A cloud filling its box still gets no more cells than points.
+    const box = spacingCell(10, 10, 10, 1000)
+    expect((Math.floor(10 / box) + 1) ** 3).toBeLessThanOrEqual(1000)
+    expect(box).toBeLessThan((1.5 * 10) / 9) // within a coarsening step of the finest that fits
   })
 
   it('spacing of a 1 mm grid is 1 ± 0.01', () => {
