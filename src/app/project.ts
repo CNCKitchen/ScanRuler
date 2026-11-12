@@ -200,7 +200,7 @@ export function withHeldCloud(
   delete held.companions
   return {
     manifest: { ...project.manifest, scan: held },
-    members: [{ name: member, bytes: ply, handOver: true }, ...project.members.filter((m) => !dropped.has(m.name))],
+    members: [{ name: member, bytes: ply }, ...project.members.filter((m) => !dropped.has(m.name))],
   }
 }
 

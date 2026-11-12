@@ -14,9 +14,6 @@ import { isMemberName } from './validation'
 export interface ArchiveMember {
   name: string
   bytes: Uint8Array | Blob
-  /** Bytes made for this packing alone (a held cloud), handed over to the
-   *  project worker rather than copied: nothing else holds them. */
-  handOver?: true
 }
 
 /** A member with its bytes in hand, as the archive is built from. */

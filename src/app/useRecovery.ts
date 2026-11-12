@@ -40,9 +40,18 @@ function hasDraft() {
     projectSections().some((p) => p.hasDraft?.())
 }
 
-export function useRecovery(capture: () => Snapshot, blocked: () => boolean, open: (file: File) => Promise<void>) {
-  const callbacks = useRef({ capture, blocked, open })
-  callbacks.current = { capture, blocked, open }
+/** `stored` is the project as a checkpoint keeps it — a large or thinned
+ *  cloud as the cloud the app holds (heldCloud) — or null when the session
+ *  moved on while it was made; the unsaved-changes check stays on the
+ *  session as captured. */
+export function useRecovery(
+  capture: () => Snapshot,
+  blocked: () => boolean,
+  open: (file: File) => Promise<void>,
+  stored: (snapshot: Snapshot) => Promise<Snapshot | null> = async (s) => s,
+) {
+  const callbacks = useRef({ capture, blocked, open, stored })
+  callbacks.current = { capture, blocked, open, stored }
   const [cache] = useState(() => new ProjectSnapshotCache(() => callbacks.current.capture()))
   const saved = useRef<string | null>(null)
   const hadContent = useRef(false)
@@ -105,8 +114,12 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
         if (!hadContent.current) { cache.release(snapshot); return }
         writing = true
         update({ status: 'Saving local checkpoint…' })
-        try { await db.write(snapshot.manifest, snapshot.members) }
-        finally { cache.release(snapshot) }
+        try {
+          const kept = await callbacks.current.stored(snapshot)
+          // The session moved on while its cloud was written: try again.
+          if (!kept) { pending = true; return }
+          await db.write(kept.manifest, kept.members)
+        } finally { cache.release(snapshot) }
         checkpointKey = current.signature
         if (!disposed) update({ status: 'Local checkpoint saved' })
       } catch (error) { reportError(error) }

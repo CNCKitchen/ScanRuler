@@ -22,10 +22,7 @@ import {
   blankManifest,
   prepareProjectState,
   collectProject,
-  heldCloudWord,
-  packsHeldCloud,
   projectHasContent,
-  withHeldCloud,
   readAs,
   sessionIsDirty,
   type SourceFiles,
@@ -38,6 +35,7 @@ import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan
 import { bundleFiles } from './scanFiles'
 import { MemoryFile, readOpenedFile } from '../core/sourceFile'
 import { identityRigid, rigidInvert } from '../core/deviation/rigid'
+import { HeldCloudCache, storedProject } from './heldCloud'
 import { pluginBusy } from '../commands/activity'
 
 /** A project by its name: `.scanruler`, or that with a count a browser
@@ -95,7 +93,21 @@ export function useProject({
   const projectClient = useRef<ProjectClient | null>(null)
   const client = () => (projectClient.current ??= new ProjectClient())
   const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
-  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true))
+  // A cloud thinned as it was read, or too large to pack, goes into a
+  // project or a checkpoint as the points the worker holds: in the frame of
+  // its file, the alignment put on again on opening, as Cloud Tools writes
+  // an edit.
+  const heldCloud = useRef<HeldCloudCache | null>(null)
+  heldCloud.current ??= new HeldCloudCache((alignment) => {
+    const s = useStore.getState()
+    return clientRef.current!.heldCloud(
+      alignment ? rigidInvert(alignment) : identityRigid(),
+      sceneRef.current?.scanFileColors() ?? null,
+      `${s.fileName ?? 'scan'} as held by ScanRuler`,
+    )
+  })
+  const stored = (snapshot: ReturnType<typeof capture>) => storedProject(snapshot, sources, useStore.getState(), heldCloud.current!)
+  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true), async (snapshot) => (await stored(snapshot))?.project ?? null)
 
   /** The session as a project file, and the session marked saved — what
    *  Save Project downloads and project.save hands back. */
@@ -106,22 +118,8 @@ export function useProject({
     useStore.setState({ busy: true, statusText: 'Saving project…' })
     try {
       const snapshot = capture()
-      let saved = snapshot
-      let heldWord = ''
-      // A cloud thinned as it was read, or too large to pack, goes in as the
-      // points the worker holds: in the frame of its file, the alignment
-      // put on again on opening, as Cloud Tools writes an edit.
-      const scanSource = sources.current.scan
-      if (scanSource && packsHeldCloud(scanSource, store.scanIsCloud)) {
-        const alignment = store.appliedAlignment
-        const held = await clientRef.current!.heldCloud(
-          alignment ? rigidInvert(alignment) : identityRigid(),
-          sceneRef.current?.scanFileColors() ?? null,
-          `${store.fileName ?? scanSource.name} as held by ScanRuler`,
-        )
-        saved = withHeldCloud(snapshot, held.bytes)
-        heldWord = heldCloudWord(scanSource, held.points)
-      }
+      // Nothing changes the scan while this runs in the import queue.
+      const { project: saved, word: heldWord } = (await stored(snapshot)) ?? { project: snapshot, word: '' }
       const bytes = await client().pack(saved.manifest, saved.members)
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
       // The session as captured, not as packed: it is what later captures

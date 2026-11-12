@@ -15,6 +15,8 @@ import { buildPointCloudPly } from '../src/core/exportPointCloud'
 import { parsePLY } from '../src/core/parsers/ply'
 import { planeCloud, writePlyCloud } from './cloudFixtures'
 import { fresh } from './projectKit'
+import { HeldCloudCache, storedProject } from '../src/app/heldCloud'
+import { snapshotKey } from '../src/app/projectSnapshot'
 
 beforeAll(() => installPlugins())
 
@@ -192,5 +194,92 @@ describe('the manifest field', () => {
       const m = { ...manifest, scan: { ...manifest.scan!, heldCloud: bad as unknown as true } }
       expect(() => unpackProject(packProject(m, files))).toThrow(/scan\.heldCloud/)
     }
+  })
+})
+
+describe('the held cloud for checkpoints and saves', () => {
+  const held = () => new Uint8Array(buildPointCloudPly(cloud.positions, cloud.normals, null, 'held'))
+  /** A writer standing in for the worker, counting what it is asked. */
+  function writer() {
+    const calls: (Rigid | null)[] = []
+    const cache = new HeldCloudCache(async (alignment) => {
+      calls.push(alignment)
+      return { bytes: held(), points: COUNT }
+    })
+    return { calls, cache }
+  }
+  const session = (scanIsCloud = true, appliedAlignment: Rigid | null = null) => ({ scanIsCloud, appliedAlignment })
+  const sourcesOf = (scan: NonNullable<SourceFiles['scan']>) => ({ current: { scan, reference: null, image: null } as SourceFiles })
+
+  it('stores an oversized cloud as the held cloud, written once for every checkpoint after', async () => {
+    cloudSession('big.ply')
+    const sources = sourcesOf({ name: 'big.ply', file: oversized(2.7e9) })
+    const { calls, cache } = writer()
+    const key = snapshotKey()
+    const snapshot = collectProject(sources.current, null, '0.1.0')
+    const signature = key(snapshot)
+    const first = (await storedProject(snapshot, sources, session(), cache))!
+    const again = (await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(), cache))!
+    expect(calls).toHaveLength(1)
+    expect(first.word).toContain(`${COUNT.toLocaleString('en-US')} points read from big.ply, not the 2.70 GB file`)
+    expect(first.project.manifest.scan?.heldCloud).toBe(true)
+    // The same bytes, so recovery storage writes the sources once.
+    expect(again.project.members[0].bytes).toBe(first.project.members[0].bytes)
+    // The unsaved-changes check stays on the session as captured.
+    expect(snapshot.manifest.scan?.heldCloud).toBeUndefined()
+    expect(snapshot.members[0].bytes).toBe(sources.current.scan!.file)
+    expect(key(snapshot)).toBe(signature)
+    // And the checkpoint restores: packed, it opens as the held cloud.
+    const back = unpackProject(packProject(first.project.manifest, await readMembers(first.project.members)))
+    expect(back.manifest.scan?.heldCloud).toBe(true)
+    expect(Array.from(parsePLY(bufferOf(back.members.get('scan.ply')!)).positions)).toEqual(Array.from(cloud.positions))
+  })
+
+  it('writes the cloud again when the alignment or the scan changes', async () => {
+    cloudSession('big.ply')
+    const sources = sourcesOf({ name: 'big.ply', file: new Blob([fileBytes()]), maxPoints: 50 })
+    const { calls, cache } = writer()
+    const turn: Rigid = { r: Float64Array.of(1, 0, 0, 0, 1, 0, 0, 0, 1), t: Float64Array.of(1, 2, 3) }
+    await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(), cache)
+    await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(true, turn), cache)
+    await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(true, turn), cache)
+    expect(calls).toEqual([null, turn])
+    sources.current = { ...sources.current, scan: { ...sources.current.scan!, maxPoints: 40 } }
+    await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(true, turn), cache)
+    expect(calls).toHaveLength(3)
+  })
+
+  it('keeps the file of a small cloud and of a mesh, writing nothing', async () => {
+    cloudSession('part.ply')
+    const small = sourcesOf({ name: 'part.ply', file: new Blob([fileBytes()]) })
+    const { calls, cache } = writer()
+    const snapshot = collectProject(small.current, null, '0.1.0')
+    expect((await storedProject(snapshot, small, session(), cache))!.project).toBe(snapshot)
+    const mesh = sourcesOf({ name: 'part.stl', file: oversized(2.7e9) })
+    expect((await storedProject(snapshot, mesh, session(false), cache))!.word).toBe('')
+    expect(calls).toHaveLength(0)
+  })
+
+  it('gives nothing when the scan changed while its cloud was written', async () => {
+    cloudSession('big.ply')
+    const sources = sourcesOf({ name: 'big.ply', file: oversized(2.7e9) })
+    const cache = new HeldCloudCache(async () => {
+      sources.current = { ...sources.current, scan: { name: 'other.ply', file: new Blob([fileBytes()]) } }
+      return { bytes: held(), points: COUNT }
+    })
+    expect(await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(), cache)).toBeNull()
+  })
+
+  it('does not keep a write that failed', async () => {
+    cloudSession('big.ply')
+    const sources = sourcesOf({ name: 'big.ply', file: oversized(2.7e9) })
+    let fail = true
+    const cache = new HeldCloudCache(async () => {
+      if (fail) throw new Error('worker gone')
+      return { bytes: held(), points: COUNT }
+    })
+    await expect(storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(), cache)).rejects.toThrow('worker gone')
+    fail = false
+    expect((await storedProject(collectProject(sources.current, null, '0.1.0'), sources, session(), cache))!.project.manifest.scan?.heldCloud).toBe(true)
   })
 })
