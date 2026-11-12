@@ -153,6 +153,15 @@ the sentence the banner gives you to paste, or change the setting to the
 `@latest` line it shows. Then quit the app completely — not just its window —
 and open it again.
 
+When the page is updated while the app runs, the tools the app was given are
+the old page's, and `scanruler_status` says so (`tools.stale`, with what was
+added, removed and changed). A new chat does not bring the new ones: Claude
+Desktop keeps one server for as long as it runs and does not list the tools
+again when told they changed. Quit the app completely — in Claude Desktop,
+**Quit** from its tray or menu-bar icon, not just closing the window — and open
+it again; the server it starts lists the page's current tools. Until then,
+`scanruler_batch` runs any of the page's tools by name, new ones included.
+
 ### Several agents
 
 Any number of copies of the server can share the tab. The first to start

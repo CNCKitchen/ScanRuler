@@ -198,6 +198,25 @@ export function evalSplineDerivative(fit: FlatSplineFit, k: number, u: number): 
   ]
 }
 
+/** The second derivative on segment k with respect to u — with the first,
+ *  what the curvature there is read from. */
+export function evalSplineSecondDerivative(fit: FlatSplineFit, k: number, u: number): Vec2 {
+  const n = fit.points.length
+  const p0 = fit.points[k]
+  const p1 = fit.points[(k + 1) % n]
+  const h = Math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+  const m0 = fit.tangents[k]
+  const m1 = fit.tangents[(k + 1) % n]
+  const c0 = 12 * u - 6
+  const c1 = (6 * u - 4) * h
+  const c2 = -12 * u + 6
+  const c3 = (6 * u - 2) * h
+  return [
+    c0 * p0[0] + c1 * m0[0] + c2 * p1[0] + c3 * m1[0],
+    c0 * p0[1] + c1 * m0[1] + c2 * p1[1] + c3 * m1[1],
+  ]
+}
+
 // Five-point Gauss–Legendre on [-1, 1]; four panels of it per segment
 // integrate the speed of a cubic to well past any scanner's resolution.
 const GAUSS_X = [0, 0.5384693101056831, -0.5384693101056831, 0.906179845938664, -0.906179845938664]

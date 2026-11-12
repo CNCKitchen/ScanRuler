@@ -21,6 +21,11 @@
  * planes are on offer through the part's centre, each a faint sheet in its
  * axis's colour that lights under the cursor — see setWorldPlanes.
  *
+ * With the curvature comb on, each section wears it too — the same runs the
+ * 2D sheet draws, stood up in the section's plane, the teeth spaced on the
+ * same ladder of screen pixels and drawn ahead of the depth buffer: the
+ * teeth of a hollow point into the material. Its readings are on the sheet.
+ *
  * Fat lines, sized in screen pixels: a cut is a curve lying exactly on a
  * surface, and a one-pixel line there is lost in the shading. The materials
  * need the canvas size, which the viewport reports every tick. How heavy they
@@ -32,6 +37,10 @@ import * as THREE from 'three'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
+import { combStrokes, type CombReach, type CurvatureRun } from '../core/flat/curvature'
+import { combFillMaterial, combSpacing } from './combLadder'
 import { WORLD_AXES, worldCutAxis, type SectionFrame, type WorldAxis } from '../core/section/frame'
 import { sectionStroke, type SectionGeometry } from '../core/section/lift'
 import { outlinePoints, shadowRegions, type ShadowShape } from '../core/section/shadow'
@@ -66,6 +75,8 @@ export interface SectionOverlayItem {
   elements: readonly SectionGeometry[]
   /** A shadow stood up through the part — drawn as a block. */
   extrude?: boolean
+  /** The curvature comb along it: runs on the sheet, in `frame`'s [u, v]. */
+  comb?: { runs: readonly CurvatureRun[]; reach: CombReach; frame: SectionFrame }
 }
 
 /** What one finished section is drawn with, kept for as long as the section is
@@ -77,6 +88,9 @@ export interface SectionOverlayItem {
 interface SectionMaterials {
   cut?: LineMaterial
   elements?: LineMaterial
+  combTeeth?: LineMaterial
+  combCapped?: LineMaterial
+  combEnvelope?: LineMaterial
   dot?: THREE.MeshBasicMaterial
   block?: THREE.MeshBasicMaterial
   edge?: THREE.LineBasicMaterial
@@ -112,6 +126,12 @@ export class SectionOverlay {
     sheet: THREE.MeshBasicMaterial
     border: THREE.LineBasicMaterial
   }[] = []
+  /** The sections' combs, kept so a zoom onto another rung of the tooth
+   *  ladder draws them again — see setPixelScale. */
+  private combGroup = new THREE.Group()
+  private combCleanup: (() => void)[] = []
+  private combs: { id: number; color: string; comb: NonNullable<SectionOverlayItem['comb']> }[] = []
+  private combSpacingDrawn = 0
   /** The finished cuts on screen, for cutNear. */
   private cuts: { id: number; points: Float32Array }[] = []
   /** The sheets alone, for the ray test — built once with the planes. */
@@ -126,6 +146,7 @@ export class SectionOverlay {
 
   constructor(private ctx: SectionOverlayContext) {
     ctx.partGroup.add(this.group)
+    ctx.partGroup.add(this.combGroup)
     ctx.partGroup.add(this.previewGroup)
     ctx.partGroup.add(this.worldGroup)
   }
@@ -140,7 +161,7 @@ export class SectionOverlay {
    *  made, whose sheet is drawn through the part to be set up, nor the
    *  coordinate planes on offer. See SceneManager.dressClipped. */
   clipRoots(): THREE.Object3D[] {
-    return [this.group]
+    return [this.group, this.combGroup]
   }
 
   /** What a pixel is worth now, from the viewport, for the points drawn on the
@@ -148,6 +169,7 @@ export class SectionOverlay {
   setPixelScale(worldPerPixel: number): void {
     if (worldPerPixel === this.worldPerPixel) return
     this.worldPerPixel = worldPerPixel
+    if (this.combs.length > 0 && combSpacing(worldPerPixel) !== this.combSpacingDrawn) this.rebuildCombs()
     if (this.pointDots.size === 0) return
     const r = this.pointDotRadius()
     for (const dot of this.pointDots) dot.scale.setScalar(r)
@@ -167,6 +189,7 @@ export class SectionOverlay {
    *  its own. The next setSections sets it again as the workspace has it. */
   setShown(on: boolean): void {
     this.group.visible = on
+    this.combGroup.visible = on
     this.ctx.invalidate()
   }
 
@@ -185,7 +208,7 @@ export class SectionOverlay {
     for (const [id, mats] of this.materials) {
       if (items.some((item) => item.id === id)) continue
       for (const letGo of mats.letGo) letGo()
-      for (const m of [mats.cut, mats.elements, mats.dot, mats.block, mats.edge]) m?.dispose()
+      for (const m of [mats.cut, mats.elements, mats.combTeeth, mats.combCapped, mats.combEnvelope, mats.dot, mats.block, mats.edge]) m?.dispose()
       this.materials.delete(id)
     }
     for (const fn of this.cleanup) fn()
@@ -194,7 +217,12 @@ export class SectionOverlay {
     this.group.visible = visible
     this.ctx.invalidate()
     this.cuts = visible ? items.flatMap((item) => (item.cut ? [{ id: item.id, points: item.cut.points }] : [])) : []
-    if (!visible) return
+    this.combs = visible ? items.flatMap((item) => (item.comb ? [{ id: item.id, color: item.color, comb: item.comb }] : [])) : []
+    this.combGroup.visible = visible
+    if (!visible) {
+      this.rebuildCombs()
+      return
+    }
     for (const item of items) {
       let held = this.materials.get(item.id)
       if (!held) this.materials.set(item.id, (held = { letGo: [] }))
@@ -214,6 +242,8 @@ export class SectionOverlay {
       this.group.add(label)
       this.cleanup.push(() => label.element.remove())
     }
+    // After the loop, so each comb is drawn with its section's own materials.
+    this.rebuildCombs()
   }
 
   /**
@@ -472,7 +502,7 @@ export class SectionOverlay {
   private fatLine(
     cleanup: (() => void)[],
     held: SectionMaterials | undefined,
-    slot: 'cut' | 'elements',
+    slot: 'cut' | 'elements' | 'combTeeth' | 'combCapped' | 'combEnvelope',
     color: string,
     opacity: number,
     width: number,
@@ -532,6 +562,66 @@ export class SectionOverlay {
       line.renderOrder = onSurface ? 3 : 5
       group.add(line)
       cleanup.push(() => geo.dispose())
+    }
+  }
+
+  /** Every section's comb, its teeth spaced for the zoom in force. */
+  private rebuildCombs(): void {
+    for (const fn of this.combCleanup) fn()
+    this.combCleanup = []
+    this.combGroup.clear()
+    this.ctx.invalidate()
+    if (this.combs.length === 0) return
+    const spacing = combSpacing(this.worldPerPixel || this.ctx.modelRadius() / 400)
+    this.combSpacingDrawn = spacing
+    for (const { id, color, comb } of this.combs) {
+      const held = this.materials.get(id)
+      const { teeth, capped, envelopes, fill } = combStrokes(comb.runs, comb.reach, spacing)
+      const { origin: o, basisU: u, basisV: v } = comb.frame
+      const lift = (pts: Float32Array): Float32Array => {
+        const out = new Float32Array((pts.length / 2) * 3)
+        for (let i = 0, j = 0; i < pts.length; i += 2, j += 3) {
+          const a = pts[i]
+          const b = pts[i + 1]
+          out[j] = o[0] + a * u[0] + b * v[0]
+          out[j + 1] = o[1] + a * u[1] + b * v[1]
+          out[j + 2] = o[2] + a * u[2] + b * v[2]
+        }
+        return out
+      }
+      const segments = (pts: Float32Array, slot: 'combTeeth' | 'combCapped', opacity: number) => {
+        if (pts.length === 0) return
+        const geo = new LineSegmentsGeometry()
+        geo.setPositions(lift(pts))
+        const mat = this.fatLine(this.combCleanup, held, slot, color, opacity, SECTION_LINE_DEFAULT * 0.5, false, 0)
+        const lines = new LineSegments2(geo, mat)
+        lines.renderOrder = 5
+        this.combGroup.add(lines)
+        this.combCleanup.push(() => geo.dispose())
+      }
+      if (fill.length > 0) {
+        const geo = new THREE.BufferGeometry()
+        geo.setAttribute('position', new THREE.BufferAttribute(lift(fill), 3))
+        const mat = combFillMaterial(color)
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.renderOrder = 5
+        this.combGroup.add(mesh)
+        this.combCleanup.push(() => {
+          mat.dispose()
+          geo.dispose()
+        })
+      }
+      segments(teeth, 'combTeeth', 0.6)
+      segments(capped, 'combCapped', 0.25)
+      for (const env of envelopes) {
+        const geo = new LineGeometry()
+        geo.setPositions(Array.from(lift(env)))
+        const mat = this.fatLine(this.combCleanup, held, 'combEnvelope', color, 0.95, SECTION_LINE_DEFAULT * 0.75, false, 0)
+        const line = new Line2(geo, mat)
+        line.renderOrder = 5
+        this.combGroup.add(line)
+        this.combCleanup.push(() => geo.dispose())
+      }
     }
   }
 

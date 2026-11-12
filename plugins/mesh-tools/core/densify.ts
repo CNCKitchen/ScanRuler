@@ -14,6 +14,8 @@
 // new edges are half as long or shorter but for the one from a long edge's
 // middle to the corner across it, which the next pass cuts in turn.
 
+import { edgeKey } from '../../../src/core/geometry/openEdges'
+
 /** What a densify did. */
 export interface DensifyReport {
   maxEdge: number
@@ -66,9 +68,12 @@ export function densifyMesh(
   let passes = 0
   for (; passes < MAX_PASSES; passes++) {
     const n = tris.length / 3
-    // The middles of this pass's long edges, by the edge.
+    // The middles of this pass's long edges, by the edge. Every corner keyed
+    // in a pass is below `count` as the pass starts — a middle is never cut
+    // in the pass that makes it — so that bounds the key, exact past vertex
+    // 2^21 where lower · 2^32 + higher was not.
     const middles = new Map<number, number>()
-    const key = (a: number, b: number) => (a < b ? a * 0x100000000 + b : b * 0x100000000 + a)
+    const key = edgeKey(count)
     const middle = (a: number, b: number): number => {
       const k = key(a, b)
       const had = middles.get(k)

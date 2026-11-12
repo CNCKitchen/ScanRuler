@@ -29,6 +29,8 @@ import { modHeld } from '../ui/platform'
 import type { ViewTheme } from './viewThemes'
 import { LineWidthRegistry } from './lineWidthRegistry'
 import { labelSpot } from '../core/flat/drawing'
+import { combStrokes, curvatureNear, type CombReach, type CurvatureReading, type CurvatureRun } from '../core/flat/curvature'
+import { combFillMaterial, combSpacing } from './combLadder'
 
 /**
  * The 2D Measure workspace's viewport: the scanned sheet on the stage, face
@@ -69,6 +71,16 @@ export interface SheetBox {
   crossing: boolean
   /** Ctrl or Shift held: what the box takes joins the selection. */
   additive: boolean
+}
+
+/** The curvature comb for setCurvatureComb: the runs it is drawn along (in
+ *  document units), each set in its own colour — the edges', an element's —
+ *  how long their teeth are, and how the reading under the cursor is
+ *  written. */
+export interface SheetCombInput {
+  layers: readonly { runs: readonly CurvatureRun[]; color: string }[]
+  reach: CombReach
+  format: (reading: CurvatureReading) => string
 }
 
 /** An arrowhead of a sketch dimension, screen pixels: slim, as a drawing's. */
@@ -149,6 +161,15 @@ export class FlatScene {
   private draftCleanup: (() => void)[] = []
   private guideGroup = new THREE.Group()
   private guideCleanup: (() => void)[] = []
+  /** The curvature comb — see setCurvatureComb: what it is drawn from, the
+   *  tooth spacing it was last drawn at (a rung of a ladder the zoom walks),
+   *  and the reading under the cursor. */
+  private combGroup = new THREE.Group()
+  private combCleanup: (() => void)[] = []
+  private comb: SheetCombInput | null = null
+  private combSpacingDrawn = 0
+  private combHoverGroup = new THREE.Group()
+  private combHoverCleanup: (() => void)[] = []
   /** Fitted geometry and callouts draw as screen-space fat lines (a WebGL
    *  LineBasicMaterial is one pixel whatever it asks for). Every such
    *  material needs the canvas size; this is the one copy they all read.
@@ -325,6 +346,7 @@ export class FlatScene {
         // ruled over.
         if (this.gridFrame && this.gridStale()) this.rebuildGrid()
         if (this.sketchDims && Math.abs(this.unitsPerScreenPx() / this.sketchDims.px - 1) > 0.01) this.rebuildDimStrokes()
+        if (this.comb && combSpacing(this.unitsPerScreenPx()) !== this.combSpacingDrawn) this.rebuildComb()
         // Fat lines are sized in screen pixels and need to know the canvas:
         // its cached size, as a read of the layout every frame is a forced
         // layout pass after any DOM write.
@@ -345,6 +367,7 @@ export class FlatScene {
       },
     })
     this.container.addEventListener('pointermove', this.hoverMove)
+    this.container.addEventListener('pointerleave', this.hoverLeave)
     this.viewport.nav.setPlanar(true)
 
     // Unlit: the scan is a document, not a body — the lights must not shade it.
@@ -357,6 +380,8 @@ export class FlatScene {
     this.viewport.scene.add(this.countGroup)
     this.viewport.scene.add(this.noteGroup)
     this.viewport.scene.add(this.edgeGroup)
+    this.viewport.scene.add(this.combGroup)
+    this.viewport.scene.add(this.combHoverGroup)
     this.viewport.scene.add(this.fillGroup)
     this.viewport.scene.add(this.elementGroup)
     this.viewport.scene.add(this.dotGroup)
@@ -885,9 +910,155 @@ export class FlatScene {
           (this.pinAt(e.clientX, e.clientY) >= 0 || this.handleAt(e.clientX, e.clientY) !== null),
       )
     }
-    if (!this.onHoverPoint) return
+    if (!this.onHoverPoint && !this.comb) return
     const p = this.sheet.visible ? this.pick(e.clientX, e.clientY) : null
-    this.onHoverPoint(p, e.clientX, e.clientY, e.altKey, modHeld(e))
+    if (this.comb) this.showCombReading(p)
+    this.onHoverPoint?.(p, e.clientX, e.clientY, e.altKey, modHeld(e))
+  }
+
+  private hoverLeave = (): void => {
+    if (this.comb) this.showCombReading(null)
+  }
+
+  /**
+   * The curvature comb over the sheet: a tooth square to each curve every
+   * so many screen pixels, as long as the curve is curved there, and a line
+   * through the tips, the area between filled faintly — the teeth cut short
+   * at the reach's cap a shade fainter. The teeth are spaced on a ladder the zoom walks, so zooming in
+   * shows more of them rather than spreading them out. With the cursor near
+   * a curve the reading there is pinned to it — what `format` makes of it.
+   * Null takes the comb away.
+   */
+  setCurvatureComb(comb: SheetCombInput | null): void {
+    this.comb = comb && comb.layers.some((l) => l.runs.length > 0) ? comb : null
+    this.rebuildComb()
+    if (!this.comb) this.showCombReading(null)
+  }
+
+  private rebuildComb(): void {
+    for (const dispose of this.combCleanup) dispose()
+    this.combCleanup = []
+    this.combGroup.clear()
+    this.viewport.invalidate()
+    const comb = this.comb
+    if (!comb) return
+    this.combSpacingDrawn = combSpacing(this.unitsPerScreenPx())
+    for (const layer of comb.layers) {
+      const strokes = combStrokes(layer.runs, comb.reach, this.combSpacingDrawn)
+      const color = new THREE.Color(layer.color).getHex()
+      if (strokes.fill.length > 0) {
+        const positions = new Float32Array((strokes.fill.length / 2) * 3)
+        for (let i = 0, j = 0; i < strokes.fill.length; i += 2, j += 3) {
+          positions[j] = strokes.fill[i]
+          positions[j + 1] = strokes.fill[i + 1]
+          positions[j + 2] = 0.11
+        }
+        const geo = new THREE.BufferGeometry()
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+        const mat = combFillMaterial(color)
+        const mesh = new THREE.Mesh(geo, mat)
+        mesh.renderOrder = 3
+        this.combGroup.add(mesh)
+        this.combCleanup.push(() => {
+          mat.dispose()
+          geo.dispose()
+        })
+      }
+      const segments = (pts: Float32Array, opacity: number, width: number) => {
+        if (pts.length === 0) return
+        const positions = new Float32Array((pts.length / 2) * 3)
+        for (let i = 0, j = 0; i < pts.length; i += 2, j += 3) {
+          positions[j] = pts[i]
+          positions[j + 1] = pts[i + 1]
+          positions[j + 2] = 0.12
+        }
+        const geo = new LineSegmentsGeometry()
+        geo.setPositions(positions)
+        const mat = this.combMaterial(color, opacity, width)
+        const lines = new LineSegments2(geo, mat.mat)
+        lines.renderOrder = 3
+        this.combGroup.add(lines)
+        this.combCleanup.push(() => {
+          mat.letGo()
+          geo.dispose()
+        })
+      }
+      segments(strokes.teeth, 0.55, 1)
+      segments(strokes.capped, 0.22, 1)
+      for (const env of strokes.envelopes) {
+        const positions: number[] = []
+        for (let i = 0; i < env.length; i += 2) positions.push(env[i], env[i + 1], 0.13)
+        const geo = new LineGeometry()
+        geo.setPositions(positions)
+        const mat = this.combMaterial(color, 0.95, 1.5)
+        const line = new Line2(geo, mat.mat)
+        line.renderOrder = 3
+        this.combGroup.add(line)
+        this.combCleanup.push(() => {
+          mat.letGo()
+          geo.dispose()
+        })
+      }
+    }
+  }
+
+  private combMaterial(color: number, opacity: number, width: number): { mat: LineMaterial; letGo: () => void } {
+    const mat = new LineMaterial({
+      color,
+      linewidth: width * this.fatLines.scale,
+      transparent: true,
+      opacity,
+      depthTest: false,
+      worldUnits: false,
+    })
+    const release = this.fatLines.track(mat, width)
+    return {
+      mat,
+      letGo: () => {
+        release()
+        mat.dispose()
+      },
+    }
+  }
+
+  /** Pin the comb's reading nearest `p` — within a hand's reach on screen —
+   *  to the curve, or take it away. */
+  private showCombReading(p: Vec2 | null): void {
+    const comb = this.comb
+    let reading: CurvatureReading | null = null
+    let color = ''
+    if (comb && p) {
+      let reach = 10 * this.unitsPerScreenPx()
+      for (const layer of comb.layers) {
+        const r = curvatureNear(layer.runs, p, reach)
+        if (!r) continue
+        reading = r
+        color = layer.color
+        reach = r.distance
+      }
+    }
+    for (const dispose of this.combHoverCleanup) dispose()
+    this.combHoverCleanup = []
+    this.combHoverGroup.clear()
+    this.viewport.invalidate()
+    if (!comb || !reading) return
+    const label = pinLabel('element-label comb-label', 'Curvature', comb.format(reading), color)
+    label.position.set(reading.at[0], reading.at[1], 0.25)
+    label.center.set(0, 1.4)
+    this.combHoverGroup.add(label)
+    this.combHoverCleanup.push(() => label.element.remove())
+    const geo = new THREE.CircleGeometry(1, 20)
+    const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color), depthTest: false })
+    const dot = new THREE.Mesh(geo, mat)
+    const r = 3.5 * this.unitsPerScreenPx()
+    dot.scale.set(r, r, 1)
+    dot.position.set(reading.at[0], reading.at[1], 0.25)
+    dot.renderOrder = 6
+    this.combHoverGroup.add(dot)
+    this.combHoverCleanup.push(() => {
+      geo.dispose()
+      mat.dispose()
+    })
   }
 
   /** Document spots on screen, in client pixels — for hit-testing the marks
@@ -1957,6 +2128,8 @@ export class FlatScene {
 
   dispose(): void {
     this.container.removeEventListener('pointermove', this.hoverMove)
+    this.container.removeEventListener('pointerleave', this.hoverLeave)
+    this.setCurvatureComb(null)
     this.container.style.cursor = ''
     this.dropBand()
     this.setGrid(null)

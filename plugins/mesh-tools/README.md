@@ -61,6 +61,11 @@ cut is drawn as a sharp edge, not streaked down the bore's wall — from 50°
 or 60° if the scan's noise shows at 30°. Under Auto a scan reads as a scan,
 and its copy is smooth all over.
 
+While the copy waits, every other workspace that measures the scan says so on
+its stage, with **Show** to go back to the copy and **Use for analysis** to
+take it into use from there. × puts the note away until the next edit, or an
+undo, changes the copy.
+
 The **Edited copy** section of the panel lists the edits made on it and its
 triangles beside the scan's, and holds what to do with it:
 

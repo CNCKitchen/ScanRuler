@@ -41,7 +41,7 @@ it allows. `?plugins=none` in the address runs the app without any.
 | Extension point | Where | What for |
 |---|---|---|
 | `workspace` | `plugin.ts` | the tab, and the guided hint's step |
-| `usePlugin(host)` | `plugin.ts` | a React hook App runs every render: panel, stage, overlays, a view beside the viewport (`split`), clicks, hover (`hover`, `hovers`), grips, the scan's colouring, start pane, and the view bar — its parts beside the Scan key (`partKeys`, made with `src/ui/PartKey.tsx`), its keys at the side (`viewKeys`), the Scan key's click and Transparent when it holds them, and its own rows in the Scan key's menu (`scanKey`) |
+| `usePlugin(host)` | `plugin.ts` | a React hook App runs every render: panel, stage, overlays, a view beside the viewport (`split`), clicks, hover (`hover`, `hovers`), grips, the scan's colouring, start pane, and the view bar — its parts beside the Scan key (`partKeys`, made with `src/ui/PartKey.tsx`), its keys at the side (`viewKeys`), the Scan key's click and Transparent when it holds them, its own rows in the Scan key's menu (`scanKey`), and a note on the stage of the other workspaces (`elsewhere`) |
 | `keyboard` | `plugin.ts` | keys in the workspace, Enter and the middle click |
 | `notices` | `plugin.ts` | what the imprint owes the third-party software the plugin ships, under "Third-party software" |
 | `headless()` | `plugin.ts` | what the plugin's headless commands need when the app runs without a browser (`src/headless/engine.ts`, scanruler-mcp `--engine`): a session over its kernel in-process, say. A command marked `headless: true` is offered there; any other answers `unavailable` |

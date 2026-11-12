@@ -520,6 +520,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onExportMesh, onCompare
               <Fragment key={f.id}>
               <ElementRow
                 testId="feature-row"
+                menu={false}
                 name={f.name}
                 picture={<KeyIcon name={FEATURE_ICONS[f.kind]} size={15} />}
                 title={about}

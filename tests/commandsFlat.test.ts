@@ -121,6 +121,35 @@ describe('the 2D sheet without seeing it', () => {
     expect(undoLabels()).toEqual(['Agent: fit 2D circle', 'Agent: fit 2D arc'])
   })
 
+  it('flat.curvature tells an edge as straight runs and arcs, and a fitted curve exactly', async () => {
+    type St = { kind: string; from: number; to: number; radius?: number; radiusMin?: number; radiusMax?: number }
+    type C = { unit: string; window: number; items: { chain: number; closed?: boolean; stretches?: St[]; samples?: { curvature: number }[]; tooShort?: string }[] }
+    const read = await run<C>('flat.curvature', { chains: [0, 1, 3], window: 4, step: 50 })
+    expect(read.unit).toBe('px')
+    expect(read.window).toBe(4)
+    const [line, disc, stroke] = read.items
+    expect(line.stretches!.map((x) => x.kind)).toEqual(['straight'])
+    // A window off each end of the open chain.
+    expect(line.stretches![0].from).toBeCloseTo(4, 0)
+    expect(line.stretches![0].to).toBeCloseTo(796, 0)
+    // The disc's rim stops a step short of its start, and is a loop all the same.
+    expect(disc.closed).toBe(true)
+    expect(disc.stretches!.map((x) => x.kind)).toEqual(['arc'])
+    expect(disc.stretches![0].radius).toBeCloseTo(DISC.r, 0)
+    expect(disc.samples!.length).toBeGreaterThan(5)
+    expect(stroke.stretches!.map((x) => x.kind)).toEqual(['straight'])
+
+    await run('flat.fit', { kind: 'circle', chains: [1] })
+    const exact = await run<{ kind: string; stretches: St[] }>('flat.curvature', { element: 'Circle 1' })
+    expect(exact.kind).toBe('circle')
+    expect(exact.stretches).toHaveLength(1)
+    expect(exact.stretches[0].radiusMin).toBeCloseTo(exact.stretches[0].radiusMax!, 6)
+    await run('flat.fit', { kind: 'line', chains: [0] })
+    expect((await refused('flat.curvature', { element: 'Line 1' })).message).toMatch(/only an arc, a circle or a spline/)
+    expect((await refused('flat.curvature', {})).code).toBe('invalid_input')
+    expect((await refused('flat.curvature', { chains: [9] })).message).toMatch(/no chain 9/)
+  })
+
   it('a pick says where it snapped, and stays where it was put with snap off', async () => {
     const snapped = await run<E>('flat.fit', { kind: 'point', points: [[383, 400]] })
     expect(snapped.picks![0].chain).toBe(1)

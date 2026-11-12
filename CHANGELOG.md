@@ -5,6 +5,60 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.11.2 — 2026-11-11
+
+- **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and
+  is it an arc at all? A checkbox under the edges in 2D Measure, and under
+  the sections in 3D Measure, draws a curvature comb along every edge: a
+  section's cut, an image's detected edges, a shadow's outline, and every
+  arc, circle and spline fitted on the sheet — on the sheet, and standing
+  in each section's plane on the part, the area under the teeth filled
+  faintly. The teeth are sized to the edge's own rounds, not to the
+  section's length, with a slider to scale them. A true arc's teeth are all
+  one length; a blend that is no arc grows and shrinks them. Scanned edges are
+  read smoothed over a length you set (2 mm by default), with the arc's
+  shrinkage taken back so a round reads its true radius; fitted curves are
+  exact. On the sheet the radius under the cursor is read off, convex or
+  concave, and an agent reads the comb in numbers with `flat.curvature`.
+  Off by default. Thanks to shdwx-dev.
+- **The other workspaces say when Mesh Tools has an edited copy waiting**
+  (2026-11-10, issue 128). An edit in Mesh Tools works on a copy of the
+  scan, and the other workspaces go on measuring the scan as it was; only
+  Mesh Tools said so. Now 3D Measure, Deviation, Thickness and Reverse
+  engineer say it on their stage too, with the number of edits, Show to go
+  to the copy and Use for analysis to take it into use from there. The
+  note can be put away, and comes back after the next edit. Thanks to
+  ImagineerNL.
+- **Right-click menus on list rows** (2026-11-10, pull request 131). A
+  right click on an element, dimension or tolerance row opens a menu with
+  Edit, Hide or Show in viewport and Delete, and on a dimension or
+  tolerance Copy reading too. A pinned reading's offers Copy reading, Copy
+  position and Remove pin. The Reverse engineer's feature rows keep the
+  menu they had. The browser's own right-click menu is no longer offered
+  elsewhere in the app, as it already was not over the viewport, but it
+  stays in text fields and over selected text. Thanks to Jozkah.
+- **Dropdowns in the app's own look** (2026-11-10, pull request 130). In
+  Chrome and Edge, a dropdown's list opens in the panel's colours, with the
+  option under the pointer in the accent colour, the chosen one in bold and
+  groups headed in small capitals, as the reference pickers already were:
+  in the panel, the dialogs, the Reverse engineer and Mesh Tools alike.
+  Escape closes the open list and leaves the box under it as it was. Other
+  browsers keep their own list. Thanks to Jozkah.
+- **Densify keeps a large mesh closed** (2026-11-10, pull request 120).
+  Densify told a long edge's middle by a key that is not exact past vertex
+  2,097,152, so on a mesh with more vertices two edges could share one
+  middle: a vertex off its edge and a crack where the triangles on it no
+  longer met. It keys edges the way the open-edge check and the volume
+  error have since 0.9.8. Thanks to kevbart for finding it.
+- **The agent's stale-tools note says what brings the current tools**
+  (2026-11-10, issue 134, scanruler-mcp 0.6.4). When the page was
+  updated while the AI app ran, `scanruler_status` told the agent to start
+  a new chat for the current tools. In Claude Desktop that never helps: the
+  app keeps one server for as long as it runs and does not list the tools
+  again. The note now says to quit the app completely and open it again,
+  and that `scanruler_batch` meanwhile runs any of the page's tools by name;
+  the connector's README says so too. Thanks to MarekO321.
+
 ## 0.11.1 — 2026-11-09
 
 - **Mesh Tools' booleans, Hollow and Trim to scan work on scanruler.com
