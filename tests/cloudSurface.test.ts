@@ -6,7 +6,7 @@ import { autoAlignSteps } from '../src/core/deviation/align'
 import { CloudSurface } from '../src/core/deviation/cloudSurface'
 import { icp, sampleScan, type IcpPool } from '../src/core/deviation/icp'
 import { icpPoolFor } from '../src/core/deviation/icpPool'
-import { identityRigid, rigidCompose, rigidFromAxisAngle, rigidRotationAngle } from '../src/core/deviation/rigid'
+import { identityRigid, rigidCompose, rigidFromAxisAngle, rigidInvert, rigidRotationAngle } from '../src/core/deviation/rigid'
 import { runSteps } from '../src/core/deviation/steps'
 import { emptyHit, NominalSurface } from '../src/core/deviation/surface'
 import { applyRigidCloud, blockWithBoreCloud, planeCloud, rigidOf, sphereCloud, triangulateGrid } from './cloudFixtures'
@@ -141,6 +141,29 @@ describe('CloudSurface', () => {
     const residual = rigidCompose(r.transform, perturb)
     expect((rigidRotationAngle(residual) * 180) / Math.PI).toBeLessThan(0.05)
     expect(Math.hypot(residual.t[0], residual.t[1], residual.t[2])).toBeLessThan(0.02)
+  })
+
+  it('ICP reusing far pairs lands where searching them every pass does', () => {
+    // A target that holds half the part, so half the samples have nothing
+    // near and are the ones carried from pass to pass.
+    const part = blockWithBoreCloud({ size: [40, 30, 20], boreRadius: 6, step: 1 })
+    const keep: number[] = []
+    for (let i = 0; i < part.positions.length / 3; i++) if (part.positions[3 * i] > -4) keep.push(i)
+    const pick = (a: Float32Array) => Float32Array.from(keep.flatMap((i) => [a[3 * i], a[3 * i + 1], a[3 * i + 2]]))
+    const surface = new CloudSurface(pick(part.positions), pick(part.normals), 1)
+    const scan = blockWithBoreCloud({ size: [40, 30, 20], boreRadius: 6, step: 0.73 })
+    const axis = [5, -3, 4].map((v) => v / Math.hypot(5, -3, 4)) as [number, number, number]
+    const perturb = rigidFromAxisAngle(axis, (5 * Math.PI) / 180)
+    perturb.t.set(axis.map((v) => v * 3))
+    const moved = applyRigidCloud(scan, perturb)
+    const samples = sampleScan(moved.positions, moved.normals, 5000)
+    const options = { maxIterations: 60, minNormalDot: 0.5, maxPairDistance: 30 }
+    const every = icp(surface, samples, identityRigid(), options)
+    const reused = icp(surface, samples, identityRigid(), { ...options, reuseFar: { near: 4, slack: 0.5 } })
+    const apart = rigidCompose(rigidInvert(every.transform), reused.transform)
+    expect((rigidRotationAngle(apart) * 180) / Math.PI).toBeLessThan(0.005)
+    expect(Math.hypot(apart.t[0], apart.t[1], apart.t[2])).toBeLessThan(0.005)
+    expect(Math.abs(reused.score - every.score)).toBeLessThan(0.01 * every.score)
   })
 })
 

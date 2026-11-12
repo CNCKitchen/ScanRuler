@@ -12,6 +12,17 @@
 // because a layer only partly overlaps the target and an unbounded pairing
 // drags the rest of it onto whatever surface is nearest.
 //
+// The wide bound is also what made a refine slow: a layer point with nothing
+// near (four in ten on the Ruben head) searches out towards it every pass,
+// several times dearer than a near hit. Those points still count, in ICP's
+// median cut and its score, and on a pass that can slide (Revo's 0905_01) its
+// path depends on them, so they are not dropped but searched again only once
+// they have moved a spacing (icp's FarPairs). And the 200 k stage stops when
+// a pass moves the layer under a two-hundredth of a spacing rather than a
+// ten-millionth of the part. Together they take a refine of the Ruben head
+// from 8 to 10 s to 3 to 4, landing where it did to 0.001 degrees
+// (refineBench.test.ts).
+//
 // What it reports is not ICP's figure but scorePose over every layer point,
 // pairs within 3 target spacings: an honest closest-point RMS and the share
 // of the layer that found the target. ICP from a start nobody chose can settle
@@ -98,6 +109,17 @@ const FINE_SAMPLES = 200_000
 const ITERATIONS = 40
 const MIN_NORMAL_DOT = 0.5
 const MAX_PAIR = 30
+/** Layer samples with no target point within this many target spacings (and
+ *  NEAR_MIN mm) are paired as icp's FarPairs says, searched again once they
+ *  have moved SLACK_SPACINGS. */
+const NEAR_SPACINGS = 16
+const NEAR_MIN = 1
+const SLACK_SPACINGS = 1
+/** The 200 k stage stops once a pass moves the layer less than this many
+ *  target spacings. The 25 k stage keeps ICP's own, far tighter, stop: a
+ *  layer sliding slowly along a face (layerAlign.test's shifted picks) must
+ *  be let slide, and on 25 k samples that is cheap. */
+const FINE_TOLERANCE = 0.005
 /** Scoring reach, in target spacings. */
 const SCORE_SPACINGS = 3
 /** Layer points scored between two yields: the full-resolution score of a
@@ -204,7 +226,8 @@ export function* refineLayer(
   opts: RefineOptions = {},
 ): Steps<LayerAlignResult> {
   const spacing = spacingOf(target, opts)
-  const icpOptions = { maxIterations: ITERATIONS, maxPairDistance: opts.maxPairDistance ?? MAX_PAIR, minNormalDot: MIN_NORMAL_DOT }
+  const reuseFar = { near: Math.max(NEAR_SPACINGS * spacing, NEAR_MIN), slack: SLACK_SPACINGS * spacing }
+  const icpOptions = { reuseFar, maxIterations: ITERATIONS, maxPairDistance: opts.maxPairDistance ?? MAX_PAIR, minNormalDot: MIN_NORMAL_DOT }
 
   const coarse = {
     xyz: Float64Array.from(layer.sample),
@@ -212,7 +235,7 @@ export function* refineLayer(
     count: layer.sample.length / 3,
   }
   let pose = (yield* icpSteps(target, coarse, start, icpOptions)).transform
-  pose = (yield* icpSteps(target, layer.fine, pose, icpOptions)).transform
+  pose = (yield* icpSteps(target, layer.fine, pose, { ...icpOptions, tolerance: FINE_TOLERANCE * spacing })).transform
   const r = yield* judge(target, layer, pose, spacing)
   return { ...r, confident: r.confident && opts.fromUserGuess !== false }
 }

@@ -19,7 +19,7 @@ import {
   type Rigid,
 } from './rigid'
 import { runSteps, type Steps } from './steps'
-import { emptyHit, NominalSurface, type ClosestSurface } from './surface'
+import { emptyHit, NominalSurface, type ClosestHit, type ClosestSurface } from './surface'
 
 /** A thinned copy of the scan, in the scan's own frame, that ICP iterates on.
  *  Every iteration is one closest-point query per sample, so this is the knob
@@ -62,6 +62,11 @@ export interface IcpOptions {
   onIteration?: (iteration: number, meanDistance: number, transform: Rigid) => void
   /** Helper workers that pair the samples a pass at a time (icpPool.ts). */
   pool?: IcpPool
+  /** Carry far pairs from pass to pass (see FarPairs): a sample with no
+   *  reference point within `near` mm keeps what a full search last found
+   *  for it until it has moved `slack` mm from where that search was made.
+   *  Takes effect with `near` under maxPairDistance, and never with helpers. */
+  reuseFar?: { near: number; slack: number }
 }
 
 export interface IcpResult {
@@ -169,9 +174,80 @@ export interface IcpPool {
 export const PAIR_CHUNK = 128
 
 /**
+ * What pairing remembers of the samples far from the reference, so that a
+ * pass need not search for them again. With a wide pair bound the samples
+ * that have nothing near cost the most: on a layer that half overlaps its
+ * target, the search for each of them runs out towards the bound every pass,
+ * several times dearer than a near hit. They cannot simply be dropped — they
+ * count in the median the outlier cut is read from and in the pose score,
+ * and against a cloud a far point whose tangent plane passes close to the
+ * sample pairs with it. So a sample with no reference point within `near` is
+ * searched in full once, and what that found (the plane, or nothing) is used
+ * again, at where the sample is now, until the sample has moved `slack` from
+ * where the search was made. Against a cloud the plane is what the search
+ * would give while the nearest point stays the same one; all that can change
+ * unseen is which point that is, and `slack` keeps it to a neighbour.
+ */
+export interface FarPairs {
+  near: number
+  slack: number
+  /** Where each sample was last searched in full. */
+  at: Float64Array
+  /** What that search found: a point on the plane and its normal, 6 a sample. */
+  plane: Float64Array
+  /** 0 not searched, 1 a plane, 2 nothing within the bound. */
+  state: Uint8Array
+}
+
+export function newFarPairs(n: number, near: number, slack: number): FarPairs {
+  return { near, slack, at: new Float64Array(3 * n), plane: new Float64Array(6 * n), state: new Uint8Array(n) }
+}
+
+/** Sample i, at p with normal sn, beyond `far.near` of the reference: its
+ *  remembered plane or miss while it has not moved `far.slack`, else a full
+ *  search, remembered. */
+function farPair(
+  surface: ClosestSurface,
+  far: FarPairs,
+  i: number,
+  p: Float64Array,
+  sn: Float64Array,
+  params: PairParams,
+  hit: ClosestHit,
+): boolean {
+  const { at, plane, state } = far
+  const k = 3 * i, m = 6 * i
+  const dx = p[0] - at[k], dy = p[1] - at[k + 1], dz = p[2] - at[k + 2]
+  if (state[i] !== 0 && dx * dx + dy * dy + dz * dz < far.slack * far.slack) {
+    if (state[i] === 2) return false
+    const nx = plane[m + 3], ny = plane[m + 4], nz = plane[m + 5]
+    const side = (p[0] - plane[m]) * nx + (p[1] - plane[m + 1]) * ny + (p[2] - plane[m + 2]) * nz
+    hit.distance = Math.abs(side)
+    hit.signed = side
+    hit.px = p[0] - side * nx; hit.py = p[1] - side * ny; hit.pz = p[2] - side * nz
+    hit.nx = nx; hit.ny = ny; hit.nz = nz
+    hit.faceIndex = -1
+    return true
+  }
+  const { maxPairDistance, facingSearch, minNormalDot } = params
+  let paired = surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
+  if (paired && facingSearch && sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot) {
+    paired = surface.closestFacing(p[0], p[1], p[2], sn[0], sn[1], sn[2], minNormalDot, hit, maxPairDistance)
+  }
+  at[k] = p[0]; at[k + 1] = p[1]; at[k + 2] = p[2]
+  state[i] = paired ? 1 : 2
+  if (paired) {
+    plane[m] = hit.px; plane[m + 1] = hit.py; plane[m + 2] = hit.pz
+    plane[m + 3] = hit.nx; plane[m + 4] = hit.ny; plane[m + 5] = hit.nz
+  }
+  return paired
+}
+
+/**
  * Pair samples `from`..`to` with the reference, under `transform`: the one body of
  * arithmetic, run here for a pass without helpers and by each helper for its
- * blocks, so the pairs are identical either way.
+ * blocks, so the pairs are identical either way. With `far`, samples beyond
+ * `far.near` of the reference are paired as FarPairs says.
  */
 export function pairRange(
   surface: ClosestSurface,
@@ -181,6 +257,7 @@ export function pairRange(
   out: PairArrays,
   from: number,
   to: number,
+  far?: FarPairs,
 ): void {
   const { maxPairDistance, facingSearch, minNormalDot, scoreCap } = params
   const { q, cp, cn, dist, ok, score } = out
@@ -210,19 +287,25 @@ export function pairRange(
     // gap between a boss and its pocket — pays for the second, facing-aware
     // search. Which is exactly the sample a plain rejection would have
     // thrown away, so the cost lands where the answer changes.
-    let paired = surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
-    if (
-      paired &&
-      facingSearch &&
-      sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot
-    ) {
-      paired = surface.closestFacing(
-        p[0], p[1], p[2],
-        sn[0], sn[1], sn[2],
-        minNormalDot,
-        hit,
-        maxPairDistance,
-      )
+    let paired: boolean
+    if (far && !surface.closest(p[0], p[1], p[2], hit, far.near)) {
+      paired = farPair(surface, far, i, p, sn, params, hit)
+    } else {
+      // Within far.near, the nearest point is the nearest within the bound.
+      paired = far ? true : surface.closest(p[0], p[1], p[2], hit, maxPairDistance)
+      if (
+        paired &&
+        facingSearch &&
+        sn[0] * hit.nx + sn[1] * hit.ny + sn[2] * hit.nz < minNormalDot
+      ) {
+        paired = surface.closestFacing(
+          p[0], p[1], p[2],
+          sn[0], sn[1], sn[2],
+          minNormalDot,
+          hit,
+          maxPairDistance,
+        )
+      }
     }
     if (!paired) {
       score[i] = scoreCap
@@ -315,6 +398,8 @@ export function* icpSteps(
   const { q, cp, cn, dist, ok, score: pairScore } = arrays
   const sorted = new Float64Array(n)
   const params: PairParams = { maxPairDistance, facingSearch, minNormalDot, scoreCap }
+  const reuse = options.reuseFar
+  const far = !session && reuse && reuse.near < maxPairDistance && reuse.slack > 0 ? newFarPairs(n, reuse.near, reuse.slack) : undefined
 
   // Normal equations for [ω, τ]: 6×6 and its right-hand side.
   const ata = new Float64Array(36)
@@ -330,7 +415,7 @@ export function* icpSteps(
       yield session.pair(transform, params)
       if (!session.complete) pairRange(surface, samples, transform, params, arrays, 0, n)
     } else {
-      pairRange(surface, samples, transform, params, arrays, 0, n)
+      pairRange(surface, samples, transform, params, arrays, 0, n, far)
     }
     let found = 0
     // Truncated mean distance over *every* sample, not just the ones that
