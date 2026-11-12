@@ -2,9 +2,10 @@
 // PLY in all three encodings — ASCII, and binary of either byte order — read
 // for vertex positions, per-vertex colours and face lists; the other
 // properties a scanner writes are stepped over. A file with no faces is a
-// point cloud and is read for its normals too, or refused when it has none. One header comment is
-// honoured besides: a file that says its winding is settled
-// (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
+// point cloud and is read for its normals too, or refused when it has none.
+// One header comment is honoured besides: a file that says its winding is
+// settled (PLY_KEEP_WINDING) keeps it as written instead of having it guessed
+// again.
 // A body is read a run of vertices at a time from a ByteSource, so a cloud
 // past the 2 GiB a browser reads in one piece opens too, and is thinned as
 // it is read when asked (thin.ts).

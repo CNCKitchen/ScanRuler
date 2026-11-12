@@ -18,7 +18,8 @@ import { parseOBJ } from './parsers/obj'
 import { parse3MF } from './parsers/threemf'
 import type { ObjCompanions } from './parsers/objTexture'
 import { parseSTEP, type StepInfo } from './parsers/step'
-import { extensionOf } from './formats'
+import { extensionOf, isCloudTextFile, REFERENCE_CLOUD_REFUSAL } from './formats'
+import { CLOUD_HEAD_BYTES, cloudSizeOf } from './parsers/cloudSize'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { buildPointGraph } from './geometry/buildPointGraph'
 import { isCloud } from './geometry/cloud'
@@ -244,6 +245,12 @@ function parseNominal(
   onProgress: (t: string) => void,
 ): { parsed: ParsedMesh; step?: StepInfo } {
   const ext = extensionOf(name)
+  // A cloud is refused before it is read: a text cloud by its name, a PLY one
+  // by the counts in its header.
+  if (isCloudTextFile(name)) throw new Error(REFERENCE_CLOUD_REFUSAL)
+  if (ext === 'ply' && cloudSizeOf(name, new Uint8Array(buffer, 0, Math.min(buffer.byteLength, CLOUD_HEAD_BYTES)), buffer.byteLength)) {
+    throw new Error(REFERENCE_CLOUD_REFUSAL)
+  }
   if (ext === 'step' || ext === 'stp') {
     const imported = parseSTEP(buffer, onProgress)
     return { parsed: imported.mesh, step: imported.info }
@@ -548,7 +555,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   if (msg.type === 'load-nominal') {
     try {
       const { parsed, step } = parseNominal(msg.name, msg.buffer, progress)
-      if (parsed.kind === 'cloud') throw new Error('A point cloud cannot be the reference yet — open a mesh or CAD file.')
+      if (parsed.kind === 'cloud') throw new Error(REFERENCE_CLOUD_REFUSAL)
       scaleToMm(parsed, msg.scale)
       // The nominal goes through the same welding as a scan: the pseudonormals
       // that give a signed distance its sign are sums over the faces meeting at

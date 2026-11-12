@@ -94,8 +94,9 @@ describe('auto-align on a point cloud', () => {
 })
 
 /** The block with a bore as the fixture gives it as a cloud, and as a mesh over
- *  the same vertices: every face's grid cut into triangles, the bore's rings
- *  likewise, each triangle wound to the normal of its first corner. */
+ *  the same points: every face's grid cut into triangles, the edge and corner
+ *  points the fixture gives once repeated per face, the bore's rings likewise, each
+ *  triangle wound to its face's normal (the bore's to its first corner's). */
 function blockWithBore(): { cloud: Cloud; mesh: MeshGraph } {
   const size: Vec3 = [60, 40, 20]
   const step = 1
@@ -105,57 +106,78 @@ function blockWithBore(): { cloud: Cloud; mesh: MeshGraph } {
     const n = Math.max(1, Math.round(len / step))
     return Array.from({ length: n + 1 }, (_, i) => -len / 2 + (len * i) / n)
   }
-  const pos: number[] = []
+  const [sx, sy, sz] = size
+  const rings = Math.max(1, Math.round(sz / step))
+  const around = Math.max(8, Math.round((2 * Math.PI * r) / step))
+  // The faces' points come first in the cloud, the bore's rings last.
+  const base = cloud.positions.length / 3 - (rings + 1) * around
+  const pos = Array.from(cloud.positions)
+  const keyOf = (p: ArrayLike<number>) => Array.from(p, Math.fround).join(',')
+  const onFace = new Map<string, number>()
+  for (let i = 0; i < base; i++) onFace.set(keyOf(cloud.positions.subarray(i * 3, i * 3 + 3)), i)
+  expect(onFace.size).toBe(base) // no point given twice
+  // Each face is its own sheet, as the cloud's faces are told apart by their
+  // normals: an edge point a second face reaches is given that face again,
+  // past the cloud's own points, so no mesh vertex averages two faces.
+  const used = new Set<number>()
   const tris: number[] = []
-  const grid = (us: number[], vs: number[], at: (u: number, v: number) => Vec3, keep: (p: Vec3) => boolean = () => true) => {
+  const faceNormal: (Vec3 | null)[] = []
+  const grid = (us: number[], vs: number[], at: (u: number, v: number) => Vec3, normal: Vec3, keep: (p: Vec3) => boolean = () => true) => {
     const idx = us.map(() => vs.map(() => -1))
     us.forEach((u, i) => vs.forEach((v, j) => {
       const p = at(u, v)
       if (!keep(p)) return
-      idx[i][j] = pos.length / 3
-      pos.push(...p)
+      const k = onFace.get(keyOf(p))
+      expect(k).toBeDefined()
+      if (used.has(k!)) {
+        idx[i][j] = pos.length / 3
+        pos.push(...p)
+      } else {
+        idx[i][j] = k!
+        used.add(k!)
+      }
     }))
     for (let i = 0; i + 1 < us.length; i++)
       for (let j = 0; j + 1 < vs.length; j++) {
         const [a, b, c, d] = [idx[i][j], idx[i + 1][j], idx[i + 1][j + 1], idx[i][j + 1]]
-        if (a >= 0 && b >= 0 && c >= 0) tris.push(a, b, c)
-        if (a >= 0 && c >= 0 && d >= 0) tris.push(a, c, d)
+        if (a >= 0 && b >= 0 && c >= 0) { tris.push(a, b, c); faceNormal.push(normal) }
+        if (a >= 0 && c >= 0 && d >= 0) { tris.push(a, c, d); faceNormal.push(normal) }
       }
   }
-  const [sx, sy, sz] = size
   for (const s of [-1, 1]) {
-    grid(ticks(sy), ticks(sz), (y, z) => [(s * sx) / 2, y, z])
-    grid(ticks(sx), ticks(sz), (x, z) => [x, (s * sy) / 2, z])
-    grid(ticks(sx), ticks(sy), (x, y) => [x, y, (s * sz) / 2], (p) => Math.hypot(p[0], p[1]) > r + step / 2)
+    grid(ticks(sy), ticks(sz), (y, z) => [(s * sx) / 2, y, z], [s, 0, 0])
+    grid(ticks(sx), ticks(sz), (x, z) => [x, (s * sy) / 2, z], [0, s, 0])
+    grid(ticks(sx), ticks(sy), (x, y) => [x, y, (s * sz) / 2], [0, 0, s], (p) => Math.hypot(p[0], p[1]) > r + step / 2)
   }
-  const rings = Math.max(1, Math.round(sz / step))
-  const around = Math.max(8, Math.round((2 * Math.PI * r) / step))
-  const base = pos.length / 3
+  // Every face point is a corner of the faces' grids.
+  expect(used.size).toBe(base)
+  const bore: number[] = []
   for (let k = 0; k <= rings; k++)
     for (let j = 0; j < around; j++) {
       const a = (2 * Math.PI * j) / around
-      pos.push(r * Math.cos(a), r * Math.sin(a), -sz / 2 + (sz * k) / rings)
+      bore.push(r * Math.cos(a), r * Math.sin(a), -sz / 2 + (sz * k) / rings)
     }
+  expect(cloud.positions.subarray(base * 3)).toEqual(Float32Array.from(bore))
   for (let k = 0; k < rings; k++)
     for (let j = 0; j < around; j++) {
       const a = base + k * around + j, b = base + k * around + ((j + 1) % around)
       tris.push(a, b, a + around, b, b + around, a + around)
+      faceNormal.push(null, null)
     }
-  // The same vertices as the cloud's, in the same order.
-  expect(Float32Array.from(pos)).toEqual(cloud.positions)
-  // Each triangle wound with its first corner's normal.
+  // Each triangle wound with its face's normal, or its first corner's.
   const wound = Uint32Array.from(tris)
   for (let t = 0; t < wound.length; t += 3) {
     const [a, b, c] = [wound[t], wound[t + 1], wound[t + 2]]
     const e1 = [0, 1, 2].map((k) => pos[b * 3 + k] - pos[a * 3 + k])
     const e2 = [0, 1, 2].map((k) => pos[c * 3 + k] - pos[a * 3 + k])
     const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
-    if (n[0] * cloud.normals[a * 3] + n[1] * cloud.normals[a * 3 + 1] + n[2] * cloud.normals[a * 3 + 2] < 0) {
+    const want = faceNormal[t / 3] ?? [cloud.normals[a * 3], cloud.normals[a * 3 + 1], cloud.normals[a * 3 + 2]]
+    if (n[0] * want[0] + n[1] * want[1] + n[2] * want[2] < 0) {
       wound[t + 1] = c
       wound[t + 2] = b
     }
   }
-  const mesh = buildMeshGraph({ kind: 'indexed', positions: cloud.positions.slice(), indices: wound })
+  const mesh = buildMeshGraph({ kind: 'indexed', positions: Float32Array.from(pos), indices: wound })
   return { cloud, mesh }
 }
 

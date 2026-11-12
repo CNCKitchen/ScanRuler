@@ -107,7 +107,7 @@ export function eachLine(bytes: Uint8Array | ByteSource, visit: (line: string, i
 
 /** A character that ends a word, as the pattern \s has it for the text formats
  *  in use: the ASCII white space, and the rest of what a file might hold. */
-const isSpace = (c: number) => c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff || c === 0x2028 || c === 0x2029 || c === 0x3000 || c === 0x1680 || c === 0x202f || c === 0x205f || (c >= 0x2000 && c <= 0x200a)
+export const isSpace = (c: number): boolean => c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff || c === 0x2028 || c === 0x2029 || c === 0x3000 || c === 0x1680 || c === 0x202f || c === 0x205f || (c >= 0x2000 && c <= 0x200a)
 
 /** The words of the bytes, one call at a time: what parts split on white space
  *  would give, without holding the whole text. */

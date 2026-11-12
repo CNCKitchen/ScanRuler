@@ -49,8 +49,9 @@ export function planeCloud(o: { size: number; step: number; noise?: number; seed
   if (!o.denseHalf) {
     for (const x of ticks(o.size, o.step)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
   } else {
-    for (const x of ticks(o.size, o.step).filter((v) => v < 0)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
     const fine = o.step / 2
+    // Short of the fine half's first column by more than rounding, so no two points meet at x = 0.
+    for (const x of ticks(o.size, o.step).filter((v) => v < -fine / 2)) for (const y of ticks(o.size, o.step)) b.add(x, y, jitter(), 0, 0, 1)
     const nx = Math.round(o.size / 2 / fine)
     for (let i = 0; i <= nx; i++) for (const y of ticks(o.size, fine)) b.add(i * fine, y, jitter(), 0, 0, 1)
   }
@@ -109,15 +110,18 @@ export function sphereCloud(o: { radius: number; step: number; noise?: number })
 }
 
 /** A box centred on the origin with a bore through it along z; the bore's
- *  normals point at the axis, the faces' away from the block. */
+ *  normals point at the axis, the faces' away from the block. Each edge and
+ *  corner is sampled once, on the x faces and then the y faces, as a scanner
+ *  would give one point there rather than one per face with differing normals. */
 export function blockWithBoreCloud(o: { size: Vec3; boreRadius: number; step: number }): Cloud {
   const [sx, sy, sz] = o.size
   const b = new Builder()
+  const inner = (size: number) => ticks(size, o.step).slice(1, -1)
   for (const s of [-1, 1]) {
     for (const y of ticks(sy, o.step)) for (const z of ticks(sz, o.step)) b.add(s * sx / 2, y, z, s, 0, 0)
-    for (const x of ticks(sx, o.step)) for (const z of ticks(sz, o.step)) b.add(x, s * sy / 2, z, 0, s, 0)
-    for (const x of ticks(sx, o.step)) {
-      for (const y of ticks(sy, o.step)) {
+    for (const x of inner(sx)) for (const z of ticks(sz, o.step)) b.add(x, s * sy / 2, z, 0, s, 0)
+    for (const x of inner(sx)) {
+      for (const y of inner(sy)) {
         if (Math.hypot(x, y) > o.boreRadius + o.step / 2) b.add(x, y, s * sz / 2, 0, 0, s)
       }
     }
