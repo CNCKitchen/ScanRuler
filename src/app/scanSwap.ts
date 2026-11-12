@@ -77,7 +77,7 @@ export function scanSwap({
       source.scale ?? 1,
       source.maxPoints,
     )
-    await commitSwap(prepared, source, transform)
+    await commitSwap(prepared, source)
   }
 
   /**
@@ -97,12 +97,12 @@ export function scanSwap({
   ): Promise<Int32Array> => {
     const n = buffers.positions.length / 3
     const prepared = await clientRef.current!.prepareCloud(buffers.positions, buffers.normals, creaseSetting(useStore.getState()), transform ?? undefined)
-    await commitSwap(prepared, source, transform)
+    await commitSwap(prepared, source)
     return prepared.mesh.vertexMap ?? Int32Array.from({ length: n }, (_, i) => i)
   }
 
   /** The prepared scan made the session's: shared by both swaps. */
-  const commitSwap = async (prepared: { id: number; mesh: LoadedScan }, source: ScanSource, _transform: Rigid | null): Promise<void> => {
+  const commitSwap = async (prepared: { id: number; mesh: LoadedScan }, source: ScanSource): Promise<void> => {
     const client = clientRef.current!
     const { id, mesh } = prepared
     try {

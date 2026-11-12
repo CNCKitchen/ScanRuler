@@ -7,7 +7,7 @@
 // worker keeping them through its own swap), redo merges again. A mesh base
 // asks first. The merged scan goes into a project and comes back the same.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { rigidApply, rigidCompose } from '../../../src/core/deviation/rigid'
+import { rigidApply, rigidCompose, rigidRotationAngle } from '../../../src/core/deviation/rigid'
 import { parsePLY } from '../../../src/core/parsers/ply'
 import { collectProject } from '../../../src/app/project'
 import { packProject, readMembers, unpackProject } from '../../../src/core/project/archive'
@@ -178,7 +178,22 @@ describe('merging', () => {
     expect(row(id).visible).toBe(false)
     expect((await kit.call('layer-geometry', { id })).positions.length).toBe(layerPoints * 3)
     // A swap of anyone else's still drops the layers: the flag was one-shot.
-    await kit.headless.session.swap.swapScanBuffers({ name: 'x.ply', file: plyFile(hi, 'x.ply'), units: 'mm', scale: 1 }, { positions: hi.positions.slice(), normals: hi.normals.slice() }, null)
+    // Normals that do not match the points are refused before anything moves.
+    await expect(kit.headless.session.swap.swapScanBuffers({ name: 'x.ply', file: plyFile(hi, 'x.ply'), units: 'mm', scale: 1 }, { positions: hi.positions.slice(), normals: hi.normals.slice(3) }, null))
+      .rejects.toThrow('A point cloud needs one normal for each point.')
+    expect(row(id)).toBeDefined()
+    // A view into a larger buffer is copied: only what it shows is handed over.
+    const big = new Float32Array(hi.positions.length + 30)
+    big.set(hi.positions, 30)
+    const client = kit.headless.session.clientRef.current! as unknown as { request(msg: unknown, transfer?: Transferable[]): Promise<unknown> }
+    const sent = vi.spyOn(client, 'request')
+    try {
+      await kit.headless.session.swap.swapScanBuffers({ name: 'x.ply', file: plyFile(hi, 'x.ply'), units: 'mm', scale: 1 }, { positions: big.subarray(30), normals: hi.normals.slice() }, null)
+      const handed = sent.mock.calls.find(([msg]) => (msg as { type: string }).type === 'load-buffers')![1] as ArrayBuffer[]
+      expect(handed.map((buf) => buf.byteLength)).toEqual([hi.positions.byteLength, hi.normals.byteLength])
+    } finally {
+      sent.mockRestore()
+    }
     expect(layers()).toEqual([])
     await expect(kit.call('layer-geometry', { id })).rejects.toThrow(`There is no layer "${id}".`)
   })
@@ -248,6 +263,9 @@ describe('merging', () => {
 
     const s = useStore.getState()
     const alignment = s.appliedAlignment
+    // Not trivially kept: there is a turned alignment to keep.
+    expect(alignment).not.toBeNull()
+    expect(rigidRotationAngle(alignment!)).toBeGreaterThan(0.1)
     const scale = s.scanScale
     const baseCount = s.vertexCount
     const mapVersion = useDeviation.getState().mapVersion
