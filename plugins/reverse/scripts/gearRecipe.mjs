@@ -89,14 +89,20 @@ async function chainsOf(call, section, { open = false } = {}) {
     .map((c) => c.world)
 }
 
-/** A section square to Z at `z`, named. */
-const cutAt = (call, z, name) => call('section.cut', { across: 'XY', offset: z, name })
+/** A section square to Z at `z`, named — a reading aid, removed again
+ *  when the model is built (`cut` keeps their names). */
+const cutAt = async (call, z, name, cut) => {
+  await call('section.cut', { across: 'XY', offset: z, name })
+  cut.push(name)
+}
 
 /**
  * Model the gear. Returns what was read and built: teeth, tip, root, bore
  * and hub radii, the heights, the feature names, and the compare's score.
  */
 export async function buildGear(call, { log = () => {} } = {}) {
+  // The sections cut to read the scan, by name: removed once it is read.
+  const cut = []
   // ---- stand it on its axis ------------------------------------------------------
   // Square to its largest flat face, exactly — the gear's face — the rest
   // settled about it: the axis is that face's normal.
@@ -115,7 +121,7 @@ export async function buildGear(call, { log = () => {} } = {}) {
 
   // ---- the teeth, off a section through them -------------------------------------
   const zTeeth = (bottom + teethTop) / 2
-  await cutAt(call, zTeeth, 'Teeth')
+  await cutAt(call, zTeeth, 'Teeth', cut)
   // The teeth as the reader sees them — its count and envelopes, for the
   // record; the model takes its numbers off the outline about the bore's
   // centre, which a closed ring of teeth reads more surely.
@@ -130,6 +136,9 @@ export async function buildGear(call, { log = () => {} } = {}) {
   const rings = chains.slice(1).map((c) => ({ c, r: mean(c.map((p) => Math.hypot(p[0] - rough[0], p[1] - rough[1]))), off: Math.hypot(middle(c)[0] - rough[0], middle(c)[1] - rough[1]) }))
   const boreRing = rings.filter((x) => x.off < x.r).sort((a, b) => a.r - b.r)[0] ?? null
   const circle = boreRing ? fitCircle(boreRing.c) : null
+  // The bore's points read so far, the hub's added below: its circle,
+  // fitted over both heights, is the one cut.
+  const boreRings = boreRing ? [...boreRing.c] : []
   const centre = circle ? circle.c : rough
   const bore = circle ? circle.r : null
   const polar = outline.map((p) => ({ p, a: Math.atan2(p[1] - centre[1], p[0] - centre[0]), r: Math.hypot(p[0] - centre[0], p[1] - centre[1]) }))
@@ -182,7 +191,9 @@ export async function buildGear(call, { log = () => {} } = {}) {
     }).map((p) => p[2])
     return zs.length >= 20 ? median(zs) : z
   }
-  bottom = await faceAt(bottom, false, root + 0.5, tip - 0.5)
+  // The base read over all of it, bore to tip: one face, where a scan
+  // that stands a little higher under its teeth than inside lies best.
+  bottom = await faceAt(bottom, false, (bore ?? 0) + 0.4, tip - 0.5)
   teethTop = await faceAt(teethTop, true, root + 0.5, tip - 0.5)
   log(`faces at ${bottom.toFixed(3)} (base) and ${teethTop.toFixed(3)} (gear's face), off the points`)
 
@@ -227,19 +238,6 @@ export async function buildGear(call, { log = () => {} } = {}) {
   if (body.result?.status !== 'ok') throw new Error(`the gear's extrude: ${body.result?.message ?? body.result?.status}`)
   const features = ['Gear profile', 'Gear']
 
-  // The web inside the root, where it stands lower than the teeth's
-  // underside: a disc down to it.
-  const web = await faceAt(bottom, false, (bore ?? 0) + 0.4, (bore ?? 0) + 1.8)
-  if (bottom - web > 0.05) {
-    await call('reverse.feature.add', {
-      feature: { kind: 'sketch', name: 'Web profile', plane: { kind: 'world', axis: 'z', offset: web }, sketch: { shapes: [{ kind: 'circle', id: 1, world: true, fixed: true, center: [centre[0], centre[1], web], radius: root }] } },
-    })
-    const made = await call('reverse.feature.add', { feature: { kind: 'extrude', name: 'Web', sketchId: 'Web profile', regions: 'all', extent: { kind: 'distance', from: 0, to: bottom - web + 0.5 }, op: 'join' } })
-    if (made.result?.status !== 'ok') throw new Error(`the web's extrude: ${made.result?.message ?? made.result?.status}`)
-    features.push('Web profile', 'Web')
-    log(`web ${(bottom - web).toFixed(3)} below the teeth, at ${web.toFixed(3)}`)
-  }
-
   // ---- the hub and its lugs ------------------------------------------------------
   // The hub's top: the highest face square to Z, where it stands clear of
   // the teeth; else the scan's top.
@@ -251,9 +249,10 @@ export async function buildGear(call, { log = () => {} } = {}) {
     // Read near its top, clear of a hole through its side: every run of the
     // cut outside the bore, laid round the axis by angle — a hub's top is
     // often scanned in pieces.
-    await cutAt(call, hubTop - Math.min(1.5, (hubTop - teethTop) / 4), 'Hub')
-    const around = (await chainsOf(call, 'Hub', { open: true }))
-      .flat()
+    await cutAt(call, hubTop - Math.min(1.5, (hubTop - teethTop) / 4), 'Hub', cut)
+    const hubCut = (await chainsOf(call, 'Hub', { open: true })).flat()
+    boreRings.push(...hubCut.filter((p) => Math.abs(Math.hypot(p[0] - centre[0], p[1] - centre[1]) - (bore ?? 0)) < 0.5))
+    const around = hubCut
       .map((p) => ({ p, a: Math.atan2(p[1] - centre[1], p[0] - centre[0]), r: Math.hypot(p[0] - centre[0], p[1] - centre[1]) }))
       .filter((q) => q.r > (bore ?? 0) + 1)
       .sort((x, y) => x.a - y.a)
@@ -273,14 +272,10 @@ export async function buildGear(call, { log = () => {} } = {}) {
     // A lug: a run of the outline standing out of the hub by over 0.8 mm,
     // closed inward under the hub's circle so the two overlap.
     const into = (a) => [hubC[0] + (hub - 1) * Math.cos(a), hubC[1] + (hub - 1) * Math.sin(a)]
-    const lugR = []
     for (const run of runsOf(around, (q) => q.r > hub + 0.8)) {
       if (run.length < 6) continue
       lugs.push([into(run[0].a), ...decimate(run.map((q) => q.p), 32).map((p) => [p[0], p[1]]), into(run[run.length - 1].a)])
-      lugR.push(Math.max(...run.map((q) => q.r)))
     }
-    // The lugs' tops, off the points on them: lower than the hub's, often.
-    const lugTop = lugs.length > 0 ? await faceAt(hubTop, true, hub + 0.6, Math.min(...lugR) - 0.6) : hubTop
     log(`hub r ${hub.toFixed(3)}, ${teethTop.toFixed(2)}…${hubTop.toFixed(2)}, ${lugs.length} lug${lugs.length === 1 ? '' : 's'}`)
     const LUG = 100
     await call('reverse.feature.add', {
@@ -291,6 +286,7 @@ export async function buildGear(call, { log = () => {} } = {}) {
         sketch: {
           shapes: [
             { kind: 'circle', id: 1, world: true, fixed: true, center: [hubC[0], hubC[1], teethTop], radius: hub },
+            ...lugs.map((pts, k) => ({ kind: 'polyline', id: LUG * (k + 1), world: true, fixed: true, closed: true, points: pts.map((p) => [p[0], p[1], teethTop]) })),
           ],
         },
       },
@@ -298,20 +294,6 @@ export async function buildGear(call, { log = () => {} } = {}) {
     const made = await call('reverse.feature.add', { feature: { kind: 'extrude', name: 'Hub', sketchId: 'Hub profile', regions: 'all', extent: { kind: 'distance', from: -0.5, to: hubTop - teethTop }, op: 'join' } })
     if (made.result?.status !== 'ok') throw new Error(`the hub's extrude: ${made.result?.message ?? made.result?.status}`)
     features.push('Hub profile', 'Hub')
-    if (lugs.length > 0) {
-      await call('reverse.feature.add', {
-        feature: {
-          kind: 'sketch',
-          name: 'Lug profile',
-          plane: { kind: 'world', axis: 'z', offset: teethTop },
-          sketch: { shapes: lugs.map((pts, k) => ({ kind: 'polyline', id: LUG * (k + 1), world: true, fixed: true, closed: true, points: pts.map((p) => [p[0], p[1], teethTop]) })) },
-        },
-      })
-      const lug = await call('reverse.feature.add', { feature: { kind: 'extrude', name: 'Lugs', sketchId: 'Lug profile', regions: 'all', extent: { kind: 'distance', from: -0.5, to: lugTop - teethTop }, op: 'join' } })
-      if (lug.result?.status !== 'ok') throw new Error(`the lugs' extrude: ${lug.result?.message ?? lug.result?.status}`)
-      features.push('Lug profile', 'Lugs')
-      log(`lugs' top ${lugTop.toFixed(3)}`)
-    }
   }
 
   // ---- pockets in the base -------------------------------------------------------
@@ -321,7 +303,7 @@ export async function buildGear(call, { log = () => {} } = {}) {
   // The cut's runs between the bore and the root, open ones too.
   const baseRuns = async (z, open) => {
     const name = `Base ${z.toFixed(2)}`
-    await cutAt(call, z, name)
+    await cutAt(call, z, name, cut)
     return (await chainsOf(call, name, { open })).filter((c) => {
       const [mx, my] = middle(c)
       const r = Math.hypot(mx - centre[0], my - centre[1])
@@ -365,15 +347,66 @@ export async function buildGear(call, { log = () => {} } = {}) {
   }
 
   if (bore) {
+    const whole = fitCircle(boreRings)
+    log(`bore r ${whole.r.toFixed(3)} about [${whole.c.map((v) => v.toFixed(3))}], over ${boreRings.length} points at two heights`)
     await call('reverse.feature.add', {
-      feature: { kind: 'sketch', name: 'Bore profile', plane, sketch: { shapes: [{ kind: 'circle', id: 1, world: true, fixed: true, center: [centre[0], centre[1], bottom], radius: bore }] } },
+      feature: { kind: 'sketch', name: 'Bore profile', plane, sketch: { shapes: [{ kind: 'circle', id: 1, world: true, fixed: true, center: [whole.c[0], whole.c[1], bottom], radius: whole.r }] } },
     })
     const cut = await call('reverse.feature.add', { feature: { kind: 'extrude', name: 'Bore', sketchId: 'Bore profile', regions: 'all', extent: { kind: 'distance', from: -1, to: hubTop - bottom + 1 }, op: 'cut' } })
     if (cut.result?.status !== 'ok') throw new Error(`the bore's cut: ${cut.result?.message ?? cut.result?.status}`)
     features.push('Bore profile', 'Bore')
   }
 
+  // ---- the bore's mouth ----------------------------------------------------------
+  // A countersink where the bore meets the hub's top: the top's points
+  // read in rings from the bore out, each ring's median height; the sink
+  // runs out where the top is level again.
+  let sink = null
+  if (bore && hub) {
+    const whole = fitCircle(boreRings)
+    const got = await call('scan.query', { box: { min: [whole.c[0] - hub, whole.c[1] - hub, hubTop - 3], max: [whole.c[0] + hub, whole.c[1] + hub, hubTop + 0.5] }, normal: { dir: [0, 0, 1], withinDeg: 75 }, limit: 1000 })
+    const pts = (got.points ?? []).map((q) => ({ r: Math.hypot(q[0] - whole.c[0], q[1] - whole.c[1]), z: q[2] }))
+    const rings = []
+    for (let r0 = whole.r; r0 < hub - 0.6; r0 += 0.3) {
+      const zs = pts.filter((q) => q.r >= r0 && q.r < r0 + 0.3).map((q) => q.z)
+      if (zs.length >= 8) rings.push({ r: r0 + 0.15, z: median(zs) })
+    }
+    const level = rings.findIndex((q) => q.z > hubTop - 0.08)
+    if (level >= 2 && rings[0].z < hubTop - 0.3) {
+      const slope = rings.slice(0, level)
+      // A line through the sloping rings, read at the bore and at the top.
+      const mr = mean(slope.map((q) => q.r))
+      const mz = mean(slope.map((q) => q.z))
+      const k = slope.reduce((a, q) => a + (q.r - mr) * (q.z - mz), 0) / slope.reduce((a, q) => a + (q.r - mr) ** 2, 0)
+      if (k > 0.05) {
+        const atBore = mz + k * (whole.r - mr)
+        const outer = mr + (hubTop - mz) / k
+        sink = { depth: hubTop - atBore, width: outer - whole.r }
+        const [cx, cy] = whole.c
+        await call('reverse.feature.add', {
+          feature: {
+            kind: 'sketch',
+            name: 'Countersink profile',
+            plane: { kind: 'world', axis: 'y', offset: cy },
+            sketch: {
+              shapes: [
+                { kind: 'polyline', id: 1, world: true, fixed: true, closed: true, points: [[cx + whole.r - 0.5, cy, atBore - 0.5 * k], [cx + outer + 0.5 / k, cy, hubTop + 0.5], [cx + whole.r - 0.5, cy, hubTop + 0.5]] },
+                { kind: 'polyline', id: 10, world: true, fixed: true, construction: true, points: [[cx, cy, hubTop - 5], [cx, cy, hubTop + 1]] },
+              ],
+            },
+          },
+        })
+        const made = await call('reverse.feature.add', { feature: { kind: 'revolve', name: 'Countersink', sketchId: 'Countersink profile', axis: { kind: 'sketchLine', entity: 10 }, op: 'cut' } })
+        if (made.result?.status !== 'ok') throw new Error(`the countersink: ${made.result?.message ?? made.result?.status}`)
+        features.push('Countersink profile', 'Countersink')
+        log(`countersink ${sink.width.toFixed(2)} wide, ${sink.depth.toFixed(2)} deep`)
+      }
+    }
+  }
+
+  // The sections cut to read the scan go: the model stands on its own.
+  for (const name of cut) await call('section.delete', { section: name })
   const compare = await call('reverse.body.compare', { detail: 'score' })
   log(`compare: ${JSON.stringify(compare).slice(0, 400)}`)
-  return { teeth, read: read?.teeth ?? null, tip, root, bore, hub, lugs: lugs.length, pocket, centre, bottom, teethTop, top: hubTop, features, compare }
+  return { teeth, read: read?.teeth ?? null, tip, root, bore, hub, lugs: lugs.length, pocket, sink, centre, bottom, teethTop, top: hubTop, features, compare }
 }
