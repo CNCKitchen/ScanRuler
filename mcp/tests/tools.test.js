@@ -45,6 +45,16 @@ test('a schema passes through as it is, but for files, and a change takes wait a
   assert.equal(toolFor(fit, { outDir: '/out' }).annotations.readOnlyHint, false)
 })
 
+test('finding the scan’s flat regions runs as a job: a long read, it takes wait and stays read-only', () => {
+  // 28 M points took it past the answer limit with no job to wait on.
+  const segment = command('scan.segment')
+  assert.equal(segment.long, true)
+  const tool = toolFor(segment, { outDir: '/out' })
+  assert.equal(tool.inputSchema.properties.wait, waitIn)
+  assert.equal(tool.inputSchema.properties.timings, undefined)
+  assert.equal(tool.annotations.readOnlyHint, true)
+})
+
 test('a command that takes a file takes a path instead, its name defaulting to the file’s', () => {
   const open = command('scan.open')
   assert.equal(bytesProperty(open), 'bytes')

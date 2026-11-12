@@ -1,6 +1,6 @@
 {
   "app": "0.11.2",
-  "saved": "2026-11-12T17:20:58.048Z",
+  "saved": "2026-11-12T19:42:15.234Z",
   "commands": [
     {
       "name": "align.auto",
@@ -4090,7 +4090,7 @@
     {
       "name": "scan.segment",
       "title": "Find the scan’s flat regions",
-      "description": "The scan’s planar regions, found all at once: grown from the flattest places outward within maxDeg (15°) and maxRms (0.05 mm), those smaller than minArea given back. Returns found, considered, claimed, noise and the regions, largest first, at most limit (20): id, normal, point (a vertex of the region — the one nearest its centroid, so a fit seeded there lands on it), sigma, area (mm²), box, vertices, neighbours { id, deg, smooth } and, with symmetric, mirror (its twin across that plane). Trap: a round surface comes out as strips that look like facets — such a region says curved { sagitta } and run, and curvedRuns joins them into surfaces with a note saying what to model each as; read the runs before taking regions for faces. mark: a region’s id, or several, leaves their points marked for element.fit_marked { marked: true }. Changes nothing.",
+      "description": "The scan’s planar regions, found all at once: grown from the flattest places outward within maxDeg (15°) and maxRms (0.05 mm), those smaller than minArea given back. Returns found, considered, claimed, noise and the regions, largest first, at most limit (20): id, normal, point (a vertex of the region — the one nearest its centroid, so a fit seeded there lands on it), sigma, area (mm²), box, vertices, neighbours { id, deg, smooth } and, with symmetric, mirror (its twin across that plane). Trap: a round surface comes out as strips that look like facets — such a region says curved { sagitta } and run, and curvedRuns joins them into surfaces with a note saying what to model each as; read the runs before taking regions for faces. mark: a region’s id, or several, leaves their points marked for element.fit_marked { marked: true }. About 35 s on a 14 M-point cloud; the regions are kept, so asking again with the same options is quick. Changes nothing.",
       "input": {
         "type": "object",
         "properties": {
@@ -4195,7 +4195,8 @@
       },
       "readOnly": true,
       "returnsFile": false,
-      "returnsImage": false
+      "returnsImage": false,
+      "long": true
     },
     {
       "name": "section.cut",
