@@ -675,8 +675,10 @@ export class SceneManager {
       raycaster: this.raycaster,
       // Only the scan stands between the camera and a pin: the pins are
       // readings on the scan, and the reference is a translucent ghost a pin
-      // shows through. A hidden scan hides nothing.
-      occluder: () => (this.mesh?.visible ? this.scanAsMesh() : null),
+      // shows through. A hidden scan hides nothing. A cloud is raycast
+      // through its own pick (cloudRaycast), whose radius the test allows for.
+      occluder: () => (this.mesh?.visible ? this.mesh : null),
+      cloudPickRadius: (at) => (this.cloud ? this.cloudPickRadius(this.cloud, this.viewport.worldPerPixelAt(at)) : null),
     })
     this.sections = new SectionOverlay({
       partGroup: this.partGroup,
@@ -2273,7 +2275,7 @@ export class SceneManager {
     const local = new THREE.Ray().copy(ray).applyMatrix4(toLocal)
     const material = cloud.object.material as THREE.Material
     const planes = (material.clippingPlanes ?? []).map((pl) => pl.clone().applyMatrix4(toLocal))
-    const radiusAt = (perPixel: number) => Math.max(CLOUD_PICK_PIXELS * perPixel, 1.5 * cloud.spacing)
+    const radiusAt = (perPixel: number) => this.cloudPickRadius(cloud, perPixel)
     const normals = cloud.object.geometry.getAttribute('normal').array as Float32Array
     const radius = radiusAt(this.viewport.worldPerPixel())
     let found = pickCloud(this.cloudGridFor(cloud), normals, local, radius, planes)
@@ -2292,14 +2294,24 @@ export class SceneManager {
     return found
   }
 
-  /** The cloud's Points.raycast: its one point per ray, nearest the eye. */
+  /** How far from a ray a cloud's point may lie and be picked by it, at
+   *  `perPixel` world units to the pixel: a splat's worth on screen, never
+   *  under 1.5 spacings. */
+  private cloudPickRadius(cloud: CloudLayer, perPixel: number): number {
+    return Math.max(CLOUD_PICK_PIXELS * perPixel, 1.5 * cloud.spacing)
+  }
+
+  /** The cloud's Points.raycast: its one point per ray, nearest the eye,
+   *  with the point's normal in world space — what the pins' line of sight
+   *  reads the angle it is seen at off (pinOcclusion.ts). */
   private cloudRaycast(raycaster: THREE.Raycaster, out: THREE.Intersection[]): void {
     const cloud = this.cloud
     if (!cloud) return
     const at = { world: new THREE.Vector3(), distance: 0 }
     const found = this.pickOnCloud(raycaster.ray, at)
     if (!found || at.distance < raycaster.near || at.distance > raycaster.far) return
-    out.push({ distance: at.distance, point: at.world, object: cloud.object, index: found.vertices[0] })
+    const normal = new THREE.Vector3(...found.normal).transformDirection(this.partGroup.matrixWorld)
+    out.push({ distance: at.distance, point: at.world, object: cloud.object, index: found.vertices[0], normal })
   }
 
   private pick(clientX: number, clientY: number): PickHit | null {

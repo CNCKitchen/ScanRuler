@@ -15,6 +15,7 @@ import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 import { frameQuaternion } from './frameBasis'
 import { unclip } from './clipTree'
 import { pinLabel, pinValue, type PinVerdict } from './pinLabel'
+import { occlusionSlack, pinSeen } from './pinOcclusion'
 export { pinLabel, type PinVerdict } from './pinLabel'
 
 /** Radius of a picked-point marker, in pixels of the canvas.
@@ -203,8 +204,12 @@ export interface OverlaysContext {
   camera(): THREE.Camera
   raycaster: THREE.Raycaster
   /** What can stand between the camera and a pin: the scan, while it is
-   *  shown. Null puts every pin in view. */
-  occluder(): THREE.Mesh | null
+   *  shown — a mesh, or a point cloud raycast through its own pick. Null puts
+   *  every pin in view. */
+  occluder(): THREE.Object3D | null
+  /** The radius a ray picks the cloud with at a world point — see
+   *  pinOcclusion.ts; null (or absent) while the scan is a mesh. */
+  cloudPickRadius?(at: THREE.Vector3): number | null
 }
 
 /** A pinned reading on the part: its dot, its chip, and where it is in the
@@ -1167,8 +1172,8 @@ export class Overlays {
    *  hover frame that moved nothing tests nothing.
    *
    *  A pin is seen when the first surface along the ray from the camera to
-   *  its spot is the spot itself, give or take OCCLUSION_SLACK; anything
-   *  nearer is the part in the way. The ray is set up from the spot's place
+   *  its spot is the spot itself, give or take OCCLUSION_SLACK — more on a
+   *  point cloud, see pinOcclusion.ts; anything nearer is the part in the way. The ray is set up from the spot's place
    *  on screen, exactly as a click there would be, so the test agrees with
    *  what a click would hit. */
   updateProbeOcclusion(): void {
@@ -1188,7 +1193,7 @@ export class Overlays {
     this.occlusionView = last ? (last.set(view), last) : view.slice()
 
     const occluder = this.ctx.occluder()
-    const slack = this.ctx.modelRadius() * OCCLUSION_SLACK
+    const base = this.ctx.modelRadius() * OCCLUSION_SLACK
     for (const pin of this.probePins) {
       let seen = true
       if (occluder) {
@@ -1196,7 +1201,9 @@ export class Overlays {
         _pinNdc.copy(_pinWorld).project(camera)
         raycaster.setFromCamera(_pinCoords.set(_pinNdc.x, _pinNdc.y), camera)
         const hit = raycaster.intersectObject(occluder, false)[0]
-        seen = !hit || hit.distance >= raycaster.ray.origin.distanceTo(_pinWorld) - slack
+        const radius = hit ? (this.ctx.cloudPickRadius?.(hit.point) ?? null) : null
+        const cloud = radius !== null && hit?.normal ? { radius, facing: hit.normal.dot(raycaster.ray.direction) } : null
+        seen = pinSeen(hit?.distance, raycaster.ray.origin.distanceTo(_pinWorld), occlusionSlack(base, cloud))
       }
       pin.dot.visible = pin.label.visible = seen
     }
