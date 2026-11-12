@@ -176,6 +176,10 @@ export interface ScanPart {
    *  again. Absent means 1, and so for an edit of a scaled scan taken into
    *  use: its file is written at the size it was edited at. */
   scale?: number
+  /** A point cloud too large for the tab, thinned evenly to this many
+   *  points as it was read (parsers/thin), and so again on load: elements
+   *  and marks number the points kept. Absent when it was read whole. */
+  maxPoints?: number
   /** How the scan got its true size, for the record: the factor all its
    *  scales came to and the references of the last one. Absent when it was
    *  never scaled. */

@@ -8,7 +8,7 @@
 // nominalVersion are there for callers to tell.
 
 import { WorkerRpc } from './workerRpc'
-import { readSourceFile } from './sourceFile'
+import { readInPieces, readSourceFile } from './sourceFile'
 import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseSetting, CreaseReport } from './geometry/crease'
 import type { ScanSpot } from './geometry/nearest'
@@ -138,7 +138,7 @@ export class MeshWorkerClient {
   private rpc: WorkerRpc
   private recovering: Promise<void> | null = null
   restoreState: (() => {
-    scan: { name: string; file: Blob; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number } | null
+    scan: { name: string; file: Blob; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number; maxPoints?: number } | null
     nominal: { name: string; file: Blob; units?: MeshUnits } | null
   }) | null = null
   /** What the plugins put back after a restart, once the scan and the
@@ -180,9 +180,11 @@ export class MeshWorkerClient {
       const state = this.restoreState?.()
       if (state?.scan) {
         this.renderParity = false
-        const { name, file, crease, transform, units, scale } = state.scan
-        const buffer = await readSourceFile(file, name)
-        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm', scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
+        const { name, file, crease, transform, units, scale, maxPoints } = state.scan
+        // Read back as it was opened: a large cloud from disk a piece at a
+        // time, thinned to the same points.
+        const buffer = readInPieces(file, name) ? file : await readSourceFile(file, name)
+        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm', scale ?? 1), ...(maxPoints ? { maxPoints } : {}) } as Request, buffer instanceof ArrayBuffer ? [buffer] : []) // units-ok: the file's own units, an id
       }
       if (state?.nominal) {
         const { name, file, units } = state.nominal
@@ -218,13 +220,15 @@ export class MeshWorkerClient {
   }
 
   /** `companions` are the files that came with a textured OBJ, its images
-   *  decoded (see app/scanFiles); they are handed over, not copied. */
-  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions, scale = 1): Promise<{ id: number; mesh: LoadedScan }> {
+   *  decoded (see app/scanFiles); they are handed over, not copied. A
+   *  point cloud may come as its File, read in the worker a piece at a time,
+   *  and is thinned evenly to `maxPoints` when it holds more. */
+  async prepareScan(name: string, buffer: ArrayBuffer | Blob, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions, scale = 1, maxPoints?: number): Promise<{ id: number; mesh: LoadedScan }> {
     const id = this.nextId++
-    const transfer: Transferable[] = [buffer, ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
+    const transfer: Transferable[] = [...(buffer instanceof ArrayBuffer ? [buffer] : []), ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
     // `scale` on top of the units: the factor the scan was scaled by to its
     // true size (core/scanScale), read into it as the units are.
-    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: fileScale(name, units, scale), ...(companions ? { companions } : {}) }, transfer)
+    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: fileScale(name, units, scale), ...(companions ? { companions } : {}), ...(maxPoints ? { maxPoints } : {}) }, transfer)
     return { id, mesh }
   }
 

@@ -14,6 +14,7 @@ import { flatDraftHolds, useFlat } from './flatStore'
 import { useDeviation } from './deviationStore'
 import { useThickness } from './thicknessStore'
 import { useShell, type Workspace } from './shellStore'
+import { MemoryFile } from '../core/sourceFile'
 
 /** The fields of a store's state named in `keys`, as a snapshot. */
 export const pick = <T, K extends keyof T>(state: T, keys: readonly K[]): Pick<T, K> =>
@@ -124,7 +125,8 @@ interface HistoryState { past: Entry[]; future: Entry[]; restoring: boolean; imp
 export const useHistory = create<HistoryState>(() => ({ past: [], future: [], restoring: false, importing: false, revision: 0 }))
 const LIMIT = 64
 /** The most the steps kept may hold of the values sections weigh (see
- *  HistorySection.bytes): a few copies of a large mesh, not 64 of them. */
+ *  HistorySection.bytes) and of the scans held in memory: a few copies of a
+ *  large mesh, not 64 of them. */
 export const HISTORY_BYTE_BUDGET = 1024 ** 3
 const actionLabels: Record<string, string> = {
   commitDraft: 'save element', commitDimension: 'save dimension', commitDim: 'save dimension',
@@ -178,12 +180,21 @@ function record(before: HistorySnapshot, after: HistorySnapshot, label: string, 
   })
 }
 
+/** What a scan a step holds keeps in memory: an edit's bytes (a MemoryFile)
+ *  do — a cloud cleaned again and again would pin a copy a step — a file on
+ *  disk does not. */
+export function scanBytes(scan: unknown): number {
+  const file = (scan as { file?: unknown } | null)?.file
+  return file instanceof MemoryFile ? file.size : 0
+}
+
+const SCAN_WEIGHT: Pick<HistorySection, 'key' | 'bytes'> = { key: 'scan', bytes: scanBytes }
+
 /** The newest of `past` whose weighed values stay within the byte budget —
  *  each value counted once, as neighbouring steps share it by identity —
  *  and always the newest step itself. */
 function withinBudget(past: Entry[]): Entry[] {
-  const weighed = participants.flatMap((p) => p.sections ?? []).filter((s) => s.bytes)
-  if (!weighed.length) return past
+  const weighed = [SCAN_WEIGHT, ...participants.flatMap((p) => p.sections ?? []).filter((s) => s.bytes)]
   const seen = new Set<unknown>()
   let total = 0
   for (let i = past.length - 1; i >= 0; i--) {

@@ -487,7 +487,10 @@ export function createMeshToolsSession({
     try {
       await runImport(imports, 'Taking the edited mesh into use…', async () => {
         await historyAsync('Mesh Tools: use the edited mesh for analysis', async () => {
-          // The session keeps a scan as a file: the edited bytes become one.
+          // The session keeps a scan as a file: the edited bytes become one —
+          // shared with the copy, not copied. Neither writes to them, every
+          // read of a MemoryFile is a copy (nothing hands their buffer to a
+          // worker), and the history weighs them with the scan.
           const { name, bytes, units } = copy.source
           await swapScan({ name, file: new MemoryFile(bytes, name), units }, useStore.getState().appliedAlignment)
           remapScan(copy.map)

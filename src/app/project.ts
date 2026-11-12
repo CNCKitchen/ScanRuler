@@ -52,8 +52,9 @@ export interface SourceFiles {
    *  and is read the same way again from a project or after a worker
    *  restart. Absent means millimetres. `scale` is the factor the scan was
    *  scaled by to its true size (core/scanScale), read into it on top of the
-   *  units the same way; absent means 1. */
-  scan: { name: string; file: Blob; units?: MeshUnits; scale?: number; companions?: ScanCompanion[] } | null
+   *  units the same way; absent means 1. `maxPoints`: a point cloud thinned
+   *  evenly to that many as it was read, and so read again. */
+  scan: { name: string; file: Blob; units?: MeshUnits; scale?: number; maxPoints?: number; companions?: ScanCompanion[] } | null
   reference: { name: string; file: Blob; units?: MeshUnits } | null
   image: { name: string; bytes: Uint8Array } | null
 }
@@ -233,6 +234,7 @@ function coreProject(
       ...(companions.length > 0 ? { companions } : {}),
       ...(sources.scan.units && sources.scan.units !== 'mm' ? { units: sources.scan.units } : {}),
       ...(sources.scan.scale !== undefined && sources.scan.scale !== 1 ? { scale: sources.scan.scale } : {}),
+      ...(sources.scan.maxPoints ? { maxPoints: sources.scan.maxPoints } : {}),
       ...(s.scanScale ? { scaled: s.scanScale } : {}),
       appliedAlignment: s.appliedAlignment ? rigidToJson(s.appliedAlignment) : null,
       elements: s.elements.map(elementToJson),

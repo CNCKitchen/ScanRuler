@@ -23,7 +23,7 @@ import { creaseSetting } from '../core/geometry/crease'
 import { useThickness } from '../state/thicknessStore'
 import type { SceneManager } from '../viewer/SceneManager'
 import type { SourceFiles } from './project'
-import { readSourceFile } from '../core/sourceFile'
+import { readInPieces, readSourceFile } from '../core/sourceFile'
 import { scanRemapped, scanRemeasure, scanSwapped, scanSwapping } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { scanCompanions } from './scanFiles'
@@ -31,8 +31,8 @@ import { cloudOf } from './imports'
 import type { LoadedScan } from '../core/workerClient'
 
 /** A scan as the session holds it: its file, its units, and the files that
- *  came with it. An edited version is new bytes, kept as a file of its own
- *  with `new Blob([bytes])`. */
+ *  came with it. An edited version is new bytes, kept as a file of its own:
+ *  a MemoryFile of them. */
 export type ScanSource = NonNullable<SourceFiles['scan']>
 
 export function scanSwap({
@@ -61,10 +61,12 @@ export function scanSwap({
    */
   const swapScan = async (source: ScanSource, transform: Rigid | null): Promise<void> => {
     const client = clientRef.current!
-    const buffer = await readSourceFile(source.file, source.name)
+    // A large cloud is read from its file in the worker, thinned as before.
+    const pieces = readInPieces(source.file, source.name)
+    const buffer = pieces ? source.file : await readSourceFile(source.file, source.name)
     // An edit is a mesh of its own, colourless; the scan before it, on
     // undo, comes back with whatever came with it.
-    const companions = await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? [])
+    const companions = buffer instanceof ArrayBuffer ? await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? []) : undefined
     const prepared = await client.prepareScan(
       source.name,
       buffer,
@@ -73,6 +75,7 @@ export function scanSwap({
       source.units ?? 'mm', // units-ok: the file's own units, an id
       companions,
       source.scale ?? 1,
+      source.maxPoints,
     )
     await commitSwap(prepared, source, transform)
   }

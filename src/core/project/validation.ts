@@ -216,6 +216,7 @@ export function validateProjectParts(raw: unknown): void {
     fields(settings, 'sigma', 'number', 'scan.settings')
     rigid(s.appliedAlignment, 'scan.appliedAlignment')
     if (s.scale !== undefined && !(typeof s.scale === 'number' && s.scale >= SCALE_MIN && s.scale <= SCALE_MAX)) invalid('scan.scale')
+    if (s.maxPoints !== undefined && !(typeof s.maxPoints === 'number' && Number.isSafeInteger(s.maxPoints) && s.maxPoints > 0)) invalid('scan.maxPoints')
     if (s.scaled !== undefined) {
       const scaled = object(s.scaled, 'scan.scaled')
       if (!(typeof scaled.factor === 'number' && scaled.factor > 0 && Number.isFinite(scaled.factor))) invalid('scan.scaled.factor')
