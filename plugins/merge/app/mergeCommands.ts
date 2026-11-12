@@ -2,7 +2,7 @@
 // The Merge workspace's commands — what an agent lays extra scan passes on
 // the scan through, registered from the plugin's install() under `merge`:
 // merge.open_layer, merge.move_layer, merge.fit_datum, merge.align_pairs,
-// merge.align_datums, merge.refine, merge.merge and the rest. Each is the
+// merge.align_datums, merge.refine, merge.auto_align, merge.merge and the rest. Each is the
 // panel's own verb (mergeSession.ts) and nothing more: the session checks,
 // runs and records its own step of the undo history ("Merge: …"), so none
 // of these is wrapped in one. A verb the session turned down says why on
@@ -69,6 +69,9 @@ const alignOut = (id: string, target: string, r: LayerAlignResult) => ({
   matched: roundTo(r.matched, 4),
   confident: r.confident,
   low_overlap: r.lowOverlap,
+  constraint: roundTo(r.constraint, 4),
+  ...(r.drift !== undefined ? { drift_mm: roundTo(r.drift, 3), drifted: r.drifted === true } : {}),
+  ...(r.ambiguous !== undefined ? { ambiguous: r.ambiguous } : {}),
   pose: poseOut(r.pose),
 })
 
@@ -235,7 +238,7 @@ const pairs: Command<AlignIn & { pairs: { layer: Vec3; target: Vec3 }[] }> = {
   name: 'align_pairs',
   title: 'Align a layer by point pairs',
   description:
-    'Lay a layer on its target from three or more pairs of the same point: layer, a point on the layer in its own frame; target, the same point on the target in the target’s frame (mm). They must not lie in a line. The pairs give a start, which is then refined onto the target. One step of the history. Returns rms (mm, over the points that found the target), matched (share of the layer on the target), confident, low_overlap (check the result before merging) and pose (' +
+    'Lay a layer on its target from three or more pairs of the same point: layer, a point on the layer in its own frame; target, the same point on the target in the target’s frame (mm). They must not lie in a line. The pairs give a start, which is then refined onto the target; a refine that carries the picks further than 3 target spacings (at least 1 mm) off is drifted and never confident. One step of the history. Returns rms (mm, over the points that found the target), matched (share of the layer on the target), confident, low_overlap (check the result before merging), constraint, drift_mm (the farthest pick off at the result), drifted and pose (' +
     POSE_NOTE +
     ').',
   input: obj(
@@ -299,6 +302,25 @@ const refine: Command<AlignIn> = {
   },
 }
 
+const autoAlign: Command<AlignIn> = {
+  name: 'auto_align',
+  title: 'Auto align a layer',
+  description:
+    'Lay a layer on its target from no start: the shapes of the two are matched, the poses that fit tried and the best refined (a few seconds to half a minute on millions of points). Wherever the layer stands now does not matter. One step of the history ("Merge: auto align layer"). Returns rms (mm), matched, confident, ambiguous (another pose fits about as well — a repeating or near-symmetric part: check the result, or place it by pairs or datums and refine), low_overlap, constraint (how firmly the overlap pins the pose; near 0 it can slide) and pose (' +
+    POSE_NOTE +
+    ').',
+  input: obj(alignTarget, ['id', 'target']),
+  history: false,
+  long: true,
+  run: async ({ id, target }) => {
+    checkAlign(id, target)
+    fresh()
+    const r = await sessionOf().autoAlign(id, target)
+    if (!r) throw failed('The layer could not be aligned.')
+    return alignOut(id, target, r)
+  },
+}
+
 const mergeCmd: Command<{ dedupe_mm?: number | null; confirm?: boolean }> = {
   name: 'merge',
   title: 'Merge the layers',
@@ -340,4 +362,4 @@ const remove: Command<{ id: string }> = {
   },
 }
 
-export const mergeCommands = [open, list, move, fit, pairs, datums, refine, mergeCmd, remove] as unknown as Command<never>[]
+export const mergeCommands = [open, list, move, fit, pairs, datums, refine, autoAlign, mergeCmd, remove] as unknown as Command<never>[]

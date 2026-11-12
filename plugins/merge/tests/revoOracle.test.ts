@@ -7,6 +7,7 @@
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { autoAlign } from '../core/globalAlign'
 import { alignPairs, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
 import { oraclePose, scorePose } from '../../../src/core/deviation/poseScore'
@@ -197,4 +198,49 @@ describe.skipIf(!R.exists)('Revo oracle', () => {
     expect(dOurs.deg).toBeLessThan(0.2)
     expect(dOurs.mm).toBeLessThan(1)
   }, 900_000)
+
+  /** Auto align from the identity — no start at all — held to the oracle. */
+  const auto = (n: RevoPass) => {
+    const layer = layerOf(load(n))
+    const oracle = oraclePose(R.oracle(n))
+    const os = scorePose(target, layer, oracle, maxPair)
+    const t0 = performance.now()
+    const c = centroid(layer)
+    const inspect = (stage: string, pose: Rigid, s: { rms: number; matched: number; tight: number }) => {
+      if (stage === 'coarse') return
+      const e = delta(pose, oracle, c)
+      log(`  ${stage} rms ${s.rms.toFixed(4)} matched ${s.matched.toFixed(4)} tight ${s.tight.toFixed(4)} off ${e.deg.toFixed(2)} deg ${e.mm.toFixed(2)} mm
+`)
+    }
+    const r = runSteps(autoAlign({ surface: target, positions: ref.positions, normals: ref.normals!, spacing: ref.spacing }, layer, { inspect }))
+    const d = delta(r.pose, oracle, centroid(layer))
+    log(
+      `REVO ${n} auto: rms ${r.rms.toFixed(4)} (oracle ${os.rms.toFixed(4)}) matched ${r.matched.toFixed(4)} (oracle ${os.matched.toFixed(4)}) constraint ${r.constraint.toFixed(4)} ` +
+        `hypotheses ${r.hypotheses} ambiguous ${r.ambiguous} delta ${d.deg.toFixed(3)} deg ${d.mm.toFixed(3)} mm confident ${r.confident} ${Math.round(performance.now() - t0)} ms
+`,
+    )
+    return { r, d, os }
+  }
+
+  // The part repeats every 45 degrees about its axis, and geometry alone
+  // does not tell those poses apart: from no start, 0905_03 and 0905_05 fit
+  // better 90 and 180 degrees off Revo's pose than at it (rms 0.071 against
+  // 0.088, 0.061 against 0.089), and 0905_01 and 0905_04 within 1.3 times its
+  // rms 45 degrees off. Revo had its markers. So the promise is: a pose that
+  // fits as well as Revo's, a whole number of repeats off it, and never
+  // confident unless it is Revo's own.
+  it.skipIf(!HEAVY)('auto align from no start lands a whole repeat off the oracle at most, and is never sure of a wrong one', () => {
+    setup()
+    for (const n of PASSES) {
+      const { r, d, os } = auto(n)
+      const repeat = Math.abs(d.deg / 45 - Math.round(d.deg / 45)) * 45
+      expect.soft(repeat, `${n} auto: not a whole repeat off`).toBeLessThan(1)
+      expect.soft(r.rms, `${n} auto rms`).toBeLessThan(1.5 * os.rms)
+      expect.soft(r.matched, `${n} auto matched`).toBeGreaterThanOrEqual(os.matched - 0.02)
+      if (r.confident) {
+        expect.soft(d.deg, `${n} auto: confident off the oracle`).toBeLessThan(1)
+        expect.soft(d.mm, `${n} auto: confident off the oracle`).toBeLessThan(1)
+      }
+    }
+  }, 3_600_000)
 })

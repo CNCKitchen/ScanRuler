@@ -244,6 +244,32 @@ describe('aligning a layer', () => {
     expect(layers()).toHaveLength(1)
   })
 
+  it('auto aligns as one step: Stop leaves the layer, and an ambiguous answer is a warning, not a start a refine is sure from', async () => {
+    const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
+    const was = row(id).pose
+    let clock = 0
+    const now = vi.spyOn(performance, 'now').mockImplementation(() => (clock += 1000))
+    try {
+      const running = kit.merge.autoAlign(id, BASE)
+      expect(useMerge.getState().running).not.toBeNull()
+      // Refused while it runs — and by then the run has reached the worker.
+      expect(await kit.merge.autoAlign(id, BASE)).toBeNull()
+      kit.merge.stop()
+      expect(await running).toBeNull()
+    } finally {
+      now.mockRestore()
+    }
+    expect(row(id).pose).toBe(was)
+    expect(useStore.getState().statusText).toMatch(/^Stopped/)
+    const r = await kit.merge.autoAlign(id, BASE)
+    // The plain block fits as well turned over: ambiguous, said so.
+    expect(r!.ambiguous).toBe(true)
+    expect(r!.confident).toBe(false)
+    expect(row(id).last?.ambiguous).toBe(true)
+    expect(useStore.getState().statusText).toMatch(/^lo\.ply: Another pose fits about as well/)
+    expect((await kit.merge.refine(id, BASE))!.confident).toBe(false)
+  })
+
   it("a refine from the pose a layer was opened at is no one's guess, even undone back to it", async () => {
     const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
     kit.merge.moveLayer(id, rigidOf([0, 0, 1], [0.5, 0, 0]))

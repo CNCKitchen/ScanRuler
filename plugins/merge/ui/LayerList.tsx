@@ -9,7 +9,8 @@ import { MESH_UNITS, unitsLabel } from '../../../src/core/meshUnits'
 import { Icon } from '../../../src/ui/icons'
 import { useMerge, type LayerRow, type LayerUnits } from '../state/mergeStore'
 
-import { count } from './mergeFormat'
+import { alignNote, count } from './mergeFormat'
+import { MIN_CONSTRAINT } from '../core/protocol'
 
 const UNITS: LayerUnits[] = MESH_UNITS.map((u) => u.id)
 
@@ -123,19 +124,18 @@ function LayerItem({
         </button>
       </div>
       {r &&
-        (r.lowOverlap ? (
-          <p className="warnnote" data-test={`merge-layer-warn-${l.id}`}>
-            ⚠ Low overlap — only {(r.matched * 100).toFixed(1)} % found its target, RMS {len.fmt(r.rms, 3)}. Check the result.
-          </p>
-        ) : !r.confident ? (
-          <p className="warnnote" data-test={`merge-layer-warn-${l.id}`}>
-            ⚠ Not confident — RMS {len.fmt(r.rms, 3)}, {(r.matched * 100).toFixed(1)} % on its target. It may sit in a wrong pose: place it and refine again.
-          </p>
-        ) : (
-          <p className="hint merge-ok" data-test={`merge-layer-ok-${l.id}`}>
-            ✓ Aligned — RMS {len.fmt(r.rms, 3)}, {(r.matched * 100).toFixed(1)} % on its target.
-          </p>
-        ))}
+        (() => {
+          const note = alignNote(r, len.fmt, MIN_CONSTRAINT)
+          return note.kind === 'warn' ? (
+            <p className="warnnote" data-test={`merge-layer-warn-${l.id}`}>
+              ⚠ {note.text}
+            </p>
+          ) : (
+            <p className="hint merge-ok" data-test={`merge-layer-ok-${l.id}`}>
+              ✓ {note.text}
+            </p>
+          )
+        })()}
     </>
   )
 }

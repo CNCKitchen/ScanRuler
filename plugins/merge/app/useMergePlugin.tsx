@@ -170,6 +170,10 @@ export function useMergePlugin(host: PluginHost): PluginRuntime {
           const s = selectedLayer()
           if (s) void session.refine(s.id, s.target)
         }}
+        onAutoAlign={() => {
+          const s = selectedLayer()
+          if (s) void session.autoAlign(s.id, s.target)
+        }}
         onStop={session.stop}
         onMerge={() => void session.mergeShown()}
         onConfirm={session.answerConfirm}

@@ -23,6 +23,7 @@ import { isCloud } from '../../src/core/geometry/cloud'
 import { getFitter } from '../../src/core/elements/registry'
 import { transformFit } from '../../src/core/alignment'
 import { alignDatums, alignPairs, layerCloud, refineLayer, type LayerCloud } from './core/layerAlign'
+import { autoAlign } from './core/globalAlign'
 import type { DatumSet } from './core/datums'
 import { mergeLayers } from './core/merge'
 import { BASE, MERGE, type AlignReply, type DatumIds, type MergeOps } from './core/protocol'
@@ -101,6 +102,8 @@ interface Target {
   label: string
   /** A mesh: its spacing is its median edge, how it was triangulated. */
   mesh: boolean
+  /** Its points and normals, in its own frame: what auto align describes. */
+  graph: MeshGraph
 }
 
 /** What a layer is aligned onto: the base, or another layer in its own frame. */
@@ -118,22 +121,22 @@ function targetOf(name: string, self: string, ctx: WorkerContext): Target {
 function surfaceTarget(name: string, self: string, ctx: WorkerContext): Target {
   if (name === BASE) {
     const g = scanOf(ctx)
-    if (!isCloud(g)) return { surface: ctx.surfaceOf(g, 'Preparing the scan to align the layer onto…'), spacing: medianEdge(g), fits: baseFits, label: 'the base', mesh: true }
+    if (!isCloud(g)) return { surface: ctx.surfaceOf(g, 'Preparing the scan to align the layer onto…'), spacing: medianEdge(g), fits: baseFits, label: 'the base', mesh: true, graph: g }
     if (baseSurface?.graph !== g) {
       ctx.progress('Preparing the scan to align the layer onto…')
       baseSurface = { graph: g, surface: new CloudSurface(positionsOf(g), normalsOf(g), g.spacing ?? 0) }
     }
-    return { surface: baseSurface.surface, spacing: baseSurface.surface.spacing, fits: baseFits, label: 'the base', mesh: false }
+    return { surface: baseSurface.surface, spacing: baseSurface.surface.spacing, fits: baseFits, label: 'the base', mesh: false, graph: g }
   }
   if (name === self) throw new Error('A layer cannot be aligned onto itself.')
   const l = layerOf(name)
   const label = `layer "${name}"`
-  if (!isCloud(l.graph)) return { surface: ctx.surfaceOf(l.graph, 'Preparing the layer to align onto…'), spacing: l.spacing, fits: l.fits, label, mesh: true }
+  if (!isCloud(l.graph)) return { surface: ctx.surfaceOf(l.graph, 'Preparing the layer to align onto…'), spacing: l.spacing, fits: l.fits, label, mesh: true, graph: l.graph }
   if (!l.surface) {
     ctx.progress('Preparing the layer to align onto…')
     l.surface = new CloudSurface(positionsOf(l.graph), normalsOf(l.graph), l.spacing)
   }
-  return { surface: l.surface, spacing: l.spacing, fits: l.fits, label, mesh: false }
+  return { surface: l.surface, spacing: l.spacing, fits: l.fits, label, mesh: false, graph: l.graph }
 }
 
 function cloudOf(l: Layer): LayerCloud {
@@ -231,6 +234,17 @@ const ops: { [K in keyof MergeOps]: (payload: Payload<K>, ctx: WorkerContext) =>
     const l = layerOf(id)
     const t = targetOf(target, id, ctx)
     return aligning(refineLayer(t.surface, cloudOf(l), start, { targetSpacing: t.spacing, fromUserGuess: fromUserGuess !== false }), ctx)
+  },
+
+  'auto-align'({ id, target }, ctx) {
+    const l = layerOf(id)
+    const t = targetOf(target, id, ctx)
+    const steps = autoAlign(
+      { surface: t.surface, positions: positionsOf(t.graph), normals: normalsOf(t.graph), spacing: t.spacing },
+      cloudOf(l),
+      { progress: (text) => ctx.progress(text) },
+    )
+    return aligning(steps, ctx)
   },
 
   fit({ id, elementType, seeds, settings }, ctx) {

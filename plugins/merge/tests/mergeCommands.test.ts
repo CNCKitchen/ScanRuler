@@ -47,7 +47,7 @@ describe('merge commands', () => {
   it('are listed, within the schema budget, merge.list_layers read-only', () => {
     const mine = listCommands().filter((c) => c.name.startsWith('merge.'))
     expect(mine.map((c) => c.name).sort()).toEqual(
-      ['merge.align_datums', 'merge.align_pairs', 'merge.fit_datum', 'merge.list_layers', 'merge.merge', 'merge.move_layer', 'merge.open_layer', 'merge.refine', 'merge.remove_layer'],
+      ['merge.align_datums', 'merge.align_pairs', 'merge.auto_align', 'merge.fit_datum', 'merge.list_layers', 'merge.merge', 'merge.move_layer', 'merge.open_layer', 'merge.refine', 'merge.remove_layer'],
     )
     for (const c of mine) {
       const w = schemaWeight(c.input)
@@ -55,7 +55,7 @@ describe('merge commands', () => {
       expect(w.depth, c.name).toBeLessThanOrEqual(SCHEMA_BUDGET.depth)
     }
     expect(mine.find((c) => c.name === 'merge.list_layers')!.readOnly).toBe(true)
-    for (const n of ['fit_datum', 'align_pairs', 'align_datums', 'refine', 'merge']) expect(mine.find((c) => c.name === `merge.${n}`)!.long, n).toBe(true)
+    for (const n of ['fit_datum', 'align_pairs', 'align_datums', 'refine', 'auto_align', 'merge']) expect(mine.find((c) => c.name === `merge.${n}`)!.long, n).toBe(true)
   })
 
   describe('with a scan open', () => {
@@ -187,6 +187,22 @@ describe('merge commands', () => {
       const listed = await run<{ layers: { last: { confident: boolean } }[] }>('merge.list_layers')
       expect(listed.layers[0].last.confident).toBe(true)
       expect(undoLabels()).toEqual(['Merge: refine layer'])
+    })
+
+    it('auto aligns from no start: the plain block fits as well turned over, so it says ambiguous', async () => {
+      const { id } = await openLo()
+      useHistory.setState({ past: [], future: [] })
+      // The block with its bore is itself turned half a turn about any axis,
+      // and its -x half fits the +x half's place better turned so than in
+      // its own: a pose no shape can settle, which must not come back sure.
+      const r = await run<{ confident: boolean; ambiguous: boolean; low_overlap: boolean; constraint: number; rms: number; pose: number[] }>('merge.auto_align', { id, target: 'base' })
+      expect(r.ambiguous).toBe(true)
+      expect(r.confident).toBe(false)
+      expect(r.constraint).toBeGreaterThan(0)
+      expect(r.pose).toHaveLength(16)
+      expect(undoLabels()).toEqual(['Merge: auto align layer'])
+      expect(row(id).last?.ambiguous).toBe(true)
+      expect((await refused('merge.auto_align', { id, target: 'L99' })).code).toBe('not_found')
     })
 
     it('aligns by pairs, and refuses pairs in a line', async () => {

@@ -71,6 +71,26 @@ describe('alignPairs', () => {
     expectRecovered(r, 0.05, 0.02)
   })
 
+  it('picks that put the layer off its place: the refine drifts from them, and is never confident', () => {
+    // Each pick 3 mm along +y of the point meant: the picks' own pose is
+    // 3 mm off, and the refine leaves them to settle where the part fits.
+    const pairs = [pick(-8, -15, 10), pick(5, 15, -10), pick(8, -15, -10), pick(0, 15, 10)]
+    pairs.forEach((p) => { p.target = [p.target[0], p.target[1] + 3, p.target[2]] })
+    const r = runSteps(alignPairs(target, layer, pairs))
+    expect(r.drifted).toBe(true)
+    expect(r.confident).toBe(false)
+    expect(r.drift).toBeGreaterThan(2.5)
+    // It fits clearly better than the picks' pose, so that is the pose kept.
+    expectRecovered(r, 0.05, 0.02)
+  })
+
+  it('picks the refine keeps to: not drifted, the drift reported', () => {
+    const r = runSteps(alignPairs(target, layer, [pick(-8, -15, 10), pick(5, 15, -10), pick(8, -15, -10)]))
+    expect(r.drifted).toBeUndefined()
+    expect(r.drift).toBeLessThan(0.01)
+    expect(r.constraint).toBeGreaterThan(0.005)
+  })
+
   it('refuses too few picks and picks in a line', () => {
     expect(() => runSteps(alignPairs(target, layer, [pick(0, -15, 0), pick(5, -15, 0)]))).toThrow('Pick at least three point pairs')
     expect(() => runSteps(alignPairs(target, layer, [pick(0, -15, 0), pick(4, -15, 0), pick(8, -15, 0)]))).toThrow('nearly in a line')

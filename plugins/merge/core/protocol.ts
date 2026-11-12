@@ -17,6 +17,15 @@ import type { LayerAlignResult } from './layerAlign'
 /** The plugin's id, which its worker part answers to. */
 export const MERGE = 'merge'
 
+/** The least constraint (layerAlign's poseConstraint) a confident pose has —
+ *  here so the panel reads it without the numerics. Measured: a plane is
+ *  1e-13 or less, a plane with a 0.1 mm dome on it as well; the Revo gear
+ *  passes at Revo's poses 0.0135 (0905_01, a one-sided view whose turn about
+ *  the gear's axis only the teeth hold) to 0.26; the Ruben head 0.18; the
+ *  synthetic block 0.25. 0.005 sits under the least real pose by a factor
+ *  of 2.7. */
+export const MIN_CONSTRAINT = 0.005
+
 /** What a target is called when it is the session scan. */
 export const BASE = 'base'
 
@@ -57,6 +66,9 @@ export interface MergeOps {
    *  start is no one's guess — the layer as it was opened, never moved or
    *  aligned by the user — and the result is never confident. Default true. */
   refine: { payload: { id: string; target: string; start: Rigid; fromUserGuess?: boolean }; result: AlignReply }
+  /** The layer laid on the target from no start (core/globalAlign.ts):
+   *  answered with ambiguous set when another pose fits about as well. */
+  'auto-align': { payload: { id: string; target: string }; result: AlignReply }
   /** A transient fit on a layer or on the base, kept under `fitId` for
    *  align-datums until its side goes. A layer's fit is in the layer's own
    *  frame, the base's in the shown frame. Base fit ids are dropped on every

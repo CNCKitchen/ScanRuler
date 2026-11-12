@@ -40,9 +40,9 @@ import { usePrefs } from '../../../src/state/prefsStore'
 import { useShell } from '../../../src/state/shellStore'
 import { useStore } from '../../../src/state/store'
 import { MergeScene } from '../viewer/mergeScene'
-import { BASE, MERGE, type AlignReply, type DatumIds, type MergeOps } from '../core/protocol'
+import { BASE, MERGE, MIN_CONSTRAINT, type AlignReply, type DatumIds, type MergeOps } from '../core/protocol'
 import type { LayerAlignResult } from '../core/layerAlign'
-import { count } from '../ui/mergeFormat'
+import { alignNote, count } from '../ui/mergeFormat'
 import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits, type MergeSnapshot } from '../state/mergeStore'
 
 /** The question a merge onto a mesh asks first — exact, see the spec. */
@@ -335,8 +335,9 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
   /** An alignment run in the worker and, when it lands, the layer put
    *  there as one step of the history. The worker answers the pose into the
    *  target's frame; a layer target's pose carries it on to the base. */
-  const align = async (id: string, target: string, label: string, run: () => Promise<AlignReply>, seeds: boolean): Promise<LayerAlignResult | null> => {
+  const align = async (id: string, target: string, label: string, run: () => Promise<AlignReply>, seeds: boolean | 'if-confident'): Promise<LayerAlignResult | null> => {
     const row = rowOf(id)
+    const unguessed = seeds === false && !guessed.has(row.pose)
     if (target !== BASE) rowOf(target)
     if (row.locked) {
       lockedNote(row)
@@ -369,18 +370,17 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     historyAction(`Merge: ${label}`, () => useMerge.getState().setPose(id, pose))
     const result: LayerAlignResult = { ...reply, pose }
     useMerge.getState().patchLayer(id, { last: result })
-    if (seeds) guessed.add(pose)
-    else carried(row.pose, pose)
+    // An auto pose is no one's guess unless it is sure of itself.
+    if (seeds === true || (seeds === 'if-confident' && reply.confident)) guessed.add(pose)
+    else if (seeds === false) carried(row.pose, pose)
     const len = shown()
-    const pct = `${(reply.matched * 100).toFixed(1)} %`
+    const note = alignNote(reply, len.fmt, MIN_CONSTRAINT, unguessed)
     useStore
       .getState()
       .setStatus(
-        reply.lowOverlap
-          ? `Low overlap — only ${pct} of ${row.name} found its target (RMS ${len.fmt(reply.rms, 3)}). Check the result before merging.`
-          : reply.confident
-            ? `${row.name} aligned — RMS ${len.fmt(reply.rms, 3)}, ${pct} of it on its target. Ctrl+Z puts it back.`
-            : `${row.name} aligned from a start nobody chose — RMS ${len.fmt(reply.rms, 3)}, ${pct} on its target. It may have settled in a wrong pose: check it, or place it first and refine again.`,
+        note.kind === 'ok'
+          ? `${row.name} aligned — RMS ${len.fmt(reply.rms, 3)}, ${(reply.matched * 100).toFixed(1)} % of it on its target. Ctrl+Z puts it back.`
+          : `${row.name}: ${note.text}${reply.lowOverlap ? ' Check it before merging.' : ''}`,
       )
     return result
   }
@@ -399,6 +399,12 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     const start = rigidCompose(rigidInvert(targetPose(target)), rowOf(id).pose)
     return align(id, target, 'refine layer', () => call('refine', { id, target, start, fromUserGuess: guessed.has(rowOf(id).pose) }), false)
   }
+
+  /** Lay a layer on its target from no start: the shapes matched, the
+   *  likely poses tried, the best refined. Ambiguous or weak results come
+   *  back not confident, for the warning row to say so. */
+  const autoAlign = (id: string, target: string) =>
+    align(id, target, 'auto align layer', () => call('auto-align', { id, target }), 'if-confident')
 
   /** A datum fitted on a layer or on the base (BASE) from picked vertices of
    *  it — kept by the worker for alignDatums, never a session element.
@@ -641,6 +647,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     fitDatum,
     alignDatums,
     refine,
+    autoAlign,
     merge,
     mergeShown,
     stop,

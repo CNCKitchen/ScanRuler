@@ -39,6 +39,7 @@ export function MergePanel({
   onAlignPairs,
   onAlignDatums,
   onRefine,
+  onAutoAlign,
   onStop,
   onMerge,
   onConfirm,
@@ -52,6 +53,8 @@ export function MergePanel({
   onAlignPairs: () => void
   onAlignDatums: () => void
   onRefine: () => void
+  /** Lay the layer in hand on its target from no start. */
+  onAutoAlign: () => void
   onStop: () => void
   onMerge: () => void
   onConfirm: (yes: boolean) => void
@@ -98,7 +101,8 @@ export function MergePanel({
             </p>
             <p>
               Each layer is another pass of the same part, in a frame of its own. Lay it near its
-              place — by hand, by picked pairs or by datums — then <b>Refine</b> it onto its target.
+              place — by hand, by picked pairs or by datums — then <b>Refine</b> it onto its target; or
+              let <b>Auto align</b> find its place from the shapes alone.
             </p>
           </InfoDot>
         </div>
@@ -132,8 +136,14 @@ export function MergePanel({
                 features fitted on both, two or more a side. Then <b>Refine</b> closes what is left.
               </p>
               <p>
+                <b>Auto align</b> needs no start: it matches the shapes of the two, tries the poses
+                that fit, and keeps the best. When another pose fits about as well — a part that
+                repeats or is near symmetric — it says so: check the result.
+              </p>
+              <p>
                 A refine from where the layer happened to open is no one's guess and is never called
-                confident. A low overlap is shown as a warning: check the result before merging.
+                confident. A refine that drifts off its picks or datums, a low overlap, or an overlap
+                that lets the layer slide is shown as a warning: check the result before merging.
               </p>
             </InfoDot>
           </div>
@@ -267,9 +277,14 @@ export function MergePanel({
                 Stop
               </button>
             ) : (
-              <button className="primary" data-test="merge-refine" disabled={busy || layer.locked} onClick={onRefine} title={`Refine ${layer.name} onto ${targetName} from where it stands`}>
-                Refine
-              </button>
+              <>
+                <button data-test="merge-auto-align" disabled={busy || layer.locked} onClick={onAutoAlign} title={`Find where ${layer.name} goes on ${targetName} from the shapes alone — no start needed`}>
+                  Auto align
+                </button>
+                <button className="primary" data-test="merge-refine" disabled={busy || layer.locked} onClick={onRefine} title={`Refine ${layer.name} onto ${targetName} from where it stands`}>
+                  Refine
+                </button>
+              </>
             )}
           </div>
           {runningText && <p className="hint" data-test="merge-running">{runningText}</p>}
