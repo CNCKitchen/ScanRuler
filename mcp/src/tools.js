@@ -269,7 +269,10 @@ export async function inputFor(command, args, { cwd, maxBytes = MAX_FILE_BYTES }
     }
     let bytes
     try {
-      bytes = new Uint8Array(await readFile(file))
+      // A view of the Buffer read, not a copy of it: a scan of hundreds of
+      // megabytes would otherwise be held twice.
+      const read = await readFile(file)
+      bytes = new Uint8Array(read.buffer, read.byteOffset, read.byteLength)
     } catch (e) {
       if (e.code !== 'ENOENT') throw { code: 'invalid_input', message: `Could not read ${file}: ${e.message}.` }
       throw { code: 'invalid_input', message: `Could not read ${file}: there is no such file.${await nearNote(file)}` }

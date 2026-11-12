@@ -64,6 +64,9 @@ export class EngineLink extends EventEmitter {
   start() {}
 
   close() {
-    void this.engine.stop()
+    Promise.resolve()
+      .then(() => this.engine.stop())
+      .catch((e) => process.stderr.write(`[scanruler-mcp] The engine did not stop cleanly: ${e?.message ?? e}
+`))
   }
 }
