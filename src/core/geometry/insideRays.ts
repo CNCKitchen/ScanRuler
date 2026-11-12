@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // firstHits for a point cloud, which has no triangles for a ray to meet: how
 // far each ray of a grid runs to a point of the scan that looks back at it.
+// Only the normals tell a wall facing the rays from one facing away, so a
+// cloud whose normals were all turned one way — toward a single scanner
+// position, say, rather than out of the part — can hide a rib: its far side
+// faces the rays but its points say otherwise, and the ray runs on. The look
+// then finds nothing in front of the face, which is no false warning but no
+// warning either; a mesh of the cloud (Mesh this cloud) is asked by its
+// triangles and does not depend on the normals.
 import type { MeshGraph } from '../types'
-import { PointGrid } from './pointGrid'
+import { cloudGridOf } from './cloudGrid'
 import type { RayGrid } from './scanQa'
 
 /** A point is within the ray's reach when it lies this many spacings off it. */
@@ -13,8 +20,6 @@ const FACING_BACK = -0.5
 /** Points that look the same way as the ray, or along it, are skipped over —
  *  the wall of a rib, the rim of a hole — up to this many in one ray. */
 const MAX_SKIPS = 64
-
-const gridOf = new WeakMap<MeshGraph, PointGrid>()
 
 /** How far each ray of `grid` runs to the first point of the cloud lying
  *  within REACH_SPACINGS of it whose normal faces back at the ray, row by row
@@ -28,11 +33,7 @@ export function insideRays(g: MeshGraph, grid: RayGrid): Float32Array {
   // Every cloud graph carries its spacing (buildPointGraph); a mesh has none.
   const spacing = g.spacing
   if (!(spacing && spacing > 0)) return out
-  let points = gridOf.get(g)
-  if (!points) {
-    points = new PointGrid(g.positions, 2.5 * spacing)
-    gridOf.set(g, points)
-  }
+  const points = cloudGridOf(g, spacing)
   const d: [number, number, number] = [dir[0] / len, dir[1] / len, dir[2] / len]
   const { positions: p, normals: n } = g
   for (let r = 0; r < rows; r++) {

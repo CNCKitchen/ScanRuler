@@ -23,6 +23,7 @@ import { CLOUD_HEAD_BYTES, cloudSizeOf } from './parsers/cloudSize'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { buildPointGraph } from './geometry/buildPointGraph'
 import { isCloud } from './geometry/cloud'
+import { forgetCloudGrid } from './geometry/cloudGrid'
 import { CLOUD_REFUSAL, refusesOnCloud } from './capabilities'
 import { wireSlots } from './geometry/wireSlots'
 import { scanRender, splitCreases, type CreaseSetting } from './geometry/crease'
@@ -672,6 +673,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     scanSolid = null
     scanSurfaces = new WeakMap()
     scanTrees = new WeakMap()
+    forgetCloudGrid(graph)
     post({ type: 'transform-ok', requestId: msg.requestId })
     return
   }

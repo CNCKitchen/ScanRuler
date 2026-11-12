@@ -3,7 +3,8 @@
 // front of it, as a rib's wall does? A mesh answers by casting rays at its
 // triangles, a cloud by looking for points that face back at them; both must
 // give the same verdict on the same shape.
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import type { WorkerRequest, WorkerResponse } from '../src/core/workerProtocol'
 import { buildPointGraph } from '../src/core/geometry/buildPointGraph'
 import { insideRays } from '../src/core/geometry/insideRays'
 import { type Cloud, cylinderCloud, planeCloud, writePlyCloud } from './cloudFixtures'
@@ -119,6 +120,28 @@ describe('insideRays', () => {
     const ceiling = { positions: floor.positions.map((v, i) => (i % 3 === 2 ? 10 : v)), normals: floor.normals.map((v, i) => (i % 3 === 2 ? -1 : v)) }
     const g = buildPointGraph({ kind: 'cloud', positions: ceiling.positions, normals: ceiling.normals })
     for (const t of insideRays(g, grid(0.5))) expect(t).toBeCloseTo(9.5, 1)
+  })
+
+  it('follows the points when the worker bakes an alignment into them', async () => {
+    const ceiling = { positions: floor.positions.map((v, i) => (i % 3 === 2 ? 10 : v)), normals: floor.normals.map((v, i) => (i % 3 === 2 ? -1 : v)) }
+    const replies: WorkerResponse[] = []
+    const scope = { onmessage: null as ((e: { data: WorkerRequest }) => void) | null, postMessage: (m: WorkerResponse) => replies.push(m) }
+    vi.stubGlobal('self', scope)
+    vi.resetModules()
+    try {
+      await import('../src/core/meshWorker')
+      const send = (m: Record<string, unknown>, requestId: number) => {
+        scope.onmessage!({ data: { ...m, requestId } as WorkerRequest })
+        return replies.filter((r) => 'requestId' in r && r.requestId === requestId).at(-1) as WorkerResponse & { values?: Float32Array }
+      }
+      expect(send({ type: 'load', name: 'ceiling.ply', buffer: writePlyCloud(ceiling, 'binary_little_endian'), crease: { mode: 'on', angleDeg: 30 } }, 1).type).toBe('loaded')
+      for (const t of send({ type: 'inside-rays', grid: grid(0.5) }, 2).values!) expect(t).toBeCloseTo(9.5, 1)
+      // Moved 25 up: the grid over the points is built again where they now are.
+      expect(send({ type: 'transform', transform: { r: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 25] } }, 3).type).toBe('transform-ok')
+      for (const t of send({ type: 'inside-rays', grid: grid(25.5) }, 4).values!) expect(t).toBeCloseTo(9.5, 1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('skips points that face the same way as the rays, and the surface the rays start on', () => {

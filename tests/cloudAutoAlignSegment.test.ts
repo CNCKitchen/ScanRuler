@@ -87,6 +87,29 @@ describe('auto-align on a point cloud', () => {
     for (let k = 0; k < 3; k++) expect(offDeg(fromCloud.axes[k], fromMesh.axes[k]), `axis ${k}`).toBeLessThanOrEqual(0.5)
   })
 
+  it('an open shell — the block scanned from above, no floor — matches its mesh', () => {
+    // Everything below z = -4 left out: the floor and the sides' lower part,
+    // as a part standing on the table is scanned.
+    const whole = blockWithBoreCloud({ size: [60, 40, 20], boreRadius: 5, step: 1 })
+    const keep: number[] = []
+    for (let i = 0; i < whole.positions.length / 3; i++) if (whole.positions[3 * i + 2] > -4) keep.push(i)
+    const pick = (a: Float32Array) => Float32Array.from(keep.flatMap((i) => [a[3 * i], a[3 * i + 1], a[3 * i + 2]]))
+    const shell = applyRigidCloud({ positions: pick(whole.positions), normals: pick(whole.normals) }, POSE)
+    const open = blockSoup(60, 40, 20, 2)
+    const kept: number[] = []
+    for (let t = 0; t < open.length; t += 9) if (Math.min(open[t + 2], open[t + 5], open[t + 8]) > -4.5) kept.push(...open.subarray(t, t + 9))
+    const openSoup = Float32Array.from(kept)
+    rigidApplyToPoints(POSE, openSoup)
+    const fromCloud = autoAlign(cloudGraph(shell))
+    const fromMesh = autoAlign(buildMeshGraph({ kind: 'soup', positions: openSoup }))
+    expect(fromCloud.method).toBe(fromMesh.method)
+    const truth: Vec3[] = [posedDir([1, 0, 0]), posedDir([0, 1, 0]), posedDir([0, 0, 1])]
+    for (let k = 0; k < 3; k++) {
+      expect(offDeg(fromCloud.axes[k], fromMesh.axes[k]), `cloud vs mesh axis ${k}`).toBeLessThanOrEqual(0.5)
+      expect(offDeg(fromCloud.axes[k], truth[k]), `cloud axis ${k}`).toBeLessThanOrEqual(0.5)
+    }
+  })
+
   it('refuses a cloud with too few points', () => {
     const g = cloudGraph({ positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]) })
     expect(() => autoAlign(g)).toThrow('Too little surface to align.')
