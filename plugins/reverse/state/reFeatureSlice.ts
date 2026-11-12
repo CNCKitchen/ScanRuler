@@ -54,7 +54,7 @@ function withVarying(d: Extract<FeatureDraft, { kind: 'fillet' }>, varying: read
 type StoreSet = StoreApi<ReState>['setState']
 type StoreGet = StoreApi<ReState>['getState']
 
-export const featureSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'featureDraft' | 'startFeature' | 'editFeature' | 'setFeatureDraft' | 'cancelFeature' | 'commitFeature' | 'addToRegion' | 'setRegion' | 'toggleDraftFace' | 'addDraftEdges' | 'addDraftFaces' | 'toggleDraftEdge' | 'clearDraftPicks' | 'setMoveBodies' | 'editNetwork'> => ({
+export const featureSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'featureDraft' | 'startFeature' | 'editFeature' | 'setFeatureDraft' | 'setTrimTools' | 'cancelFeature' | 'commitFeature' | 'addToRegion' | 'setRegion' | 'toggleDraftFace' | 'addDraftEdges' | 'addDraftFaces' | 'toggleDraftEdge' | 'clearDraftPicks' | 'setMoveBodies' | 'editNetwork'> => ({
 
   featureDraft: null,
   startFeature: (kind, init) =>
@@ -257,6 +257,19 @@ export const featureSlice = (set: StoreSet, get: StoreGet): Pick<ReState, 'featu
     }),
   setFeatureDraft: (patch) =>
     set((s) => (s.featureDraft ? { featureDraft: { ...s.featureDraft, ...(patch as object) } as FeatureDraft } : {})),
+  setTrimTools: (selection) =>
+    set((s) => {
+      const d = s.featureDraft
+      if (d?.kind !== 'trim') return {}
+      let tools: TrimTool[]
+      if (Array.isArray(selection)) {
+        tools = selection
+      } else {
+        const index = d.tools.findIndex((t) => t.kind === selection.kind && t.id === selection.id)
+        tools = index < 0 ? [...d.tools, selection] : d.tools.filter((_, i) => i !== index)
+      }
+      return { featureDraft: { ...d, tools, tolerance: d.toleranceTyped ? d.tolerance : trimToleranceFor(tools, s.results) } }
+    }),
   cancelFeature: () => set((s) => ({ featureDraft: null, preview: { status: 'idle' }, gripField: null, bodyPick: null, hint: null, ...(s.featureDraft?.featureId !== undefined ? { buildVersion: s.buildVersion + 1 } : {}) })),
   commitFeature: () => {
     const s = get()

@@ -169,7 +169,7 @@ describe('free and non-manifold edges, read back', () => {
     const box = k.box([0, 0, 0], [10, 10, 10])
     const top = k.faces(box).find((f) => f.kind === 'plane' && f.centroid[2] > 9.99)!
     const faces = k.faceHashes(box).filter((h) => h !== top.hash).map((h) => k.faceCopy(box, h))
-    const open = k.sewFaces(faces, 1e-6)
+    const { shape: open } = k.sewSheet(faces, 1e-6)
     const check = k.verifyStep(k.exportStep([open]), [open])
     expect(check.ok).toBe(false)
     const b = check.bodies[0]

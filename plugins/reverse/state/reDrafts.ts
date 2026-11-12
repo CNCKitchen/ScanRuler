@@ -5,7 +5,7 @@
 // what a grip's field reads. No state here; the store calls these.
 
 import type { WorldAxis } from '../../../src/core/section/frame'
-import type { Vec3 } from '../../../src/core/types'
+import type { FitData, Vec3 } from '../../../src/core/types'
 import type { DisplayUnits } from '../../../src/core/units'
 import { addScaled, cross, normalize } from '../../../src/core/vec'
 import { PALETTE } from '../../../src/state/palette'
@@ -151,6 +151,10 @@ export function snapDraftOf(d: FeatureDraft): Omit<DraftFeature, 'id' | 'name'> 
     angleDeg: lean.angleDeg,
     visible: true,
   }
+}
+
+export function isTrimElement(fit: FitData | undefined): boolean {
+  return fit?.kind === 'plane' || fit?.kind === 'cylinder' || fit?.kind === 'cone' || fit?.kind === 'sphere' || fit?.kind === 'torus'
 }
 
 /** The trim's tolerance from the scan's own scatter, read where it matters:

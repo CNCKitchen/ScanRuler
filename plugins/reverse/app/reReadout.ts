@@ -149,7 +149,7 @@ export function resultOut(r: FeatureResult | undefined) {
     ...(r.surface ?{ surface: surfaceOut(r.surface) } : {}),
     ...(r.strays?.length ? { strays: r.strays } : {}),
     ...(r.offScan?.length ? { offScan: r.offScan } : {}),
-    ...(r.trim ? { trim: { faces: r.trim.faces, kept: r.trim.kept, closed: r.trim.closed, openEdges: r.trim.openEdges.length } } : {}),
+    ...(r.trim ? { trim: { faces: r.trim.faces, kept: r.trim.kept, closed: r.trim.closed, openEdges: r.trim.openEdges.length, nonManifoldEdges: r.trim.nonManifoldEdges.length } } : {}),
   }
 }
 

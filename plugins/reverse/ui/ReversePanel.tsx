@@ -33,7 +33,7 @@ import { ThreadIcon } from './ThreadIcon'
 import { bodyFeatureReading, FEATURE_ICONS, keyParameter } from './featureReading'
 import { PlaybackBar, PlaybackKey } from './Playback'
 import { KeyIcon } from './reIcons'
-import { StepFileKey } from './featureFields'
+import { StepFileKey, trimJoinText } from './featureFields'
 import { PlaneSelect } from './PlaneSelect'
 import { ExtrudeEditor } from './ExtrudeEditor'
 import { ExportMeshButton } from '../../../src/ui/ExportMeshButton'
@@ -471,7 +471,8 @@ export function ReversePanel({ onOpenScan, onExportStep, onExportMesh, onCompare
                   ? `${resultText(f, r)} · ${keyParameter(f, len.units)}${exprNote(f)} · ${f.kind === 'extrude' && f.face ? `pulls a face of ${bodyNames(f.face.body)}` : `${f.regions.length} profile${f.regions.length === 1 ? '' : 's'} of ${features.find((g) => g.id === f.sketchId)?.name ?? 'a sketch'}`}`
                   : (() => {
                       const b = bodyFeatureReading(f, bodyNames, { sections, elements }, len.units)
-                      const extra = r?.surface ? ` · σ ${len.fmt(r.surface.rms, 3)}` : r?.trim ? (r.trim.closed ? ` · solid, ${r.trim.kept} of ${r.trim.faces} faces` : ` · open, ${r.trim.openEdges.length} open edge${r.trim.openEdges.length === 1 ? '' : 's'}`) : ''
+                      const trimIssues = r?.trim && !r.trim.closed ? trimJoinText(r.trim) : ''
+                      const extra = r?.surface ? ` · σ ${len.fmt(r.surface.rms, 3)}` : r?.trim ? (r.trim.closed ? ` · solid, ${r.trim.kept} of ${r.trim.faces} faces` : ` · surface${trimIssues ? `, ${trimIssues}` : ''}`) : ''
                       return `${b.text}${extra} — ${b.title}`
                     })()
             // A number an agent had fitted to the scan: said so, with how well.
@@ -486,7 +487,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onExportMesh, onCompare
                 </b>
               ) : r?.trim && !r.trim.closed ? (
                 <b className="warn" title={about}>
-                  ⚠ open
+                  ⚠ surface
                 </b>
               ) : warned ? (
                 <b className="warn" data-test="feature-warned" title={`Built, with ${r.stepsBetween?.length ? `${r.stepsBetween.length} step${r.stepsBetween.length === 1 ? '' : 's'} between features` : 'a warning'} — open it (✎) to see ${r.stepsBetween?.length === 1 || !r.stepsBetween?.length ? 'it' : 'them'}`}>

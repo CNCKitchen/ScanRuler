@@ -141,6 +141,11 @@ const MEET_SAMPLES = 64
  *  one, mm: they share the edges the cut left, a hair apart at most. */
 const SHEET_SEW_MM = 1e-3
 
+/** A face fragment needs scan support along its surface. A perpendicular
+ *  neighbour, such as the floor just above a wall's cut-off, cannot count. */
+const TRIM_MIN_NORMAL_DOT = Math.SQRT1_2
+type TrimPlane = Extract<TrimPrimitive, { kind: 'plane' }>
+
 /** How far apart two sheets joined may lie along where they meet, tried
  *  one after another, mm: each was split by the other, one of them carried
  *  on to reach — a surface of its own through its fit's points, 0.9 µm off
@@ -332,7 +337,7 @@ export class Builder {
    *  two triangles however large, and the plug of a pocket — four walls on
    *  the scan, a roof and a floor where the scan has nothing — counted
    *  eight triangles on and four off. Null with no scan to test against. */
-  private onScanShare(shape: Shape, tolerance: number, leaveOut?: (p: Vec3) => boolean): number | null {
+  private onScanShare(shape: Shape, tolerance: number, { leaveOut, matchNormals = false }: { leaveOut?: (p: Vec3) => boolean; matchNormals?: boolean } = {}): number | null {
     const scan = this.scan
     if (!scan) return null
     const k = this.kernel
@@ -368,6 +373,10 @@ export class Builder {
       const count = Math.floor(due) - before
       if (count === 0) continue
       const a = mesh.indices[t * 3] * 3, b = mesh.indices[t * 3 + 1] * 3, c = mesh.indices[t * 3 + 2] * 3
+      const normal = matchNormals ? normalize(cross(
+        [p[b] - p[a], p[b + 1] - p[a + 1], p[b + 2] - p[a + 2]],
+        [p[c] - p[a], p[c + 1] - p[a + 1], p[c + 2] - p[a + 2]],
+      )) : null
       for (let i = 0; i < count; i++) {
         // The Halton points of bases 2 and 3, folded into the triangle: the
         // same points every build, spread evenly whatever their number.
@@ -381,7 +390,7 @@ export class Builder {
         const x = w * p[a] + u * p[b] + v * p[c], y = w * p[a + 1] + u * p[b + 1] + v * p[c + 1], z = w * p[a + 2] + u * p[b + 2] + v * p[c + 2]
         if (leaveOut?.([x, y, z])) continue
         taken++
-        if (scan.closest(x, y, z, hit, tolerance)) hits++
+        if (normal ? scan.hasAlignedSurface(x, y, z, ...normal, TRIM_MIN_NORMAL_DOT, hit, tolerance) : scan.closest(x, y, z, hit, tolerance)) hits++
       }
     }
     return taken > 0 ? hits / taken : 0
@@ -462,12 +471,15 @@ export class Builder {
       // region did, grown by a share, and two such patches need not reach
       // each other at a corner the scan rounded off.
       const whole: TrimPrimitive[] = []
+      const planes: { plane: TrimPlane; patch: Shape }[] = []
       for (const id of step.bodies) {
         const b = this.bodyById(id)
         if (!b) throw new Error('A surface this trim closes is gone, or failed to build.')
         const p = this.fittedFor(id, b, 'trim')
-        if (p) whole.push(p)
-        else tools.push(b.shape)
+        if (p) {
+          whole.push(p)
+          if (p.kind === 'plane' && (p.footprint?.length ?? 0) >= 3) planes.push({ plane: p, patch: b.shape })
+        } else tools.push(b.shape)
       }
       const box = this.trimBox(tools)
       const diagonal = Math.hypot(box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2])
@@ -479,22 +491,91 @@ export class Builder {
       const solidBox = k.box(box.min, box.max)
       made.push(solidBox)
       const faces = k.splitFaces(solidBox, tools)
+      made.push(...faces)
       const kept: Shape[] = []
+      const rejected: Shape[] = []
+      const support = (face: Shape) => this.onScanShare(face, step.tolerance, { matchNormals: true }) ?? 0
       for (const f of faces) {
-        const share = this.onScanShare(f, step.tolerance)
-        if (share !== null && share >= step.overlap) kept.push(f)
-        else k.release(f)
+        const share = support(f)
+        if (share >= step.overlap) kept.push(f)
+        else rejected.push(f)
       }
       // units-ok: build message, also the agent's answer
       if (kept.length === 0) throw new Error(`None of the ${faces.length} faces the tools cut lies on the scan within ${step.tolerance} mm — widen the tolerance, or add the surfaces the part still lacks.`)
-      const sewn = k.sewFaces(kept, step.tolerance)
-      k.release(...kept)
-      const closed = k.isClosedSolid(sewn)
-      const openEdges = closed ? [] : k.edges(sewn, meshDeflection(diagonalOf(this.kernel, sewn))).filter((e) => e.faceHashes.length < 2).map((e) => e.polyline)
-      return { shape: sewn, report: { faces: faces.length, kept: kept.length, closed, openEdges }, surface: !closed }
+      // Scan scatter decides which faces to keep. Their joins come from
+      // the same split and only need CAD sewing precision.
+      const solid = k.sewTrimSolid(kept, SHEET_SEW_MM)
+      if (solid !== null) return { shape: solid, report: { faces: faces.length, kept: kept.length, closed: true, openEdges: [], nonManifoldEdges: [] }, surface: false }
+      this.trimRemainders(kept, rejected, planes, (face) => support(face) >= step.overlap, made)
+      // Preserve the selected skin for repair when it cannot form a solid.
+      const { shape } = k.sewSheet(kept, SHEET_SEW_MM)
+      try {
+        return { shape, report: { faces: faces.length, kept: kept.length, closed: false, ...this.trimJoins(shape) }, surface: true }
+      } catch (error) {
+        k.release(shape)
+        throw error
+      }
     } finally {
       k.release(...made)
     }
+  }
+
+  /** A long fragment can dilute the scan coverage of a measured wall
+   *  beyond a cut. Retest the part inside the wall's marked footprint,
+   *  across an unjoined edge of the same wall. */
+  private trimRemainders(kept: Shape[], rejected: readonly Shape[], planes: readonly { plane: TrimPlane; patch: Shape }[], supported: (face: Shape) => boolean, made: Shape[]): void {
+    if (planes.length === 0 || rejected.length === 0) return
+    const k = this.kernel
+    const owners = new Map<number, Shape | null>()
+    for (const face of kept) {
+      for (const edge of new Set(k.edgeHashes(face))) owners.set(edge, owners.has(edge) ? null : face)
+    }
+    const onPlane = (face: RawFace | undefined, plane: TrimPlane) => face?.kind === 'plane' &&
+      Math.abs(dot(face.dir, plane.normal)) >= 1 - 1e-6 && Math.abs(dot(sub(face.centroid, plane.origin), plane.normal)) <= SHEET_SEW_MM
+    const footprints = new Map<TrimPlane, Shape>()
+    for (const face of rejected) {
+      const neighbours = k.edgeHashes(face).map((edge) => owners.get(edge))
+      if (neighbours.includes(null) || !neighbours.some((owner) => owner !== undefined)) continue
+      const surface = k.faces(face)[0]
+      const pieces: Shape[] = []
+      for (const { plane, patch } of planes) {
+        if (!plane.footprint || !onPlane(surface, plane) || !neighbours.some((owner) => owner != null && onPlane(k.faces(owner)[0], plane))) continue
+        let footprint = footprints.get(plane)
+        if (footprint === undefined) {
+          const points = plane.footprint
+          footprint = k.face({ outer: points.map((a, i) => ({ kind: 'line', a, b: points[(i + 1) % points.length] })), holes: [] })
+          footprints.set(plane, footprint)
+          made.push(footprint)
+        }
+        const clipped = k.commonFaces(face, footprint)
+        made.push(...clipped)
+        if (clipped.length !== 1) {
+          pieces.push(...clipped.filter(supported))
+          continue
+        }
+        if (!supported(clipped[0])) continue
+        // The footprint establishes support. Keep up to the fitted
+        // sheet's original margin so the wall can still meet another tool.
+        const bounded = k.commonFaces(face, patch)
+        made.push(...bounded)
+        pieces.push(...(bounded.length === 1 ? bounded : clipped))
+      }
+      const recovered = pieces.length > 1 ? k.unionFaces(pieces) : pieces
+      if (recovered !== pieces) made.push(...recovered)
+      kept.push(...recovered)
+    }
+  }
+
+  private trimJoins(shape: Shape): Pick<TrimReport, 'openEdges' | 'nonManifoldEdges'> {
+    const k = this.kernel
+    const odd = k.oddEdges(shape).edges.filter((edge) => edge.kind === 'free' || edge.kind === 'nonManifold')
+    const openEdges: Float32Array[] = []
+    const nonManifoldEdges: Float32Array[] = []
+    if (odd.length > 0) {
+      const lines = new Map(k.edges(shape, meshDeflection(diagonalOf(k, shape))).map((edge) => [edge.hash, edge.polyline]))
+      for (const edge of odd) (edge.kind === 'free' ? openEdges : nonManifoldEdges).push(lines.get(edge.hash) ?? new Float32Array())
+    }
+    return { openEdges, nonManifoldEdges }
   }
 
   /** The plane or cylinder a surface was fitted as, for its sheet `b` to
@@ -738,7 +819,7 @@ export class Builder {
       return {
         face,
         report: { rms: fit.rms, max: fit.max, net: { u: 0, v: 0 }, points, shape: 'plane', rmsFree: fit.rmsFree, relations: fit.relations },
-        primitive: { kind: 'plane', origin: fit.origin, normal: fit.normal, basisU: patch.u, basisV: patch.v },
+        primitive: { kind: 'plane', origin: fit.origin, normal: fit.normal, basisU: patch.u, basisV: patch.v, footprint: patch.footprint },
       }
     }
     const fit = constrainCylinder(xyz, refs, step.constrain)
@@ -2885,7 +2966,7 @@ export class Builder {
     if (step.keep === 'scan' && scan) {
       const kept: Shape[] = []
       for (const f of fragments) {
-        const share = this.onScanShare(f, step.tolerance, leaveOut)
+        const share = this.onScanShare(f, step.tolerance, { leaveOut })
         if (share !== null && share >= step.overlap) kept.push(f)
       }
       return kept

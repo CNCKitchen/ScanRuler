@@ -5,6 +5,19 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Trim checks scan support and failed joins** (2026-11-11). Scan faces
+  must also face along the cut face, so a nearby floor cannot keep the
+  wall scraps below it. An open planar wall can retain its measured
+  continuation across an unsupported cut. Trim sews at CAD precision and
+  draws open edges and edges shared by more than two faces in red.
+
+- **Trim surface selection** (2026-11-11). Select or deselect every tool
+  from the Trim panel, or click a sheet, body or measured surface in the
+  viewport to toggle it. Selected surfaces stay highlighted while Trim
+  is open.
+
 ## 0.11.2 — 2026-11-11
 
 - **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and

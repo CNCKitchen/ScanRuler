@@ -47,6 +47,21 @@ describe('the closest point under a facing limit', () => {
   it('finds nothing past the search distance', () => {
     expect(closestFacingWay(plate, 0, 0, 5, 0, 0, 1, 0, emptyHit(), 1)).toBe('none')
   })
+
+  it('finds the aligned wall past a closer floor without extending the wall below its rim', () => {
+    const scan = new NominalSurface(new Float32Array([
+      0, -2, 0, 0, 2, 0, 0, 2, 2, 0, -2, 2,
+      0.4, -2, 0, 2, -2, 0, 2, 2, 0, 0.4, 2, 0,
+    ]), new Uint32Array([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]))
+    const hit = emptyHit()
+    expect(scan.closest(0.8, 0, 0.2, hit, 1)).toBe(true)
+    expect(hit.distance).toBeCloseTo(0.2)
+    expect(scan.hasAlignedSurface(0.8, 0, 0.2, -1, 0, 0, Math.SQRT1_2, hit, 1)).toBe(true)
+    expect(scan.hasAlignedSurface(0.8, 0, -0.2, -1, 0, 0, Math.SQRT1_2, hit, 1)).toBe(false)
+    expect(scan.closest(-0.2, 0, -0.2, hit, 1)).toBe(true)
+    expect(hit.nx).toBeCloseTo(1)
+    expect(scan.hasAlignedSurface(-0.2, 0, -0.2, -1, 0, 0, Math.SQRT1_2, hit, 1)).toBe(false)
+  })
 })
 
 describe('which way the scan is wound', () => {

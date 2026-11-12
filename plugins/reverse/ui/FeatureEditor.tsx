@@ -22,12 +22,13 @@ import { symmetryPlaneRef } from '../core/symmetryPlane'
 import { chamferRadius, faceAgainstThread, maxThreadOffset, minorDiameter, sizeForFace, sizeOf, THREAD_STANDARDS, threadDepth, threadDesignation, threadName, threadProblem, threadSizes, threadsPerInch, type ThreadStandard } from '../core/thread'
 import { describeEdgeIn, describeFaceIn } from '../core/topo'
 import { DEFAULT_SPLIT_TOLERANCE_MM } from '../state/reDrafts'
-import { DEFAULT_WALL_MM, type FeatureDraft, type FeatureDraftKind, featureDraftReady, filletModeSwitch, historyEditOf, snapDraftOf, snapPlanOf, trimToleranceFor, useReverse } from '../state/reStore'
+import { DEFAULT_WALL_MM, type FeatureDraft, type FeatureDraftKind, featureDraftReady, filletModeSwitch, historyEditOf, snapDraftOf, snapPlanOf, useReverse } from '../state/reStore'
 import { AnalysisRow, BuildSays, ClearPicks, Num, OpFields, PreviewLine, StepFileKey, XyzField } from './featureFields'
 import { fileSize } from './featureReading'
 import { lenBare, lenShort } from './reLength'
 import { PlaneSelect } from './PlaneSelect'
 import { SweepFields } from './SweepFields'
+import { isTrimElement } from '../state/reDrafts'
 import { NetworkFields } from './NetworkEditor'
 import type { ReactElement } from 'react'
 
@@ -1147,12 +1148,14 @@ export function FeatureEditor() {
       break
     case 'trim': {
       const has = (t: TrimTool) => d.tools.some((x) => x.kind === t.kind && x.id === t.id)
-      const toggle = (t: TrimTool) => {
-        const tools = has(t) ? d.tools.filter((x) => !(x.kind === t.kind && x.id === t.id)) : [...d.tools, t]
-        set({ tools, ...(d.toleranceTyped ? {} : { tolerance: trimToleranceFor(tools, results) }) })
-      }
+      const select = re.getState().setTrimTools
       const surfaces = bodies.filter((b) => b.id !== d.featureId)
-      const solids = elements.filter((e) => e.fit && (e.fit.kind === 'plane' || e.fit.kind === 'cylinder' || e.fit.kind === 'cone' || e.fit.kind === 'sphere' || e.fit.kind === 'torus'))
+      const solids = elements.filter((e) => isTrimElement(e.fit))
+      const tools: TrimTool[] = [
+        ...surfaces.map((b) => ({ kind: 'body' as const, id: b.id })),
+        ...solids.map((e) => ({ kind: 'element' as const, id: e.id })),
+      ]
+      const selected = tools.filter(has).length
       fields = (
         <>
           <div className="field">
@@ -1173,13 +1176,18 @@ export function FeatureEditor() {
               </InfoDot>
             </span>
             <b data-test="trim-count" style={{ fontSize: 12 }}>
-              {d.tools.length} of {surfaces.length + solids.length}
+              {selected} of {tools.length}
             </b>
           </div>
+          <div className="toolrow">
+            <button type="button" data-test="trim-select-all" disabled={selected === tools.length} onClick={() => select(tools)}>Select all</button>
+            <button type="button" data-test="trim-deselect-all" disabled={d.tools.length === 0} onClick={() => select([])}>Deselect all</button>
+          </div>
+          <p className="hint">Click a surface in the viewport or use the checklist to change the selection.</p>
           <div className="checklist" data-test="trim-tools">
             {surfaces.map((b) => (
               <label key={`b${b.id}`} className="checkrow">
-                <input type="checkbox" data-test={`trim-tool-body-${b.id}`} checked={has({ kind: 'body', id: b.id })} onChange={() => toggle({ kind: 'body', id: b.id })} />
+                <input type="checkbox" data-test={`trim-tool-body-${b.id}`} checked={has({ kind: 'body', id: b.id })} onChange={() => select({ kind: 'body', id: b.id })} />
                 <span>
                   {b.name}
                   {results[b.id]?.surface ? ` · σ ${len.fmt(results[b.id]!.surface!.rms, 3)}` : b.surface ? '' : ' · solid'}
@@ -1188,7 +1196,7 @@ export function FeatureEditor() {
             ))}
             {solids.map((e) => (
               <label key={`e${e.id}`} className="checkrow">
-                <input type="checkbox" data-test={`trim-tool-element-${e.id}`} checked={has({ kind: 'element', id: e.id })} onChange={() => toggle({ kind: 'element', id: e.id })} />
+                <input type="checkbox" data-test={`trim-tool-element-${e.id}`} checked={has({ kind: 'element', id: e.id })} onChange={() => select({ kind: 'element', id: e.id })} />
                 <span>
                   {e.name} · {e.fit!.kind}
                 </span>

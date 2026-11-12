@@ -10,7 +10,7 @@ import { useStore } from '../../../src/state/store'
 import { InfoDot } from '../../../src/ui/InfoDot'
 import { NumberField } from '../../../src/ui/NumberField'
 import { relationWords } from '../core/autoConstrain'
-import type { FeatureResult } from '../core/buildTypes'
+import type { FeatureResult, TrimReport } from '../core/buildTypes'
 import type { ParameterKind } from '../core/expression'
 import type { SketchFeature, StepFileRef } from '../core/features'
 import { LIVE_MAP_MIN_RANGE_MM } from '../core/liveMap'
@@ -149,12 +149,23 @@ export function ProfilesField({ picked, found, testPrefix }: { picked: number; f
   )
 }
 
+export function trimJoinText(trim: TrimReport): string {
+  const open = trim.openEdges.length
+  const crowded = trim.nonManifoldEdges.length
+  const issues = []
+  if (open) issues.push(`${open} open edge${open === 1 ? '' : 's'}`)
+  if (crowded) issues.push(`${crowded} edge${crowded === 1 ? '' : 's'} shared by more than two faces`)
+  return issues.join(' and ')
+}
+
 /** What the ghost in the viewport says about the feature so far. */
 export function PreviewLine({ preview, testPrefix }: { preview: PreviewInfo; testPrefix: string }) {
   const len = useLength()
   const vol = preview.status === 'ok' ? len.vol(preview.volume, 1) : ''
+  const trim = preview.status === 'ok' ? preview.trim : undefined
+  const trimIssues = trim && !trim.closed ? trimJoinText(trim) : ''
   return (
-    <p className={'hint' + (preview.status === 'failed' ? ' warn' : '')} data-test={`${testPrefix}-preview`}>
+    <p className={'hint' + (preview.status === 'failed' || (trim && !trim.closed) ? ' warn' : '')} data-test={`${testPrefix}-preview`}>
       {preview.status === 'idle' &&
         (testPrefix === 'surface'
           ? 'Click the scan to gather the region; the surface follows.'
@@ -170,7 +181,9 @@ export function PreviewLine({ preview, testPrefix }: { preview: PreviewInfo; tes
           <span className="spinner" /> {testPrefix === 'import' ? 'Reading the file…' : 'Building the preview…'}
         </>
       )}
-      {preview.status === 'ok' && preview.trim && (preview.trim.closed ? `Closed: ${preview.trim.kept} of the ${preview.trim.faces} faces the surfaces cut lie on the scan and sew into a solid of ${vol}.` : `⚠ Not closed: ${preview.trim.kept} of ${preview.trim.faces} faces lie on the scan, and they leave ${preview.trim.openEdges.length} open edge${preview.trim.openEdges.length === 1 ? '' : 's'} — drawn red on the part. Fit the surface that is missing there, or widen the tolerance; Create keeps the faces as a surface body meanwhile.`)}
+      {testPrefix === 'trim' && <span aria-live="polite" aria-atomic="true">
+        {trim && (trim.closed ? `Closed solid of ${vol} from ${trim.kept} of the ${trim.faces} cut faces.` : `⚠ Not closed. ${trimIssues ? `Red marks ${trimIssues}. ` : ''}${trim.kept} of ${trim.faces} cut faces were kept. Create saves them as a surface body.`)}
+      </span>}
       {preview.status === 'ok' && preview.surface?.shape && (
         <span data-test="surface-held">
           {preview.surface.shape === 'plane' ? 'A plane' : `A cylinder of R ${len.fmt(preview.surface.radius ?? NaN, 3)}`}: σ {len.fmt(preview.surface.rms, 3)} over {preview.surface.points.toLocaleString('en-US')} points

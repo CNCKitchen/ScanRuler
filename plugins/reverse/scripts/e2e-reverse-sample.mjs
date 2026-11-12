@@ -244,15 +244,46 @@ await page.waitForFunction(() => /Closed|Not closed/.test(document.querySelector
 const trimText = await page.$eval('[data-test=trim-preview]', (el) => el.textContent)
 console.log('trim:', trimText)
 check(/^Closed/.test(trimText), 'the eight surfaces close into a solid')
+// The checklist and the viewport edit the same set. Keep only the top
+// sheet visible during the click so the solid behind it cannot take the pick.
+const { topSheet, hiddenForPick } = await page.evaluate(async () => {
+  const re = window.__re.store.getState()
+  const topSheet = re.features.filter((f) => f.kind === 'surface')[1].id
+  const hiddenForPick = re.bodies.filter((b) => b.id !== topSheet && b.visible).map((b) => b.id)
+  re.setBodiesVisible(hiddenForPick, false)
+  re.setBodiesVisible([topSheet], true)
+  window.__re.scene().viewFrom('top')
+  const { reSceneOf } = await import('/plugins/reverse/viewer/reScene.ts')
+  window.trimLitBodies = () => reSceneOf(window.__re.scene()).bodyPicks.lit()
+  return { topSheet, hiddenForPick }
+})
+await click(page, '[data-test=trim-deselect-all]')
+check(await page.$eval('[data-test=trim-count]', (el) => el.textContent) === '0 of 9', 'Deselect all clears the Trim checklist')
+const topCheckbox = `[data-test=trim-tool-body-${topSheet}]`
+const topPoint = await screenOf([6, 6, DEPTH])
+await page.mouse.click(...topPoint)
+await page.waitForFunction((checkbox, id) => document.querySelector(checkbox)?.checked && window.trimLitBodies().includes(id), { timeout: 10_000 }, topCheckbox, topSheet)
+await page.mouse.click(...topPoint)
+await page.waitForFunction((checkbox, id) => !document.querySelector(checkbox)?.checked && !window.trimLitBodies().includes(id), { timeout: 10_000 }, topCheckbox, topSheet)
+check(true, 'clicking the fitted sheet toggles its checklist entry and viewport highlight')
+await click(page, '[data-test=trim-select-all]')
+check(await page.$eval('[data-test=trim-count]', (el) => el.textContent) === '9 of 9', 'Select all checks every offered Trim tool')
+const solidCheckbox = await page.evaluate(() => {
+  const solid = window.__re.store.getState().bodies.find((b) => !b.surface)
+  return `[data-test=trim-tool-body-${solid.id}]`
+})
+await click(page, solidCheckbox)
+await page.evaluate((ids) => window.__re.store.getState().setBodiesVisible(ids, true), hiddenForPick)
+await page.waitForFunction(() => /^Closed/.test(document.querySelector('[data-test=trim-preview]')?.textContent ?? ''), { timeout: 120_000 })
 // One surface out: the set no longer closes and the open edges are drawn.
 const lastSurface = await page.evaluate(() => window.__re.store.getState().features.filter((f) => f.kind === 'surface').slice(-1)[0].id)
 await click(page, `[data-test=trim-tool-body-${lastSurface}]`)
-await page.waitForFunction(() => /Not closed/.test(document.querySelector('[data-test=trim-preview]')?.textContent ?? ''), { timeout: 120_000 }).catch(() => {})
+await page.waitForFunction(() => /Red marks/.test(document.querySelector('[data-test=trim-preview]')?.textContent ?? '') && window.__re.reScene().bodyPicks.openLines.length >= 4, { timeout: 120_000 })
 console.log('trim, one out:', await page.$eval('[data-test=trim-preview]', (el) => el.textContent))
 check(/Not closed/.test(await page.$eval('[data-test=trim-preview]', (el) => el.textContent)) && (await page.evaluate(() => window.__re.store.getState().preview.trim?.openEdges.length ?? 0)) >= 4, 'with one surface out the set does not close and the open edges round the gap are reported')
 await page.screenshot({ path: shotPath('sample-trim-open.png') })
 await click(page, `[data-test=trim-tool-body-${lastSurface}]`)
-await page.waitForFunction(() => /^Closed/.test(document.querySelector('[data-test=trim-preview]')?.textContent ?? ''), { timeout: 120_000 }).catch(() => {})
+await page.waitForFunction(() => /^Closed/.test(document.querySelector('[data-test=trim-preview]')?.textContent ?? '') && window.__re.reScene().bodyPicks.openLines.length === 0, { timeout: 120_000 })
 await click(page, '[data-test=trim-create]')
 await page.waitForFunction(() => document.querySelectorAll('[data-test=body-row]').length === 10 && !window.__re.store.getState().building, { timeout: 120_000 }).catch(() => {})
 await sleep(300)
