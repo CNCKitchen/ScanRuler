@@ -8,7 +8,7 @@ import type { MeshGraph } from '../../src/core/types'
 import type { WorkerContext, WorkerPlugin, WorkerReply } from '../../src/core/workerPluginApi'
 import { isCloud } from '../../src/core/geometry/cloud'
 import { rigidApplyToPoints, rigidRotateVectors } from '../../src/core/deviation/rigid'
-import { cloudPieces, floatingPieces, GAP_SPACINGS, pastPlane, withoutPoints, type CloudPieces } from './core/clean'
+import { cloudPieces, floatingPieces, joinGap, pastPlane, withoutPoints, type CloudPieces } from './core/clean'
 import { CLOUD_TOOLS, type CloudToolsOps } from './core/protocol'
 
 /** The pieces of the scan, for the graph they were found on. */
@@ -29,7 +29,7 @@ function piecesOf(g: MeshGraph): CloudPieces {
   if (!(spacing > 0)) throw new Error('The cloud\'s point spacing is unknown — open it again.')
   // No progress line: under half a second on 760 k points, and it would
   // stand over a delete's report when the tool marks again after one.
-  const found = cloudPieces(g.positions, g.vertexCount, GAP_SPACINGS * spacing)
+  const found = cloudPieces(g.positions, g.vertexCount, joinGap(g.positions, g.vertexCount, spacing))
   pieces = { graph: g, pieces: found }
   return found
 }

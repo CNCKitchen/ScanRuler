@@ -7,11 +7,55 @@
 import { PointGrid } from '../../../src/core/geometry/pointGrid'
 import type { Vec3 } from '../../../src/core/types'
 
-/** Points closer than this many point spacings are one piece. Three bridges
- *  the uneven sampling a hand scanner leaves along a body's edges and in its
- *  shadowed corners, and still leaves a speck floating a few spacings off
- *  the part on its own. */
+/** Points closer than this many point spacings are always one piece. */
 export const GAP_SPACINGS = 3
+
+/** The gap also reaches this many times the 99th percentile of the distance
+ *  from a point to its nearest neighbour. The spacing is a median, so on a
+ *  dense, unevenly sampled scan a gap of three spacings is shorter than the
+ *  step between points over the sparse tenth of the surface: the statuette
+ *  (5 M points, one connected mesh, median 0.108 mm, p99 3.2 spacings) fell
+ *  into 101 k "pieces" and 5.8 % of it was marked as floating. Twice the p99
+ *  joins it (0.017 % marked: the mesh's own loose vertices) and lucy (14 M,
+ *  0.34 % -> 0.06 %), leaves an evenly sampled RevoMetro pass as it was
+ *  (p99 1.4 spacings, so three spacings still rules), and still finds the
+ *  real junk around a hand-scanned cylinder head (35 k points at 1 %). */
+export const GAP_TAIL = 2
+
+/** The gap never reaches past this many spacings, whatever the tail says:
+ *  a cloud with more than a hundredth of its points loose would otherwise
+ *  join its own dust. */
+export const GAP_MAX_SPACINGS = 10
+
+/** Points whose nearest neighbour is measured for the gap, at most. */
+const GAP_SAMPLE = 50_000
+
+/** The gap that joins a cloud's points into pieces: three spacings, or twice
+ *  the 99th percentile nearest-neighbour distance (from a sample) where that
+ *  is longer, at most GAP_MAX_SPACINGS. */
+export function joinGap(positions: Float32Array, count: number, spacing: number): number {
+  if (!(spacing > 0)) throw new Error('The cloud\'s point spacing must be more than zero.')
+  const p = positions.subarray(0, count * 3)
+  const reach = (GAP_MAX_SPACINGS / GAP_TAIL) * spacing
+  const grid = new PointGrid(p, GAP_SPACINGS * spacing)
+  const step = Math.max(1, Math.floor(count / GAP_SAMPLE))
+  const one = new Int32Array(1)
+  const dists: number[] = []
+  for (let i = 0; i < count; i += step) {
+    if (!Number.isFinite(p[3 * i] + p[3 * i + 1] + p[3 * i + 2])) continue
+    // Nothing within reach: count it at the reach, so loose points push the
+    // tail up only as far as the cap.
+    if (grid.kNearest(i, 1, reach, one) === 0) { dists.push(reach); continue }
+    const j = one[0]
+    dists.push(Math.hypot(p[3 * i] - p[3 * j], p[3 * i + 1] - p[3 * j + 1], p[3 * i + 2] - p[3 * j + 2]))
+  }
+  let tail = 0
+  if (dists.length > 0) {
+    dists.sort((a, b) => a - b)
+    tail = dists[Math.min(dists.length - 1, Math.floor(dists.length * 0.99))]
+  }
+  return Math.min(Math.max(GAP_SPACINGS * spacing, GAP_TAIL * tail), GAP_MAX_SPACINGS * spacing)
+}
 
 /** The cloud cut into pieces: points within `gap` of each other, and every
  *  point reached that way from them, are one piece. */
