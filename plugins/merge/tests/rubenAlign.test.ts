@@ -102,6 +102,7 @@ const fmt = (r: LayerAlignResult) =>
 describe.skipIf(!EXISTS)('Ruben head', () => {
   let target: AlignTarget
   let layer: LayerCloud
+  let layerSpacing = 0
   let auto: Rigid | null = null
   const setup = () => {
     if (target) return
@@ -109,6 +110,7 @@ describe.skipIf(!EXISTS)('Ruben head', () => {
     target = { surface: new CloudSurface(t.positions, t.normals!, t.spacing), positions: t.positions, normals: t.normals!, spacing: t.spacing }
     const l = load(LAYER)
     layer = layerCloud(l.positions, l.normals!)
+    layerSpacing = l.spacing
     log(`RUBEN target ${t.vertexCount} points spacing ${t.spacing.toFixed(4)}, layer ${l.vertexCount} points spacing ${l.spacing.toFixed(4)}`)
   }
 
@@ -116,7 +118,7 @@ describe.skipIf(!EXISTS)('Ruben head', () => {
     setup()
     const t0 = performance.now()
     const tried: string[] = []
-    const r = runSteps(autoAlign(target, layer, { inspect: (stage, _p, s) => tried.push(`  ${stage} rms ${s.rms.toFixed(4)} matched ${s.matched.toFixed(4)} tight ${s.tight.toFixed(4)}`) }))
+    const r = runSteps(autoAlign(target, layer, { layerSpacing, inspect: (stage, _p, s) => tried.push(`  ${stage} rms ${s.rms.toFixed(4)} matched ${s.matched.toFixed(4)} tight ${s.tight.toFixed(4)}`) }))
     const ms = Math.round(performance.now() - t0)
     tried.forEach(log)
     log(`RUBEN auto: ${fmt(r)} ambiguous ${r.ambiguous} hypotheses ${r.hypotheses} ${ms} ms`)
@@ -132,7 +134,7 @@ describe.skipIf(!EXISTS)('Ruben head', () => {
 
   it.skipIf(!HEAVY)('the auto pose fits better than the mirror-like half turn of it', () => {
     setup()
-    if (!auto) auto = runSteps(autoAlign(target, layer)).pose
+    if (!auto) auto = runSteps(autoAlign(target, layer, { layerSpacing })).pose
     // The layer turned half a turn about the gasket face's normal through its
     // own centre — the pose a symmetric reading of the face would give — and
     // refined from there: it must fit worse than the auto pose.
@@ -151,7 +153,7 @@ describe.skipIf(!EXISTS)('Ruben head', () => {
     // H2's picks start far off, and its refine is the slow kind (45 s).
     it.skipIf(h !== 'H1' && !HEAVY)(`six picks (${h}) land on the auto pose or are not confident`, () => {
       setup()
-      if (!auto) auto = runSteps(autoAlign(target, layer)).pose
+      if (!auto) auto = runSteps(autoAlign(target, layer, { layerSpacing })).pose
       const pairs = pairsOf(h)
       const t0 = performance.now()
       const r = runSteps(alignPairs(target.surface, layer, pairs, { targetSpacing: target.spacing }))

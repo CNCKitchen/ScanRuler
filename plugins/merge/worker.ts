@@ -242,7 +242,7 @@ const ops: { [K in keyof MergeOps]: (payload: Payload<K>, ctx: WorkerContext) =>
     const steps = autoAlign(
       { surface: t.surface, positions: positionsOf(t.graph), normals: normalsOf(t.graph), spacing: t.spacing },
       cloudOf(l),
-      { progress: (text) => ctx.progress(text) },
+      { progress: (text) => ctx.progress(text), layerSpacing: l.spacing },
     )
     return aligning(steps, ctx)
   },

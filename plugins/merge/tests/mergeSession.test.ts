@@ -7,7 +7,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { identityRigid, rigidCompose, rigidInvert } from '../../../src/core/deviation/rigid'
 import { useShell } from '../../../src/state/shellStore'
-import { undo } from '../../../src/state/historyStore'
+import { undo, useHistory } from '../../../src/state/historyStore'
 import { useStore } from '../../../src/state/store'
 import { applyRigidCloud, rigidOf } from '../../../tests/cloudFixtures'
 import { BASE } from '../core/protocol'
@@ -261,12 +261,26 @@ describe('aligning a layer', () => {
     }
     expect(row(id).pose).toBe(was)
     expect(useStore.getState().statusText).toMatch(/^Stopped/)
+    useHistory.setState({ past: [], future: [] })
     const r = await kit.merge.autoAlign(id, BASE)
+    // One step of the history, whatever it tried on the way.
+    expect(useHistory.getState().past.map((e) => e.label)).toEqual(['Merge: auto align layer'])
     // The plain block fits as well turned over: ambiguous, said so.
     expect(r!.ambiguous).toBe(true)
     expect(r!.confident).toBe(false)
     expect(row(id).last?.ambiguous).toBe(true)
     expect(useStore.getState().statusText).toMatch(/^lo\.ply: Another pose fits about as well/)
+    expect((await kit.merge.refine(id, BASE))!.confident).toBe(false)
+  })
+
+  it('picks the refine drifted off are no start a later Refine is sure from', async () => {
+    const id = await kit.merge.openLayer(plyFile(layerPart, 'lo.ply'), 'mm')
+    // Every pick 5 mm along +y of the point meant: past the 3 spacings allowed.
+    const pick = (p: [number, number, number]) => ({ layer: moved(TRUE, p), target: [p[0], p[1] + 5, p[2]] as [number, number, number] })
+    const r = await kit.merge.alignPairs(id, BASE, [pick([-8, -15, 10]), pick([5, 15, -10]), pick([8, -15, -10]), pick([0, 15, 10])])
+    expect(r!.drifted).toBe(true)
+    expect(r!.confident).toBe(false)
+    expect(useStore.getState().statusText).toMatch(/drifted/)
     expect((await kit.merge.refine(id, BASE))!.confident).toBe(false)
   })
 

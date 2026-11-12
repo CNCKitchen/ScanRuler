@@ -370,8 +370,10 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
     historyAction(`Merge: ${label}`, () => useMerge.getState().setPose(id, pose))
     const result: LayerAlignResult = { ...reply, pose }
     useMerge.getState().patchLayer(id, { last: result })
-    // An auto pose is no one's guess unless it is sure of itself.
-    if (seeds === true || (seeds === 'if-confident' && reply.confident)) guessed.add(pose)
+    // An auto pose is no one's guess unless it is sure of itself; picks or
+    // datums the refine drifted off are not a guess either — a Refine from
+    // there would call it confident with the picks no longer checked.
+    if ((seeds === true && !reply.drifted) || (seeds === 'if-confident' && reply.confident)) guessed.add(pose)
     else if (seeds === false) carried(row.pose, pose)
     const len = shown()
     const note = alignNote(reply, len.fmt, MIN_CONSTRAINT, unguessed)

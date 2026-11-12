@@ -243,6 +243,8 @@ function* judge(target: ClosestSurface, layer: LayerCloud, pose: Rigid, spacing:
  * some twist moves no point off its surface — a plane lets the layer slide in
  * it and turn about its normal; a lone bore, slide along and turn about its
  * axis — and ICP's resting place along that twist is wherever it stopped.
+ * A slim part (a shaft, a thin rib) reads low too, its turn about its length
+ * held only by small features: that errs on the safe side.
  */
 export function poseConstraint(
   target: ClosestSurface,
@@ -353,6 +355,15 @@ export function* alignDatums(
   return best ?? refused!
 }
 
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+
+/** A cone's apex: back along its axis from the centre by radius / tan(half angle). */
+function apexOf(c: Extract<FitData, { kind: 'cone' }>): Vec3 {
+  const back = c.radius / Math.tan((c.halfAngle * Math.PI) / 180)
+  const l = Math.hypot(c.axis[0], c.axis[1], c.axis[2]) || 1
+  return [c.center[0] - (back * c.axis[0]) / l, c.center[1] - (back * c.axis[1]) / l, c.center[2] - (back * c.axis[2]) / l]
+}
+
 /** Where a datum's position is read: what it fixes, not where along it the
  *  fit happened to centre. */
 function datumGap(a: FitData, b: FitData): number {
@@ -368,7 +379,10 @@ function datumGap(a: FitData, b: FitData): number {
     const n = b.normal, l = Math.hypot(n[0], n[1], n[2]) || 1
     return Math.abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / l
   }
-  if (b.kind === 'cylinder' || b.kind === 'cone') return along(b.axis)
+  if (b.kind === 'cylinder') return along(b.axis)
+  // A cone is fixed along its axis too: by where its apex is.
+  if (b.kind === 'cone' && a.kind === 'cone') return Math.hypot(...sub(apexOf(a), apexOf(b)))
+  if (b.kind === 'cone') return along(b.axis)
   if (b.kind === 'line') return along(b.dir)
   return Math.hypot(d[0], d[1], d[2])
 }
