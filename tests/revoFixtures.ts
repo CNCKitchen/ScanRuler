@@ -37,15 +37,25 @@ export interface Revo {
 
 export function revo(): Revo {
   const dir = process.env.SCANRULER_REVO_DIR || DEFAULT_DIR
-  const exists = existsSync(join(dir, 'data', MERGE, 'property.rvproj'))
+  const file = (guid: string, name: string) => join(dir, 'data', guid, name)
+  // Every file a test reads: a project copied in part skips the tests, as an
+  // absent one does, rather than failing them on the first missing pass.
+  const needed = [
+    file(MERGE, 'property.rvproj'),
+    file(MERGE, 'model_pointcloud.ply'),
+    file(MERGE, 'model_mesh.ply'),
+    ...Object.values(GUID).map((g) => file(g, 'fuse.ply')),
+  ]
+  const missing = needed.filter((f) => !existsSync(f))
+  const exists = missing.length === 0
   if (!exists) {
+    const what = missing.length === needed.length ? `not found at "${dir}"` : `at "${dir}" lacks ${missing.map((f) => f.slice(dir.length + 1)).join(', ')}`
     console.warn(
-      `\n⚠ Revo project not found at "${dir}" — its point-cloud acceptance tests are SKIPPED.\n` +
+      `\n⚠ Revo project ${what} — its point-cloud acceptance tests are SKIPPED.\n` +
         `  These run the real scanner passes through the cloud pipeline.\n` +
         `  Set SCANRULER_REVO_DIR to the project folder to run them.\n`,
     )
   }
-  const file = (guid: string, name: string) => join(dir, 'data', guid, name)
   return {
     exists,
     dir,

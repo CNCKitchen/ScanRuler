@@ -2,8 +2,9 @@
 // How well a pose lays one scan on another: the RMS of the closest-point
 // (Euclidean) distances of the source points that find a facing partner in the
 // target, and the share of the source that does. It is not ICP's reported rms,
-// which is the signed plane residual after a median cut. Run over every source point, so it is the
-// honest figure behind an alignment that ICP only fitted on a thinned sample.
+// which is the signed plane residual after a median cut. Run over every source
+// point, so it is the honest figure behind an alignment that ICP only fitted on
+// a thinned sample.
 
 import { emptyHit, type ClosestSurface } from './surface'
 import { type Rigid, rigidApply, rigidRotate } from './rigid'
