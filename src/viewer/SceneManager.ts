@@ -2730,6 +2730,14 @@ export class SceneManager {
     return (this.mesh?.geometry as THREE.BufferGeometry) ?? null
   }
 
+  /** The scan's own colours from its file, three sRGB bytes a vertex of its
+   *  own (no shading copies), or null when it came without any. A copy. */
+  scanFileColors(): Uint8Array | null {
+    const surface = this.scanGeometry()?.getAttribute('surface')?.array as Uint8Array | undefined
+    const own = this.scanVertexCount() * 3
+    return surface && surface.length >= own ? surface.slice(0, own) : null
+  }
+
   /** The welded scan, per geometry — see scanMesh. */
   private welded = new WeakMap<
     THREE.BufferGeometry,

@@ -22,6 +22,7 @@ import { extensionOf, isCloudTextFile, REFERENCE_CLOUD_REFUSAL } from './formats
 import { CLOUD_HEAD_BYTES, cloudSizeOf } from './parsers/cloudSize'
 import { buildMeshGraph } from './geometry/buildGraph'
 import { buildPointGraph } from './geometry/buildPointGraph'
+import { buildPointCloudPly } from './exportPointCloud'
 import { isCloud } from './geometry/cloud'
 import { forgetCloudGrid } from './geometry/cloudGrid'
 import { CLOUD_REFUSAL, refusesOnCloud } from './capabilities'
@@ -818,6 +819,17 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     }
     const { min, max } = boundsOf(graph.positions, graph.vertexCount)
     post({ type: 'bounds-ok', requestId: msg.requestId, min, max })
+    return
+  }
+
+  if (msg.type === 'held-cloud') {
+    if (!graph || !isCloud(graph)) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No point cloud loaded.' })
+      return
+    }
+    const n = graph.vertexCount
+    const ply = buildPointCloudPly(graph.positions.subarray(0, 3 * n), graph.normals.subarray(0, 3 * n), msg.toFile, msg.comment, msg.colors ?? null)
+    post({ type: 'held-cloud-ok', requestId: msg.requestId, bytes: new Uint8Array(ply), points: n }, [ply])
     return
   }
 

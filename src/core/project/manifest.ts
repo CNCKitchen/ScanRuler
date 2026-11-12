@@ -180,6 +180,12 @@ export interface ScanPart {
    *  points as it was read (parsers/thin), and so again on load: elements
    *  and marks number the points kept. Absent when it was read whole. */
   maxPoints?: number
+  /** The member is not the file the cloud was opened from but the cloud the
+   *  app held, written by it as a binary PLY in millimetres (in the frame of
+   *  that file) — the file was too large to pack, or was thinned as it was
+   *  read. Read as it is: whatever thinned it is in its points already, so
+   *  `maxPoints` does not apply to it. Absent for the file itself. */
+  heldCloud?: true
   /** How the scan got its true size, for the record: the factor all its
    *  scales came to and the references of the last one. Absent when it was
    *  never scaled. */

@@ -29,7 +29,7 @@ export class ProjectClient {
   async pack(manifest: ProjectManifest, members: ArchiveMember[]): Promise<Uint8Array> {
     const requestId = this.nextId++
     const files = await readMembers(members)
-    const read = files.filter((f, i) => f.bytes !== members[i].bytes).map((f) => f.bytes.buffer)
+    const read = files.filter((f, i) => f.bytes !== members[i].bytes || members[i].handOver).map((f) => f.bytes.buffer)
     const res = await this.request<Extract<ProjectWorkerResponse, { type: 'pack-ok' }>>(
       { type: 'pack', requestId, manifest, members: files },
       read,

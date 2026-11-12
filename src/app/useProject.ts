@@ -22,7 +22,10 @@ import {
   blankManifest,
   prepareProjectState,
   collectProject,
+  heldCloudWord,
+  packsHeldCloud,
   projectHasContent,
+  withHeldCloud,
   readAs,
   sessionIsDirty,
   type SourceFiles,
@@ -34,6 +37,7 @@ import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
 import { MemoryFile, readOpenedFile } from '../core/sourceFile'
+import { identityRigid, rigidInvert } from '../core/deviation/rigid'
 import { pluginBusy } from '../commands/activity'
 
 /** A project by its name: `.scanruler`, or that with a count a browser
@@ -102,13 +106,30 @@ export function useProject({
     useStore.setState({ busy: true, statusText: 'Saving project…' })
     try {
       const snapshot = capture()
-      const { manifest, members } = snapshot
-      const bytes = await client().pack(manifest, members)
+      let saved = snapshot
+      let heldWord = ''
+      // A cloud thinned as it was read, or too large to pack, goes in as the
+      // points the worker holds: in the frame of its file, the alignment
+      // put on again on opening, as Cloud Tools writes an edit.
+      const scanSource = sources.current.scan
+      if (scanSource && packsHeldCloud(scanSource, store.scanIsCloud)) {
+        const alignment = store.appliedAlignment
+        const held = await clientRef.current!.heldCloud(
+          alignment ? rigidInvert(alignment) : identityRigid(),
+          sceneRef.current?.scanFileColors() ?? null,
+          `${store.fileName ?? scanSource.name} as held by ScanRuler`,
+        )
+        saved = withHeldCloud(snapshot, held.bytes)
+        heldWord = heldCloudWord(scanSource, held.points)
+      }
+      const bytes = await client().pack(saved.manifest, saved.members)
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
+      // The session as captured, not as packed: it is what later captures
+      // are compared with.
       recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
-        statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
+        statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.${heldWord}`,
       })
       return { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
     } catch (e) {
@@ -168,7 +189,10 @@ export function useProject({
       // the worker's current scan/reference. Any member may still fail here.
       // A member saved in other units is read in millimetres from them again,
       // the way it was when it came in; the manifest checked the value.
-      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, bundleFiles([scanFile, ...companions])!, creaseSetting(useStore.getState()), alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm', manifest.scan?.scale ?? 1, manifest.scan?.maxPoints) // units-ok: the file's own units, an id
+      // A cloud the app held and wrote is read as it is: thinned already.
+      const held = manifest.scan?.heldCloud === true
+      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, bundleFiles([scanFile, ...companions])!, creaseSetting(useStore.getState()), alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm', manifest.scan?.scale ?? 1, held ? undefined : manifest.scan?.maxPoints) // units-ok: the file's own units, an id
+      if (scan && held) scan.source.held = true
       if (nominalFile) nominal = await prepareNominal(meshClient, sceneRef.current!, nominalFile, meshUnitsOf(ref?.units) ?? 'mm') // units-ok: the file's own units, an id
       if (imageFile) image = await prepareImage(imageFile)
 

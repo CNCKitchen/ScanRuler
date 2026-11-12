@@ -190,6 +190,11 @@ export type WorkerRequest =
   /** The box around the scan's own vertices, in the frame they are measured
    *  in now — every datum alignment baked in. */
   | { type: 'bounds'; requestId: number }
+  /** The point cloud as the worker holds it, carried by `toFile` into the
+   *  frame of the file it came from, written as a binary PLY in
+   *  millimetres: what a project keeps of a cloud too large to keep, or
+   *  thinned as it was read. `colors`, three bytes a point, go in with it. */
+  | { type: 'held-cloud'; requestId: number; toFile: Rigid; colors?: Uint8Array; comment: string }
   /** The scan's vertices inside a box, facing `normal` within its angle if
    *  one is given, at most `limit` of them — see geometry/query. */
   | { type: 'query'; requestId: number; min: Vec3; max: Vec3; normal?: { dir: Vec3; cosLimit: number }; limit: number }
@@ -386,6 +391,7 @@ export type WorkerResponse =
   | { type: 'auto-align-ok'; requestId: number; result: AutoAlignResult }
   | { type: 'nearest-ok'; requestId: number; result: ScanSpot }
   | { type: 'bounds-ok'; requestId: number; min: Vec3; max: Vec3 }
+  | { type: 'held-cloud-ok'; requestId: number; bytes: Uint8Array; points: number }
   /** The vertices kept, with their positions and normals gathered, how many
    *  matched before the limit, and the stride the limit thinned them by. */
   | { type: 'query-ok'; requestId: number; vertices: Uint32Array; positions: Float32Array; normals: Float32Array; matched: number; step: number }

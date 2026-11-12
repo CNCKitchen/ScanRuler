@@ -639,6 +639,17 @@ export class MeshWorkerClient {
     return { min: res.min, max: res.max }
   }
 
+  /** The point cloud the worker holds as a binary PLY in millimetres,
+   *  carried by `toFile` into its file's frame, with `colors` (three bytes a
+   *  point) if given. See the 'held-cloud' request. */
+  async heldCloud(toFile: Rigid, colors: Uint8Array | null, comment: string): Promise<{ bytes: Uint8Array; points: number }> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'held-cloud-ok' }>>(
+      { type: 'held-cloud', requestId, toFile, comment, ...(colors ? { colors } : {}) },
+    )
+    return { bytes: res.bytes, points: res.points }
+  }
+
   /** The scan's vertices inside a box — facing a direction within an angle
    *  if asked — with their positions and normals, at most `limit` of them
    *  spread evenly through what matched. See geometry/query. */

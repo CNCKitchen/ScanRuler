@@ -14,6 +14,9 @@ import { isMemberName } from './validation'
 export interface ArchiveMember {
   name: string
   bytes: Uint8Array | Blob
+  /** Bytes made for this packing alone (a held cloud), handed over to the
+   *  project worker rather than copied: nothing else holds them. */
+  handOver?: true
 }
 
 /** A member with its bytes in hand, as the archive is built from. */
@@ -70,7 +73,7 @@ export interface UnpackedProject {
   members: Map<string, Uint8Array>
 }
 
-const PROJECT_LIMITS = { members: 16, manifestBytes: 64 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 }
+export const PROJECT_LIMITS = { members: 16, manifestBytes: 64 * 1024 * 1024, totalBytes: 1024 * 1024 * 1024 }
 class ArchiveLimitError extends Error {}
 
 /** Read the archive back and check it is a project this build can open. */

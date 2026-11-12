@@ -59,6 +59,7 @@ export const OP_CAPS = {
   curvature: { needsTriangles: true },
   nearest: { needsTriangles: false },
   bounds: { needsTriangles: false },
+  'held-cloud': { needsTriangles: false },
   query: { needsTriangles: false },
   heights: { needsTriangles: true },
   'scan-qa': { needsTriangles: true },
