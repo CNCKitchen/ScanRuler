@@ -118,7 +118,9 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   const bytes = new Uint8Array(await file.arrayBuffer())
   assertImageDecodable(file.name, bytes)
   const meta = imagePixelsPerMm(bytes)
-  const bitmap = await createImageBitmap(file, { imageOrientation: 'flipY' })
+  // Decoded from the bytes read, not the file: a MemoryFile is empty to
+  // the browser.
+  const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'flipY' })
   try {
     return { source: { name: file.name, bytes }, bitmap, gray: grayscaleOf(bitmap), meta }
   } catch (e) {

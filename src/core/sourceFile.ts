@@ -77,7 +77,8 @@ export async function readOpenedFile(file: Blob, name: string): Promise<ArrayBuf
  * failing with the same NotReadableError about "permission problems". So the
  * bytes stay here and are read from here, and the browser holds an empty
  * file. Whatever is stored or posted elsewhere (a project member, a recovery
- * checkpoint) takes the bytes themselves: `storedBytes`.
+ * checkpoint) takes the bytes themselves: `storedBytes`. It holds the bytes
+ * it is given, not a copy: they must not be handed over to a worker after.
  */
 export class MemoryFile extends File {
   readonly #bytes: Uint8Array

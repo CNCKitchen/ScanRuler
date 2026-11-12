@@ -137,7 +137,9 @@ export function useProject({
       const memberFile = (member: string, name: string) => {
         const bytes = members.get(member)
         if (!bytes) throw new Error(`Project is missing ${member}.`)
-        return new MemoryFile(bytes, name)
+        // A copy: the project's members go on to whatever restores the rest
+        // of it, which may hand their buffers over to a worker.
+        return new MemoryFile(bytes.slice(), name)
       }
       // Check every referenced member before allocating candidate geometry.
       const scanFile = manifest.scan && memberFile(manifest.scan.member, readAs(manifest.scan.fileName, manifest.scan.member))
