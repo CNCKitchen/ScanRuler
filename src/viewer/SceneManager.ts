@@ -207,6 +207,7 @@ const GHOST_OPACITY = 0.5
 /** A cloud pick's reach on screen, pixels: about a splat. */
 const CLOUD_PICK_PIXELS = 3
 const pickToLocal = new THREE.Matrix4()
+const pickWorld = new THREE.Vector3()
 
 /** The scan's marking, as another viewport needs it: the compositor that owns
  *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
@@ -2272,8 +2273,18 @@ export class SceneManager {
     const local = new THREE.Ray().copy(ray).applyMatrix4(toLocal)
     const material = cloud.object.material as THREE.Material
     const planes = (material.clippingPlanes ?? []).map((pl) => pl.clone().applyMatrix4(toLocal))
-    const radius = Math.max(CLOUD_PICK_PIXELS * this.viewport.worldPerPixel(), 1.5 * cloud.spacing)
-    const found = pickCloud(this.cloudGridFor(cloud), cloud.object.geometry.getAttribute('normal').array as Float32Array, local, radius, planes)
+    const radiusAt = (perPixel: number) => Math.max(CLOUD_PICK_PIXELS * perPixel, 1.5 * cloud.spacing)
+    const normals = cloud.object.geometry.getAttribute('normal').array as Float32Array
+    const radius = radiusAt(this.viewport.worldPerPixel())
+    let found = pickCloud(this.cloudGridFor(cloud), normals, local, radius, planes)
+    // In perspective a pixel spans more behind the orbit target and less in
+    // front of it: the radius sized there is sized again at the depth of the
+    // point found, and the pick made once more when that differs much.
+    if (found) {
+      const at = pickWorld.set(...found.point).applyMatrix4(this.partGroup.matrixWorld)
+      const sized = radiusAt(this.viewport.worldPerPixelAt(at))
+      if (sized > radius * 1.25 || sized < radius * 0.8) found = pickCloud(this.cloudGrid!, normals, local, sized, planes) ?? found
+    }
     if (found && hitOut) {
       hitOut.world.set(...found.point).applyMatrix4(this.partGroup.matrixWorld)
       hitOut.distance = hitOut.world.distanceTo(ray.origin)
@@ -2912,12 +2923,14 @@ export class SceneManager {
     rigidRotateVectors(m, normals.array as Float32Array)
     positions.needsUpdate = true
     normals.needsUpdate = true
-    this.cloudGrid = null // the points moved: the index is of the old places
+    // The points moved: the index is of the old places. Built again when a
+    // pick next wants it, not here — an alignment may bake several moves in
+    // a row, and only the last places are picked on.
+    this.cloudGrid = null
     // Also renews the bounding box and sphere. A cloud has no tree to refit.
     if (this.cloud) {
       geometry.computeBoundingBox()
       geometry.computeBoundingSphere()
-      this.cloudGridFor(this.cloud)
     } else refitAfterRigid(geometry)
     // The edited copy — or the scan, while the copy is shown — is in the same
     // frame, and moves with it.

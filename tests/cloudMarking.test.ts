@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { PointGrid } from '../src/core/geometry/pointGrid'
 import { brushCloud, marqueeCloud } from '../src/viewer/cloudMarking'
 import { SurfaceMarking, type MarkingContext } from '../src/viewer/marking'
+import { RegionColors } from '../src/viewer/regionColors'
 import { blockWithBoreCloud, planeCloud } from './cloudFixtures'
 
 describe('brushCloud', () => {
@@ -141,6 +142,32 @@ describe('marqueeCloud', () => {
     expect(got.some((i) => positions[3 * i + 2] === 5)).toBe(true)
   })
 
+  it('a facing surface close behind the near one: taken within the tolerance, left past it', () => {
+    // Two planes facing the camera, spacing 0.5 (a pixel is a world unit
+    // here): the front at z = 0, the other a little behind it. The window
+    // takes the front whole; a plane within a spacing and a half and two
+    // pixels behind is taken with it — a splat's depth on screen does not
+    // tell them apart — and one past that is left.
+    const sheet = (z: number) => {
+      const p: number[] = []
+      for (let x = -10; x <= 10; x += 0.5) for (let y = -10; y <= 10; y += 0.5) p.push(x, y, z)
+      return p
+    }
+    const tolerance = 1.5 * 0.5 + 2 * 1
+    for (const [behind, taken] of [[0.5 * tolerance, true], [1.5 * tolerance, false]] as const) {
+      const front = sheet(0)
+      const pos = Float32Array.from([...front, ...sheet(-behind)])
+      const nor = new Float32Array(pos.length)
+      for (let i = 2; i < nor.length; i += 3) nor[i] = 1
+      const got = new Set(box(pos, nor, all, false, 0.5))
+      const nFront = front.length / 3
+      for (let i = 0; i < nFront; i++) expect(got.has(i), `front ${i}`).toBe(true)
+      let back = 0
+      for (let i = nFront; i < pos.length / 3; i++) if (got.has(i)) back++
+      expect(back, `${behind} behind`).toBe(taken ? nFront : 0)
+    }
+  })
+
   it('lasso takes only the points inside the polygon', () => {
     // Triangle (40,60) (60,60) (60,40) px: the corner where x >= 0 and y <= 0
     // of the +z face, below the line x = -y... i.e. px + py >= 100.
@@ -215,17 +242,13 @@ describe('the brush through SurfaceMarking', () => {
     const n = 10
     const positions = new Float32Array(n * 3)
     const normals = new Float32Array(n * 3)
+    // The scene's own colour book over the cloud's buffers: the mask it
+    // inverts is the paint attribute's array.
     const mask = new Uint8Array(n)
-    mask[2] = mask[5] = 1
-    const regions = {
-      get paintCount() { return mask.reduce((a, b) => a + b, 0) },
-      invertPaint: (tri: ArrayLike<number>, own: (v: number) => number) => {
-        const next = new Uint8Array(n)
-        for (let i = 0; i < tri.length; i++) next[own(tri[i])] = mask[own(tri[i])] ? 0 : 1
-        mask.set(next)
-        return true
-      },
-    }
+    const regions = new RegionColors([200, 200, 200])
+    regions.attach(new Uint8Array(n * 3), mask, new Uint8Array(n))
+    regions.setPaintedVertices(Uint32Array.from([2, 5]))
+    expect(regions.paintCount).toBe(2)
     const attr = { needsUpdate: false }
     const onPaintChange = vi.fn()
     const ctx = {
@@ -251,6 +274,7 @@ describe('the brush through SurfaceMarking', () => {
     marking.setPaintBrush({ color: '#fff', diameter: 6, erase: false, gesture: 'brush' })
     marking.invertPaint()
     expect([...mask]).toEqual([1, 1, 0, 1, 1, 0, 1, 1, 1, 1])
+    expect(regions.paintCount).toBe(8)
     expect(attr.needsUpdate).toBe(true)
     expect(onPaintChange).toHaveBeenCalledWith(8)
   })

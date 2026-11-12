@@ -186,6 +186,17 @@ export function perspectiveFrom(ortho: THREE.OrthographicCamera, target: THREE.V
   return into
 }
 
+/** What a pixel spans at `at`, seen through `view`, given what it spans at
+ *  `target`'s depth (`flat`): the same everywhere in parallel, growing with
+ *  the depth in perspective. */
+export function perPixelAt(view: THREE.Camera, target: THREE.Vector3, at: THREE.Vector3, flat: number): number {
+  if (!(view as THREE.PerspectiveCamera).isPerspectiveCamera) return flat
+  const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(view.quaternion)
+  const targetDepth = new THREE.Vector3().subVectors(target, view.position).dot(forward)
+  const depth = new THREE.Vector3().subVectors(at, view.position).dot(forward)
+  return targetDepth > 0 && depth > 0 ? (flat * depth) / targetDepth : flat
+}
+
 export class OrthoViewport {
   readonly renderer: THREE.WebGLRenderer
   readonly labelRenderer: CSS2DRenderer
@@ -570,6 +581,13 @@ export class OrthoViewport {
     // re-scale, and a read of the layout here after any DOM write was a
     // whole forced layout pass, most of what a tap cost.
     return (this.camera.top - this.camera.bottom) / this.camera.zoom / this.size.h
+  }
+
+  /** What one pixel spans at a point in world space: worldPerPixel in
+   *  parallel; in perspective, scaled by the point's depth over the orbit
+   *  target's. */
+  worldPerPixelAt(at: THREE.Vector3): number {
+    return perPixelAt(this.view, this.controls.target, at, this.worldPerPixel())
   }
 
   /**
