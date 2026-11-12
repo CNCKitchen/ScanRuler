@@ -113,8 +113,15 @@ const { browser, page, consoleErrors } = await launchApp({ width: 1600, height: 
 const dir = mkdtempSync(join(tmpdir(), 'scanruler-merge-'))
 const fileA = join(dir, 'half-a.ply')
 const fileB = join(dir, 'half-b.ply')
-writeFileSync(fileA, ply(halfA, 'ScanRuler e2e block, half A'))
-writeFileSync(fileB, ply(halfB, 'ScanRuler e2e block, half B'))
+try {
+  writeFileSync(fileA, ply(halfA, 'ScanRuler e2e block, half A'))
+  writeFileSync(fileB, ply(halfB, 'ScanRuler e2e block, half B'))
+} catch (e) {
+  // A full disk, say: the folder and the browser go before it says so.
+  rmSync(dir, { recursive: true, force: true })
+  await browser.close()
+  throw e
+}
 
 /** The scan's store, the Merge store and the undo count, read in the page. */
 const state = () =>
@@ -252,6 +259,10 @@ try {
 } catch (e) {
   fail(`threw: ${e instanceof Error ? e.stack : String(e)}`)
 } finally {
-  await finish(browser, consoleErrors)
-  rmSync(dir, { recursive: true, force: true })
+  // The folder goes even when closing the browser throws.
+  try {
+    await finish(browser, consoleErrors)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 }

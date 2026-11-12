@@ -78,7 +78,8 @@ export function MergePanel({
   const len = useLength()
   const layerInput = useRef<HTMLInputElement>(null)
   const running = runningText !== null
-  const busy = scanBusy || running
+  // The question a merge onto a mesh asks holds everything else until answered.
+  const busy = scanBusy || running || confirming !== null
   const layer = layers.find((l) => l.id === selected) ?? null
   const targets = layers.filter((l) => l.id !== selected)
   const pairsDone = pairs.filter((p) => p.target !== null).length

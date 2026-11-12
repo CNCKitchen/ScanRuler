@@ -300,6 +300,40 @@ describe('merge commands', () => {
     expect(row(id).visible).toBe(false)
   })
 
+  it('refuses input its schema does not take: a field unknown or missing, a dedupe that is no distance', async () => {
+    const cases: [string, Record<string, unknown>][] = [
+      ['merge.refine', { id: 'L1', target: 'base', extra: 1 }],
+      ['merge.refine', { id: 'L1' }],
+      ['merge.auto_align', { target: 'base' }],
+      ['merge.move_layer', { id: 'L1', translate: [1, 0, 0] }],
+      ['merge.move_layer', { id: 'L1', translate_mm: [1, 0] }],
+      ['merge.align_pairs', { id: 'L1', target: 'base', pairs: [] }],
+      ['merge.align_pairs', { id: 'L1', target: 'base', pairs: [{ layer: [0, 0, 0] }, { layer: [1, 0, 0], target: [1, 0, 0] }, { layer: [0, 1, 0], target: [0, 1, 0] }] }],
+      ['merge.align_datums', { id: 'L1', target: 'base', layer: { primary: 1, tertiary: 2 }, target_datums: { primary: 3 } }],
+      ['merge.align_datums', { id: 'L1', target: 'base', layer: { primary: 1, secondary: 2 } }],
+      ['merge.fit_datum', { layer: 'L1', kind: 'cone', at: [0, 0, 0] }],
+      ['merge.open_layer', { bytes: new Uint8Array(3), name: 'a.ply', units: 'furlong' }],
+      ['merge.merge', { dedupe_mm: -1 }],
+      ['merge.merge', { dedupe_mm: '0.1' }],
+      ['merge.merge', { confirm: 'yes' }],
+      ['merge.remove_layer', {}],
+    ]
+    for (const [name, input] of cases) expect((await refused(name, input)).code, `${name} ${JSON.stringify(input)}`).toBe('invalid_input')
+    // A null dedupe is a choice, not a mistake: the schema lets it through.
+    kit.merge.dropLayers(true)
+    useStore.setState({ fileName: null })
+    expect((await refused('merge.merge', { dedupe_mm: null })).code).toBe('no_scan')
+  })
+
+  it('a layer whose spacing is unknown takes seeds, not at', async () => {
+    await withBase()
+    const { id } = await openLo()
+    useMerge.getState().patchLayer(id, { spacing: 0 })
+    const r = await refused('merge.fit_datum', { layer: id, kind: 'plane', at: [0, 0, 0] })
+    expect(r.code).toBe('invalid_input')
+    expect(r.message).toBe(`The point spacing of layer "${id}" is unknown, so a point near it cannot be told from one off it — give seeds instead of at.`)
+  })
+
   it('needs a scan for everything but opening one', async () => {
     kit.merge.dropLayers(true)
     useStore.setState({ fileName: null })

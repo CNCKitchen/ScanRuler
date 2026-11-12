@@ -662,19 +662,22 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
      *  layer's own frame, or the scan's as shown. Rejects when none lies
      *  within 5 × the side's point spacing: a point off the part (a typo, the
      *  wrong frame or units) would seed a datum on whatever vertex is least
-     *  far. */
+     *  far. With the spacing unknown there is nothing to judge that by: it
+     *  rejects, asking for seeds. */
     nearestVertex: async (side: string, point: Vec3): Promise<{ vertex: number; distance: number }> => {
       const of = side === BASE ? 'the base' : `layer "${side}"`
       let found: { vertex: number; distance: number }
       let spacing: number
       if (side === BASE) {
-        const s = await clientRef.current!.nearest({ point })
+        // Two questions, asked together.
+        const [s, b] = await Promise.all([clientRef.current!.nearest({ point }), call('base-spacing', null)])
         found = { vertex: s.vertex, distance: s.distance }
-        spacing = (await call('base-spacing', null)).spacing
+        spacing = b.spacing
       } else {
         spacing = rowOf(side).spacing
         found = await call('nearest-vertex', { id: side, point })
       }
+      if (!(spacing > 0)) throw new Error(`The point spacing of ${of} is unknown, so a point near it cannot be told from one off it — give seeds instead of at.`)
       const cap = 5 * spacing
       if (!(found.vertex >= 0) || !(found.distance <= cap)) {
         throw new Error(`No point of ${of} within ${Math.round(cap * 100) / 100} mm of at.`) // units-ok: the command API answers in mm
@@ -700,6 +703,24 @@ export function installMergeSession(session: MergeSession): () => void {
 
 /** The session installed, or null with none. */
 export const mergeSession = (): MergeSession | null => installed
+
+/** Resolves once nothing of the workspace runs, or after `ms` at the most:
+ *  a merge cannot be stopped and runs to its end, and a wait on it must not
+ *  hold a command for good — past `ms` the busy check says it still runs. */
+export function mergeIdle(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (useMerge.getState().running === null) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    const unsubscribe = useMerge.subscribe((s) => {
+      if (s.running === null) done()
+    })
+  })
+}
 
 /** What the workspace's machinery is busy with, for registerBusy. */
 export function mergeBusy(): string | null {

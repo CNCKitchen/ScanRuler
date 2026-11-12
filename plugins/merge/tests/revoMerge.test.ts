@@ -21,6 +21,8 @@ import type { AlignReply, MergeOps } from '../core/protocol'
 const R = revo()
 const HEAVY = process.env.SCANRULER_HEAVY === '1'
 const DEG = Math.PI / 180
+/** The per-pass rows, on the heavy run only: a default run stays quiet. */
+const log = (line: string) => { if (HEAVY) process.stderr.write(line + '\n') }
 const CREASE = { mode: 'off', angleDeg: 30 } as const
 const LAYERS: RevoPass[] = ['0905_01', '0905_03', '0905_04', '0905_05']
 
@@ -145,7 +147,7 @@ describe.skipIf(!R.exists)('Revo merge acceptance', () => {
       const p = new Float64Array(3), q = new Float64Array(3)
       rigidApply(r.pose, c[0], c[1], c[2], p)
       rigidApply(oracle, c[0], c[1], c[2], q)
-      console.log(
+      log(
         `[revo merge] ${n}: ${added.vertexCount} points, refined in ${Math.round(performance.now() - r0)} ms, rms ${r.rms.toFixed(4)}, ` +
           `${(rigidRotationAngle(rigidCompose(rigidInvert(oracle), r.pose)) / DEG).toFixed(3)} deg ${Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]).toFixed(3)} mm off Revo's pose, confident ${r.confident}`,
       )
@@ -169,7 +171,7 @@ describe.skipIf(!R.exists)('Revo merge acceptance', () => {
     const reverse = nearestDistances(theirs, ours, new PointKdTree(ours))
     sample()
     const p95 = pct(forward, 0.95)
-    console.log(
+    log(
       `[revo merge] dedupe ${dedupe!.toFixed(4)} mm; ours ${count} points (base ${merged.baseMap.length}, layers ${layerPoints}, dropped ${merged.dropped}), Revo's ${theirs.length / 3}; ` +
         `ours->Revo p50 ${pct(forward, 0.5).toFixed(4)} p95 ${p95.toFixed(4)} p99 ${pct(forward, 0.99).toFixed(4)} mm; ` +
         `Revo->ours p50 ${pct(reverse, 0.5).toFixed(4)} p95 ${pct(reverse, 0.95).toFixed(4)} p99 ${pct(reverse, 0.99).toFixed(4)} mm; ` +

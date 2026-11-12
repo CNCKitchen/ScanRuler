@@ -34,6 +34,7 @@ import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
 import { MemoryFile, readOpenedFile } from '../core/sourceFile'
+import { pluginBusy } from '../commands/activity'
 
 /** A project by its name: `.scanruler`, or that with a count a browser
  *  put after it (isProjectName). */
@@ -122,6 +123,15 @@ export function useProject({
   const saveProject = () => packProject().then((packed) => {
     if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
   })
+
+  /** A workspace's own machinery at work on the scan (registerBusy): a
+   *  project is not put under it, as a scan is not (scanImport). Asked at the
+   *  head of the import queue, so it sees work started while this waited. */
+  const pluginRefuses = (what: string): boolean => {
+    const busy = pluginBusy()
+    if (busy) useStore.getState().setError(`Wait for the work in progress to finish before ${what} — ${busy}.`)
+    return busy !== null
+  }
 
   /** Open a project in place of the session — after asking, when there is
    *  work to lose, unless the caller has settled that (`settled`). */
@@ -220,7 +230,7 @@ export function useProject({
       if (!committed) image?.bitmap.close()
       await meshClient.discardImport([scan?.id, nominal?.id].filter((id): id is number => id !== undefined))
     }
-  }, () => settled || !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?'))
+  }, () => !pluginRefuses('opening a project') && (settled || !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?')))
 
   /** Start a new project in place of the session: the scan, the reference
    *  and the image closed, every measurement and every workspace's work let
@@ -242,7 +252,7 @@ export function useProject({
     sceneRef.current?.frameAll()
     useStore.setState({ busy: false, statusText: 'New project.' })
     recovery.markSaved(capture())
-  }, () => settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.'))
+  }, () => !pluginRefuses('starting a new project') && (settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.')))
 
   return { saveProject, packProject, openProject, newProject, recovery }
 }

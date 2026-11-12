@@ -10,7 +10,7 @@
 // in millimetres, whatever the panel shows.
 
 import { CommandError, type Command } from '../../../src/plugins/api'
-import { arr, bool, bytes, enumOf, int, num, obj, str, vec3, type JsonSchema } from '../../../src/commands/schema'
+import { arr, bool, bytes, enumOf, int, num, obj, oneOf, str, vec3, type JsonSchema } from '../../../src/commands/schema'
 import { requireScan } from '../../../src/commands/refs'
 import { fileNameSchema, fileOf, lastError } from '../../../src/commands/core/common'
 import { cloneRigid, rigidCompose, rigidFromAxisAngle, rigidToColumnMajor, type Rigid } from '../../../src/core/deviation/rigid'
@@ -327,7 +327,7 @@ const mergeCmd: Command<{ dedupe_mm?: number | null; confirm?: boolean }> = {
   description:
     'Merge the scan and the layers shown into one point cloud, in place of the scan, under everything measured on it (carried across and measured again); the layers are hidden after. dedupe_mm: a layer point within this of one kept before it goes (mm); null keeps every point; left out, the panel’s own (the layers’ median point spacing). A mesh scan becomes a cloud — triangle-only tools and their results go — so it is refused (with that warning) until confirm is true, which says yes to it. One step of the history ("Merge: merge layers"). Returns the points of the scan now and the layers merged.',
   input: obj({
-    dedupe_mm: { oneOf: [num('mm.', { minimum: 0 }), { type: 'null' }], description: 'Drop doubles within this distance, mm; null keeps every point.' },
+    dedupe_mm: oneOf([num('mm.', { minimum: 0 }), { type: 'null' }], 'Drop doubles within this distance, mm; null keeps every point.'),
     confirm: bool('true: go ahead though the scan is a mesh and becomes a point cloud.'),
   }),
   history: false,

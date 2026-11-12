@@ -31,7 +31,7 @@ const vertexOf = (hit: Pick<PickHit, 'vertices' | 'weights'>): number => {
 function pickOn(session: MergeSession, side: string, point: Vec3, vertex: number): boolean {
   const m = useMerge.getState()
   const layer = m.selected
-  if (!layer || (m.tool !== 'pairs' && m.tool !== 'datums') || m.running) return false
+  if (!layer || (m.tool !== 'pairs' && m.tool !== 'datums') || m.running || m.confirming) return false
   if (side !== layer && side !== m.target) return false
   if (m.tool === 'pairs') {
     const last = m.pairs.at(-1)
@@ -92,7 +92,7 @@ export function useMergePlugin(host: PluginHost): PluginRuntime {
   const tool = useMerge((s) => s.tool)
   const gizmoMode = useMerge((s) => s.gizmoMode)
   const locked = useMerge((s) => s.layers.find((l) => l.id === s.selected)?.locked ?? true)
-  const running = useMerge((s) => s.running !== null)
+  const running = useMerge((s) => s.running !== null || s.confirming !== null)
 
   // The clicks on the layers, once there is a viewport — looked for on
   // every render, as the viewport comes after the first.

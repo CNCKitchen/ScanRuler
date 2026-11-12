@@ -21,6 +21,9 @@
 // compete: whichever normal makes the smaller angle with the mean normal of
 // the kept points within 2 * dedupe stays (the new point overwrites the kept
 // one in place when it wins). A kept point is replaced at most once per layer.
+// Replacements are written once the layer is done: the index holds the kept
+// points' positions by reference, and a point moved under it would sit
+// outside its node's box, where a later query could miss it.
 //
 // Pure numerics: no DOM, no Three.js.
 
@@ -97,6 +100,9 @@ export function mergeLayers(input: MergeInput): MergeOutput {
     const before = kept
     const tree = new PointKdTree(outP.subarray(0, 3 * before))
     const replaced = new Uint8Array(before)
+    const swaps: number[] = []
+    const swapP: number[] = []
+    const swapN: number[] = []
     for (let i = 0; i < count; i++) {
       mapInto(m, scale, layer.positions, layer.normals, i, cp, cn, 0)
       const near = tree.nearest(cp[0], cp[1], cp[2], reach)
@@ -115,12 +121,21 @@ export function mergeLayers(input: MergeInput): MergeOutput {
       // Same mean for both, so comparing dots compares angles.
       const keptDot = outN[3 * near] * mx + outN[3 * near + 1] * my + outN[3 * near + 2] * mz
       const newDot = cn[0] * mx + cn[1] * my + cn[2] * mz
+      // A tie keeps the point already there.
       if (newDot > keptDot) {
-        outP.set(cp, 3 * near)
-        outN.set(cn, 3 * near)
+        swaps.push(near)
+        swapP.push(cp[0], cp[1], cp[2])
+        swapN.push(cn[0], cn[1], cn[2])
         replaced[near] = 1
       }
     }
+    for (let s = 0; s < swaps.length; s++) {
+      const j = 3 * swaps[s]
+      outP[j] = swapP[3 * s]; outP[j + 1] = swapP[3 * s + 1]; outP[j + 2] = swapP[3 * s + 2]
+      outN[j] = swapN[3 * s]; outN[j + 1] = swapN[3 * s + 1]; outN[j + 2] = swapN[3 * s + 2]
+    }
   }
+  // Nothing dropped fills the buffers exactly: no copy.
+  if (kept === cap) return { positions: outP, normals: outN, baseMap, dropped }
   return { positions: outP.slice(0, 3 * kept), normals: outN.slice(0, 3 * kept), baseMap, dropped }
 }
