@@ -110,18 +110,20 @@ export function sphereCloud(o: { radius: number; step: number; noise?: number })
 }
 
 /** A box centred on the origin with a bore through it along z; the bore's
- *  normals point at the axis, the faces' away from the block. Each edge and
- *  corner is sampled once, on the x faces and then the y faces, as a scanner
- *  would give one point there rather than one per face with differing normals. */
+ *  normals point at the axis, the faces' away from the block. Each face is
+ *  sampled whole, so an edge or corner point is there once per face meeting
+ *  it, with that face's normal — not as a scanner gives it, but what the
+ *  segment, merge and align tests built on this fixture are tuned to; giving
+ *  each edge point once moves the FPFH and pair-refine figures in
+ *  plugins/merge/tests. */
 export function blockWithBoreCloud(o: { size: Vec3; boreRadius: number; step: number }): Cloud {
   const [sx, sy, sz] = o.size
   const b = new Builder()
-  const inner = (size: number) => ticks(size, o.step).slice(1, -1)
   for (const s of [-1, 1]) {
     for (const y of ticks(sy, o.step)) for (const z of ticks(sz, o.step)) b.add(s * sx / 2, y, z, s, 0, 0)
-    for (const x of inner(sx)) for (const z of ticks(sz, o.step)) b.add(x, s * sy / 2, z, 0, s, 0)
-    for (const x of inner(sx)) {
-      for (const y of inner(sy)) {
+    for (const x of ticks(sx, o.step)) for (const z of ticks(sz, o.step)) b.add(x, s * sy / 2, z, 0, s, 0)
+    for (const x of ticks(sx, o.step)) {
+      for (const y of ticks(sy, o.step)) {
         if (Math.hypot(x, y) > o.boreRadius + o.step / 2) b.add(x, y, s * sz / 2, 0, 0, s)
       }
     }
