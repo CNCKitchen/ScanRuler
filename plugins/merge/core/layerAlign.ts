@@ -40,7 +40,7 @@
 import type { DatumSpec } from '../../../src/core/alignment'
 import { absoluteOrientation } from '../../../src/core/deviation/absoluteOrientation'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
-import { icpSteps, sampleScan, type ScanSamples } from '../../../src/core/deviation/icp'
+import { icpSteps, sampleScan } from '../../../src/core/deviation/icp'
 import { poseConfidence, scorePose } from '../../../src/core/deviation/poseScore'
 import { rigidApply, rigidRotate, type Rigid } from '../../../src/core/deviation/rigid'
 import type { Steps } from '../../../src/core/deviation/steps'
@@ -60,9 +60,6 @@ export interface LayerCloud {
   /** A 25 k-point sample of it, for the first ICP stage. */
   sample: Float32Array
   sampleNormals: Float32Array
-  /** The 200 k-point sample for the second stage, drawn once so the starts
-   *  alignDatums tries share it. */
-  fine: ScanSamples
 }
 
 export interface LayerAlignResult {
@@ -136,7 +133,6 @@ export function layerCloud(positions: Float32Array, normals: Float32Array, scale
     normals,
     sample: Float32Array.from(s.xyz),
     sampleNormals: Float32Array.from(s.normals ?? []),
-    fine: sampleScan(p, normals, FINE_SAMPLES),
   }
 }
 
@@ -235,7 +231,10 @@ export function* refineLayer(
     count: layer.sample.length / 3,
   }
   let pose = (yield* icpSteps(target, coarse, start, icpOptions)).transform
-  pose = (yield* icpSteps(target, layer.fine, pose, { ...icpOptions, tolerance: FINE_TOLERANCE * spacing })).transform
+  // The 200 k sample is drawn here, not kept with the layer: a strided copy
+  // takes a millisecond, and held it would be 10 MB a layer for good.
+  const fine = sampleScan(layer.positions, layer.normals, FINE_SAMPLES)
+  pose = (yield* icpSteps(target, fine, pose, { ...icpOptions, tolerance: FINE_TOLERANCE * spacing })).transform
   const r = yield* judge(target, layer, pose, spacing)
   return { ...r, confident: r.confident && opts.fromUserGuess !== false }
 }
@@ -330,13 +329,19 @@ function* scoreInChunks(
   return { rms: count > 0 ? Math.sqrt(sumSq / count) : Infinity, matched: n > 0 ? count / n : 0 }
 }
 
+/** Below this half-angle, degrees, a cone is too near a cylinder for its
+ *  apex or the sign of its axis to be read reliably off a fit. */
+const SLIM_CONE_DEG = 1
+
 /** The same datum with its direction the other way, or null for a datum whose
- *  direction sign means something (a plane's outward normal) or that has none. */
-function flippedAxis(spec: DatumSpec): DatumSpec | null {
+ *  direction sign means something (a plane's outward normal, a cone's axis
+ *  towards its wide end) or that has none. A near-cylindrical cone's sign is
+ *  as loose as a cylinder's, so it is tried both ways too. */
+export function flippedAxis(spec: DatumSpec): DatumSpec | null {
   const f: FitData = spec.fit
   const neg = (v: Vec3): Vec3 => [-v[0], -v[1], -v[2]]
   if (f.kind === 'line') return { ...spec, fit: { ...f, dir: neg(f.dir) } }
-  if (f.kind === 'cylinder' || f.kind === 'cone') return { ...spec, fit: { ...f, axis: neg(f.axis) } }
+  if (f.kind === 'cylinder' || (f.kind === 'cone' && !(Math.abs(f.halfAngle) >= SLIM_CONE_DEG))) return { ...spec, fit: { ...f, axis: neg(f.axis) } }
   return null
 }
 
@@ -403,8 +408,9 @@ function datumGap(a: FitData, b: FitData): number {
     return Math.abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / l
   }
   if (b.kind === 'cylinder') return along(b.axis)
-  // A cone is fixed along its axis too: by where its apex is.
-  if (b.kind === 'cone' && a.kind === 'cone') return Math.hypot(...sub(apexOf(a), apexOf(b)))
+  // A cone is fixed along its axis too: by where its apex is — unless it is
+  // so near a cylinder that its apex lies far off and moves with any noise.
+  if (b.kind === 'cone' && a.kind === 'cone' && Math.abs(a.halfAngle) >= SLIM_CONE_DEG && Math.abs(b.halfAngle) >= SLIM_CONE_DEG) return Math.hypot(...sub(apexOf(a), apexOf(b)))
   if (b.kind === 'cone') return along(b.axis)
   if (b.kind === 'line') return along(b.dir)
   return Math.hypot(d[0], d[1], d[2])

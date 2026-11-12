@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { describe, expect, it } from 'vitest'
-import { alignDatums, alignPairs, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
+import { alignDatums, alignPairs, datumResidual, flippedAxis, layerCloud, refineLayer, type LayerAlignResult, type LayerCloud } from '../core/layerAlign'
 import { datumPose, type DatumSet } from '../core/datums'
 import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
 import { runSteps } from '../../../src/core/deviation/steps'
 import { identityRigid, rigidApply, rigidCompose, rigidInvert, rigidRotationAngle, type Rigid } from '../../../src/core/deviation/rigid'
 import { transformFit } from '../../../src/core/alignment'
 import { buildPointGraph } from '../../../src/core/geometry/buildPointGraph'
-import type { CylinderFit, FitData, PlaneFit, Vec3 } from '../../../src/core/types'
+import type { ConeFit, CylinderFit, FitData, PlaneFit, Vec3 } from '../../../src/core/types'
 import { applyRigidCloud, blockWithBoreCloud, halves, rigidOf, type Cloud } from '../../../tests/cloudFixtures'
 
 const UNDER = 'Needs two datums on each side — one alone leaves the part free to turn or slide.'
@@ -193,5 +193,28 @@ describe('refineLayer', () => {
     expect(d.deg).toBeLessThanOrEqual(0.05)
     expect(d.mm).toBeLessThanOrEqual(0.02)
     expect(r.lowOverlap).toBe(false)
+  })
+})
+
+describe('cone datums', () => {
+  const cone = (halfAngle: number, center: Vec3, radius: number): ConeFit =>
+    ({ kind: 'cone', center, axis: [0, 0, 1], halfAngle, radius, radius1: radius, radius2: radius, length: 10 }) as unknown as ConeFit
+  const set = (fit: FitData): DatumSet => ({ primary: { fit, axis: 'z+' }, secondary: null, origin: null })
+
+  it('a cone is tried the other way round only when it is near a cylinder', () => {
+    expect(flippedAxis({ fit: cone(20, [0, 0, 0], 5), axis: 'z+' })).toBeNull()
+    expect(flippedAxis({ fit: cone(-20, [0, 0, 0], 5), axis: 'z+' })).toBeNull()
+    const slim = flippedAxis({ fit: cone(0.3, [0, 0, 0], 5), axis: 'z+' })
+    expect((slim!.fit as ConeFit).axis).toEqual([-0, -0, -1])
+  })
+
+  it('reads a cone gap by its apex, a near-cylindrical one by its axis', () => {
+    // Same steep cone, centred at different heights: one apex, no gap.
+    expect(datumResidual(set(cone(20, [0, 0, 0], 5)), set(cone(20, [0, 0, 3], 5 + 3 * Math.tan(20 * DEG))), identityRigid())).toBeLessThan(1e-9)
+    // Steep, apexes 2 mm apart along the axis.
+    expect(datumResidual(set(cone(20, [0, 0, 0], 5)), set(cone(20, [0, 0, 2], 5)), identityRigid())).toBeCloseTo(2, 6)
+    // Near a cylinder, 0.01 mm of radius moves the apex by 2 mm: the gap is
+    // read across the axis only, here 0.5 mm.
+    expect(datumResidual(set(cone(0.3, [0, 0, 0], 5)), set(cone(0.3, [0.5, 0, 4], 5.01)), identityRigid())).toBeCloseTo(0.5, 6)
   })
 })
