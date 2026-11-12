@@ -126,6 +126,9 @@ describe('worker gate', () => {
     expect(send({ type: 'nearest', vertex: 0 }, 98).type).toBe('nearest-ok')
     expect(send({ type: 'plane-region', vertices: new Uint32Array([0, 1, 2]) }, 96).type).toBe('plane-region-ok')
     expect(send({ type: 'centroid' }, 97).type).toBe('centroid-ok')
+    // Taken on clouds too, and still run on a mesh.
+    expect(send({ type: 'segment', options: { minArea: 5, maxRms: 0.05, maxDeg: 15 } }, 95).type).toBe('segment-ok')
+    expect(send({ type: 'auto-align' }, 94).type).toBe('auto-align-ok')
   })
 })
 

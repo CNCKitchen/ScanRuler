@@ -8,6 +8,7 @@
 // like one typed in by hand.
 
 import type { CircleFit, ElementKind, FitData, LineFit, PlaneFit, PointFit, Vec3 } from '../types'
+import type { WorkerRequest } from '../workerProtocol'
 import {
   acuteAngle,
   add,
@@ -504,6 +505,13 @@ export const CREATION_METHODS: readonly CreationMethod[] = [
     ],
   },
 ]
+
+/** The worker ops a creation method reads the scan with: a centroid or a
+ *  symmetry plane is read off its triangles, so a point cloud refuses them
+ *  (capabilities.ts). The rest take only elements and typed numbers. */
+export function scanOpsOfMethod(id: string | undefined): WorkerRequest['type'][] {
+  return id === 'point-centroid' ? ['centroid'] : id === 'plane-symmetry' ? ['symmetry'] : []
+}
 
 export function methodsForKind(kind: ElementKind): CreationMethod[] {
   return CREATION_METHODS.filter((m) => m.kind === kind)

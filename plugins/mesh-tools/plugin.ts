@@ -84,7 +84,9 @@ const plugin: ScanRulerPlugin = {
     // the plugin's has a hyphen, which a command's name does not take — its
     // part of the readout, and what it is busy with.
     // Every tool here works on triangles but Mesh this cloud, which makes them.
-    registerCommands('mesh', meshCommands.map((c) => (c.readOnly || c.name === 'mesh_cloud' ? c : { ...c, needsTriangles: true })))
+    // Of the reads, the export writes the triangles out, so a cloud is told
+    // to mesh itself rather than that there is no edited copy.
+    registerCommands('mesh', meshCommands.map((c) => ((c.readOnly && c.name !== 'export') || c.name === 'mesh_cloud' ? c : { ...c, needsTriangles: true })))
     registerCloudMesher({
       label: 'Mesh this cloud',
       command: 'mesh.mesh_cloud',

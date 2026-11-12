@@ -5,7 +5,7 @@
 // again before the command returns.
 
 import { hasDiameter } from '../../core/elements/assumed'
-import { methodsForKind } from '../../core/elements/construct'
+import { methodsForKind, scanOpsOfMethod } from '../../core/elements/construct'
 import { isExtendable, type ExtendSide } from '../../core/elements/extend'
 import { isOrientable, type OrientRelation } from '../../core/elements/orient'
 import { worldAxisDir, worldPlaneName, type WorldAxis } from '../../core/section/frame'
@@ -548,7 +548,7 @@ const construct: Command<{
   vertices?: number[]
 } & Omit<Finishing, 'sigma' | 'knownDiameter' | 'extend'>> = {
   name: 'construct',
-  scanOps: (i) => (i.method === 'point-centroid' ? ['centroid'] : i.method === 'plane-symmetry' ? ['symmetry'] : []),
+  scanOps: (i) => scanOpsOfMethod(i.method),
   title: 'Construct an element',
   description:
     'Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane, point-center (of a sphere, circle or torus), point-three-planes, point-line-line (params gap: the most two measured lines may pass apart and be taken to cross, 0.1 mm by default; skew past it is refused), point-project (a point onto a plane); line: line-two-points, line-axis (of a cylinder, cone, torus or circle), line-plane-plane, line-plane-point (square to a plane through a point), line-project (a line or axis onto a plane), line-coords (dx, dy, dz, px, py, pz, length); plane: plane-three-points, plane-offset, plane-offset-point (parallel through a point), plane-midplane, plane-line-point (normal to a line through a point), plane-angle (refs axis, zero-angle plane; params angle in degrees, right-handed about the axis), plane-line-plane (through a line, square to a plane), plane-two-lines (params gap as for point-line-line), plane-tangent-sphere, plane-tangent-cylinder (refs the feature, a point on the side to touch), plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. Constructions stay linked to their sources, rebuilt when one changes; element.unlink freezes one where it stands. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; "XY", "YZ", "XZ" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.',

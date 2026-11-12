@@ -49,5 +49,7 @@ describe('Mesh Tools on a point cloud', () => {
     expect(names).toEqual(expect.arrayContaining(['mesh.cut', 'mesh.remove_islands', 'mesh.reduce']))
     expect((await refused('mesh.remove_islands', { size: 1 })).message).toBe(CLOUD_REFUSAL)
     expect((await refused('mesh.cut', { plane: 'XY', offset: 0, keep: 'plus' })).message).toBe(CLOUD_REFUSAL)
+    // A read, but one that writes triangles out: refused the same way.
+    expect((await refused('mesh.export', { part: 'edited' })).message).toBe(CLOUD_REFUSAL)
   })
 })

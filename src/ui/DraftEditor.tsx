@@ -3,7 +3,8 @@
 // rides along while a surface fit is open. Renders nothing without a draft.
 
 import { hasDiameter } from '../core/elements/assumed'
-import { creationMethod, methodsForKind, takesSurface } from '../core/elements/construct'
+import { creationMethod, methodsForKind, scanOpsOfMethod, takesSurface } from '../core/elements/construct'
+import { refusesOpsOnCloud } from '../core/capabilities'
 import { isExtendable } from '../core/elements/extend'
 import { isOrientable } from '../core/elements/orient'
 import { elementKindInfo } from '../core/elements/kinds'
@@ -77,6 +78,10 @@ export function DraftEditor({
   const draftKind = draft && elementKindInfo(draft.kind)
   const method = draft && creationMethod(draft.kind, draft.method)
   const kindMethods = draft ? methodsForKind(draft.kind) : []
+  // A method that reads the scan's triangles is offered greyed on a cloud,
+  // with the reason, rather than refused by the worker once chosen.
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
+  const refusalOf = (id: string) => refusesOpsOnCloud(scanOpsOfMethod(id), scanIsCloud)
   // The element the open draft writes back to, if it is an edit rather than a
   // new element, and what such a draft must not be built on.
   const edited = draft?.editId !== undefined ? elements.find((e) => e.id === draft.editId) : undefined
@@ -162,7 +167,7 @@ export function DraftEditor({
                 onChange={(e) => setDraftMethod(e.target.value)}
               >
                 {kindMethods.map((m) => (
-                  <option key={m.id} value={m.id}>
+                  <option key={m.id} value={m.id} disabled={refusalOf(m.id) !== null} title={refusalOf(m.id) ?? undefined}>
                     {m.label}
                   </option>
                 ))}
@@ -257,9 +262,12 @@ export function DraftEditor({
                   />
                   <button
                     data-test="find-symmetry"
-                    disabled={busy || draft.status === 'fitting'}
+                    disabled={busy || draft.status === 'fitting' || refusalOf(method.id) !== null}
                     onClick={onFindSymmetry}
-                    title="Reflect the scan through the seed — a coordinate plane, a plane element or a section; with none, through each of its principal planes — fit the reflection back onto the scan, and read the mirror plane off the fit"
+                    title={
+                      refusalOf(method.id) ??
+                      'Reflect the scan through the seed — a coordinate plane, a plane element or a section; with none, through each of its principal planes — fit the reflection back onto the scan, and read the mirror plane off the fit'
+                    }
                   >
                     {draft.status === 'ready' ? 'Find again' : 'Find symmetry plane'}
                   </button>

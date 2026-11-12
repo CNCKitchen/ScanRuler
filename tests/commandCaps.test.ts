@@ -10,6 +10,7 @@ import { runCommand } from '../src/commands/registry'
 import { CommandError } from '../src/commands/types'
 import { CLOUD_REFUSAL, OP_CAPS } from '../src/core/capabilities'
 import { useStore } from '../src/state/store'
+import { useDeviation } from '../src/state/deviationStore'
 import { boxMesh, icosphere } from './helpers'
 import { sphereCloud, writePlyCloud } from './cloudFixtures'
 import { refused, run, soupOf, startHeadless, stlBytes, undoLabels, type Headless } from './commandKit'
@@ -29,14 +30,19 @@ afterAll(() => headless.stop())
 const openMesh = () => run('scan.open', { bytes: MESH, name: 'ball.stl', discard: true })
 const openCloud = () => run('scan.open', { bytes: CLOUD, name: 'ball.ply', discard: true })
 
+/** A setup step, its refusal thrown with the command's own message. */
+const step = async (name: string, input: unknown): Promise<void> => {
+  const out = await attempt(name, input)
+  if (!out.ok) throw new Error(out.message)
+}
 /** The reference and an alignment against it: what the deviation commands start from. */
 const withReference = async () => {
-  await run('deviation.open_reference', { bytes: REFERENCE, name: 'block.stl' })
-  await run('deviation.align', { mode: 'auto' })
+  await step('deviation.open_reference', { bytes: REFERENCE, name: 'block.stl' })
+  await step('deviation.align', { mode: 'auto' })
 }
 /** A section, for the commands that read one. */
 const withSection = async () => {
-  await run('section.cut', { across: 'XY' })
+  await step('section.cut', { across: 'XY' })
 }
 
 const P: Vec3 = [20, 0, 0]
@@ -66,7 +72,7 @@ const INPUTS: Record<string, { input?: Record<string, unknown>; setup?: () => Pr
   'section.render': { input: { plane: 'XY' } },
   'thickness.measure': {},
   'thickness.settings': {},
-  'deviation.align': { input: { mode: 'auto' }, setup: () => run('deviation.open_reference', { bytes: REFERENCE, name: 'block.stl' }) },
+  'deviation.align': { input: { mode: 'auto' }, setup: () => step('deviation.open_reference', { bytes: REFERENCE, name: 'block.stl' }) },
   'deviation.measure': { setup: withReference },
   'deviation.settings': { input: { on: 'reference' }, setup: withReference },
   'deviation.hotspots': { input: { on: 'reference' }, setup: withReference },
@@ -118,7 +124,7 @@ describe('commands on a point cloud', () => {
         onCloud = await attempt(name, input)
       } catch (e) {
         // A setup that is itself refused on a cloud is the refusal.
-        onCloud = { ok: false, code: 'setup', message: e instanceof Error ? e.message.replace(/^.*→ [a-z_]+: /, '') : String(e) }
+        onCloud = { ok: false, code: 'setup', message: e instanceof Error ? e.message : String(e) }
       }
       if (!onMesh.ok) {
         unexercised.push(`${name} (${onMesh.code}: ${onMesh.message.slice(0, 60)})`)
@@ -145,9 +151,9 @@ describe('commands on a point cloud', () => {
 
   it('flagged commands still run on a mesh', async () => {
     await openMesh()
-    for (const name of ['scan.nearest', 'scan.heightmap', 'scan.qa', 'section.cut', 'section.get', 'thickness.measure', 'align.symmetry']) {
+    for (const name of ['scan.nearest', 'scan.heightmap', 'scan.qa', 'section.cut', 'section.get', 'thickness.measure', 'align.symmetry', 'scan.segment', 'align.auto']) {
       const out = await attempt(name, INPUTS[name].input ?? {})
-      if (!out.ok) expect(out.message, name).not.toBe(CLOUD_REFUSAL)
+      expect(out, name).toMatchObject({ ok: true })
     }
     expect(useStore.getState().scanIsCloud).toBe(false)
     expect((await run<{ vertex: number }>('scan.nearest', { at: { point: P } })).vertex).toBeGreaterThanOrEqual(0)
@@ -175,6 +181,19 @@ describe('commands on a point cloud', () => {
     expect(await attempt('scan.draft', { pull: [0, 0, 1], split: 'symmetry' })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
     expect(await attempt('element.construct', { kind: 'point', method: 'point-coords', params: [1, 2, 3] })).toMatchObject({ ok: true })
     expect(await attempt('element.construct', { kind: 'point', method: 'point-centroid' })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
+  })
+
+  it('deviation.settings is refused on a cloud while the map stands on the reference, unless it moves it back', async () => {
+    await openCloud()
+    const was = useDeviation.getState().mapOn
+    useDeviation.setState({ mapOn: 'reference' })
+    try {
+      expect(await attempt('deviation.settings', { tolerance: 0.2 })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
+      expect(await attempt('deviation.settings', { on: 'reference' })).toMatchObject({ ok: false, message: CLOUD_REFUSAL })
+      expect(await attempt('deviation.settings', { on: 'scan' })).toMatchObject({ ok: true })
+    } finally {
+      useDeviation.setState({ mapOn: was })
+    }
   })
 
   it('the flag follows OP_CAPS: an op that takes clouds runs its commands, one marked triangle-only refuses them', async () => {

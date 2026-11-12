@@ -31,6 +31,19 @@ export function watchWorkspaceAvailability(): () => void {
     }
   }
   settle()
-  const stops = [useStore.subscribe(settle), useShell.subscribe(settle)]
+  // Settled on what the rulings read — the scan's kind and name, the open
+  // workspace, the split view and picker turned on — not on every change to
+  // the stores, which a drag or a measurement makes many times a second.
+  const stops = [
+    useStore.subscribe((s, prev) => {
+      if (s.scanIsCloud !== prev.scanIsCloud || s.fileName !== prev.fileName) settle()
+    }),
+    useShell.subscribe((s, prev) => {
+      if (s.workspace !== prev.workspace) settle()
+    }),
+    useDeviation.subscribe((d, prev) => {
+      if ((d.split && !prev.split) || (d.picking && !prev.picking)) settle()
+    }),
+  ]
   return () => stops.forEach((stop) => stop())
 }

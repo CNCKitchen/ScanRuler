@@ -195,7 +195,9 @@ export function setReading({ range, maxDistance, tolerance }: Reading): { range:
 
 const settings: Command<{ range?: number; maxDistance?: number; bands?: number | null; tolerance?: number; facingDeg?: number | null; colormap?: ColormapId; on?: MapSide; show?: boolean }> = {
   name: 'settings',
-  scanOps: (i) => (i.on === 'reference' ? ['deviate-reference'] : []),
+  // A map already on the reference is measured there again by any change
+  // that re-measures, unless the same call moves it back to the scan.
+  scanOps: (i) => ((i.on ?? useDeviation.getState().mapOn) === 'reference' ? ['deviate-reference'] : []),
   title: 'Set how the deviation is read',
   description:
     'The deviation map’s reading: range (colour scale, ± mm), maxDistance (search distance, mm), bands, tolerance (± mm the statistics count within), facingDeg (a change measures the map again), colormap (the person’s own choice, kept outside the undo — read settings.colormap for the ramp before judging a picture), on (which surface a map against the reference is painted on; read both sides) and show (the map switch; false leaves the surface bare, the map still measured). Returns the deviation state. Trap: the map paints in the Deviation workspace only — workspace.set deviation brings it back, and view.render says which map it painted (map) or why none (mapWhy). One undo step.',
