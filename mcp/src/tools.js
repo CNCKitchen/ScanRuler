@@ -265,7 +265,7 @@ export async function inputFor(command, args, { cwd, maxBytes = MAX_FILE_BYTES }
     delete input.path
     const size = (await stat(file).catch(() => null))?.size ?? 0
     if (size > maxBytes) {
-      throw { code: 'invalid_input', message: `${file} is ${sizeText(size)} — too large to hand to the ScanRuler page: a file goes over the link to it in one message of at most ${sizeText(maxBytes)} (${maxBytes.toLocaleString('en-US')} bytes). Open it in the page itself (the start screen's Open, or drop it on the page), which reads up to 2 GiB, or thin the cloud and open that.` }
+      throw { code: 'invalid_input', message: `${file} is ${sizeText(size)} — too large to hand to the ScanRuler page: a file goes over the link to it in one message of at most ${sizeText(maxBytes)} (${maxBytes.toLocaleString('en-US')} bytes). Open it in the page itself (the start screen's Open, or drop it on the page), which reads a point cloud past 2 GiB (offering to thin one too large to hold) and a mesh up to 2 GiB.` }
     }
     let bytes
     try {
