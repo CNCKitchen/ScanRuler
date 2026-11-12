@@ -32,8 +32,10 @@ export type WorkerRequest =
   /** `scale` is millimetres per unit of the file — an STL in inches is
    *  25.4 — applied to the coordinates before anything is built on them.
    *  Absent or 1, the file is taken in millimetres. `companions` are the
-   *  files that came with a textured OBJ, the images decoded. */
-  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number; companions?: ObjCompanions }
+   *  files that came with a textured OBJ, the images decoded. A point
+   *  cloud may come as the File itself, read here a piece at a time, and
+   *  is thinned evenly to `maxPoints` as it is read when it holds more. */
+  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer | Blob; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number; companions?: ObjCompanions; maxPoints?: number }
   /** A point cloud already in millimetres, from memory: the same reply as
    *  a loaded cloud. `transform` is put on it as on `load`. */
   | { type: 'load-buffers'; requestId: number; positions: Float32Array; normals: Float32Array; crease: CreaseSetting; staged: true; transform?: Rigid }

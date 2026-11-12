@@ -86,6 +86,20 @@ describe('a cloud scan in a project', () => {
     expect(Array.from(b.positions)).toEqual(Array.from(cloud.positions))
   })
 
+  it('remembers a cloud thinned as it was read, and refuses a count that is not one', async () => {
+    cloudSession()
+    const bytes = plyBytes()
+    const { manifest } = collectProject({ scan: { name: 'part.ply', file: blobOf(bytes), maxPoints: 50 }, reference: null, image: null }, null, '0.1.0')
+    expect(manifest.scan?.maxPoints).toBe(50)
+    const members = await readMembers(collectProject({ scan: { name: 'part.ply', file: blobOf(bytes), maxPoints: 50 }, reference: null, image: null }, null, '0.1.0').members)
+    const back = unpackProject(packProject(manifest, members))
+    expect(back.manifest.scan?.maxPoints).toBe(50)
+    // Read again as it was: the same 50 points.
+    expect(parsePLY(bufferOf(back.members.get('scan.ply')!), undefined, { maxPoints: back.manifest.scan!.maxPoints }).positions.length).toBe(150)
+    const bad = { ...manifest, scan: { ...manifest.scan!, maxPoints: -3 } }
+    expect(() => unpackProject(packProject(bad, members))).toThrow(/scan\.maxPoints/)
+  })
+
   it('does the same for an XYZ cloud', async () => {
     cloudSession('part.xyz')
     const xyz = new Uint8Array(writeXyz(cylinderCloud({ radius: 5, length: 10, step: 1 }), { delim: ' ', columns: 'xyzn' }))

@@ -28,6 +28,8 @@ import { usePrefs } from '../../state/prefsStore'
 import { elementRefSchema, findElement, planeRef, type ElementRef } from '../refs'
 import { setMarked } from '../marked'
 import { scale } from './scanScale'
+import { cloudSizeOfFile } from '../../core/parsers/cloudSize'
+import { CLOUD_POINT_BUDGET } from '../../core/parsers/thin'
 
 export const unitsSchema = enumOf(
   MESH_UNITS.map((u) => u.id),
@@ -51,34 +53,44 @@ export async function scanSummary() {
   }
 }
 
-const open: Command<{ bytes: Uint8Array; name: string; units?: MeshUnits; discard?: boolean }> = {
+const open: Command<{ bytes: Uint8Array; name: string; units?: MeshUnits; discard?: boolean; maxPoints?: number }> = {
   name: 'open',
   title: 'Open a scan',
   description:
-    'Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.',
+    'Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. A point cloud (PLY without faces, XYZ, ASC, PTS) of more than 30,000,000 points is refused unless maxPoints says how many to keep — thinned evenly as it is read — or 0 for every point (thinned: from and to points in the answer). Not undoable: a new scan starts a new history.',
   input: obj(
     {
       bytes: bytes('The file’s contents.'),
       name: fileNameSchema('"ballbar.stl"'),
       units: unitsSchema,
       discard: discardSchema,
+      maxPoints: int('A point cloud of more points is thinned evenly to this many as it is read; 0 keeps every point. Needed for a cloud of more than 30,000,000 points.', { minimum: 0 }),
     },
     ['bytes', 'name'],
   ),
   history: false,
   discards: ({ discard }) => discard === true,
-  run: async ({ bytes: data, name, units, discard }) => {
+  run: async ({ bytes: data, name, units, discard, maxPoints }) => {
     requireDiscardable(discard, 'opening another scan')
     const { session } = commandHost()
+    const file = fileOf(data, name)
+    // Told before the file is read: a cloud past the budget took the tab
+    // down, and an agent has no question put to it.
+    const size = await cloudSizeOfFile(file)
+    if (maxPoints === undefined && size && size.points > CLOUD_POINT_BUDGET) {
+      const n = size.points.toLocaleString('en-US')
+      throw new CommandError('invalid_input', `${name} holds ${size.exact ? '' : 'about '}${n} points — more than a browser tab holds well (${CLOUD_POINT_BUDGET.toLocaleString('en-US')}). Open it with maxPoints: ${CLOUD_POINT_BUDGET} to thin it evenly to ${CLOUD_POINT_BUDGET.toLocaleString('en-US')} points as it is read, or maxPoints: 0 to open all ${n}.`)
+    }
     const before = session.clientRef.current!.scanVersion
     const reference = useDeviation.getState().nominalName
-    await session.scan.openScan(fileOf(data, name), units ?? 'mm')
+    await session.scan.openScan(file, units ?? 'mm', undefined, maxPoints ?? 0)
     if (session.clientRef.current!.scanVersion === before) {
       throw new CommandError('failed', lastError(`${name} could not be opened.`))
     }
     const kept = useDeviation.getState().nominalName
     return {
       scan: await scanSummary(),
+      ...(maxPoints && size && size.points > maxPoints ? { thinned: { from: size.points, to: maxPoints, ...(size.exact ? {} : { estimated: true }) } } : {}),
       ...(kept ? { referenceKept: kept } : reference ? { referenceDropped: reference } : {}),
     }
   },

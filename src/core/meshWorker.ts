@@ -13,6 +13,7 @@ import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProt
 import { parseSTL } from './parsers/stl'
 import { parseXYZ } from './parsers/xyz'
 import { parsePLY } from './parsers/ply'
+import { blobSource } from './parsers/byteSource'
 import { parseOBJ } from './parsers/obj'
 import { parse3MF } from './parsers/threemf'
 import type { ObjCompanions } from './parsers/objTexture'
@@ -218,8 +219,16 @@ function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) 
 /** The scan: a mesh, or a CAD part opened in a scan's place — cut finer
  *  than a reference is (see parsers/step), since it is worked on rather
  *  than measured against. */
-function parseScan(name: string, buffer: ArrayBuffer, onProgress: (t: string) => void, companions?: ObjCompanions): { parsed: ParsedMesh; step?: StepInfo } {
+function parseScan(name: string, input: ArrayBuffer | Blob, onProgress: (t: string) => void, companions?: ObjCompanions, maxPoints?: number): { parsed: ParsedMesh; step?: StepInfo } {
   const ext = extensionOf(name)
+  // A cloud is read a piece at a time, from the file itself when it came as
+  // one, and thinned as it is read when asked.
+  if (ext === 'ply' || ext === 'xyz' || ext === 'asc' || ext === 'pts') {
+    const src = input instanceof Blob ? blobSource(input, name) : input
+    return { parsed: ext === 'ply' ? parsePLY(src, onProgress, { maxPoints }) : parseXYZ(src, onProgress, { maxPoints }) }
+  }
+  if (input instanceof Blob) throw new Error(`${name} is read whole, not from disk a piece at a time.`)
+  const buffer = input
   if (ext === 'step' || ext === 'stp') {
     const imported = parseSTEP(buffer, onProgress, true)
     return { parsed: imported.mesh, step: imported.info }
@@ -442,7 +451,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       let parsed: ParsedMesh
       let step: ReturnType<typeof parseScan>['step']
       if (msg.type === 'load') {
-        ;({ parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions))
+        ;({ parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions, msg.maxPoints))
         scaleToMm(parsed, msg.scale)
       } else {
         // A cloud already in memory, in millimetres: the same path as a

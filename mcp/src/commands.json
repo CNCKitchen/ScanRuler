@@ -1,6 +1,6 @@
 {
   "app": "0.11.2",
-  "saved": "2026-11-12T19:42:15.234Z",
+  "saved": "2026-11-12T21:28:30.119Z",
   "commands": [
     {
       "name": "align.auto",
@@ -3512,7 +3512,7 @@
     {
       "name": "scan.open",
       "title": "Open a scan",
-      "description": "Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.",
+      "description": "Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. A point cloud (PLY without faces, XYZ, ASC, PTS) of more than 30,000,000 points is refused unless maxPoints says how many to keep — thinned evenly as it is read — or 0 for every point (thinned: from and to points in the answer). Not undoable: a new scan starts a new history.",
       "input": {
         "type": "object",
         "properties": {
@@ -3539,6 +3539,11 @@
           "discard": {
             "type": "boolean",
             "description": "true: replace the session though it holds measurements (lost unless saved as a project first). Refused otherwise when there is work to lose."
+          },
+          "maxPoints": {
+            "type": "integer",
+            "description": "A point cloud of more points is thinned evenly to this many as it is read; 0 keeps every point. Needed for a cloud of more than 30,000,000 points.",
+            "minimum": 0
           }
         },
         "required": [
