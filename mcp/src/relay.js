@@ -145,6 +145,11 @@ export class SharedLink extends EventEmitter {
     })
     http.on('error', (e) => {
       if (e.code === 'EADDRINUSE') this.#relay()
+      // An error once the port is held — a connection it could not take
+      // in, short of file handles, say — leaves the port held: said, and
+      // kept. Taken for a failed listen, its retry would listen again on
+      // a server already listening, which throws, and ends the process.
+      else if (this.http.listening) this.log(`The port ${this.port} server: ${e.message}`)
       else this.#fail(e.message)
     })
   }
@@ -184,6 +189,7 @@ export class SharedLink extends EventEmitter {
   start() {
     if (this.closed) return
     clearTimeout(this.timer)
+    if (this.http.listening) return
     this.http.listen(this.port, process.env.SCANRULER_MCP_HOST || '127.0.0.1')
   }
 

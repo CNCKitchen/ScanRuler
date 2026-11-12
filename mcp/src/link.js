@@ -340,6 +340,9 @@ export class PageLink extends Asker {
     this.request(message, key ? `input.${key}` : undefined, (text) => send({ event: 'progress', text }))
       .then((result) => send({ result }, resultBinary(result)))
       .catch((e) => send({ error: { code: e?.code ?? 'failed', message: e?.message ?? String(e) } }))
+      // An answer that could not be passed back — too large to encode, the
+      // socket gone mid-send — is said here, not left an unhandled rejection.
+      .catch((e) => this.log(`An answer for another scanruler-mcp could not be passed back: ${e?.message ?? e}`))
   }
 
   close() {
