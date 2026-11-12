@@ -149,6 +149,9 @@ export function createMeshToolsSession({
   // was made of, whose vertices it keeps none of.
   const wrapped: { current: { positions: Float32Array; indices: Uint32Array; from: number } | null } = { current: null }
   const wrapClient = new WrapClient()
+  /** Bumped by every cancel: a wrap still waiting for its triangles sees it
+   *  moved and never starts. */
+  let wrapStops = 0
 
   const tools = () => meshToolsOf(clientRef.current!)
 
@@ -232,8 +235,11 @@ export function createMeshToolsSession({
     // volume before, measured there while the wrap is worked out in its own.
     const triangles = client.triangles()
     const before = client.describe().catch(() => null)
+    const stops = wrapStops
     try {
       const { positions, indices } = await triangles
+      // Cancelled while the triangles were still on their way: no wrap starts.
+      if (stops !== wrapStops) throw new WrapCancelled()
       const from = positions.length / 3
       const result = await wrapClient.run(positions, indices, settings, (text) => {
         useMeshTools.getState().wrapProgress(text)
@@ -264,7 +270,9 @@ export function createMeshToolsSession({
 
   /** Stop the wrap being worked out; the one on hand, if any, stays. */
   const cancelWrap = () => {
-    if (useMeshTools.getState().wrapStatus === 'running') wrapClient.cancel()
+    if (useMeshTools.getState().wrapStatus !== 'running') return
+    wrapStops++
+    wrapClient.cancel()
   }
 
   /** Put the wrap on hand away: the mesh it was made of is shown again. */

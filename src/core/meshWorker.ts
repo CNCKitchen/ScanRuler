@@ -264,6 +264,15 @@ let holding = false
  *  worker's contract is that it answers one thing at a time, and slicing the
  *  fit must not quietly break it: everything but the abort waits its turn. */
 const queued: Exclude<WorkerRequest, { type: 'align-abort' }>[] = []
+/** Plugin requests Stop came for before their computation started: still
+ *  waiting in the queue, or held before they drove one. Each still has its
+ *  turn — what it does besides may be what the page counts on, a layer
+ *  removed, say — but what it drives (ctx.drive) is stopped before its first
+ *  slice, so it answers as one stopped part-way does. */
+const stoppedPlugin = new Set<number>()
+/** The plugin request holding the queue, and whether it is driving. */
+let heldPlugin: number | null = null
+let driving = false
 /** How long a slice of the fit may hold the worker before it goes back to the
  *  inbox. Long enough that the slicing costs nothing measurable, short enough
  *  that a stop lands within a frame or two. */
@@ -279,10 +288,14 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     // clears the flag, so it would otherwise run and apply as if never stopped.
     for (let i = queued.length - 1; i >= 0; i--) {
       const waiting = queued[i]
+      if (waiting.type === 'plugin') stoppedPlugin.add(waiting.requestId)
       if (waiting.type !== 'align') continue
       queued.splice(i, 1)
       post({ type: 'align-stopped', requestId: waiting.requestId })
     }
+    // A plugin's request in its wait before the computation it drives — a
+    // library loading, say — is stopped too: driving clears the flag.
+    if (heldPlugin !== null && !driving) stoppedPlugin.add(heldPlugin)
     return
   }
   if (alignRun || holding) {
@@ -332,7 +345,7 @@ const scanReplaced = () => {
 }
 
 /** What the worker lends a plugin's request. */
-const contextOf = (progress: (t: string) => void): WorkerContext => ({
+const contextOf = (progress: (t: string) => void, requestId: number): WorkerContext => ({
   scan: () => graph,
   takeStaged: (id) => {
     const g = stagedScans.get(id)
@@ -341,7 +354,7 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
   },
   progress,
   surfaceOf: (g, why) => scanSurfaceOf(g, progress, why),
-  drive: driveSteps,
+  drive: <T>(steps: Steps<T>) => (stoppedPlugin.has(requestId) ? Promise.resolve(null) : driveSteps(steps)),
 })
 
 /** A plugin's long computation, driven the way pumpAlign drives a fit: a
@@ -350,6 +363,7 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
  *  which holds the queue — so the abort flag is this run's alone. */
 function driveSteps<T>(steps: Steps<T>): Promise<T | null> {
   alignAborted = false
+  driving = true
   return new Promise<T | null>((resolve, reject) => {
     const pump = (): void => {
       try {
@@ -378,6 +392,8 @@ function driveSteps<T>(steps: Steps<T>): Promise<T | null> {
       }
     }
     pump()
+  }).finally(() => {
+    driving = false
   })
 }
 
@@ -934,23 +950,30 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       fail(new Error(CLOUD_REFUSAL))
       return
     }
+    let held = false
     try {
-      const reply = plugin.handle(msg.op, msg.payload, contextOf(progress))
+      const reply = plugin.handle(msg.op, msg.payload, contextOf(progress, msg.requestId))
       if (!(reply instanceof Promise)) {
         post({ type: 'plugin-ok', requestId: msg.requestId, result: reply.result }, reply.transfer ?? [])
         return
       }
       // An answer that awaits holds the queue until it settles.
       holding = true
+      held = true
+      heldPlugin = msg.requestId
       reply
         .then((r) => post({ type: 'plugin-ok', requestId: msg.requestId, result: r.result }, r.transfer ?? []))
         .catch(fail)
         .finally(() => {
           holding = false
+          heldPlugin = null
+          stoppedPlugin.delete(msg.requestId)
           drainQueue()
         })
     } catch (e) {
       fail(e)
+    } finally {
+      if (!held) stoppedPlugin.delete(msg.requestId)
     }
     return
   }
