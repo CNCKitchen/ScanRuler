@@ -33,6 +33,7 @@ import type { PackedProject } from '../commands/host'
 import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
+import { MemoryFile, readOpenedFile } from '../core/sourceFile'
 
 /** A project by its name: `.scanruler`, or that with a count a browser
  *  put after it (isProjectName). */
@@ -131,12 +132,12 @@ export function useProject({
     let image: PreparedImage | null = null
     let committed = false
     try {
-      const { manifest, members } = await client().unpack(new Uint8Array(await file.arrayBuffer()))
+      const { manifest, members } = await client().unpack(new Uint8Array(await readOpenedFile(file, file.name)))
       const applyState = prepareProjectState(manifest, members)
       const memberFile = (member: string, name: string) => {
         const bytes = members.get(member)
         if (!bytes) throw new Error(`Project is missing ${member}.`)
-        return new File([bytes as BlobPart], name)
+        return new MemoryFile(bytes, name)
       }
       // Check every referenced member before allocating candidate geometry.
       const scanFile = manifest.scan && memberFile(manifest.scan.member, readAs(manifest.scan.fileName, manifest.scan.member))

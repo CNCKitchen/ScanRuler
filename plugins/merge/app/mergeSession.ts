@@ -44,6 +44,7 @@ import { BASE, MERGE, MIN_CONSTRAINT, type AlignReply, type DatumIds, type Merge
 import type { LayerAlignResult } from '../core/layerAlign'
 import { alignNote, count } from '../ui/mergeFormat'
 import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits, type MergeSnapshot } from '../state/mergeStore'
+import { MemoryFile } from '../../../src/core/sourceFile'
 
 /** The question a merge onto a mesh asks first — exact, see the spec. */
 export const MESH_BASE_CONFIRM = 'The result is a point cloud — triangle-only tools and their results go.'
@@ -518,7 +519,7 @@ export function createMergeSession({ clientRef, sceneRef, imports, openScan, swa
             const base = (s.fileName ?? 'scan').replace(/\.[^.]+$/, '')
             const name = `${base}-merged.ply`
             // Written before the swap: the buffers are handed over to it.
-            const file = new File([buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)], name)
+            const file = new MemoryFile(new Uint8Array(buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)), name)
             const dropped = out.dropped
             // units-ok: the file's own unit, an id — the cloud is written in mm.
             const loaded = await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)

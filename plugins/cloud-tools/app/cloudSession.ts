@@ -29,6 +29,7 @@ import { useShell } from '../../../src/state/shellStore'
 import { useStore } from '../../../src/state/store'
 import { CLOUD_TOOLS, type CloudToolsOps } from '../core/protocol'
 import { useCloudTools } from '../state/cloudStore'
+import { MemoryFile } from '../../../src/core/sourceFile'
 
 /** The workspace's id. */
 export const CLOUD_WORKSPACE = 'cloud'
@@ -182,7 +183,7 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
           const fileName = s.fileName ?? 'scan'
           const name = `${fileName.replace(/\.[^.]+$/, '')}-cleaned.ply`
           // Written before the swap: the buffers are handed over to it.
-          const file = new File([buildPointCloudPly(out.positions, out.normals, null, `${fileName} cleaned up in ScanRuler`)], name)
+          const file = new MemoryFile(new Uint8Array(buildPointCloudPly(out.positions, out.normals, null, `${fileName} cleaned up in ScanRuler`)), name)
           // units-ok: the file's own unit, an id — the cloud is written in mm.
           const loaded = await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)
           remapScan(composeMaps(out.map, loaded))

@@ -36,6 +36,7 @@ import {
 } from '../core/project/manifest'
 import type { ArchiveMember } from '../core/project/archive'
 import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
+import { storedBytes } from '../core/sourceFile'
 
 /** The original bytes of every model the session holds, kept from the moment
  *  each was opened: the worker takes its copy by transfer and the scene keeps
@@ -218,7 +219,7 @@ function coreProject(
   let scan: ScanPart | null = null
   if (sources.scan && s.fileName) {
     const member = memberName(SCAN_STEM, sources.scan.name)
-    members.push({ name: member, bytes: sources.scan.file })
+    members.push({ name: member, bytes: storedBytes(sources.scan.file) })
     // What came with it, each under a member of its own and the name it came
     // under — the name is how the OBJ and its library find it again.
     const companions = (sources.scan.companions ?? []).map((c, i) => {
@@ -256,7 +257,7 @@ function coreProject(
   let reference: DeviationPart['reference'] = null
   if (sources.reference && dev.nominalName) {
     const member = memberName(REFERENCE_STEM, sources.reference.name)
-    members.push({ name: member, bytes: sources.reference.file })
+    members.push({ name: member, bytes: storedBytes(sources.reference.file) })
     reference = {
       fileName: dev.nominalName,
       member,

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { prepareNominal, prepareScan } from '../src/app/imports'
 import { readMembers } from '../src/core/project/archive'
-import { KEEP_COPY_BYTES, keptSource, readSourceFile, unreadableSource } from '../src/core/sourceFile'
+import { KEEP_COPY_BYTES, keptSource, MAX_READ_BYTES, MemoryFile, readOpenedFile, readSourceFile, storedBytes, tooLargeToOpen, unreadableSource } from '../src/core/sourceFile'
 import type { MeshWorkerClient } from '../src/core/workerClient'
 
 /** A worker that takes whatever it is given and hands back an empty mesh. */
@@ -83,5 +83,58 @@ describe('a scan or reference the session keeps', () => {
     const file = new File([new Uint8Array([7, 8, 9])], 'part.stl')
     const [member] = await readMembers([{ name: 'scan.stl', bytes: file }])
     expect(Array.from(member.bytes)).toEqual([7, 8, 9])
+  })
+})
+
+describe('a file made of bytes the page holds', () => {
+  it('reads back from memory, whole and in slices, and is kept as it is', async () => {
+    const bytes = new Uint8Array([10, 20, 30, 40, 50])
+    const file = new MemoryFile(bytes, 'agent.ply')
+    expect(file.name).toBe('agent.ply')
+    expect(file.size).toBe(5)
+    expect(Array.from(new Uint8Array(await file.arrayBuffer()))).toEqual([10, 20, 30, 40, 50])
+    expect(Array.from(new Uint8Array(await file.slice(1, -1).arrayBuffer()))).toEqual([20, 30, 40])
+    expect(Array.from(new Uint8Array(await file.slice(0, 2).arrayBuffer()))).toEqual([10, 20])
+    expect(await new MemoryFile(new TextEncoder().encode('ply'), 'a.ply').text()).toBe('ply')
+    // A read is a copy: the worker the buffer goes to cannot take the bytes away.
+    const read = await file.arrayBuffer()
+    new Uint8Array(read)[0] = 99
+    expect(bytes[0]).toBe(10)
+    // The session keeps the file itself, at any size, and stores its bytes.
+    const scan = await prepareScan(client, null, file, { mode: 'off', angleDeg: 30 })
+    expect(scan.source.file).toBe(file)
+    expect(storedBytes(scan.source.file)).toBe(bytes)
+    const disk = new File([new Uint8Array([1])], 'disk.stl')
+    expect(storedBytes(disk)).toBe(disk)
+    const [member] = await readMembers([{ name: 'scan.ply', bytes: storedBytes(scan.source.file) }])
+    expect(Array.from(member.bytes)).toEqual([10, 20, 30, 40, 50])
+  })
+})
+
+describe('a file too large to read', () => {
+  /** A file that says it is 2.69 GB and fails any read the way Chrome does. */
+  class HugeFile extends File {
+    reads = 0
+    override get size(): number { return 2_690_000_000 }
+    override arrayBuffer(): Promise<ArrayBuffer> {
+      this.reads++
+      return Promise.reject(new DOMException('The requested file could not be read, typically due to permission problems that have occurred after a reference to a file was acquired.', 'NotReadableError'))
+    }
+  }
+
+  it('is refused by its size before anything is read, naming the limit', async () => {
+    const huge = new HugeFile([], 'lucy8x-cloud.ply')
+    const message = tooLargeToOpen('lucy8x-cloud.ply', huge.size)!
+    expect(message).toBe('lucy8x-cloud.ply is 2.69 GB — too large to open: a browser reads a file of at most 2 GiB (2,147,483,647 bytes) in one piece. Thin the cloud or split it in the software that wrote it, and open that.')
+    await expect(prepareScan(client, null, huge, { mode: 'off', angleDeg: 30 })).rejects.toThrow(message)
+    await expect(prepareNominal(client, null, new HugeFile([], 'lucy8x.stl'))).rejects.toThrow(/too large to open/)
+    expect(huge.reads).toBe(0)
+    expect(tooLargeToOpen('a.ply', MAX_READ_BYTES)).toBeNull()
+    expect(tooLargeToOpen('a.ply', MAX_READ_BYTES + 1)).toMatch(/^a\.ply is 2\.15 GB — too large/)
+  })
+
+  it('says a refused read in words, not in the browser’s permission text', async () => {
+    const gone = new GoneFile([new Uint8Array([1])], 'part.stl')
+    await expect(readOpenedFile(gone, 'part.stl')).rejects.toThrow('part.stl could not be read: the browser could not read it from disk — it may have been moved, changed or deleted, or be locked by another program.')
   })
 })

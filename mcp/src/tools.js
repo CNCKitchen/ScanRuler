@@ -244,16 +244,29 @@ async function nearNote(path) {
   return ` ${folder} is there, with nothing in it named like ${missing}.`
 }
 
+/** The largest file a path hands to the page, bytes. It goes as one
+ *  WebSocket message, which the page holds whole beside the copy it reads:
+ *  a 1.35 GB cloud took the tab down (its renderer was gone, nothing said
+ *  why), so a larger file is refused before it is read, by its size. */
+export const MAX_FILE_BYTES = 1024 ** 3
+
+/** A size in bytes as people read it: "1.35 GB", "1 GiB". */
+const sizeText = (bytes) => (bytes === 1024 ** 3 ? '1 GiB' : bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`)
+
 /** The tool call's arguments as the command's input: a path read into the
  *  bytes it names. Returns the input, the input field the bytes go in, and
  *  the file read — a folder's one file, when the path named a folder. */
-export async function inputFor(command, args, { cwd }) {
+export async function inputFor(command, args, { cwd, maxBytes = MAX_FILE_BYTES }) {
   const input = { ...(args ?? {}) }
   delete input.saveTo
   const bytesKey = bytesProperty(command)
   if (bytesKey) {
     const file = await fileAt(command, absolute(String(input.path ?? ''), cwd))
     delete input.path
+    const size = (await stat(file).catch(() => null))?.size ?? 0
+    if (size > maxBytes) {
+      throw { code: 'invalid_input', message: `${file} is ${sizeText(size)} — too large to hand to the ScanRuler page: a file goes over the link to it in one message of at most ${sizeText(maxBytes)} (${maxBytes.toLocaleString('en-US')} bytes). Open it in the page itself (the start screen's Open, or drop it on the page), which reads up to 2 GiB, or thin the cloud and open that.` }
+    }
     let bytes
     try {
       bytes = new Uint8Array(await readFile(file))

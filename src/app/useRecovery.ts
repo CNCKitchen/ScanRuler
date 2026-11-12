@@ -19,6 +19,7 @@ import { useShell } from '../state/shellStore'
 import { ProjectClient } from '../core/project/projectClient'
 import { RecoveryStorage, staleCheckpoints, type CheckpointInfo } from './recoveryStorage'
 import { ProjectSnapshotCache, type ProjectSnapshot } from './projectSnapshot'
+import { MemoryFile } from '../core/sourceFile'
 
 type Snapshot = ProjectSnapshot
 export interface RecoveryStatus {
@@ -189,7 +190,7 @@ export function useRecovery(capture: () => Snapshot, blocked: () => boolean, ope
       const { manifest, members } = await db.read(id)
       worker = new ProjectClient()
       const bytes = await worker.pack(manifest, members)
-      await callbacks.current.open(new File([bytes as BlobPart], 'recovered.scanruler'))
+      await callbacks.current.open(new MemoryFile(bytes, 'recovered.scanruler'))
       // The work is this page's now, checkpointed in this page's own slot.
       await db.remove(id).catch(() => {})
     } catch (error) {

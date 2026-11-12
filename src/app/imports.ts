@@ -18,7 +18,7 @@ import { useStore } from '../state/store'
 import { ImportQueue, type PreparedView } from './importQueue'
 import type { SourceFiles } from './project'
 import { companionBytes, companionsOf, scanCompanions } from './scanFiles'
-import { keptSource } from '../core/sourceFile'
+import { keptSource, readOpenedFile } from '../core/sourceFile'
 
 export interface PreparedScan {
   id: number
@@ -83,7 +83,7 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager 
     ? `${file.name} is part of a textured scan — open it together with its OBJ (pick or drop the OBJ, the .mtl and the image at once, or drop their folder).`
     : 'Unsupported file type — use STL, PLY, OBJ, 3MF, STEP, XYZ, ASC or PTS.')
   const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
-  const buffer = await file.arrayBuffer()
+  const buffer = await readOpenedFile(file, file.name)
   const extras = await companionBytes(companionsOf(file))
   // A copy of the bytes is kept, or for a large scan the file itself (see
   // core/sourceFile): the buffer goes to the worker.
@@ -102,7 +102,7 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager 
 export async function prepareNominal(client: MeshWorkerClient, scene: SceneManager | null, file: File, given: MeshUnits = 'mm'): Promise<PreparedNominal> {
   if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, 3MF or STEP.')
   const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
-  const buffer = await file.arrayBuffer()
+  const buffer = await readOpenedFile(file, file.name)
   const source = { name: file.name, file: keptSource(file, buffer), units }
   const { id, mesh } = await client.prepareNominal(file.name, buffer, units)
   try {

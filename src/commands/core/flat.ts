@@ -32,7 +32,7 @@ import { refOf } from '../refs'
 import { arr, bool, bytes, enumOf, int, num, obj, oneOf, str, type JsonSchema } from '../schema'
 import { describeFlat } from '../state'
 import { CommandError, type Command } from '../types'
-import { fileNameSchema, fileOf, lastError, requireFlatFree, showWorkspace, waitFor } from './common'
+import { fileNameSchema, lastError, requireFlatFree, showWorkspace, waitFor } from './common'
 
 const KINDS: readonly FlatElementKind[] = ['point', 'line', 'circle', 'arc', 'spline']
 
@@ -163,7 +163,8 @@ const openImage: Command<{ bytes: Uint8Array; name: string }> = {
     const flat = commandHost().flat
     if (!flat) throw new CommandError('unavailable', 'Opening an image needs the browser.')
     showWorkspace('flat')
-    await flat.openImage(fileOf(data, name))
+    // A real File: the browser decodes the picture from it itself.
+    await flat.openImage(new File([data as BlobPart], name))
     if (useFlat.getState().imageName !== name) throw new CommandError('failed', lastError(`${name} could not be opened.`))
     return { flat: describeFlat() }
   },

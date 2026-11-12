@@ -58,6 +58,7 @@ import type { WrapReport } from '../core/wrap'
 import { boundLength } from '../../../src/app/useUnits'
 import type { DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
+import { MemoryFile } from '../../../src/core/sourceFile'
 
 const count = (n: number) => n.toLocaleString('en-US')
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -455,7 +456,7 @@ export function createMeshToolsSession({
         const bytes = buildBinaryPly(made.positions, made.indices, `${name}, meshed in ScanRuler`)
         await historyAsync('Mesh this cloud', async () => {
           // units-ok: the file's own unit, an id — the mesh is written in mm.
-          await swapScan({ name: `${name.replace(/\.[^.]+$/, '')}.ply`, file: new Blob([bytes as BlobPart]), units: 'mm' }, alignment)
+          await swapScan({ name: `${name.replace(/\.[^.]+$/, '')}.ply`, file: new MemoryFile(bytes, `${name.replace(/\.[^.]+$/, '')}.ply`), units: 'mm' }, alignment)
           // No vertex of the mesh is a point of the cloud.
           remapScan(new Int32Array(before).fill(-1))
           await remeasureScan(true)
@@ -488,7 +489,7 @@ export function createMeshToolsSession({
         await historyAsync('Mesh Tools: use the edited mesh for analysis', async () => {
           // The session keeps a scan as a file: the edited bytes become one.
           const { name, bytes, units } = copy.source
-          await swapScan({ name, file: new Blob([bytes as BlobPart]), units }, useStore.getState().appliedAlignment)
+          await swapScan({ name, file: new MemoryFile(bytes, name), units }, useStore.getState().appliedAlignment)
           remapScan(copy.map)
           useMeshTools.getState().takePending()
           await remeasureScan(true)
