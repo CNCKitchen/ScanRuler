@@ -149,7 +149,7 @@ const segment: Command<SegmentIn> = {
   scanOps: ['segment'],
   title: 'Find the scan’s flat regions',
   description:
-    `The scan’s planar regions, found all at once: grown from the flattest places outward within maxDeg (${SEGMENT_DEG}°) and maxRms (${SEGMENT_RMS} mm), those smaller than minArea given back. Returns found, considered, claimed, noise and the regions, largest first, at most limit (${SEGMENT_LIMIT}): id, normal, point, sigma, area (mm²), box, vertices, neighbours { id, deg, smooth } and, with symmetric, mirror (its twin across that plane). Trap: a round surface comes out as strips that look like facets — such a region says curved { sagitta } and run, and curvedRuns joins them into surfaces with a note saying what to model each as; read the runs before taking regions for faces. mark: a region’s id, or several, leaves their points marked for element.fit_marked { marked: true }. Changes nothing.`,
+    `The scan’s planar regions, found all at once: grown from the flattest places outward within maxDeg (${SEGMENT_DEG}°) and maxRms (${SEGMENT_RMS} mm), those smaller than minArea given back. Returns found, considered, claimed, noise and the regions, largest first, at most limit (${SEGMENT_LIMIT}): id, normal, point (a vertex of the region — the one nearest its centroid, so a fit seeded there lands on it), sigma, area (mm²), box, vertices, neighbours { id, deg, smooth } and, with symmetric, mirror (its twin across that plane). Trap: a round surface comes out as strips that look like facets — such a region says curved { sagitta } and run, and curvedRuns joins them into surfaces with a note saying what to model each as; read the runs before taking regions for faces. mark: a region’s id, or several, leaves their points marked for element.fit_marked { marked: true }. Changes nothing.`,
   input: obj({
     kind: enumOf(['plane'], 'What to find; plane, the default and for now the only one.'),
     box: obj({ min: vec3('Lowest corner, mm.'), max: vec3('Highest corner, mm.') }, ['min', 'max'], 'Only the scan inside this box.'),
@@ -203,7 +203,9 @@ const segment: Command<SegmentIn> = {
       return {
         id: i + 1,
         normal: v(r.normal, 5),
-        point: v(r.point, 4),
+        // A point of the region, not its centroid: a boss top's centroid
+        // lies in the hole, and a fit seeded there fits the wrong surface.
+        point: v(r.on, 4),
         sigma: roundTo(r.sigma, 4),
         area: roundTo(r.area, 1),
         box: { min: v(r.min, 2), max: v(r.max, 2) },

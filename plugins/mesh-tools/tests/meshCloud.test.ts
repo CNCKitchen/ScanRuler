@@ -78,9 +78,29 @@ describe('meshCloud', () => {
     for (let i = 2; i < m.positions.length; i += 3) expect(Math.abs(m.positions[i])).toBeLessThan(0.05)
   })
 
-  it('refuses a grid past its budget before it is made, naming a cell that fits', () => {
+  it('refuses a cell asked for past its budget, naming one that fits — and that one does', () => {
     const c = sphereCloud({ radius: 10, step: 0.3 })
-    expect(() => meshCloud(c.positions, c.normals, 0.3, { maxCells: 1000 })).toThrow(/cells.*give a cell of at least [\d.]+ mm/)
+    let message = ''
+    try {
+      meshCloud(c.positions, c.normals, 0.3, { cell: 0.6, maxCells: 20_000 })
+    } catch (e) {
+      message = (e as Error).message
+    }
+    const m = /give a cell of at least ([\d.]+) mm/.exec(message)
+    expect(m, message).not.toBeNull()
+    const fits = Number(m![1])
+    expect(meshCloud(c.positions, c.normals, 0.3, { cell: fits, maxCells: 20_000 }).report.cell).toBe(fits)
+  })
+
+  it('widens its own default cell until a wide cloud fits, never refusing it', () => {
+    // A plate 300 mm across at 0.3 mm: the default 0.6 mm cell would take
+    // some 2.25 M cells against a 300 k budget — as a 4.2 M-point head did
+    // against the worker's, every suggested cell refused in turn.
+    const c = planeCloud({ size: 300, step: 0.3 })
+    const m = meshCloud(c.positions, c.normals, 0.3, { maxCells: 300_000 })
+    expect(m.report.cell).toBeGreaterThan(0.6)
+    expect(m.report.triangles).toBeGreaterThan(0)
+    expect(m.report.pieces).toBe(1)
   })
 
   it('takes no cell finer than a two-thousandth of the part', () => {

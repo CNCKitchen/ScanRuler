@@ -49,7 +49,7 @@ describe('the command list', () => {
       'session.state', 'session.reset', 'workspace.set', 'scan.open', 'scan.nearest', 'scan.query', 'scan.fit_surface', 'scan.draft',
       'element.fit', 'element.fit_marked', 'element.construct', 'element.rename', 'element.unlink', 'element.remove', 'element.set_visible',
       'dimension.add', 'dimension.set_limit', 'dimension.set_basic', 'dimension.remove',
-      'align.datum', 'align.auto', 'align.symmetry', 'align.clear', 'section.cut', 'section.get',
+      'align.datum', 'align.auto', 'align.symmetry', 'align.clear', 'section.cut', 'section.get', 'section.delete',
       'deviation.open_reference', 'deviation.align', 'deviation.measure', 'deviation.set_target', 'deviation.settings', 'deviation.hotspots',
       'thickness.measure', 'thickness.settings',
       'flat.open_image', 'flat.calibrate', 'flat.set_alignment', 'flat.detect_edges', 'flat.fit', 'flat.dimension_add', 'flat.report',
@@ -511,6 +511,24 @@ describe('sections', () => {
     expect(undoLabels()).toEqual(['Agent: cut section', 'Agent: fit plane', 'Agent: cut section'])
     await undo()
     expect(useStore.getState().sections).toHaveLength(1)
+  })
+
+  it('section.delete deletes a section by name or id, with the dimensions on it, as one undo step', async () => {
+    await openBox()
+    type S = { section: { id: number } }
+    const a = (await run<S>('section.cut', { across: 'XY', offset: 2, name: 'Low cut' })).section
+    await run<S>('section.cut', { across: 'XY', offset: 8, name: 'High cut' })
+    useHistory.setState({ past: [], future: [] })
+    const r = await run<{ removed: { id: number; name: string }; sections: { name: string }[] }>('section.delete', { section: 'high cut' })
+    expect(r.removed.name).toBe('High cut')
+    expect(r.sections.map((x) => x.name)).toEqual(['Low cut'])
+    expect(undoLabels()).toEqual(['Agent: delete section'])
+    await run('section.delete', { section: a.id })
+    expect(useStore.getState().sections).toHaveLength(0)
+    expect((await refused('section.delete', { section: 'High cut' })).code).toBe('not_found')
+    await undo()
+    await undo()
+    expect(useStore.getState().sections.map((x) => x.name).sort()).toEqual(['High cut', 'Low cut'])
   })
 
   it('lays a plane cut for a picture alone on a sketch’s sheet: world coordinates on a coordinate plane', async () => {

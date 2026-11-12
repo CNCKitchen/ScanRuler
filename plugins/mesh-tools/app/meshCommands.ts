@@ -901,7 +901,7 @@ const meshCloudCommand: Command<{ cell?: number }> = {
   name: 'mesh_cloud',
   title: 'Mesh this cloud',
   description:
-    'Make a point-cloud scan a mesh, in place: the surface its points and their normals lie on, marched on a grid of cell mm and trimmed to the points — an open scan stays open, a hole stays a hole. The mesh becomes the scan every workspace measures; the elements are fitted again on it, and the marks and selections made on the cloud go. For what needs a surface — reverse.volume_compare, reverse.network.*, a shadow section, the Mesh Tools edits. cell defaults to two of the cloud’s spacings. Refused on a mesh. One undo step, which brings the cloud back. Returns triangles, vertices, cell (mm), trimmed (triangles cut away from the points), pieces and the status.',
+    'Make a point-cloud scan a mesh, in place: the surface its points and their normals lie on, marched on a grid of cell mm and trimmed to the points — an open scan stays open, a hole stays a hole. The mesh becomes the scan every workspace measures; the elements are fitted again on it, and the marks and selections made on the cloud go. For what needs a surface — reverse.volume_compare, reverse.network.*, a shadow section, the Mesh Tools edits. cell defaults to two of the cloud’s spacings, widened as far as the grid needs to fit the worker (the cell used comes back); a cell given that would not fit is refused, naming one that does. Refused on a mesh. One undo step, which brings the cloud back. Returns triangles, vertices, cell (mm), trimmed (triangles cut away from the points), pieces and the status.',
   input: obj({ cell: num('The grid’s cell, mm. Default two of the cloud’s point spacings.', { exclusiveMinimum: 0 }) }),
   history: false,
   run: async ({ cell }) => {

@@ -592,4 +592,26 @@ const render: Command<{ section?: number | string; plane?: PlaneIn; offsets?: nu
   },
 }
 
-export const sectionCommands = [cut, get, render]
+const remove: Command<{ section: number | string }> = {
+  name: 'delete',
+  title: 'Delete a section',
+  description:
+    'Delete a section, as its row’s delete does — and with it every dimension taken from it and every construction built on it. A section the 2D sheet showed leaves it. Returns what went. One undo step.',
+  input: obj({ section: oneOf([int('The section’s id.', { minimum: 1 }), str('Its name.', { minLength: 1 })], 'The section, by id or name.') }, ['section']),
+  label: () => 'delete section',
+  run: async ({ section }) => {
+    requireMeasureFree()
+    const sec = findSection(section)
+    const before = useStore.getState()
+    useStore.getState().removeSection(sec.id)
+    const after = useStore.getState()
+    return {
+      removed: { id: sec.id, name: sec.name },
+      elementsRemoved: before.elements.filter((e) => !after.elements.some((x) => x.id === e.id)).map((e) => ({ id: e.id, name: e.name })),
+      dimensionsRemoved: before.dimensions.filter((d) => !after.dimensions.some((x) => x.id === d.id)).map((d) => ({ id: d.id, name: d.name })),
+      sections: after.sections.map((x) => ({ id: x.id, name: x.name })),
+    }
+  },
+}
+
+export const sectionCommands = [cut, get, render, remove]

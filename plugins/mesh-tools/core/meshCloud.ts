@@ -26,7 +26,9 @@ import { emitter, Grow, TETS, tetSurface } from './marching'
 export interface MeshCloudSettings {
   /** The grid's cell, mm. Default two of the cloud's spacings, at least a
    *  two thousandth of its box's diagonal: about as many triangles as a
-   *  scanner's own mesh of the cloud, well within its noise. */
+   *  scanner's own mesh of the cloud, well within its noise — widened as far
+   *  as the grid needs to fit maxCells. A cell given is used as given, or
+   *  refused with one that fits. */
   cell?: number
   /** The most grid cells it may make, held in maps in the worker: past it
    *  the mesh is refused before anything is made. Default MAX_CELLS. */
@@ -69,6 +71,20 @@ const MAX_CELLS_PER_DIAGONAL = 2000
 
 const round3 = (v: number) => Math.round(v * 1000) / 1000
 
+/** How many cells of side h, laid as meshCloud lays its grid, hold a point. */
+function heldCells(positions: Float32Array, count: number, x0: number, y0: number, z0: number, h: number): number {
+  const ox = x0 - 2.5 * h, oy = y0 - 2.5 * h, oz = z0 - 2.5 * h
+  // Keys as meshCloud's: a cell index along each side under MAX_CELLS_PER_DIAGONAL + 6.
+  const side = MAX_CELLS_PER_DIAGONAL + 8
+  const held = new Set<number>()
+  for (let i = 0; i < count; i++) {
+    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2]
+    if (!Number.isFinite(x + y + z)) continue
+    held.add(Math.floor((x - ox) / h) + side * (Math.floor((y - oy) / h) + side * Math.floor((z - oz) / h)))
+  }
+  return held.size
+}
+
 export function meshCloud(
   positions: Float32Array,
   normals: Float32Array,
@@ -90,8 +106,33 @@ export function meshCloud(
     if (z > z1) z1 = z
   }
   const diagonal = Math.hypot(x1 - x0, y1 - y0, z1 - z0)
+  const asked = settings.cell !== undefined && settings.cell > 0
   // Never finer than a two-thousandth of the part, asked or not.
-  const h = Math.max(settings.cell && settings.cell > 0 ? settings.cell : CELL_SPACINGS * spacing, diagonal / MAX_CELLS_PER_DIAGONAL)
+  let h = Math.max(asked ? settings.cell! : CELL_SPACINGS * spacing, diagonal / MAX_CELLS_PER_DIAGONAL)
+  const budget = settings.maxCells ?? MAX_CELLS
+  if (x1 >= x0 && h > 0) {
+    progress?.('Finding where the points are…')
+    // The cells it would make, counted off every cell holding a point before
+    // any is made. Counted to the end: a count cut off at the budget only
+    // says "the budget", and a cell worked out from it creeps up by the
+    // margin each time (it did on a 4.2 M-point head: 0.134, 0.148, 0.163 …
+    // mm, every refusal quoting the same count).
+    const estimate = heldCells(positions, count, x0, y0, z0, h) * CELLS_PER_HELD
+    if (estimate > budget) {
+      // A cell that fits, found by counting again — a surface's cells go as
+      // one over the cell squared, which is the step, but only the count is
+      // the proof. The default cell is the tool's own and becomes it; a cell
+      // asked for is refused, naming it.
+      let fits = h, cells = estimate
+      for (let k = 0; cells > budget && k < 12; k++) {
+        fits *= Math.sqrt(cells / budget) * 1.05
+        cells = heldCells(positions, count, x0, y0, z0, fits) * CELLS_PER_HELD
+      }
+      if (!asked && cells <= budget) h = fits
+      else
+        throw new Error(`A grid of ${round3(h)} mm cells would take about ${estimate.toLocaleString('en-US')} cells, past the ${budget.toLocaleString('en-US')} the worker holds — give a cell of at least ${round3(Math.ceil(fits * 1000) / 1000)} mm.`) // units-ok: the worker's refusal names mesh.mesh_cloud's cell, which is mm; the worker has no display units
+    }
+  }
   const empty = (): { positions: Float32Array; indices: Uint32Array; report: MeshCloudReport } => ({
     positions: new Float32Array(0),
     indices: new Uint32Array(0),
@@ -110,23 +151,6 @@ export function meshCloud(
   const py = (g: number) => oy + (Math.floor(g / nx) % ny) * h
   const pz = (g: number) => oz + Math.floor(g / plane) * h
 
-  progress?.('Finding where the points are…')
-  // The cells it would make, counted off the cells holding a point before
-  // any is made: past the budget, refused with a cell that fits.
-  const budget = settings.maxCells ?? MAX_CELLS
-  const held = new Set<number>()
-  for (let i = 0; i < count && held.size * CELLS_PER_HELD <= budget; i++) {
-    const x = positions[i * 3], y = positions[i * 3 + 1], z = positions[i * 3 + 2]
-    if (!Number.isFinite(x + y + z)) continue
-    held.add(Math.floor((x - ox) / h) + nx * Math.floor((y - oy) / h) + plane * Math.floor((z - oz) / h))
-  }
-  const estimate = held.size * CELLS_PER_HELD
-  if (estimate > budget) {
-    // The cells a surface takes go as one over the cell squared.
-    const fits = h * Math.sqrt(estimate / budget) * 1.1
-    throw new Error(`A grid of ${round3(h)} mm cells would take more than ${estimate.toLocaleString('en-US')} cells, past the ${budget.toLocaleString('en-US')} the worker holds — give a cell of at least ${round3(fits)} mm.`) // units-ok: the worker's refusal names mesh.mesh_cloud's cell, which is mm; the worker has no display units
-  }
-  held.clear()
   // The cells holding a point, and their neighbours.
   const active = new Set<number>()
   for (let i = 0; i < count; i++) {

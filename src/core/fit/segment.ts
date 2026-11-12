@@ -769,8 +769,12 @@ export interface SegmentOptions {
 export interface SegmentedPlane {
   /** Out of the part, by a vote of the region's vertex normals. */
   normal: Vec3
-  /** The region's centroid, on its plane. */
+  /** The region's centroid, on its plane — which need not lie on the region:
+   *  a boss top's falls in its hole. */
   point: Vec3
+  /** A point of the region itself: its member nearest the centroid. A fit
+   *  seeded here seeds on the region. */
+  on: Vec3
   /** RMS of the region's points off its plane, mm. */
   sigma: number
   area: number
@@ -1117,9 +1121,15 @@ export function segmentPlanes(g: MeshGraph, opts: SegmentOptions): Segmentation 
         if (x > max[k]) max[k] = x
       }
     }
+    let near = r.members[0], nearD2 = Infinity
+    for (const v of r.members) {
+      const d2 = (P[v * 3] - r.point[0]) ** 2 + (P[v * 3 + 1] - r.point[1]) ** 2 + (P[v * 3 + 2] - r.point[2]) ** 2
+      if (d2 < nearD2) { nearD2 = d2; near = v }
+    }
+    const on: Vec3 = [P[near * 3], P[near * 3 + 1], P[near * 3 + 2]]
     const [e1, e2] = orthoBasis(r.normal)
     const curve = curveOf(P, vertices.subarray(offsets[i], offsets[i + 1]), r.normal, e1, e2, CURVE_SAMPLE_SEGMENT)
-    const region: SegmentedPlane = { normal: r.normal, point: r.point, sigma: r.sigma, area: r.area, min, max, count: r.members.length, neighbours: [], curve, curved: false }
+    const region: SegmentedPlane = { normal: r.normal, point: r.point, on, sigma: r.sigma, area: r.area, min, max, count: r.members.length, neighbours: [], curve, curved: false }
     // A bow below the float32 floor of the positions is rounding, not a curve: on
     // exact data the quadric's sigma is that rounding too, and the ratios decide at random.
     region.curved = isCurved(region) && region.curve!.sagitta >= bandFloor
