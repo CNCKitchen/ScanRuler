@@ -701,6 +701,24 @@ export function installMergeSession(session: MergeSession): () => void {
 /** The session installed, or null with none. */
 export const mergeSession = (): MergeSession | null => installed
 
+/** Resolves once nothing of the workspace runs, or after `ms` at the most:
+ *  a merge cannot be stopped and runs to its end, and a wait on it must not
+ *  hold a command for good — past `ms` the busy check says it still runs. */
+export function mergeIdle(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (useMerge.getState().running === null) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    const unsubscribe = useMerge.subscribe((s) => {
+      if (s.running === null) done()
+    })
+  })
+}
+
 /** What the workspace's machinery is busy with, for registerBusy. */
 export function mergeBusy(): string | null {
   const running = useMerge.getState().running

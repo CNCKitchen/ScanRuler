@@ -7,10 +7,13 @@ import { registerBusy, registerCommands, type ScanRulerPlugin } from '../../src/
 import { registerHistory } from '../../src/state/historyStore'
 import { MERGE } from './core/protocol'
 import { applyMerge, captureMerge, useMerge, type MergeSnapshot } from './state/mergeStore'
-import { MERGE_WORKSPACE, mergeBusy, mergeSession } from './app/mergeSession'
+import { MERGE_WORKSPACE, mergeBusy, mergeIdle, mergeSession } from './app/mergeSession'
 import { mergeCommands } from './app/mergeCommands'
 import { useMergePlugin } from './app/useMergePlugin'
 import './ui/merge.css'
+
+/** How long a command that discards the session waits for the workspace, ms. */
+const STOP_WAIT_MS = 30_000
 
 const plugin: ScanRulerPlugin = {
   id: MERGE,
@@ -47,10 +50,11 @@ const plugin: ScanRulerPlugin = {
   install() {
     // What an agent works through: merge.open_layer, merge.align_datums and the rest.
     registerCommands(MERGE, mergeCommands)
-    // Stop an alignment, then wait for the panel to be free: a merge runs to its end.
+    // Stop an alignment, then wait for the panel to be free: a merge runs to
+    // its end. Not for ever: past STOP_WAIT_MS the guard says it still runs.
     registerBusy(MERGE, mergeBusy, [useMerge], async () => {
       mergeSession()?.stop()
-      while (useMerge.getState().running !== null) await new Promise((r) => setTimeout(r, 20))
+      await mergeIdle(STOP_WAIT_MS)
     })
     // The layers' poses and whether each is shown, and the count of merges
     // that tells a step across one (see mergeSession's aroundRestore).
