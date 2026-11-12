@@ -81,6 +81,13 @@ saves carry the same number as `appVersion`. How a release is cut is in
   the session and a warning. Projects saved before keep opening as they did,
   with no guide. Thanks to raxarot for the careful report.
 
+## Unreleased
+
+- **A saved project carries a preview picture.** Saving a `.scanruler` file
+  embeds a fitted image of the visible 3D content or active 2D sheet, keeping
+  the viewing angle without changing the live view. An optional Windows
+  preview handler displays it in Explorer and compatible Open dialogs.
+
 ## 0.11.0 — 2026-11-09
 
 - **A 2D note stays where it was placed** (2026-11-09, pull request 70).

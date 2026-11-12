@@ -56,9 +56,43 @@ node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum
 node scripts/e2e-flat.mjs       # 2D Measure: edges, fits, calibration, alignment, report
+node scripts/e2e-project-preview.mjs # saved preview pixels, framing and live-camera isolation
 node scripts/e2e-spline.mjs     # 2D Measure: a spline through fit points, its handles, closed, in the SVG
 node scripts/e2e-section.mjs    # a section through a ball, measured on the 2D sheet
 ```
+
+### Project preview images
+
+Browser Save Project (including the connected agent's project save command)
+adds a 1024-square `preview.png` to the project archive. It is an optional,
+uncompressed ZIP member, after `project.json`, readable without inflating the
+scan or rebuilding a plugin. No project schema change is required. Recovery
+checkpoints do not capture images; saving a recovered project generates a new
+one. Existing files without this member still open normally.
+
+The preview uses a cloned camera and offscreen render target, fitting visible
+rendered content with a small margin. Perspective, orthographic orientation,
+and 2D rotation/mirroring are retained; the live camera, canvas, controls and
+geometry are unchanged. Hidden objects are not revealed. If nothing is
+visible, an explicit placeholder is saved. Rendering/encoding failures are
+reported as save errors, never silently replaced with a stale image.
+
+The image identifies the project; it is not an authoritative reconstruction
+of its saved state. HTML labels, menus and panels are not rasterized, and an
+unfinished on-screen tool preview is not a saved feature. Windows integration
+is a separate, optional component under `windows/project-preview`; building
+the app does not register any Windows handlers or alter file associations.
+Run its documented Windows tests separately from the browser checks.
+The development server excludes the handler's compiled `bin` directory from
+file watching so native tests can load and replace DLLs without watcher errors.
+
+The preview browser check generates its own model and sheet, and writes
+`project-preview.scanruler`, the extracted `project-preview.png` and an app
+screenshot to the ignored `e2e-out` directory. These contain no user scans.
+For manual native-dialog validation, build and explicitly register the Windows
+handler as documented, enable the dialog's preview pane, and select the generated
+project. The saved model should appear without opening it in the app. Older
+projects without an image show the documented missing-preview message.
 
 `e2e-step.mjs` builds its own pair rather than shipping one, so the answer is
 known before the app is started: the reference is a STEP cube and the scan is a

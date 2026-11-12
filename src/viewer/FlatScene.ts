@@ -9,6 +9,7 @@
 // sheet, so a pick lands where it lands whichever way the sheet is seen.
 
 import * as THREE from 'three'
+import { captureProjectPreview, visiblePreviewBounds } from './projectPreview'
 import { Line2 } from 'three/addons/lines/Line2.js'
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js'
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
@@ -1339,6 +1340,13 @@ export class FlatScene {
   sheetView(): { centre: Vec2; unitsPerScreenPx: number } {
     const cam = this.viewport.camera
     return { centre: [cam.position.x, cam.position.y], unitsPerScreenPx: this.unitsPerScreenPx() }
+  }
+
+  captureProjectPreview(): Promise<Uint8Array> {
+    return captureProjectPreview(this.viewport, visiblePreviewBounds([
+      this.sheet, this.edgeGroup, this.fillGroup, this.elementGroup, this.dimensionGroup,
+      this.dimStrokeGroup, this.countGroup,
+    ]))
   }
 
   /** Document units per screen pixel at the current zoom — what turns a snap
