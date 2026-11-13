@@ -291,7 +291,7 @@ const scanReplaced = () => {
 }
 
 /** What the worker lends a plugin's request. */
-const contextOf = (progress: (t: string) => void): WorkerContext => ({
+const contextOf = (progress: (t: string, fraction?: number) => void): WorkerContext => ({
   scan: () => graph,
   takeStaged: (id) => {
     const g = stagedScans.get(id)
@@ -303,7 +303,7 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
 })
 
 function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
-  const progress = (text: string, fraction?: number) => post({ type: 'progress', text, ...(fraction !== undefined ? { fraction } : {}) })
+  const progress = (text: string, fraction?: number) => post({ type: 'progress', requestId: msg.requestId, text, ...(fraction !== undefined ? { fraction } : {}) })
 
   if (msg.type === 'discard-import') {
     for (const id of msg.ids) { stagedScans.delete(id); stagedNominals.delete(id) }

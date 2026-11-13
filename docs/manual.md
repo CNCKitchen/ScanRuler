@@ -7,6 +7,7 @@ workspaces have references of their own, in
 [plugins/reverse/README.md](../plugins/reverse/README.md) and
 [plugins/mesh-tools/README.md](../plugins/mesh-tools/README.md).
 
+- [Process reporting](#process-reporting)
 - [Undo and redo](#undo-and-redo)
 - [3D Measure: fitting and measuring features](#3d-measure-fitting-and-measuring-features)
   - [How to use it](#how-to-use-it)
@@ -51,6 +52,73 @@ workspaces have references of their own, in
   - [Alignment, dimensions, and what leaves the tool](#alignment-dimensions-and-what-leaves-the-tool)
   - [Measuring a section](#measuring-a-section)
   - [The curvature comb](#the-curvature-comb)
+
+## Process reporting
+
+While work is pending, click **WORKING** in the status strip to open a shared
+report across workspaces. Tracked worker and export requests appear separately,
+with their latest phase, elapsed time since the request was made, and the age
+of the last received report. Overall timing refers to currently listed requests:
+the earliest start and the most recent report. The panel header notes that it
+cannot cancel work; its information icon explains how to interpret the timings.
+Requests can include time waiting behind other
+work. Activities without a tracked request appear as application activity;
+their timer starts when the activity is observed, and their updates reflect
+changes in the displayed status rather than worker messages.
+
+**WORKING** and a running elapsed timer are not proof that computation is
+advancing. A request without reports may be queued or executing an uninstrumented
+call. A long quiet interval alone does not establish a stall. Percentages apply
+to the reported phase, not necessarily the whole operation, and may restart for
+another phase or refinement pass. There is no estimated completion time.
+If the browser's main thread is blocked, the panel and its timers cannot update
+until the page becomes responsive again. Reporting does not prevent browser
+unresponsive-page warnings.
+
+Reduce mesh reports its pass and counts during both accuracy measurements.
+Simplification, surface indexing and sorting are synchronous library work and
+cannot provide intermediate progress. CAD reports the feature or kernel call
+it is entering; the call itself can remain quiet until it returns.
+Tracked requests move to **Recent operations** when their replies arrive or
+their worker is terminated. An open report shows **Completed** after successful
+requests and automatically closes within two seconds while the page is
+responsive. Its width is unchanged, and the outcome view retains the open box's
+height, scrolling details internally. Successful work does not force a closed
+panel open. Failures, response timeouts and restored interruptions open details
+and remain visible until dismissed, even if another request later succeeds.
+Click **READY - Recent operations** or **ERROR - View details** at the bottom
+left to reopen history. While work is active, click the panel's **Processes**
+heading to see history, and **Active** to return. Manually reopened history
+stays open until dismissed.
+
+History keeps the latest 20 outcomes with the operation label, last phase,
+elapsed time and any reported error. A completed worker request does not
+certify that all CAD features or resulting geometry are valid; inspect their
+normal feature/build status. Legacy callers and observed application activity
+without an explicit outcome are marked **Ended - outcome not reported**, not
+successful. Untracked application activity is recorded only when its active
+report was open.
+A timed-out request remains active if its worker may still be executing it.
+Its history explicitly distinguishes waiting too long from stopping computation;
+a late reply records its eventual outcome.
+
+**Copy diagnostics** copies timestamps, app version, active summaries and recent
+outcomes, never scan geometry. Paths and URLs are redacted; review the text
+before sharing. Nothing is uploaded automatically. Clipboard errors are shown.
+A successful copy shows a 2.5-second popup directly above the clicked button,
+explaining that diagnostics are on
+the clipboard, no file was saved, and the text can be pasted into chat or an
+editor. The popup does not resize the report box or require dismissal.
+**Clear history** removes recent outcomes, not active work or saved projects.
+History and pending tracked-request summaries use this browser tab's session
+storage on either a locally or web-hosted app, with progress checkpoints at
+most once per second. They survive ordinary reloads when storage is available,
+but closing the tab, clearing browser data or a crash can lose them. Reloaded
+pending requests are marked **Interrupted**, with cause unknown and elapsed
+time limited to the last saved observation; they are not retried automatically.
+Storage failures are reported in the panel. This is diagnostic history, not a
+project backup or a guaranteed crash log.
+The panel does not add cancellation or change existing Cancel/Stop controls.
 
 ## Undo and redo
 

@@ -171,6 +171,27 @@ describe('reducing a scan', () => {
     expect(graph.positions).toEqual(positions)
     expect(graph.indices).toEqual(indices)
   })
+
+  it('reports real phase counts without changing geometry, accuracy, maps or passes', () => {
+    const graph = ball()
+    const settings = { tolerance: 0.03, maxTriangles: 500 }
+    const surface = new NominalSurface(graph.positions, graph.indices)
+    const before = reduceMesh(simplifier, graph, settings, () => surface)
+    const reports: { text: string; fraction?: number }[] = []
+    const after = reduceMesh(simplifier, graph, settings, () => surface, (text, fraction) => reports.push({ text, fraction }))
+    expect(after).toEqual(before)
+    expect(reports.some((r) => /simplifying geometry/.test(r.text) && r.fraction === undefined)).toBe(true)
+    expect(reports.some((r) => /sorting scan distances/.test(r.text) && r.fraction === undefined)).toBe(true)
+    for (const direction of ['measuring scan to reduced mesh', 'measuring reduced mesh to scan']) {
+      const measurements = reports.filter((r) => r.text.includes(direction))
+      expect(measurements.length).toBeGreaterThanOrEqual(2)
+      expect(measurements[0].fraction).toBe(0)
+      expect(measurements.at(-1)!.fraction).toBe(1)
+      expect(measurements.every((r) => r.fraction !== undefined && r.fraction >= 0 && r.fraction <= 1)).toBe(true)
+      expect(measurements.at(-1)!.text).toMatch(/pass \d+: .* - [\d,]+ of [\d,]+/)
+    }
+    expect(reports.at(-1)!.text).toContain('summarizing measured accuracy')
+  })
 })
 
 describe('the reduction map', () => {

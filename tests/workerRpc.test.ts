@@ -20,7 +20,7 @@ class FakeWorker {
   answer(type = 'ok'): void { this.onmessage?.({ data: { type, requestId: this.messages.at(-1)!.requestId } }) }
   crash(): void { this.onerror?.({ message: 'test failure', preventDefault() {} }) }
 }
-afterEach(() => { vi.unstubAllGlobals(); FakeWorker.instances = []; useTaskActivity.setState({ tasks: {} }) })
+afterEach(() => { vi.unstubAllGlobals(); FakeWorker.instances = []; useTaskActivity.setState({ tasks: {}, history: [] }) })
 
 describe('worker lifecycle', () => {
   it('reports queued work, numeric progress and independent completion across workers', async () => {
@@ -31,12 +31,12 @@ describe('worker lifecycle', () => {
     const two = second.request({ requestId: 1 })
     expect(Object.values(useTaskActivity.getState().tasks)).toHaveLength(2)
     worker.onmessage!({ data: { type: 'progress', text: 'Measuring', fraction: 0.42 } })
-    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual({ text: 'Measuring', percent: 42 })
+    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual(expect.objectContaining({ text: 'Measuring', percent: 42 }))
     worker.onmessage!({ data: { type: 'progress', text: 'Finalizing' } })
-    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual({ text: 'Finalizing', percent: null })
+    expect(Object.values(useTaskActivity.getState().tasks)).toContainEqual(expect.objectContaining({ text: 'Finalizing', percent: null }))
     worker.answer()
     await one
-    expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'CAD worker', percent: null }])
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{ text: 'CAD worker', percent: null }])
     other.answer()
     await two
     expect(useTaskActivity.getState().tasks).toEqual({})
@@ -49,8 +49,12 @@ describe('worker lifecycle', () => {
     const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Test worker')
     await expect(rpc.request({ requestId: 1 }, [], 5)).rejects.toThrow('did not answer')
     expect(Object.values(useTaskActivity.getState().tasks)).toHaveLength(1)
+    expect(useTaskActivity.getState().history[0]).toMatchObject({ outcome: 'timed-out', message: expect.stringContaining('Work may still be running') })
+    worker.onmessage!({ data: { requestId: 1, type: 'progress', text: 'Still calculating', percent: 10 } })
+    expect(Object.values(useTaskActivity.getState().tasks)[0].notice).toContain('Work may still be running')
     worker.answer()
     expect(useTaskActivity.getState().tasks).toEqual({})
+    expect(useTaskActivity.getState().history[0]).toMatchObject({ outcome: 'completed', message: expect.stringContaining('late reply') })
     rpc.dispose()
   })
 
@@ -62,7 +66,46 @@ describe('worker lifecycle', () => {
     worker.onmessage!({ data: { requestId: 1, type: 'progress', text: 'Preparing', percent: 20 } })
     await tick()
     expect(settled).toBe(false)
-    expect(Object.values(useTaskActivity.getState().tasks)).toEqual([{ text: 'Preparing', percent: 20 }])
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{ text: 'Preparing', percent: 20 }])
+    worker.answer()
+    await pending
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    rpc.dispose()
+  })
+  it('attributes reports to their request and records consumed events without settling work', async () => {
+    const worker = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'CAD worker', (data) => (data as { event?: string }).event === 'call')
+    const first = rpc.request({ requestId: 1, type: 'build' })
+    const second = rpc.request({ requestId: 2, type: 'topologies' })
+    worker.onmessage!({ data: { requestId: 2, type: 'progress', text: 'Reading faces', fraction: 0.5 } })
+    let tasks = Object.values(useTaskActivity.getState().tasks)
+    expect(tasks[0]).toMatchObject({ text: 'CAD worker: build', updatedAt: null })
+    expect(tasks[1]).toMatchObject({ text: 'Reading faces', percent: 50, updatedAt: expect.any(Number) })
+    worker.onmessage!({ data: { requestId: 1, event: 'call', what: 'Splitting' } })
+    tasks = Object.values(useTaskActivity.getState().tasks)
+    expect(tasks[0].updatedAt).not.toBeNull()
+    expect(tasks).toHaveLength(2)
+    worker.onmessage!({ data: { requestId: 999, type: 'progress', text: 'Stale report', percent: 99 } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toEqual(tasks)
+    worker.onmessage!({ data: { requestId: 1, type: 'ok' } })
+    worker.onmessage!({ data: { requestId: 2, type: 'ok' } })
+    await Promise.all([first, second])
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    rpc.dispose()
+  })
+  it('uses a custom worker event as an unquantified phase report', async () => {
+    const worker = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'CAD worker', (data) =>
+      (data as { event?: string }).event === 'call' ? { text: 'CAD helper: splitting', percent: null } : false)
+    const pending = rpc.request({ requestId: 1, type: 'build' })
+    worker.onmessage!({ data: { requestId: 1, type: 'progress', text: 'Preparation', percent: 100 } })
+    worker.onmessage!({ data: { requestId: 1, event: 'call' } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{
+      label: 'CAD worker: build',
+      text: 'CAD helper: splitting',
+      percent: null,
+      updatedAt: expect.any(Number),
+    }])
     worker.answer()
     await pending
     expect(useTaskActivity.getState().tasks).toEqual({})
@@ -77,7 +120,27 @@ describe('worker lifecycle', () => {
     await Promise.all([first, second])
     expect(worker.terminated).toBe(true)
     expect(useTaskActivity.getState().tasks).toEqual({})
+    expect(useTaskActivity.getState().history.slice(0, 2)).toMatchObject([
+      { outcome: 'failed', message: 'Test worker failed: test failure' },
+      { outcome: 'failed', message: 'Test worker failed: test failure' },
+    ])
     await expect(rpc.request({ requestId: 3 })).rejects.toThrow('unavailable')
+  })
+  it('distinguishes an explicit worker restart from success and records ordinary error replies', async () => {
+    const worker = new FakeWorker()
+    const rpc = new WorkerRpc(() => worker as unknown as Worker, 'Mesh worker')
+    const restarted = expect(rpc.request({ requestId: 1, type: 'edit' })).rejects.toThrow('restarted')
+    worker.onmessage!({ data: { requestId: 1, type: 'progress', text: 'Filling holes - 700 of 4,608' } })
+    rpc.restart()
+    await restarted
+    expect(useTaskActivity.getState().history[0]).toMatchObject({
+      outcome: 'interrupted', text: 'Filling holes - 700 of 4,608', message: 'Mesh worker was restarted.',
+    })
+    const failed = expect(rpc.request({ requestId: 2, type: 'edit' })).rejects.toThrow('Invalid input')
+    worker.onmessage!({ data: { type: 'error', requestId: 2, message: 'Invalid input' } })
+    await failed
+    expect(useTaskActivity.getState().history[0]).toMatchObject({ outcome: 'failed', message: 'Invalid input' })
+    rpc.dispose()
   })
   it('settles unreadable replies and cleans up synchronous clone failures', async () => {
     const worker = new FakeWorker()

@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WorkerRpc } from '../../../src/core/workerRpc'
 import { ReClient, type ReTransport } from '../core/reClient'
+import { useTaskActivity } from '../../../src/state/taskActivity'
 
 class SilentWorker {
   onmessage: ((event: { data: unknown }) => void) | null = null
@@ -13,9 +14,32 @@ class SilentWorker {
   terminate(): void {}
 }
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+  useTaskActivity.setState({ tasks: {} })
+})
 
 describe('the kernel client’s time limits', () => {
+  it('reports real kernel and helper events without completing the request early', async () => {
+    let worker: SilentWorker | undefined
+    vi.stubGlobal('Worker', class extends SilentWorker {
+      constructor() { super(); worker = this }
+    })
+    const client = new ReClient()
+    const initialized = client.init()
+    worker!.onmessage!({ data: { requestId: 1, event: 'call', what: 'Loading kernel' } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{ text: 'CAD kernel: Loading kernel', percent: null }])
+    worker!.onmessage!({ data: { requestId: 1, event: 'call', helper: 2, what: 'Splitting' } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{ text: 'CAD helper 2: Splitting', percent: null }])
+    worker!.onmessage!({ data: { requestId: 1, event: 'step', id: null } })
+    expect(Object.values(useTaskActivity.getState().tasks)).toMatchObject([{ text: 'CAD kernel: feature steps finished; preparing the result' }])
+    worker!.onmessage!({ data: { requestId: 1, type: 'init-ok', version: 'test kernel' } })
+    await expect(initialized).resolves.toBe('test kernel')
+    expect(useTaskActivity.getState().tasks).toEqual({})
+    client.dispose()
+  })
+
   it('limits a read and leaves a build to the session', async () => {
     const asked: { type: string; limitMs?: number }[] = []
     const transport: ReTransport = {

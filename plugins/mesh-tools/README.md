@@ -7,6 +7,14 @@ documentation.
 
 ## Mesh Tools: cleaning up and reducing a scan
 
+The app-wide **Processes** panel above the status strip shows pending work and
+the age of its last report. Reduce mesh names each pass and phase, including
+measured point counts in both verification directions. Its simplifier, indexing
+and sorting calls cannot report intermediate progress, so elapsed time alone
+does not prove advancement. Percentages are per reported phase, not overall
+completion. Reporting does not change the reduction, tolerance, triangle limit,
+preview/Apply workflow or existing cancellation support.
+
 The **Mesh Tools** workspace works on the mesh itself rather than measuring
 it. The panel's **Tools** row picks the tool in hand — **Escape**, or the
 tool's key again, puts it away — and they are of the two kinds the

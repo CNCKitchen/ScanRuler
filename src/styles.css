@@ -2710,6 +2710,124 @@ button.x:disabled {
 
 /* ---------------- machine status strip ---------------- */
 
+.process-reporting {
+  position: fixed;
+  left: 12px;
+  bottom: 38px;
+  z-index: 50;
+  width: min(340px, calc(100vw - 24px));
+  background: var(--strip);
+  color: #eceeef;
+  border: 1px solid #666;
+  border-radius: 4px;
+  font-size: 12px;
+  box-shadow: 0 2px 8px #0004;
+}
+
+.process-reporting header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.process-reporting-notice {
+  margin-left: auto;
+  text-align: right;
+}
+
+.process-reporting header .infodot {
+  margin-left: 6px;
+}
+
+.process-reporting-body {
+  padding: 0 12px 8px;
+  max-height: min(440px, 60vh);
+  overflow: auto;
+}
+
+.process-reporting-overall {
+  padding: 8px 0;
+  line-height: 1.6;
+}
+
+.process-reporting ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.process-reporting-phase {
+  white-space: pre-line;
+}
+
+.process-reporting li {
+  padding: 10px 0;
+  border-top: 1px solid #666;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.process-reporting progress {
+  width: 100%;
+}
+
+.process-copy-notice {
+  position: fixed;
+  z-index: 100;
+  width: min(340px, calc(100vw - 24px));
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: 0 2px 8px #0004;
+  pointer-events: none;
+}
+
+.process-reporting-history {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 50px);
+}
+
+.process-reporting-title {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.process-reporting-history .process-reporting-body {
+  min-height: 0;
+  flex: 1;
+}
+
+.process-reporting-history header,
+.process-reporting-actions {
+  flex-shrink: 0;
+}
+
+.process-reporting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 12px;
+  border-top: 1px solid #666;
+}
+
+.process-outcome-completed {
+  color: #8cdda5;
+}
+
+.process-outcome-failed,
+.process-outcome-interrupted,
+.process-outcome-timed-out {
+  color: #ffba89;
+}
+
 .strip {
   height: 30px;
   background: var(--strip);
@@ -2766,6 +2884,19 @@ button.x:disabled {
   padding: 0 13px;
   /* One row, same as the link above. */
   white-space: nowrap;
+}
+
+.strip button.strip-process-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  margin: 0 -13px;
+}
+
+.strip button.strip-process-toggle:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: -2px;
 }
 
 .strip button:hover:not(:disabled) {

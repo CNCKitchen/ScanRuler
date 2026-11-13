@@ -219,6 +219,15 @@ describe('cutting with a plane', () => {
     expect(() => cutMesh(g.positions, g.indices, g.vertexCount, [0, 0, 20], [0, 0, 1], true)).toThrow(/cuts nothing/)
     expect(() => cutMesh(g.positions, g.indices, g.vertexCount, [0, 0, -20], [0, 0, 1], true)).toThrow(/Nothing of the scan/)
   })
+
+  it.each([-20, 20])('transfers an empty preview when the plane at Z %s does not cross the scan', (z) => {
+    const g = box()
+    const preview = cutPreview(g.positions, g.indices, g.vertexCount, [0, 0, z], [0, 0, 1])
+    const received = structuredClone(preview, { transfer: [preview.cap.buffer, preview.open.buffer] })
+    expect(received.cuts).toBe(false)
+    expect(received.cap).toHaveLength(0)
+    expect(received.open).toHaveLength(0)
+  })
 })
 
 describe('filling holes', () => {

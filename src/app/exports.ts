@@ -51,11 +51,14 @@ export const exportStem = (fallback = 'scan'): string => {
 export async function runExport(job: () => Promise<void>): Promise<void> {
   const id = `export-${++nextExportId}`
   useTaskActivity.getState().setTask(id, { text: 'Preparing or saving export...', percent: null })
-  try { await job() }
+  try {
+    await job()
+    useTaskActivity.getState().finishTask(id, 'completed')
+  }
   catch (error) {
+    useTaskActivity.getState().finishTask(id, error instanceof DOMException && error.name === 'AbortError' ? 'cancelled' : 'failed',
+      error instanceof Error ? error.message : String(error))
     useStore.getState().setError(`Export failed — ${error instanceof Error ? error.message : String(error)}`)
-  } finally {
-    useTaskActivity.getState().setTask(id, null)
   }
 }
 
@@ -107,12 +110,13 @@ export interface BuiltFile {
 
 export const textBytes = (text: string) => new TextEncoder().encode(text)
 
-/** Save a built file the way every export button does, and say so. */
-export const saveBuilt = (file: BuiltFile | null) => {
+/** Build and save inside one error boundary, or save an already built file. */
+export const saveBuilt = (input: BuiltFile | null | (() => BuiltFile | null | Promise<BuiltFile | null>)): Promise<void> => runExport(async () => {
+  const file = typeof input === 'function' ? await input() : input
   if (!file) return
   saveFile(file.name, new Blob([file.bytes as BlobPart], { type: file.mimeType }))
   useStore.getState().setStatus(file.status)
-}
+})
 
 /** The created elements as analytic STEP geometry — and with them, in a
  *  group per section, what was measured on the sections. Null with nothing
@@ -158,7 +162,7 @@ export async function buildElementsStep(): Promise<BuiltFile | null> {
 }
 
 /** Hand the created elements over as analytic STEP geometry. */
-export const exportElementsStep = () => runExport(async () => saveBuilt(await buildElementsStep()))
+export const exportElementsStep = () => saveBuilt(buildElementsStep)
 
 /** The scan as a mesh file — an STL or a 3MF — in the pose it is being
  *  shown in. Null with no scan on the viewport.
@@ -203,7 +207,7 @@ export function buildScanMesh(scene: SceneManager | null, format: MeshFormat): B
 
 /** Hand the scan back as a mesh file in the pose it is being shown in. */
 export const exportScanMesh = (sceneRef: RefObject<SceneManager | null>, format: MeshFormat) =>
-  runExport(async () => saveBuilt(buildScanMesh(sceneRef.current, format)))
+  saveBuilt(() => buildScanMesh(sceneRef.current, format))
 
 /** The scan as a point cloud — every vertex with its normal, in the pose it
  *  is being shown in, as a binary PLY or an XYZ text file — for the
@@ -254,4 +258,4 @@ export async function buildScanPointCloud(scene: SceneManager | null, format: Cl
 
 /** Hand the scan back as a point cloud. */
 export const exportScanPointCloud = (sceneRef: RefObject<SceneManager | null>, format: CloudFormat) =>
-  runExport(async () => saveBuilt(await buildScanPointCloud(sceneRef.current, format)))
+  saveBuilt(() => buildScanPointCloud(sceneRef.current, format))
