@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { SNAPSHOT } from '../src/mcp.js'
-import { agentJson, batchedPicture, bytesProperty, imageContent, inputFor, saveFileResult, toolFor, toolName, timingsIn, waitIn, writeNew } from '../src/tools.js'
+import { agentJson, batchedPicture, bytesProperty, imageContent, INLINE_PICTURE_MOST, inputFor, saveFileResult, toolFor, toolName, timingsIn, waitIn, writeNew } from '../src/tools.js'
 
 const command = (name) => SNAPSHOT.find((c) => c.name === name)
 
@@ -146,6 +146,14 @@ test('a picture comes back as an image, and is written to a file only when asked
   // inline: false without a path still shows it — there is nowhere else.
   assert.equal((await imageContent(result, { inline: false }, { cwd: dir, outDir: dir }))[1].type, 'image')
   assert.equal(await imageContent({ file: { name: 'a.step', mimeType: 'model/step', bytes: png } }, {}, { cwd: dir, outDir: dir }), null)
+  // A picture too large to send inline (a client's read buffer would close
+  // the channel) is written to the output folder and only named.
+  const huge = new Uint8Array(Math.ceil(INLINE_PICTURE_MOST * 3 / 4) + 3)
+  const big = await imageContent({ file: { name: 'huge.png', mimeType: 'image/png', bytes: huge } }, {}, { cwd: dir, outDir: dir })
+  assert.equal(big.length, 1)
+  const told = JSON.parse(big[0].text)
+  assert.match(told.notInline, /too large to send inline/)
+  assert.equal((await readFile(told.file.path)).length, huge.length)
 })
 
 test('a picture in a batch, where it cannot be shown, is written to a file all the same', async () => {
