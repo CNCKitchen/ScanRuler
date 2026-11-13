@@ -48,14 +48,27 @@ export function runImport(
   job: () => Promise<void>,
   shouldStart: () => boolean = () => true,
 ): Promise<void> {
+  return runImportDone(queue, statusText, job, shouldStart).then(() => {})
+}
+
+/** runImport, resolving to whether the job ran and finished: false when it
+ *  was not started or failed (the failure shown as the error, as there). */
+export function runImportDone(
+  queue: ImportQueue,
+  statusText: string,
+  job: () => Promise<void>,
+  shouldStart: () => boolean = () => true,
+): Promise<boolean> {
   return queue.run(async () => {
-    if (!shouldStart()) return
+    if (!shouldStart()) return false
     const previousStatus = useStore.getState().statusText
     useStore.setState({ busy: true, errorText: null, statusText })
     try {
       await job()
+      return true
     } catch (e) {
       useStore.setState({ statusText: previousStatus, errorText: e instanceof Error ? e.message : String(e) })
+      return false
     } finally {
       useStore.setState({ busy: false })
     }

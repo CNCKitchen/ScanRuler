@@ -31,7 +31,7 @@ import { APP_VERSION } from '../version'
 import { useRecovery } from './useRecovery'
 import type { PackedProject } from '../commands/host'
 import type { ImportQueue } from './importQueue'
-import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
+import { prepareScan, prepareNominal, prepareImage, runImport, runImportDone, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
 import { MemoryFile } from '../core/sourceFile'
 import { identityRigid, rigidInvert } from '../core/deviation/rigid'
@@ -107,7 +107,7 @@ export function useProject({
     )
   })
   const stored = (snapshot: ReturnType<typeof capture>) => storedProject(snapshot, sources, useStore.getState(), heldCloud.current!)
-  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true), async (snapshot) => (await stored(snapshot))?.project ?? null)
+  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProjectDone(file, true), async (snapshot) => (await stored(snapshot))?.project ?? null)
 
   /** The session as a project file, and the session marked saved — what
    *  Save Project downloads and project.save hands back. One past `maxBytes`
@@ -166,7 +166,11 @@ export function useProject({
 
   /** Open a project in place of the session — after asking, when there is
    *  work to lose, unless the caller has settled that (`settled`). */
-  const openProject = (file: File, recovered = false, settled = false) => runImport(imports, 'Reading project…', async () => {
+  const openProject = (file: File, recovered = false, settled = false) => openProjectDone(file, recovered, settled).then(() => {})
+
+  /** openProject, resolving to whether the project was opened: not when it
+   *  was declined or refused, nor when it failed (shown as the error). */
+  const openProjectDone =(file: File, recovered = false, settled = false) => runImportDone(imports, 'Reading project…', async () => {
     const meshClient = clientRef.current!
     let scan: PreparedScan | null = null
     let nominal: PreparedNominal | null = null

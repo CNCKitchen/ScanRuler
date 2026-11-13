@@ -18,6 +18,8 @@ import { watchUnsaved } from './project'
 import { useShell } from '../state/shellStore'
 import { PackedFile, ProjectClient } from '../core/project/projectClient'
 import { RecoveryStorage, staleCheckpoints, type CheckpointInfo } from './recoveryStorage'
+import type { ProjectManifest } from '../core/project/manifest'
+import type { ArchiveMember } from '../core/project/archive'
 import { ProjectSnapshotCache, type ProjectSnapshot } from './projectSnapshot'
 
 type Snapshot = ProjectSnapshot
@@ -39,6 +41,31 @@ function hasDraft() {
     projectSections().some((p) => p.hasDraft?.())
 }
 
+/** Open checkpoint `id` packed into a project, and let it go only once it
+ *  has opened: the work is this page's then, checkpointed in its own slot.
+ *  A failed, declined or refused open keeps it, to be restored again.
+ *  Resolves to what the recovery list should say, or null when it opened. */
+export async function restoreCheckpoint(
+  id: string,
+  db: Pick<RecoveryStorage, 'read' | 'remove'>,
+  pack: (manifest: ProjectManifest, members: ArchiveMember[]) => Promise<Uint8Array[]>,
+  open: (file: File) => Promise<boolean>,
+  openError: () => string | null = () => useStore.getState().errorText,
+): Promise<string | null> {
+  try {
+    const { manifest, members } = await db.read(id)
+    const parts = await pack(manifest, members)
+    if (!(await open(new PackedFile(parts, 'recovered.scanruler')))) {
+      const why = openError()
+      return why ? `Recovery failed: ${why} The checkpoint is kept.` : 'The checkpoint was not opened; it is kept.'
+    }
+  } catch (error) {
+    return `Recovery failed: ${error instanceof Error ? error.message : String(error)} The checkpoint is kept.`
+  }
+  await db.remove(id).catch(() => {})
+  return null
+}
+
 /** `stored` is the project as a checkpoint keeps it — a large or thinned
  *  cloud as the cloud the app holds (heldCloud) — or null when the session
  *  moved on while it was made; the unsaved-changes check stays on the
@@ -46,7 +73,8 @@ function hasDraft() {
 export function useRecovery(
   capture: () => Snapshot,
   blocked: () => boolean,
-  open: (file: File) => Promise<void>,
+  /** Opens the recovered project; resolves to whether it opened. */
+  open: (file: File) => Promise<boolean>,
   stored: (snapshot: Snapshot) => Promise<Snapshot | null> = async (s) => s,
 ) {
   const callbacks = useRef({ capture, blocked, open, stored })
@@ -197,17 +225,16 @@ export function useRecovery(
     const db = storage.current
     if (!db || callbacks.current.blocked()) return
     update({ working: true })
-    let worker: ProjectClient | null = null
+    const workers: ProjectClient[] = []
+    const pack = (manifest: ProjectManifest, members: ArchiveMember[]) => {
+      const worker = new ProjectClient()
+      workers.push(worker)
+      return worker.pack(manifest, members)
+    }
     try {
-      const { manifest, members } = await db.read(id)
-      worker = new ProjectClient()
-      const parts = await worker.pack(manifest, members)
-      await callbacks.current.open(new PackedFile(parts, 'recovered.scanruler'))
-      // The work is this page's now, checkpointed in this page's own slot.
-      await db.remove(id).catch(() => {})
-    } catch (error) {
-      update({ status: `Recovery failed: ${error instanceof Error ? error.message : String(error)}` })
-    } finally { worker?.dispose(); update({ working: false }) }
+      const status = await restoreCheckpoint(id, db, pack, callbacks.current.open)
+      if (status) update({ status })
+    } finally { workers.forEach((w) => w.dispose()); update({ working: false }) }
   }
   const discard = async (id: string) => {
     if (!storage.current) return
