@@ -170,7 +170,7 @@ describe('a project past 1 GiB', () => {
     })
     try {
       const error = await refused('project.save')
-      expect(error.message).toMatch(/^The project is 1\.35 GB — more than the 1 GiB \(1,073,741,824 bytes\) .* save it in the page with Save Project/)
+      expect(error.message).toMatch(/^The project is past 1\.35 GB — more than the 1 GiB \(1,073,741,824 bytes\) .* save it in the page with Save Project/)
       expect(asked).toEqual([GiB])
       packed = { name: 'big.scanruler', parts: [strToU8('PK'), strToU8('rest')], size: 6 }
       const { file } = await run<{ file: { name: string; bytes: Uint8Array } }>('project.save')

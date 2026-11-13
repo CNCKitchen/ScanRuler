@@ -5,7 +5,7 @@
 
 import { strFromU8, strToU8 } from 'fflate'
 import { MANIFEST_NAME, validateManifest, type ProjectManifest } from './manifest'
-import { byteSizeText, MAX_READ_BYTES, readSourceFile } from '../sourceFile'
+import { byteSizeText, MAX_READ_BYTES, readSourceFile, readSourceFileSync } from '../sourceFile'
 import { bytesSource, type ByteSource } from '../parsers/byteSource'
 import { isMemberName } from './validation'
 import { readZipMember, zipDirectory, zipParts, ZipCountError, ZipFormatError } from './zip'
@@ -24,12 +24,19 @@ export interface ArchiveFile {
   bytes: Uint8Array
 }
 
+/** The name a member's file is reported by when it can no longer be read:
+ *  the one the person opened it under, not its member's. */
+const sourceName = (bytes: Blob, name: string) => (bytes instanceof File ? bytes.name : name)
+
 /** Every member's bytes, the files among them read now — a copy that lives
- *  only as long as the packing does. One that can no longer be read is
- *  reported by the name the person opened it under, not its member's. */
+ *  only as long as the packing does. Read one after another, so a failure
+ *  stops the reading and a slow disk is not asked for them all at once. */
 export async function readMembers(members: readonly ArchiveMember[]): Promise<ArchiveFile[]> {
-  return Promise.all(members.map(async ({ name, bytes }) =>
-    ({ name, bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(await readSourceFile(bytes, bytes instanceof File ? bytes.name : name)) })))
+  const files: ArchiveFile[] = []
+  for (const { name, bytes } of members) {
+    files.push({ name, bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(await readSourceFile(bytes, sourceName(bytes, name))) })
+  }
+  return files
 }
 
 /** Past this many characters of compact JSON the manifest is written
@@ -50,10 +57,16 @@ export function manifestText(manifest: ProjectManifest, prettyLimit = PRETTY_LIM
  *  is the file, and no one buffer ever holds all of it. The manifest is
  *  pretty-printed while it is small — it is the one member a person might
  *  open — and every model file is deflated at a level that gets most of the
- *  gain without waiting on the last few percent. */
-export function packProjectParts(manifest: ProjectManifest, members: ArchiveFile[], limits: ProjectLimits = PROJECT_LIMITS): Uint8Array[] {
+ *  gain without waiting on the last few percent.
+ *
+ *  A member held as a file is read when it is reached, synchronously — so
+ *  in a worker (readSourceFileSync), where the files are read one at a time
+ *  rather than all into the page before packing. An archive past `maxBytes`
+ *  is given up as soon as it is (ZipTooLargeError). */
+export function packProjectParts(manifest: ProjectManifest, members: readonly ArchiveMember[], limits: ProjectLimits = PROJECT_LIMITS, maxBytes = Infinity): Uint8Array[] {
   const manifestBytes = strToU8(manifestText(manifest))
-  const problem = sizeProblem([{ name: MANIFEST_NAME, size: manifestBytes.byteLength }, ...members.map((m) => ({ name: m.name, size: m.bytes.byteLength }))], limits)
+  const sizeOf = (bytes: Uint8Array | Blob) => (bytes instanceof Uint8Array ? bytes.byteLength : bytes.size)
+  const problem = sizeProblem([{ name: MANIFEST_NAME, size: manifestBytes.byteLength }, ...members.map((m) => ({ name: m.name, size: sizeOf(m.bytes) }))], limits)
   if (problem) throw new Error(`${LIMIT_MESSAGE} — ${problem}. Make the scan or the reference smaller, and save again.`)
   for (const m of members) {
     // Refused here rather than written into a file that will not open.
@@ -61,8 +74,12 @@ export function packProjectParts(manifest: ProjectManifest, members: ArchiveFile
   }
   return zipParts([
     { name: MANIFEST_NAME, bytes: manifestBytes, level: 6 },
-    ...members.map((m) => ({ name: m.name, bytes: m.bytes, level: 6 as const })),
-  ])
+    ...members.map(({ name, bytes }) => ({
+      name,
+      bytes: bytes instanceof Uint8Array ? bytes : () => readSourceFileSync(bytes, sourceName(bytes, name)),
+      level: 6 as const,
+    })),
+  ], 0, new Date(), maxBytes)
 }
 
 /** The archive in one piece — for one small enough to hold so. */

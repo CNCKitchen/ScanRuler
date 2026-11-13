@@ -33,25 +33,56 @@ const U32 = 0xffffffff
  *  deflated output is gathered into: parts large enough to be few, small
  *  enough that no one of them is a burden. */
 const PIECE = 32 * 1024 * 1024
+/** How much compressed input goes into the inflater at once. fflate grows
+ *  its output to all that one push inflates to before handing any of it
+ *  over, and deflate expands at most 1032 to 1, so this bounds what a crafted
+ *  member can make the reader hold beyond the size it declares: 16 MiB. */
+const INFLATE_STEP = 16 * 1024
+/** Deflate's largest expansion: a 258-byte match in under two bits. */
+const MAX_RATIO = 1032
 /** Bit 11: the name is UTF-8. */
 const UTF8_NAME = 0x0800
 
-let crcTable: Uint32Array | null = null
+/** The saved and opened project is checked over gigabytes in a worker, so
+ *  the table is sliced eight ways: eight bytes per step instead of one. */
+let crcTables: Uint32Array[] | null = null
 
-/** The zip's CRC-32 of `bytes`. */
-export function crc32(bytes: Uint8Array): number {
-  if (!crcTable) {
-    crcTable = new Uint32Array(256)
-    for (let n = 0; n < 256; n++) {
-      let c = n
-      for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-      crcTable[n] = c >>> 0
-    }
+function crcTablesOf(): Uint32Array[] {
+  if (crcTables) return crcTables
+  const tables = Array.from({ length: 8 }, () => new Uint32Array(256))
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    tables[0][n] = c >>> 0
   }
-  const table = crcTable
-  let c = U32
-  for (let i = 0; i < bytes.length; i++) c = table[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
+  for (let n = 0; n < 256; n++) {
+    for (let t = 1; t < 8; t++) tables[t][n] = (tables[0][tables[t - 1][n] & 0xff] ^ (tables[t - 1][n] >>> 8)) >>> 0
+  }
+  return (crcTables = tables)
+}
+
+/** The zip's CRC-32 of `bytes`; with `crc`, of what that was the CRC of
+ *  followed by `bytes`. */
+export function crc32(bytes: Uint8Array, crc = 0): number {
+  const [t0, t1, t2, t3, t4, t5, t6, t7] = crcTablesOf()
+  let c = (crc ^ U32) >>> 0
+  let i = 0
+  const n = bytes.length
+  for (const end = n - 8; i <= end; i += 8) {
+    const a = c ^ (bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24))
+    c = t7[a & 0xff] ^ t6[(a >>> 8) & 0xff] ^ t5[(a >>> 16) & 0xff] ^ t4[a >>> 24]
+      ^ t3[bytes[i + 4]] ^ t2[bytes[i + 5]] ^ t1[bytes[i + 6]] ^ t0[bytes[i + 7]]
+  }
+  for (; i < n; i++) c = t0[(c ^ bytes[i]) & 0xff] ^ (c >>> 8)
   return (c ^ U32) >>> 0
+}
+
+/** The archive would be past the most it was asked to be (zipParts'
+ *  `maxBytes`): `size` is how much of it was written when that was seen. */
+export class ZipTooLargeError extends Error {
+  constructor(readonly size: number) {
+    super(`The zip is past ${size} bytes.`)
+  }
 }
 
 function setU64(view: DataView, at: number, value: number): void {
@@ -73,18 +104,22 @@ function dosStamp(date: Date): { time: number; date: number } {
   }
 }
 
-/** `bytes` deflated at `level`, in parts of about PIECE; null when that is
- *  no smaller and the member is better stored. */
-function deflated(bytes: Uint8Array, level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9): Uint8Array[] | null {
+/** `bytes` deflated at `level`, in parts of at most PIECE; null when that is
+ *  no smaller and the member is better stored. Past `budget` bytes of output
+ *  it stops (ZipTooLargeError, of `written` plus the output so far). */
+function deflated(bytes: Uint8Array, level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, budget = Infinity, written = 0): Uint8Array[] | null {
   const parts: Uint8Array[] = []
   let part = new Uint8Array(0), filled = 0, size = 0
   const deflate = new Deflate({ level }, (chunk) => {
     size += chunk.length
+    if (size > budget) throw new ZipTooLargeError(written + size)
     let at = 0
     while (at < chunk.length) {
       if (filled === part.length) {
         if (filled > 0) parts.push(part)
-        part = new Uint8Array(PIECE)
+        // Grown with the output, so a small member does not hold a
+        // PIECE-sized buffer alive behind the view of its few bytes.
+        part = new Uint8Array(Math.min(PIECE, Math.max(64 * 1024, chunk.length - at, size)))
         filled = 0
       }
       const n = Math.min(chunk.length - at, part.length - filled)
@@ -95,13 +130,17 @@ function deflated(bytes: Uint8Array, level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 
   })
   if (bytes.length === 0) deflate.push(bytes, true)
   for (let at = 0; at < bytes.length; at += PIECE) deflate.push(bytes.subarray(at, at + PIECE), at + PIECE >= bytes.length)
-  if (filled > 0) parts.push(part.subarray(0, filled))
+  // A copy of exactly what is filled, not a view: the view would keep the
+  // whole buffer alive.
+  if (filled > 0) parts.push(filled === part.length ? part : part.slice(0, filled))
   return size < bytes.length ? parts : null
 }
 
 export interface ZipInput {
   name: string
-  bytes: Uint8Array
+  /** The bytes, or how to get them once the member is reached — so a caller
+   *  reading members from disk holds one at a time, not all of them. */
+  bytes: Uint8Array | (() => Uint8Array)
   /** Deflate level; 0 stores the member as it is. */
   level: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 }
@@ -114,20 +153,29 @@ export interface ZipInput {
  * `start` is where in the file the archive begins: 0 for a file of its own.
  * Past 4 GiB the offsets go into zip64 records; a test begins the archive past
  * that to write them without writing 4 GiB.
+ *
+ * An archive that would be past `maxBytes` is given up as soon as it is
+ * (ZipTooLargeError), not built whole first.
  */
-export function zipParts(entries: readonly ZipInput[], start = 0, now = new Date()): Uint8Array[] {
+export function zipParts(entries: readonly ZipInput[], start = 0, now = new Date(), maxBytes = Infinity): Uint8Array[] {
   const stamp = dosStamp(now)
   const parts: Uint8Array[] = []
   const directory: Uint8Array[] = []
   let at = start
-  for (const { name, bytes, level } of entries) {
+  const over = (size: number) => { if (size > maxBytes) throw new ZipTooLargeError(size) }
+  for (const entry of entries) {
+    const { name, level } = entry
+    const bytes = typeof entry.bytes === 'function' ? entry.bytes() : entry.bytes
     if (bytes.length >= U32) throw new Error(`${name} is too large for one member of a zip.`)
     const nameBytes = new TextEncoder().encode(name)
     const crc = crc32(bytes)
-    const packed = level > 0 ? deflated(bytes, level) : null
+    const written = at - start + 30 + nameBytes.length
+    over(written)
+    const packed = level > 0 ? deflated(bytes, level, maxBytes - written, written) : null
     const data = packed ?? [bytes]
     const method = packed ? 8 : 0
     const size = data.reduce((sum, part) => sum + part.length, 0)
+    over(written + size)
     const local = new Uint8Array(30 + nameBytes.length)
     const lv = viewOf(local)
     lv.setUint32(0, LOCAL, true)
@@ -190,6 +238,7 @@ export function zipParts(entries: readonly ZipInput[], start = 0, now = new Date
     setU64(rv, 64, at)
     rv.setUint32(72, 1, true)
     parts.push(record)
+    at += record.length
   }
   const end = new Uint8Array(22)
   const ev = viewOf(end)
@@ -199,6 +248,7 @@ export function zipParts(entries: readonly ZipInput[], start = 0, now = new Date
   ev.setUint32(12, Math.min(directorySize, U32), true)
   ev.setUint32(16, Math.min(directoryAt, U32), true)
   parts.push(end)
+  over(at - start + 22)
   return parts
 }
 
@@ -209,6 +259,8 @@ export interface ZipMember {
   flags: number
   compressedSize: number
   size: number
+  /** The CRC-32 of its expanded bytes. */
+  crc: number
   /** Where its local header is. */
   offset: number
 }
@@ -258,6 +310,7 @@ export function zipDirectory(source: ByteSource, maxMembers: number): ZipMember[
       name: decoder.decode(dir.subarray(at + 46, at + 46 + nameLength)),
       flags: dv.getUint16(at + 8, true),
       method: dv.getUint16(at + 10, true),
+      crc: dv.getUint32(at + 16, true),
       compressedSize: dv.getUint32(at + 20, true),
       size: dv.getUint32(at + 24, true),
       offset: dv.getUint32(at + 42, true),
@@ -286,7 +339,10 @@ export function zipDirectory(source: ByteSource, maxMembers: number): ZipMember[
   return members
 }
 
-/** A member's bytes, expanded, read from the archive a piece at a time. */
+/** A member's bytes, expanded, read from the archive a piece at a time and
+ *  held to the size and CRC-32 the directory lists. Nothing is allocated
+ *  past what the file could hold: a stored member is no larger than its
+ *  bytes in the file, a deflated one no larger than they can expand to. */
 export function readZipMember(source: ByteSource, member: ZipMember): Uint8Array {
   if (member.flags & 1) throw new ZipFormatError('Encrypted zip member.')
   const local = viewOf(source.read(member.offset, member.offset + 30).slice())
@@ -294,7 +350,20 @@ export function readZipMember(source: ByteSource, member: ZipMember): Uint8Array
   const start = member.offset + 30 + local.getUint16(26, true) + local.getUint16(28, true)
   const end = start + member.compressedSize
   if (end > source.size) throw new ZipFormatError('Broken zip member.')
-  const out = new Uint8Array(member.size)
+  if (member.method === 0) {
+    if (member.compressedSize !== member.size) throw new ZipFormatError('Broken zip member.')
+  } else if (member.method === 8) {
+    if (member.size > member.compressedSize * MAX_RATIO + 1024) throw new ZipFormatError('A zip member says it expands past what deflate can.')
+  } else {
+    throw new ZipFormatError('Unsupported zip compression.')
+  }
+  let out: Uint8Array
+  try {
+    out = new Uint8Array(member.size)
+  } catch (e) {
+    if (e instanceof RangeError) throw new ZipFormatError('A zip member is too large to hold.')
+    throw e
+  }
   let filled = 0
   const take = (chunk: Uint8Array) => {
     if (filled + chunk.length > out.length) throw new ZipFormatError('A zip member is larger than it says.')
@@ -302,22 +371,29 @@ export function readZipMember(source: ByteSource, member: ZipMember): Uint8Array
     filled += chunk.length
   }
   if (member.method === 0) {
-    if (member.compressedSize !== member.size) throw new ZipFormatError('Broken zip member.')
     for (let at = start; at < end; at += PIECE) take(source.read(at, Math.min(end, at + PIECE)))
-  } else if (member.method === 8) {
+  } else {
     const inflate = new Inflate(take)
     try {
       if (start === end) inflate.push(new Uint8Array(0), true)
-      for (let at = start; at < end; at += PIECE) inflate.push(source.read(at, Math.min(end, at + PIECE)), at + PIECE >= end)
+      // Read in large pieces, inflated in small steps: what each step expands
+      // to is held to the declared size before the next is inflated.
+      for (let at = start; at < end; at += PIECE) {
+        const piece = source.read(at, Math.min(end, at + PIECE))
+        for (let i = 0; i < piece.length; i += INFLATE_STEP) {
+          inflate.push(piece.subarray(i, i + INFLATE_STEP), at + i + INFLATE_STEP >= end)
+        }
+      }
     } catch (e) {
       if (e instanceof ZipFormatError) throw e
+      // The inflater's buffer grown past what the tab can give it.
+      if (e instanceof RangeError) throw new ZipFormatError('A zip member expands past what can be held.')
       // fflate's own errors carry a numeric code; a failed read does not.
       if (typeof (e as { code?: unknown })?.code === 'number') throw new ZipFormatError('Broken deflate data.')
       throw e
     }
-  } else {
-    throw new ZipFormatError('Unsupported zip compression.')
   }
   if (filled !== out.length) throw new ZipFormatError('A zip member is smaller than it says.')
+  if (crc32(out) !== member.crc) throw new ZipFormatError('A zip member does not match its CRC-32.')
   return out
 }

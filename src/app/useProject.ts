@@ -15,7 +15,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
-import { ProjectClient } from '../core/project/projectClient'
+import { ProjectClient, ProjectTooLargeError } from '../core/project/projectClient'
 import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
 import { saveFile } from './exports'
 import {
@@ -121,12 +121,16 @@ export function useProject({
       const snapshot = capture()
       // Nothing changes the scan while this runs in the import queue.
       const { project: saved, word: heldWord } = (await stored(snapshot)) ?? { project: snapshot, word: '' }
-      const parts = await client().pack(saved.manifest, saved.members)
-      const size = parts.reduce((sum, part) => sum + part.byteLength, 0)
-      if (size > maxBytes) {
+      // Given up in the worker once past maxBytes, not built whole first.
+      let parts: Uint8Array[]
+      try {
+        parts = await client().pack(saved.manifest, saved.members, Number.isFinite(maxBytes) ? maxBytes : undefined)
+      } catch (e) {
+        if (!(e instanceof ProjectTooLargeError)) throw e
         useStore.setState({ busy: false, statusText: '' })
-        return { tooLarge: size }
+        return { tooLarge: e.size }
       }
+      const size = parts.reduce((sum, part) => sum + part.byteLength, 0)
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
       // The session as captured, not as packed: it is what later captures
       // are compared with.

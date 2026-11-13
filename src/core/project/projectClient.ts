@@ -6,7 +6,7 @@
 // started again on the next.
 
 import { WorkerRpc } from '../workerRpc'
-import { readMembers, type ArchiveMember, type UnpackedProject } from './archive'
+import type { ArchiveMember, UnpackedProject } from './archive'
 import type { ProjectManifest } from './manifest'
 import type { ProjectWorkerRequest, ProjectWorkerResponse } from './projectWorker'
 import { MemoryFile } from '../sourceFile'
@@ -31,6 +31,32 @@ export class PackedFile extends File {
   }
 }
 
+/** A PackedFile's parts, to be transferred to the worker that opens it. They
+ *  go over as they are rather than copied — a project may be gigabytes — so
+ *  a PackedFile opens once: nothing opens one twice (a recovery that fails
+ *  is retried from its checkpoint, packed anew), and one that were would
+ *  say so here rather than fail the post. */
+export function packedParts(file: PackedFile): Uint8Array[] {
+  if (file.parts.some((p) => (p.buffer as ArrayBuffer & { detached?: boolean }).detached === true)) {
+    throw new Error(`${file.name} was opened already; it cannot be opened again.`)
+  }
+  return file.parts
+}
+
+/** Members as they can go to the worker. A MemoryFile goes as its bytes: to
+ *  a worker it would be the empty file the browser holds. */
+export function postableMembers(members: readonly ArchiveMember[]): ArchiveMember[] {
+  return members.map(({ name, bytes }) => ({ name, bytes: bytes instanceof MemoryFile ? bytes.data : bytes }))
+}
+
+/** The archive passed the most it was asked to be: `size` is how much of it
+ *  was written when that was seen. */
+export class ProjectTooLargeError extends Error {
+  constructor(readonly size: number) {
+    super(`The project is past ${size} bytes.`)
+  }
+}
+
 /** Main-thread handle on the project worker: one request in flight at a time
  *  is all the UI ever asks for, but the ids keep it honest regardless. */
 export class ProjectClient {
@@ -46,16 +72,17 @@ export class ProjectClient {
   dispose(): void { this.rpc.dispose() }
 
   /** The archive as the parts it is made of: a Blob of them is the file.
-   *  Members held as bytes are copied in, not transferred: the session keeps
-   *  them. Members held as files are read here, and that copy goes over. */
-  async pack(manifest: ProjectManifest, members: ArchiveMember[]): Promise<Uint8Array[]> {
+   *  Nothing is transferred: members held as bytes are copied in (the
+   *  session keeps them), members held as files go over as the files and
+   *  are read there, one at a time. Past `maxBytes` of archive the packing
+   *  is given up, as soon as it is past: ProjectTooLargeError. */
+  async pack(manifest: ProjectManifest, members: ArchiveMember[], maxBytes?: number): Promise<Uint8Array[]> {
     const requestId = this.nextId++
-    const files = await readMembers(members)
-    const read = files.filter((f, i) => f.bytes !== members[i].bytes).map((f) => f.bytes.buffer)
-    const res = await this.request<Extract<ProjectWorkerResponse, { type: 'pack-ok' }>>(
-      { type: 'pack', requestId, manifest, members: files },
-      read,
+    const res = await this.request<Extract<ProjectWorkerResponse, { type: 'pack-ok' | 'pack-too-large' }>>(
+      { type: 'pack', requestId, manifest, members: postableMembers(members), maxBytes },
+      [],
     )
+    if (res.type === 'pack-too-large') throw new ProjectTooLargeError(res.size)
     return res.parts
   }
 
@@ -67,7 +94,7 @@ export class ProjectClient {
     let msg: ProjectWorkerRequest
     let transfer: Transferable[] = []
     if (file instanceof PackedFile) {
-      msg = { type: 'unpack', requestId, parts: file.parts }
+      msg = { type: 'unpack', requestId, parts: packedParts(file) }
       transfer = [...new Set(file.parts.map((p) => p.buffer as ArrayBuffer))]
     } else if (file instanceof MemoryFile) {
       msg = { type: 'unpack', requestId, parts: [file.data] }

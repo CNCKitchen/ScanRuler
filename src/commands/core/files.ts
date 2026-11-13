@@ -136,7 +136,8 @@ const save: Command = {
     const packed = await project.save(LINK_FILE_BYTES)
     if ('error' in packed) throw new CommandError('failed', packed.error)
     if ('tooLarge' in packed) {
-      throw new CommandError('failed', `The project is ${byteSizeText(packed.tooLarge)} — more than the 1 GiB (${LINK_FILE_BYTES.toLocaleString('en-US')} bytes) a file can be handed to the agent in over the link. It is not saved: save it in the page with Save Project, which writes a project of up to 4 GiB of files.`)
+      // tooLarge is how far the packing got before it was given up: a floor.
+      throw new CommandError('failed', `The project is past ${byteSizeText(packed.tooLarge)} — more than the 1 GiB (${LINK_FILE_BYTES.toLocaleString('en-US')} bytes) a file can be handed to the agent in over the link. It is not saved: save it in the page with Save Project, which writes a project of up to 4 GiB of files.`)
     }
     const says = projectSections().flatMap((p) => p.saveSays?.() ?? [])
     return {
