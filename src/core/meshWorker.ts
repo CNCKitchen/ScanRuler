@@ -397,7 +397,9 @@ function driveSteps<T>(steps: Steps<T>): Promise<T | null> {
             return
           }
           if (step.value instanceof Promise) {
-            step.value.then(pump)
+            // A pass that fails ends the run with its error: left waiting,
+            // the run would hold the queue, and every request behind it, for good.
+            step.value.then(pump, reject)
             return
           }
           if (performance.now() >= until) {
@@ -1209,7 +1211,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       lastPercent = percent
       progress(`Measuring the scan against the reference — ${percent}%…`)
     }
-    const deviate = (nearestFaces: Int32Array | null) => {
+    const fail = (e: unknown) => post({ type: 'error', requestId, message: errorText(e) })
+    // Returns the helpers' work when the map went out to them, for whoever
+    // holds the queue to hold it until that is done.
+    const deviate = (nearestFaces: Int32Array | null): Promise<void> | undefined => {
       const directions = new Int8Array(scan.positions.length)
       const options = {
         // With the faces in hand the GPU had the first half of the bar.
@@ -1235,33 +1240,34 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           [values.buffer, directions.buffer],
         )
       }
-      const fail = (e: unknown) => post({ type: 'error', requestId, message: errorText(e) })
       try {
         // Faces from the GPU leave only the readings, quick on one thread; a
         // CPU search is sliced across helpers (parallel.ts) when big enough.
         const map = nearestFaces ? computeDeviation(reference, scan.positions, transform, options) : computeDeviationAuto(reference, scan.positions, transform, options)
-        if (!(map instanceof Promise)) return finish(map)
-        // Gone out to helpers: held meanwhile, as for any request that awaits.
-        holding = true
-        map.then(finish, fail).finally(() => {
-          holding = false
-          drainQueue()
-        })
+        if (!(map instanceof Promise)) { finish(map); return }
+        return map.then(finish).catch(fail)
       } catch (e) {
         fail(e)
       }
     }
-    // A big scan's nearest faces are looked up on the GPU first, where there
-    // is one, and the CPU tree searched as ever where there is not. The wait
-    // holds the queue, as an awaiting plugin's does.
-    if (scan.positions.length / 3 < GPU_MIN_VERTICES) return deviate(null)
-    holding = true
-    gpuNearestFaces(reference, scan.positions, transform, (f) => report(f * 0.5))
-      .then(deviate)
-      .finally(() => {
+    // Gone out to helpers or the GPU: held meanwhile, as for any request
+    // that awaits — once, until all of it is done.
+    const hold = (work: Promise<unknown>) => {
+      holding = true
+      work.finally(() => {
         holding = false
         drainQueue()
       })
+    }
+    // A big scan's nearest faces are looked up on the GPU first, where there
+    // is one, and the CPU tree searched as ever where there is not. The wait
+    // holds the queue, as an awaiting plugin's does.
+    if (scan.positions.length / 3 < GPU_MIN_VERTICES) {
+      const work = deviate(null)
+      if (work) hold(work)
+      return
+    }
+    hold(gpuNearestFaces(reference, scan.positions, transform, (f) => report(f * 0.5)).then(deviate).catch(fail))
     return
   }
 }
@@ -1309,8 +1315,15 @@ function pumpAlign(): void {
         break
       }
       if (step.value instanceof Promise) {
-        // A pass is out with the helpers (it never rejects); an abort is read when it is back.
-        step.value.then(pumpAlign)
+        // A pass is out with the helpers; an abort is read when it is back.
+        // Should it fail, the fit ends with its error rather than waiting on
+        // with the queue held.
+        step.value.then(pumpAlign, (e) => {
+          if (alignRun !== run) return
+          end()
+          post(alignAborted ? { type: 'align-stopped', requestId: run.requestId } : { type: 'error', requestId: run.requestId, message: errorText(e) })
+          drainQueue()
+        })
         return
       }
       if (performance.now() >= until) {
