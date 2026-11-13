@@ -244,15 +244,41 @@ const python = (() => {
   return null
 })()
 
-/** What Python's zipfile makes of `zip`: each member's name and size, after
- *  testzip has read every one against its CRC. */
-function pythonReads(zip: Uint8Array): { bad: string | null; members: [string, number][] } {
+/** What Python's zipfile makes of `zip` — read as the end of a file that
+ *  holds `before` zero bytes in front of it, so offsets written as from that
+ *  far in are where they say: each member's name and size, after testzip has
+ *  read every one against its CRC. The zeros are never made; the file Python
+ *  reads hands them out as it is asked. */
+function pythonReads(zip: Uint8Array, before = 0): { bad: string | null; members: [string, number][] } {
   const script = [
     'import io, json, sys, zipfile',
-    'z = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))',
+    'class Padded(io.RawIOBase):',
+    '    def __init__(self, pad, data):',
+    '        self.pad, self.data, self.pos = pad, data, 0',
+    '    def readable(self): return True',
+    '    def seekable(self): return True',
+    '    def tell(self): return self.pos',
+    '    def seek(self, off, whence=0):',
+    '        size = self.pad + len(self.data)',
+    '        self.pos = off if whence == 0 else self.pos + off if whence == 1 else size + off',
+    '        return self.pos',
+    '    def readinto(self, b):',
+    '        n = 0',
+    '        while n < len(b) and self.pos < self.pad + len(self.data):',
+    '            if self.pos < self.pad:',
+    '                k = min(len(b) - n, self.pad - self.pos)',
+    '                b[n:n + k] = bytes(k)',
+    '            else:',
+    '                i = self.pos - self.pad',
+    '                k = min(len(b) - n, len(self.data) - i)',
+    '                b[n:n + k] = self.data[i:i + k]',
+    '            n += k',
+    '            self.pos += k',
+    '        return n',
+    'z = zipfile.ZipFile(io.BufferedReader(Padded(int(sys.argv[1]), sys.stdin.buffer.read())))',
     'print(json.dumps({"bad": z.testzip(), "members": [[i.filename, len(z.read(i))] for i in z.infolist()]}))',
   ].join('\n')
-  const r = spawnSync(python!, ['-I', '-c', script], { input: zip, encoding: 'utf8', maxBuffer: 16 * MB })
+  const r = spawnSync(python!, ['-I', '-c', script, String(before)], { input: zip, encoding: 'utf8', maxBuffer: 16 * MB })
   if (r.status !== 0) throw new Error(r.stderr)
   return JSON.parse(r.stdout)
 }
@@ -271,12 +297,14 @@ describe.skipIf(!python)('a project zip read by Python zipfile', () => {
   })
 
   it('reads one whose offsets and directory are in zip64 records', () => {
-    // Begun 5 GiB in, every offset needs zip64; written without the 5 GiB in
-    // front, which a reader takes as bytes prepended to the archive (as in a
-    // self-extractor) and allows for.
-    const parts = zipParts(entries, 5 * 1024 ** 3)
+    // Begun 5 GiB in, every offset needs zip64. Python reads it behind 5 GiB
+    // of zeros it is handed as it reads, so the offsets are where they say:
+    // a newer zipfile refuses a zip64 locator whose offset is off, which
+    // reading it as prepended bytes would make it.
+    const before = 5 * 1024 ** 3
+    const parts = zipParts(entries, before)
     const zip = joinParts(parts)
     expect(new DataView(zip.buffer).getUint32(zip.length - 22 - 20 - 56, true)).toBe(0x06064b50)
-    expect(pythonReads(zip)).toEqual({ bad: null, members: [['scan.ply', scan.length], ['reference.stl', reference.length]] })
+    expect(pythonReads(zip, before)).toEqual({ bad: null, members: [['scan.ply', scan.length], ['reference.stl', reference.length]] })
   })
 })
