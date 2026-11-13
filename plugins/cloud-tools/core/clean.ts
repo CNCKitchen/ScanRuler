@@ -5,6 +5,7 @@
 // runs it, and the tests run it as it is.
 
 import { PointGrid } from '../../../src/core/geometry/pointGrid'
+import { RadiusGrid } from '../../../src/core/geometry/radiusGrid'
 import type { Vec3 } from '../../../src/core/types'
 
 /** Points closer than this many point spacings are always one piece. */
@@ -70,31 +71,13 @@ export interface CloudPieces {
 
 export function cloudPieces(positions: Float32Array, count: number, gap: number): CloudPieces {
   if (!(gap > 0)) throw new Error('The gap that joins points must be more than zero.')
-  const p = positions.subarray(0, count * 3)
-  // A cell of the gap itself: a radius query then looks at 27 cells at most.
-  const grid = new PointGrid(p, gap)
-  const label = new Int32Array(count).fill(-1)
-  const sizes: number[] = []
-  const queue = new Int32Array(count)
-  const near: number[] = []
-  for (let seed = 0; seed < count; seed++) {
-    if (label[seed] !== -1 || !Number.isFinite(p[3 * seed] + p[3 * seed + 1] + p[3 * seed + 2])) continue
-    const id = sizes.length
-    let head = 0, tail = 0
-    queue[tail++] = seed
-    label[seed] = id
-    while (head < tail) {
-      const i = queue[head++]
-      grid.withinRadius(p[3 * i], p[3 * i + 1], p[3 * i + 2], gap, near)
-      for (const j of near) {
-        if (label[j] !== -1) continue
-        label[j] = id
-        queue[tail++] = j
-      }
-    }
-    sizes.push(tail)
-  }
-  const size = Int32Array.from(sizes)
+  // Every pair of points within the gap joined once, on cells of the gap
+  // taken in space order: a search outward from each point in the order the
+  // file gives them reads all over memory on a cloud stored in no order, and
+  // a dense grid over a scan's mostly empty box has cells several gaps wide.
+  const { label, count: pieces } = new RadiusGrid(positions.subarray(0, count * 3), gap).pieces()
+  const size = new Int32Array(pieces)
+  for (let i = 0; i < count; i++) if (label[i] >= 0) size[label[i]]++
   let main = -1
   for (let k = 0; k < size.length; k++) if (main < 0 || size[k] > size[main]) main = k
   return { label, size, main }

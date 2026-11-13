@@ -26,6 +26,8 @@ export class RadiusGrid {
   readonly cell: number
   /** Points distance-tested by allKNearest: a measure of the work done. */
   scanned = 0
+  /** The positions' length in points, the non-finite ones included. */
+  private readonly total: number
   private readonly minX: number
   private readonly minY: number
   private readonly minZ: number
@@ -43,7 +45,7 @@ export class RadiusGrid {
   private readonly sorted: Float32Array
 
   constructor(positions: Float32Array, radius: number) {
-    const total = Math.floor(positions.length / 3)
+    const total = (this.total = Math.floor(positions.length / 3))
     let x0 = Infinity, y0 = Infinity, z0 = Infinity
     let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity
     let n = 0
@@ -221,5 +223,78 @@ export class RadiusGrid {
       }
     }
     this.scanned += scanned
+  }
+
+  /** The points cut into pieces: two within the radius of each other are one
+   *  piece, and so is every point reached through such steps. Each point's
+   *  piece, numbered in the order of the pieces' lowest point indices (the
+   *  numbering a search seeded from each point in turn gives), -1 for a
+   *  point with a non-finite coordinate; and how many pieces. Every pair of
+   *  points in neighbouring cells is looked at once, cell by cell. */
+  pieces(): { label: Int32Array; count: number } {
+    const { starts, items, sorted, keys, nx, ny, nz } = this
+    const n = items.length
+    const maxD2 = this.radius * this.radius
+    // Union-find over the points in cell order.
+    const parent = new Int32Array(n)
+    for (let s = 0; s < n; s++) parent[s] = s
+    const root = (s: number): number => {
+      while (parent[s] !== s) s = parent[s] = parent[parent[s]]
+      return s
+    }
+    let scanned = 0
+    const later: number[] = []
+    for (let c = 0; c < keys.length; c++) {
+      const key = keys[c]
+      const iz = Math.floor(key / (nx * ny))
+      const rest = key - iz * nx * ny
+      const iy = Math.floor(rest / nx)
+      const ix = rest - iy * nx
+      // The neighbouring cells after this one in key order: the ones before
+      // looked at their pairs with it already.
+      later.length = 0
+      for (let dz = -1; dz <= 1; dz++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dx = -1; dx <= 1; dx++) {
+            const jx = ix + dx, jy = iy + dy, jz = iz + dz
+            if (jx < 0 || jy < 0 || jz < 0 || jx >= nx || jy >= ny || jz >= nz) continue
+            if (dz < 0 || (dz === 0 && (dy < 0 || (dy === 0 && dx <= 0)))) continue
+            const id = this.find(this.keyOf(jx, jy, jz))
+            if (id >= 0) later.push(id)
+          }
+      const e = starts[c + 1]
+      for (let s = starts[c]; s < e; s++) {
+        const x = sorted[3 * s], y = sorted[3 * s + 1], z = sorted[3 * s + 2]
+        // The piece of s so far, kept in hand: unions only ever lower it.
+        let rs = root(s)
+        // The rest of this cell, then the later neighbours.
+        for (let q = -1; q < later.length; q++) {
+          const t0 = q < 0 ? s + 1 : starts[later[q]], t1 = q < 0 ? e : starts[later[q] + 1]
+          scanned += t1 - t0
+          for (let t = t0; t < t1; t++) {
+            const ddx = sorted[3 * t] - x, ddy = sorted[3 * t + 1] - y, ddz = sorted[3 * t + 2] - z
+            if (ddx * ddx + ddy * ddy + ddz * ddz > maxD2) continue
+            const rt = root(t)
+            if (rt === rs) continue
+            if (rt < rs) { parent[rs] = rt; rs = rt } else parent[rt] = rs
+          }
+        }
+      }
+    }
+    this.scanned += scanned
+    // Number the pieces as the points come in index order.
+    const slotOf = new Int32Array(this.total).fill(-1)
+    for (let s = 0; s < n; s++) slotOf[items[s]] = s
+    const pieceOf = new Int32Array(n).fill(-1)
+    const label = new Int32Array(this.total).fill(-1)
+    let count = 0
+    for (let i = 0; i < this.total; i++) {
+      const s = slotOf[i]
+      if (s < 0) continue
+      const r = root(s)
+      if (pieceOf[r] < 0) pieceOf[r] = count++
+      label[i] = pieceOf[r]
+    }
+    return { label, count }
   }
 }
