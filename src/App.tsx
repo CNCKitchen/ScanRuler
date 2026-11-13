@@ -1379,7 +1379,7 @@ function Workbench() {
     const verbs = () => commandVerbs.current!
     return installCommandHost({
       session,
-      project: { save: () => verbs().project.save(), open: (file, discard) => verbs().project.open(file, discard) },
+      project: { save: (maxBytes) => verbs().project.save(maxBytes), open: (file, discard) => verbs().project.open(file, discard) },
       flat: {
         openImage: (file) => verbs().flat.openImage(file),
         closeImage: () => verbs().flat.closeImage(),

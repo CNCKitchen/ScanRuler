@@ -34,7 +34,7 @@ import {
   type ScanPart,
   type ThicknessPart,
 } from '../core/project/manifest'
-import { PROJECT_LIMITS, type ArchiveMember } from '../core/project/archive'
+import type { ArchiveMember } from '../core/project/archive'
 import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
 import { byteSizeText, storedBytes } from '../core/sourceFile'
 
@@ -165,10 +165,10 @@ export function projectHasContent(sources: SourceFiles): boolean {
 }
 
 /** Past this size a cloud's file is not packed into a project: the cloud
- *  the app holds is, as a PLY (heldCloud). Half of what a project may hold
- *  in all, leaving room for the reference and the image beside it; a cloud
- *  read in pieces may be past the 2 GiB the archive could ever take. */
-export const PACK_ORIGINAL_BYTES = PROJECT_LIMITS.totalBytes / 2
+ *  the app holds is, as a PLY (heldCloud). Not tied to what a project may
+ *  hold (PROJECT_LIMITS): the file is read whole into the tab to be packed,
+ *  and a cloud read in pieces may be past the 2 GiB one member can be. */
+export const PACK_ORIGINAL_BYTES = 512 * 1024 * 1024
 
 /** Whether a project keeps the cloud the app holds in place of the scan's
  *  file: a point cloud thinned as it was read — its file holds points the

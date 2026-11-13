@@ -33,7 +33,7 @@ import type { PackedProject } from '../commands/host'
 import type { ImportQueue } from './importQueue'
 import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
-import { MemoryFile, readOpenedFile } from '../core/sourceFile'
+import { MemoryFile } from '../core/sourceFile'
 import { identityRigid, rigidInvert } from '../core/deviation/rigid'
 import { HeldCloudCache, storedProject } from './heldCloud'
 import { pluginBusy } from '../commands/activity'
@@ -110,8 +110,9 @@ export function useProject({
   const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true), async (snapshot) => (await stored(snapshot))?.project ?? null)
 
   /** The session as a project file, and the session marked saved — what
-   *  Save Project downloads and project.save hands back. */
-  const packProject = () => imports.run(async (): Promise<PackedProject> => {
+   *  Save Project downloads and project.save hands back. One past `maxBytes`
+   *  is refused, and the session stays unsaved. */
+  const packProject = (maxBytes = Infinity) => imports.run(async (): Promise<PackedProject> => {
     const store = useStore.getState()
     if (!projectHasContent(sources.current)) return { error: 'There is nothing to save yet — no scan, image or work.' }
     store.setError(null)
@@ -120,16 +121,21 @@ export function useProject({
       const snapshot = capture()
       // Nothing changes the scan while this runs in the import queue.
       const { project: saved, word: heldWord } = (await stored(snapshot)) ?? { project: snapshot, word: '' }
-      const bytes = await client().pack(saved.manifest, saved.members)
+      const parts = await client().pack(saved.manifest, saved.members)
+      const size = parts.reduce((sum, part) => sum + part.byteLength, 0)
+      if (size > maxBytes) {
+        useStore.setState({ busy: false, statusText: '' })
+        return { tooLarge: size }
+      }
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
       // The session as captured, not as packed: it is what later captures
       // are compared with.
       recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
-        statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.${heldWord}`,
+        statusText: `Project saved — ${(size / 1e6).toFixed(1)} MB.${heldWord}`,
       })
-      return { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
+      return { name: `${stem}.${PROJECT_EXTENSION}`, parts, size }
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       useStore.setState({ busy: false, statusText: '' })
@@ -139,8 +145,10 @@ export function useProject({
     }
   })
 
+  // A Blob of the parts, never one buffer: blob storage takes it to disk as
+  // the download needs it, and nothing reads it back here.
   const saveProject = () => packProject().then((packed) => {
-    if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+    if ('parts' in packed) saveFile(packed.name, new Blob(packed.parts as BlobPart[], { type: 'application/zip' }))
   })
 
   /** A workspace's own machinery at work on the scan (registerBusy): a
@@ -161,7 +169,7 @@ export function useProject({
     let image: PreparedImage | null = null
     let committed = false
     try {
-      const { manifest, members } = await client().unpack(new Uint8Array(await readOpenedFile(file, file.name)))
+      const { manifest, members } = await client().unpack(file)
       const applyState = prepareProjectState(manifest, members)
       const memberFile = (member: string, name: string) => {
         const bytes = members.get(member)

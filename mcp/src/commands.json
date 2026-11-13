@@ -1,6 +1,6 @@
 {
   "app": "0.11.2",
-  "saved": "2026-11-12T21:28:30.119Z",
+  "saved": "2026-11-13T02:09:36.353Z",
   "commands": [
     {
       "name": "align.auto",
@@ -2990,7 +2990,7 @@
     {
       "name": "project.save",
       "title": "Save the project",
-      "description": "The session as a .scanruler project file, as Save Project downloads it: the scan, the reference, the image and every measurement, each rebuilt when it is opened. Needs the browser. Returns the file’s bytes and its name, holds (what is in it, counted — read it before calling the file a revision: a page reset holds no model), aligned (whether the scan stands in an aligned frame) and says (what a workspace wants said of the work saved).",
+      "description": "The session as a .scanruler project file, as Save Project downloads it: the scan, the reference, the image and every measurement, each rebuilt when it is opened. Needs the browser. A project past 1 GiB is refused, as too large for the link; Save Project in the page saves it. Returns the file’s bytes and its name, holds (what is in it, counted — read it before calling the file a revision: a page reset holds no model), aligned (whether the scan stands in an aligned frame) and says (what a workspace wants said of the work saved).",
       "input": {
         "type": "object",
         "properties": {},

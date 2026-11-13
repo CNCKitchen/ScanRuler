@@ -16,10 +16,9 @@ import { useThickness } from '../state/thicknessStore'
 import { projectSections } from './projectSections'
 import { watchUnsaved } from './project'
 import { useShell } from '../state/shellStore'
-import { ProjectClient } from '../core/project/projectClient'
+import { PackedFile, ProjectClient } from '../core/project/projectClient'
 import { RecoveryStorage, staleCheckpoints, type CheckpointInfo } from './recoveryStorage'
 import { ProjectSnapshotCache, type ProjectSnapshot } from './projectSnapshot'
-import { MemoryFile } from '../core/sourceFile'
 
 type Snapshot = ProjectSnapshot
 export interface RecoveryStatus {
@@ -202,8 +201,8 @@ export function useRecovery(
     try {
       const { manifest, members } = await db.read(id)
       worker = new ProjectClient()
-      const bytes = await worker.pack(manifest, members)
-      await callbacks.current.open(new MemoryFile(bytes, 'recovered.scanruler'))
+      const parts = await worker.pack(manifest, members)
+      await callbacks.current.open(new PackedFile(parts, 'recovered.scanruler'))
       // The work is this page's now, checkpointed in this page's own slot.
       await db.remove(id).catch(() => {})
     } catch (error) {

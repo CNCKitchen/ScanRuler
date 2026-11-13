@@ -4,7 +4,7 @@ import { strToU8, zipSync } from 'fflate'
 import { buildMeshGraph } from '../src/core/geometry/buildGraph'
 import { parseOBJ } from '../src/core/parsers/obj'
 import { validateManifest } from '../src/core/project/manifest'
-import { packProject, unpackProject } from '../src/core/project/archive'
+import { packProject, PROJECT_LIMITS, unpackProject } from '../src/core/project/archive'
 import { collectProject, emptySources } from '../src/app/project'
 import { useStore } from '../src/state/store'
 import { useFlat } from '../src/state/flatStore'
@@ -121,7 +121,7 @@ describe('project input validation', () => {
   })
   it('bounds expansion before decompressing a member', () => {
     const compressed = zipSync({ 'large.bin': new Uint8Array(100_000) })
-    expect(() => unpackProject(compressed, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
+    expect(() => unpackProject(compressed, { ...PROJECT_LIMITS, totalBytes: 1000, manifestBytes: 1000 })).toThrow('size limits')
   })
   it('bounds a stored member that declares no uncompressed size', () => {
     // A stored member yields its compressed bytes whatever size it declares,
@@ -133,15 +133,15 @@ describe('project input validation', () => {
       if (dv.getUint32(i, true) === 0x04034b50) dv.setUint32(i + 22, 0, true)
       if (dv.getUint32(i, true) === 0x02014b50) dv.setUint32(i + 24, 0, true)
     }
-    expect(() => unpackProject(zip, { totalBytes: 1000, manifestBytes: 1000, members: 16 })).toThrow('size limits')
+    expect(() => unpackProject(zip, { ...PROJECT_LIMITS, totalBytes: 1000, manifestBytes: 1000 })).toThrow('size limits')
   })
   it('bounds the manifest and rejects unsafe member names', () => {
     const bytes = packProject(project(), [])
-    expect(() => unpackProject(bytes, { totalBytes: 100_000, manifestBytes: 10, members: 16 })).toThrow('size limits')
+    expect(() => unpackProject(bytes, { ...PROJECT_LIMITS, totalBytes: 100_000, manifestBytes: 10 })).toThrow('size limits')
     const archive = zipSync({ '../project.json': strToU8('{}') })
     expect(() => unpackProject(archive)).toThrow('invalid archive member')
   })
   it('refuses to save an archive that exceeds the reader limits', () => {
-    expect(() => packProject(project(), [], { totalBytes: 100_000, manifestBytes: 10, members: 16 })).toThrow('size limits')
+    expect(() => packProject(project(), [], { ...PROJECT_LIMITS, totalBytes: 100_000, manifestBytes: 10 })).toThrow('size limits')
   })
 })

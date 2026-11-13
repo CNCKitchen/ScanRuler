@@ -25,7 +25,45 @@ export function bytesSource(data: Uint8Array | ArrayBuffer): ByteSource {
   }
 }
 
-export const isByteSource = (v: unknown): v is ByteSource =>
+/** Bytes in memory held as consecutive parts, never joined: a read inside one
+ *  part is a view of it, one across parts a copy. */
+export function partsSource(parts: readonly Uint8Array[]): ByteSource {
+  if (parts.length === 1) return bytesSource(parts[0])
+  const starts: number[] = []
+  let size = 0
+  for (const part of parts) {
+    starts.push(size)
+    size += part.byteLength
+  }
+  // The last part beginning at or before `at`.
+  const partAt = (at: number) => {
+    let lo = 0, hi = parts.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (starts[mid] <= at) lo = mid
+      else hi = mid - 1
+    }
+    return lo
+  }
+  return {
+    size,
+    read(start, end) {
+      end = Math.min(end, size)
+      if (start >= end) return new Uint8Array(0)
+      let i = partAt(start)
+      if (end <= starts[i] + parts[i].byteLength) return parts[i].subarray(start - starts[i], end - starts[i])
+      const out = new Uint8Array(end - start)
+      for (let at = start; at < end; i++) {
+        const piece = parts[i].subarray(at - starts[i], Math.min(parts[i].byteLength, end - starts[i]))
+        out.set(piece, at - start)
+        at += piece.byteLength
+      }
+      return out
+    },
+  }
+}
+
+export const isByteSource =(v: unknown): v is ByteSource =>
   typeof v === 'object' && v !== null && !(v instanceof ArrayBuffer) && typeof (v as ByteSource).read === 'function'
 
 /** Either form a parser is handed, as a source. */
