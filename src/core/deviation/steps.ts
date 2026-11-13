@@ -17,7 +17,8 @@
 
 /** A computation that yields between steps and finally produces a `T`. A step that
  *  hands back a promise is waiting on helper workers: whoever drives it waits for
- *  the promise (it never rejects) before asking for the next one. */
+ *  the promise before asking for the next one, and ends the computation with its
+ *  error should it reject. */
 export type Steps<T> = Generator<void | Promise<void>, T, void>
 
 /** Run one to the end, ignoring the seams. */

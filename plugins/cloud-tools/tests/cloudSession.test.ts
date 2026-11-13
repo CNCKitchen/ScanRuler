@@ -17,6 +17,7 @@ import { sphereCloud } from '../../../tests/cloudFixtures'
 import { run, startHeadless, stlBytes, type Headless } from '../../../tests/commandKit'
 import { CLOUD_WORKSPACE, createCloudSession, type CloudSession } from '../app/cloudSession'
 import { MESH_REFUSAL } from '../plugin'
+import { useCloudTools } from '../state/cloudStore'
 
 vi.setConfig({ testTimeout: 120_000 })
 
@@ -133,6 +134,36 @@ describe('Cloud Tools on a cloud', () => {
     let lowest = Infinity
     for (let i = 2; i < p.length; i += 3) lowest = Math.min(lowest, p[i])
     expect(lowest).toBeGreaterThanOrEqual(0)
+  })
+
+  it('marks again as a read ends, though the import queue lets it go a moment after', async () => {
+    // The panel marks again, quietly, once the store says a cloud is in and
+    // nothing is busy: React renders a store's change in a microtask and
+    // runs the effect there — before the import queue has let the read go.
+    // Refused then, nothing asked again and the pieces were never found.
+    await openBall()
+    useCloudTools.getState().setFloating(null)
+    let asked: Promise<unknown> | null = null
+    let queueBusy: boolean | null = null
+    let reading = false
+    const unwatch = useStore.subscribe(() =>
+      queueMicrotask(() => {
+        const s = useStore.getState()
+        reading ||= s.busy
+        if (asked || !reading || !s.fileName || !s.scanIsCloud || s.busy) return
+        queueBusy = headless.session.imports.busy
+        asked = cloud.markFloating(10, { quiet: true })
+      }),
+    )
+    try {
+      await headless.session.scan.openScan(ballWithSpecks(), 'mm')
+    } finally {
+      unwatch()
+    }
+    expect(queueBusy).toBe(true)
+    expect(await asked).toMatchObject({ floating: 2, points: 31 })
+    expect(useCloudTools.getState().floating).toMatchObject({ floating: 2, percent: 10 })
+    expect(useStore.getState().errorText).toBeNull()
   })
 
   it('refuses to delete nothing, and leaves the history alone', async () => {
