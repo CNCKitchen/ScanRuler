@@ -49,6 +49,23 @@ export async function readSourceFile(file: Blob, name: string): Promise<ArrayBuf
   }
 }
 
+interface ReaderSync {
+  readAsArrayBuffer(blob: Blob): ArrayBuffer
+}
+
+/** The file's bytes, read now and synchronously — in a worker, where
+ *  FileReaderSync is; a MemoryFile's own bytes, not copied, anywhere. */
+export function readSourceFileSync(file: Blob, name: string): Uint8Array {
+  if (file instanceof MemoryFile) return file.data
+  const Reader = (globalThis as { FileReaderSync?: new () => ReaderSync }).FileReaderSync
+  if (!Reader) throw new Error('A file is read synchronously only in a worker.')
+  try {
+    return new Uint8Array(new Reader().readAsArrayBuffer(file))
+  } catch {
+    throw new Error(unreadableSource(name))
+  }
+}
+
 /** The largest file a browser reads in one piece, bytes: one ArrayBuffer of
  *  it. Chrome turns a larger one away with a NotReadableError that speaks of
  *  "permission problems", which sends the person looking in the wrong place
