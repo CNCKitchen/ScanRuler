@@ -133,6 +133,9 @@ try {
   console.log('loaded:', info)
   check(/plane-cylinder\.ply/.test(info), `the cloud is open: ${info}`)
   const cloudVertices = (await scanState(page)).vertices
+  // A picture of the cloud alone is not an empty frame (view.render's
+  // "Nothing is drawn" note reads SceneManager.drawsSurface).
+  check(await page.evaluate(() => window.__scanruler.scene().drawsSurface()), 'the cloud counts as a surface drawn')
 
   // ---- the section view cuts the cloud's points -------------------------------
   // Seen from the top, cut at x = 0 taking away the x > 0 half (the cylinder

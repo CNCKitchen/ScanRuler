@@ -123,6 +123,9 @@ export class CloudLayer {
     // under the cursor each frame. Picking a cloud goes through its own
     // index instead (Task 10 hooks it here); until then it is not hit.
     points.raycast = () => {}
+    // A cloud is a surface drawn, for SceneManager.drawsSurface — unlike the
+    // Points other code draws as marks.
+    points.userData.cloudSurface = true
     const size = new THREE.Vector2()
     points.onBeforeRender = (renderer) => {
       material.uniforms.uHalfHeight.value = renderer.getDrawingBufferSize(size).y / 2

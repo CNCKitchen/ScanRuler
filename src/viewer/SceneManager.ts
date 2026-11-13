@@ -1568,13 +1568,19 @@ export class SceneManager {
     this.framedClip.radius = this.clipSphere.radius
   }
 
-  /** Whether the stage draws any surface — the scan, the reference, a
-   *  layer's body or an element — and not lines and marks alone: a picture
+  /** Whether the stage draws any surface — the scan (a cloud's points
+   *  included), the reference, a layer's body or an element — and not lines and marks alone: a picture
    *  of none is an empty frame. */
   drawsSurface(): boolean {
     let found = false
     this.scene.traverseVisible((o) => {
-      if (found || !(o as THREE.Mesh).isMesh) return
+      if (found) return
+      if (o.userData.cloudSurface) {
+        const m = (o as THREE.Points).material as THREE.ShaderMaterial
+        found = m.visible && (m.uniforms?.uOpacity?.value ?? 1) > 0
+        return
+      }
+      if (!(o as THREE.Mesh).isMesh) return
       const m = (o as THREE.Mesh).material
       found = (Array.isArray(m) ? m : [m]).some((x) => x.visible && x.opacity > 0)
     })
