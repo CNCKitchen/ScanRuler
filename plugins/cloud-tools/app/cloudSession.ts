@@ -88,15 +88,27 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
 
   const clearMarked = () => setMarked(new Uint32Array(0))
 
-  /** Why nothing may start now, or null. */
-  const refusal = (): string | null => {
+  /** Why nothing may start now, or null. `queue`: the import queue's work
+   *  counts too. */
+  const refusal = (queue = true): string | null => {
     const s = useStore.getState()
     if (!s.fileName) return 'Open a point cloud first.'
     if (!s.scanIsCloud) return 'Needs a point cloud — this scan is a mesh.'
     if (useCloudTools.getState().running) return 'Wait for the step in progress to finish.'
-    if (s.busy || imports.busy || useHistory.getState().restoring) return 'Wait for the work in progress to finish.'
+    if (s.busy || (queue && imports.busy) || useHistory.getState().restoring) return 'Wait for the work in progress to finish.'
     return null
   }
+
+  /** Resolves once the import queue has let every job go. */
+  const importsIdle = () =>
+    new Promise<void>((resolve) => {
+      if (!imports.busy) return resolve()
+      const stop = imports.subscribe(() => {
+        if (imports.busy) return
+        stop()
+        resolve()
+      })
+    })
 
   /** A marking may start now. `quiet`: the panel marking again on its own
    *  as a setting or the scan changes — a refusal then is no one's error,
@@ -107,12 +119,28 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
     return why === null
   }
 
+  /** Start a marking: its number, or null when it was refused or overtaken
+   *  while it waited. The panel marks again as the store stops being busy,
+   *  but a read clears that flag just before the import queue lets it go,
+   *  and nothing the panel watches changes after: a quiet marking that only
+   *  the queue stands in the way of waits for it rather than being refused,
+   *  or it would never be made. */
+  const begin = async (quiet: boolean): Promise<number | null> => {
+    if (quiet && imports.busy && refusal(false) === null) {
+      const mine = ++asked
+      await importsIdle()
+      if (mine !== asked) return null
+    }
+    if (!mayMark(quiet)) return null
+    return ++asked
+  }
+
   /** Mark the pieces smaller than the panel's share of the main body.
    *  Resolves what was found, or null when it was refused, failed or
    *  overtaken by a newer marking. */
   const markFloating = async (percent = useCloudTools.getState().percent, { quiet = false } = {}) => {
-    if (!mayMark(quiet)) return null
-    const mine = ++asked
+    const mine = await begin(quiet)
+    if (mine === null) return null
     try {
       const survey = await call('floating', { percent })
       if (mine !== asked) return null
@@ -139,8 +167,8 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
 
   /** Mark the points past the panel's plane. Resolves how many, or null. */
   const markPastPlane = async (plane = planeOf(), { quiet = false } = {}): Promise<number | null> => {
-    if (!mayMark(quiet)) return null
-    const mine = ++asked
+    const mine = await begin(quiet)
+    if (mine === null) return null
     try {
       const { vertices } = await call('past-plane', plane)
       if (mine !== asked) return null
@@ -226,6 +254,8 @@ export function createCloudSession({ clientRef, sceneRef, imports, swapScanBuffe
         if (prev.workspace === CLOUD_WORKSPACE && s.workspace !== CLOUD_WORKSPACE) {
           useCloudTools.getState().setConfirming(false)
           held = new Uint32Array(0)
+          // A marking still waiting or out with the worker lands nowhere.
+          asked++
         }
       }),
     ]
