@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildPointGraph } from '../../../src/core/geometry/buildPointGraph'
 import { parsePLY } from '../../../src/core/parsers/ply'
+import { PointGrid } from '../../../src/core/geometry/pointGrid'
 import { sphereCloud } from '../../../tests/cloudFixtures'
 import { revo } from '../../../tests/revoFixtures'
 import { cloudPieces, floatingPieces, GAP_MAX_SPACINGS, GAP_SPACINGS, joinGap, pastPlane, withoutPoints } from '../core/clean'
@@ -63,6 +64,68 @@ describe('pieces of a cloud', () => {
     const all = floatingPieces(pieces, 100)
     expect(all.floating).toBe(2)
     expect(all.vertices.length).toBe(count - c.ballPoints)
+  })
+})
+
+/** The pieces as a search outward from each point in turn finds them, over
+ *  a grid of the gap — how they were found before the pairs were joined
+ *  cell by cell, for the answer to stay what it was. */
+function piecesBySearch(p: Float32Array, count: number, gap: number) {
+  const grid = new PointGrid(p.subarray(0, count * 3), gap)
+  const label = new Int32Array(count).fill(-1)
+  const sizes: number[] = []
+  const queue = new Int32Array(count)
+  const near: number[] = []
+  for (let seed = 0; seed < count; seed++) {
+    if (label[seed] !== -1 || !Number.isFinite(p[3 * seed] + p[3 * seed + 1] + p[3 * seed + 2])) continue
+    const id = sizes.length
+    let head = 0, tail = 0
+    queue[tail++] = seed
+    label[seed] = id
+    while (head < tail) {
+      const i = queue[head++]
+      grid.withinRadius(p[3 * i], p[3 * i + 1], p[3 * i + 2], gap, near)
+      for (const j of near) {
+        if (label[j] !== -1) continue
+        label[j] = id
+        queue[tail++] = j
+      }
+    }
+    sizes.push(tail)
+  }
+  return { label, size: Int32Array.from(sizes) }
+}
+
+describe('pieces of an uneven cloud stored in no order', () => {
+  it('are the pieces a search from each point finds, numbered the same', () => {
+    // A sparse sheet at random in a big box, a much denser patch on it,
+    // clumps and strays off it, a point with no position, all shuffled.
+    let seed = 11
+    const rnd = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296)
+    const p: number[] = []
+    for (let i = 0; i < 30_000; i++) p.push(150 * rnd(), 150 * rnd(), 0.05 * rnd())
+    for (let i = 0; i < 5_000; i++) p.push(60 + 0.3 * rnd(), 60 + 0.3 * rnd(), 0.05 * rnd())
+    for (let k = 0; k < 300; k++) {
+      const cx = 200 + 600 * rnd(), cy = 600 * rnd(), cz = 600 * rnd()
+      const m = 1 + Math.floor(20 * rnd())
+      for (let i = 0; i < m; i++) p.push(cx + 2 * rnd(), cy + 2 * rnd(), cz + 2 * rnd())
+    }
+    p.push(NaN, 0, 0, -1000, -1000, -1000)
+    const n = p.length / 3
+    for (let i = n - 1; i > 0; i--) {
+      const j = Math.floor(rnd() * (i + 1))
+      for (let c = 0; c < 3; c++) [p[3 * i + c], p[3 * j + c]] = [p[3 * j + c], p[3 * i + c]]
+    }
+    const positions = Float32Array.from(p)
+    for (const gap of [0.5, 1.3, 4]) {
+      const want = piecesBySearch(positions, n, gap)
+      const got = cloudPieces(positions, n, gap)
+      expect(got.size).toEqual(want.size)
+      expect(got.label).toEqual(want.label)
+      let main = -1
+      for (let k = 0; k < want.size.length; k++) if (main < 0 || want.size[k] > want.size[main]) main = k
+      expect(got.main).toBe(main)
+    }
   })
 })
 
