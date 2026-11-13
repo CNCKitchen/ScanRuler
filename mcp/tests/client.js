@@ -21,7 +21,12 @@ export async function startAgent({ args = [], env = {}, stderr = 'inherit' } = {
     stderr,
   })
   const client = new Client({ name: 'scanruler-e2e', version: '1.0.0' })
+  // Why a server went away, said in the log: the client's own errors (an
+  // answer past its read buffer closes the channel and kills the child, so
+  // the server says nothing) and how the process ended.
+  client.onerror = (e) => console.error(`[scanruler-e2e] client error: ${e?.message ?? e}`)
   await client.connect(transport)
+  transport._process?.once('exit', (code, signal) => { if (code !== 0) console.error(`[scanruler-e2e] server process ended: code ${code}, signal ${signal}`) })
   const call = async (name, input = {}) => {
     const r = await client.callTool({ name, arguments: input }, undefined, { timeout: 300_000 })
     const text = r.content?.[0]?.text ?? ''
