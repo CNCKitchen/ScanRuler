@@ -7,6 +7,7 @@
 
 import type { MeshGraph, ParsedMesh } from '../types'
 import { PointGrid } from './pointGrid'
+import { RadiusGrid } from './radiusGrid'
 
 const RADIUS_SPACINGS = 2.5
 const K_CAP = 12
@@ -99,25 +100,22 @@ export function buildPointGraph(parsed: ParsedMesh, onProgress?: (text: string, 
   // the union of both directions so the graph is undirected.
   onProgress?.('Linking neighbours…')
   const radius = RADIUS_SPACINGS * spacing
-  const grid = new PointGrid(positions, radius)
   const asked = new Int32Array(n * K_CAP)
   const count = new Uint8Array(n)
-  const row = new Int32Array(K_CAP)
-  for (let i = 0; i < n; i++) {
-    const c = grid.kNearest(i, K_CAP, radius, row)
-    count[i] = c
-    asked.set(row.subarray(0, c), i * K_CAP)
-  }
+  new RadiusGrid(positions, radius).allKNearest(K_CAP, asked, count)
   const has = (a: number, b: number): boolean => {
     for (let s = a * K_CAP, e = s + count[a]; s < e; s++) if (asked[s] === b) return true
     return false
   }
+  // Whether each asked neighbour asked back, found once: in a cloud stored in
+  // no spatial order every look at another point's row misses the cache.
+  const oneWay = new Uint8Array(n * K_CAP)
   const adjOffsets = new Uint32Array(n + 1)
   for (let i = 0; i < n; i++) {
     adjOffsets[i + 1] += count[i]
     for (let s = i * K_CAP, e = s + count[i]; s < e; s++) {
       const j = asked[s]
-      if (!has(j, i)) adjOffsets[j + 1]++
+      if (!has(j, i)) { oneWay[s] = 1; adjOffsets[j + 1]++ }
     }
   }
   for (let i = 0; i < n; i++) adjOffsets[i + 1] += adjOffsets[i]
@@ -127,7 +125,7 @@ export function buildPointGraph(parsed: ParsedMesh, onProgress?: (text: string, 
     for (let s = i * K_CAP, e = s + count[i]; s < e; s++) {
       const j = asked[s]
       adjList[fill[i]++] = j
-      if (!has(j, i)) adjList[fill[j]++] = i
+      if (oneWay[s]) adjList[fill[j]++] = i
     }
   }
 
