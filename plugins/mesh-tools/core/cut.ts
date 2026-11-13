@@ -107,8 +107,8 @@ export function cutPreview(
   normal: Vec3,
 ): CutPreview {
   const plane = planeSides(positions, indices, vertexCount, origin, normal)
-  const none = new Float32Array(0)
-  if (!plane.anyGoes || !plane.anyStays) return { cuts: false, cap: none, open: none, capped: 0, bridged: 0, openStretches: 0 }
+  // The worker transfers each output buffer, so even empty outputs must be distinct.
+  if (!plane.anyGoes || !plane.anyStays) return { cuts: false, cap: new Float32Array(0), open: new Float32Array(0), capped: 0, bridged: 0, openStretches: 0 }
   const { out, all, onPlane } = clip(positions, indices, vertexCount, plane, true)
   const c = capOf(out, all, onPlane, plane.n)
   const cap = new Float32Array(c.triangles.length * 3)

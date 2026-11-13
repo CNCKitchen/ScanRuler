@@ -25,7 +25,7 @@ export function ProcessReporting({ active, open, phase, percent, recent, error, 
       if (!active && observed && !hadTracked.current && open && !recent) useTaskActivity.getState().recordObserved(observed, error ? 'failed' : 'unknown',
         error || 'Application activity ended without a reported outcome.')
       if (!active) hadTracked.current = false
-      setObserved(null)
+      if (observed !== null) setObserved(null)
       return
     }
     const at = Date.now()

@@ -143,6 +143,29 @@ try {
   await page.waitForSelector(panel, { hidden: true })
   check(true, 'rapid worker phase reports settle without a fallback state-update loop')
 
+  const errorsBeforeKernelBurst = consoleErrors.length
+  await page.evaluate(async () => {
+    const { WorkerRpc } = await import('/src/core/workerRpc.ts')
+    const { useCommandActivity } = await import('/src/commands/activity.ts')
+    useCommandActivity.setState({ running: { name: 'synthetic-build', title: 'Synthetic build', since: Date.now() } })
+    const worker = new Worker(URL.createObjectURL(new Blob([
+      `self.onmessage = ({ data }) => {
+        for (let n = 0; n < 1000; n++) self.postMessage({ type: 'phase', requestId: data.requestId, text: 'Kernel call ' + n });
+        self.postMessage({ type: 'result', requestId: data.requestId });
+      }`,
+    ], { type: 'text/javascript' })))
+    const rpc = new WorkerRpc(() => worker, 'Synthetic CAD worker',
+      data => data.type === 'phase' ? { text: data.text, percent: null } : false)
+    try { await rpc.request({ requestId: 1, type: 'build' }) }
+    finally {
+      rpc.dispose()
+      useCommandActivity.setState({ running: null })
+    }
+  })
+  await page.waitForSelector(panel, { hidden: true })
+  check(consoleErrors.length === errorsBeforeKernelBurst,
+    'dense kernel-event reports during an agent command settle without React update-depth errors')
+
   await page.evaluate(async () => {
     const { useTaskActivity } = await import('/src/state/taskActivity.ts')
     const activity = useTaskActivity.getState()

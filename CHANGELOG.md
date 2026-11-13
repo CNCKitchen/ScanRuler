@@ -7,6 +7,12 @@ saves carry the same number as `appVersion`. How a release is cut is in
 
 ## Unreleased
 
+- **Keep reporting stable during dense CAD updates.** Tracked kernel reports
+  no longer repeatedly clear an already empty application-activity fallback.
+- **Keep empty cut previews transferable.** A plane outside the scan returns
+  separate empty output buffers, avoiding a worker transfer error and an
+  unnecessary failure report without changing the cut geometry.
+
 - **Keep export outcomes consistent.** Export preparation and saving share
   one error boundary, so a failed save cannot be followed by a false
   Completed entry for the same export.

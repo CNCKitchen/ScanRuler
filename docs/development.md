@@ -45,6 +45,10 @@ to 280 pixels wide and real reduction-worker progress on a generated mesh.
 It also checks retained worker errors, the two-second success-close maximum,
 unchanged completion-box dimensions, manual history access, clipboard failures,
 reload recovery and the absence of automatic retries.
+Dense custom kernel-event bursts during an active agent command are exercised
+through a real worker and must produce no React update-depth errors. Mesh edit
+unit tests also transfer empty cut-preview outputs for planes on either side
+of the scan, so diagnostic reporting does not expose a duplicate-buffer error.
 Its simultaneous-task screenshots use explicitly synthetic reports, not a
 measurement of CAD performance. This check also runs in `npm run e2e:ci`.
 
