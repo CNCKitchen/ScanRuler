@@ -264,7 +264,7 @@ export type WorkerResponse =
   | { type: 'import-ok'; requestId: number }
   /** What a request is doing, and — from one that can tell — how far it
    *  has got, 0 to 1. */
-  | { type: 'progress'; text: string; fraction?: number }
+  | { type: 'progress'; requestId?: number; text: string; fraction?: number }
   | {
       type: 'loaded'
       requestId: number

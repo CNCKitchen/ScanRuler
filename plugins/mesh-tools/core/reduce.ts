@@ -208,12 +208,13 @@ export function reduceMesh(
   scan: ScanMesh,
   settings: ReduceSettings,
   scanSurface: () => NominalSurface,
-  onProgress?: (text: string) => void,
+  onProgress?: (text: string, fraction?: number) => void,
 ): ReducedMesh {
   const { tolerance } = settings
   if (!(tolerance > 0)) throw new Error('The tolerance must be more than zero.')
   if (!(settings.maxTriangles >= 1)) throw new Error('The triangle limit must be at least one.')
 
+  onProgress?.('Preparing reduction - finding used scan vertices...')
   // Every vertex a triangle uses is measured, every pass: the pins need to
   // know each point that strayed, not a sample of them.
   const used = new Uint8Array(scan.vertexCount)
@@ -226,18 +227,32 @@ export function reduceMesh(
   // last pass leaves the whole field its own.
   const deviation = new Float32Array(scan.vertexCount).fill(NaN)
 
+  let passes = 0
+  const phase = (text: string, fraction?: number) => onProgress?.(`Reduce mesh - pass ${passes}: ${text}`, fraction)
   const run = (target: number, triangles: number, pins: Uint8Array | null): Measured => {
+    phase('copying input geometry...')
     const indices = scan.indices.slice()
     const positions = scan.positions.slice()
+    phase('simplifying geometry (no intermediate progress available)...')
     const [count] = simplifier.simplifyWithUpdate(
       indices, positions, 3, NO_ATTRIBUTES, 0, [], pins,
       Math.min(indices.length, triangles * 3), target, ['ErrorAbsolute'],
     )
     // The vertices left keep their numbers' order, as an edit's do.
+    phase('compacting reduced geometry...')
     const reduced = compactEdit(positions, indices.subarray(0, count), scan.vertexCount)
+    phase('indexing the reduced surface (no intermediate progress available)...')
     const surface = new NominalSurface(reduced.positions, reduced.indices)
-    const forward = scanToReduced(surface, scan.positions, measuredVertices, deviation)
-    const back = reducedToScan(scanSurface(), reduced.positions, reduced.indices, tolerance)
+    const forward = scanToReduced(surface, scan.positions, measuredVertices, deviation, (done, total) =>
+      phase(`measuring scan to reduced mesh - ${done.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} points`, total ? done / total : 1))
+    phase('sorting scan distances (no intermediate progress available)...')
+    forward.sort()
+    phase('preparing the original surface (no intermediate progress available)...')
+    const original = scanSurface()
+    const back = reducedToScan(original, reduced.positions, reduced.indices, tolerance, (done, total) =>
+      phase(`measuring reduced mesh to scan - ${done.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} samples`, total ? done / total : 1))
+    phase('sorting reverse distances (no intermediate progress available)...')
+    back.distances.sort()
     return { ...reduced, forward, back: back.distances, backStray: back.stray }
   }
   const holds = (r: Measured) =>
@@ -245,7 +260,6 @@ export function reduceMesh(
 
   const pins = new Uint8Array(scan.vertexCount)
   let pinned = 0
-  let passes = 0
   let m: Measured
   for (;;) {
     passes++
@@ -256,6 +270,7 @@ export function reduceMesh(
     )
     m = run(tolerance, 0, pins)
     if (holds(m) || passes >= MAX_PASSES) break
+    phase('pinning points outside the tolerance...')
     // Pin where it strayed: each scan point left too far from the reduced
     // surface, and the scan under each spot of it that stands too far off.
     let added = 0
@@ -283,6 +298,7 @@ export function reduceMesh(
   }
 
   const { forward, back } = m
+  phase('summarizing measured accuracy...')
   let sq = 0
   let within = 0
   for (let i = 0; i < forward.length; i++) {
@@ -318,27 +334,32 @@ export function reduceMesh(
 
 const NO_ATTRIBUTES = new Float32Array(0)
 
-/** Distance from each listed scan vertex to the reduced surface, sorted
- *  ascending; each vertex's signed distance is written to `signed` at its
+/** Distance from each listed scan vertex to the reduced surface, in vertex
+ *  order; each vertex's signed distance is written to `signed` at its
  *  own index as well. */
 function scanToReduced(
   surface: NominalSurface,
   positions: Float32Array,
   vertices: Uint32Array,
   signed: Float32Array,
+  onProgress?: (done: number, total: number) => void,
 ): Float64Array {
   const out = new Float64Array(vertices.length)
   const hit = emptyHit()
+  const report = measurementProgress(vertices.length, onProgress)
+  report(0)
   for (let i = 0; i < vertices.length; i++) {
     const v = vertices[i]
     surface.closest(positions[v * 3], positions[v * 3 + 1], positions[v * 3 + 2], hit)
     out[i] = hit.distance
     signed[v] = hit.signed
+    if ((i & 4095) === 4095) report(i + 1)
   }
-  return out.sort()
+  report(vertices.length)
+  return out
 }
 
-/** Distance from the reduced surface back to the scan, sorted ascending:
+/** Distance from the reduced surface back to the scan, in sample order:
  *  from each of its vertices, which a collapse may have moved off the scan,
  *  and from the middle of each of its triangles, the point furthest from any
  *  vertex a large flat triangle has. With them, the corners of the scan
@@ -348,14 +369,18 @@ function reducedToScan(
   positions: Float32Array,
   indices: Uint32Array,
   tolerance: number,
+  onProgress?: (done: number, total: number) => void,
 ): { distances: Float64Array; stray: number[] } {
   const vertexCount = positions.length / 3
   const distances = new Float64Array(vertexCount + indices.length / 3)
   const stray: number[] = []
   const hit = emptyHit()
+  const report = measurementProgress(distances.length, onProgress)
+  report(0)
   const probe = (x: number, y: number, z: number, i: number) => {
     scan.closest(x, y, z, hit)
     distances[i] = hit.distance
+    if ((i & 4095) === 4095) report(i + 1)
     if (hit.distance <= tolerance) return
     // The surface's own index buffer — reordered by its tree, but naming
     // the scan's vertices all the same.
@@ -374,7 +399,19 @@ function reducedToScan(
       vertexCount + t / 3,
     )
   }
-  return { distances: distances.sort(), stray }
+  report(distances.length)
+  return { distances, stray }
+}
+
+function measurementProgress(total: number, onProgress?: (done: number, total: number) => void) {
+  let last = -Infinity
+  return (done: number) => {
+    if (!onProgress) return
+    const now = performance.now()
+    if (done !== 0 && done !== total && now - last < 250) return
+    last = now
+    onProgress(done, total)
+  }
 }
 
 /** The value a share `q` of a sorted list lies at or below. */

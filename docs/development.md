@@ -37,6 +37,23 @@ runs on the same branch. Deployment remains a separate Cloudflare workflow;
 these checks do not configure branch protection or prevent deployment by
 themselves.
 
+`node scripts/e2e-process-reporting.mjs` checks reporting independently, starting
+and closing its own isolated dev server unless `APP_URL` is supplied. It covers
+multiple pending requests, overall and per-process timing, unquantified phases,
+click and keyboard access through WORKING, information-icon help, layouts down
+to 280 pixels wide and real reduction-worker progress on a generated mesh.
+It also checks retained worker errors, the two-second success-close maximum,
+unchanged completion-box dimensions, manual history access, clipboard failures,
+reload recovery and the absence of automatic retries.
+Its simultaneous-task screenshots use explicitly synthetic reports, not a
+measurement of CAD performance. This check also runs in `npm run e2e:ci`.
+
+Export builders and their saves share one error boundary through `saveBuilt`.
+Pass an already built file, or a synchronous/asynchronous builder when
+preparation can fail. Do not nest `runExport` around `saveBuilt`: the outer
+wrapper could otherwise record completion after the inner wrapper reported
+a save failure.
+
 A set of end-to-end smoke tests drives the real app in headless Chrome against
 a running dev server:
 

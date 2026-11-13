@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { useTaskActivity } from '../state/taskActivity'
+import { useTaskActivity, type TaskProgress } from '../state/taskActivity'
 
 let nextWorkerId = 0
 
@@ -18,12 +18,12 @@ export class WorkerRpc {
   dead = false
   onFailure: ((message: string) => void) | null = null
 
-  constructor(private create: () => Worker, private name: string, private event?: (message: unknown) => boolean) {
+  constructor(private create: () => Worker, private name: string, private event?: (message: unknown) => boolean | TaskProgress) {
     this.restart()
   }
 
   restart(): void {
-    if (this.worker) this.fail(`${this.name} was restarted.`)
+    if (this.worker) this.fail(`${this.name} was restarted.`, 'interrupted')
     const worker = this.create()
     this.worker = worker
     this.dead = false
@@ -43,8 +43,19 @@ export class WorkerRpc {
         this.event?.(data)
         return
       }
-      if (this.event?.(data)) return
-      if (this.activeRequests.delete(data.requestId)) useTaskActivity.getState().setTask(this.taskId(data.requestId), null)
+      const event = this.event?.(data)
+      if (event) {
+        const id = typeof data.requestId === 'number' ? data.requestId : this.activeRequests.values().next().value
+        if (id !== undefined && this.activeRequests.has(id)) {
+          if (typeof event === 'object') useTaskActivity.getState().setTask(this.taskId(id), event)
+          else useTaskActivity.getState().heardTask(this.taskId(id))
+        }
+        return
+      }
+      if (this.activeRequests.delete(data.requestId)) {
+        useTaskActivity.getState().finishTask(this.taskId(data.requestId), data.type === 'error' ? 'failed' : 'completed',
+          data.type === 'error' ? String(data.message) : undefined)
+      }
       const entry = this.pending.get(data.requestId)
       if (!entry) return
       this.pending.delete(data.requestId)
@@ -58,7 +69,7 @@ export class WorkerRpc {
     worker.onmessageerror = () => this.fail(`${this.name} returned an unreadable response.`)
   }
 
-  fail(message: string): void {
+  fail(message: string, outcome: 'failed' | 'interrupted' = 'failed'): void {
     this.dead = true
     const worker = this.worker
     this.worker = null
@@ -68,7 +79,7 @@ export class WorkerRpc {
     }
     const entries = [...this.pending.values()]
     this.pending.clear()
-    for (const id of this.activeRequests) useTaskActivity.getState().setTask(this.taskId(id), null)
+    for (const id of this.activeRequests) useTaskActivity.getState().finishTask(this.taskId(id), outcome, message)
     this.activeRequests.clear()
     for (const entry of entries) {
       entry.reject(new Error(message))
@@ -95,7 +106,7 @@ export class WorkerRpc {
       catch (error) {
         this.pending.delete(id)
         this.activeRequests.delete(id)
-        useTaskActivity.getState().setTask(this.taskId(id), null)
+        useTaskActivity.getState().finishTask(this.taskId(id), 'failed', error instanceof Error ? error.message : String(error))
         reject(error instanceof Error ? error : new Error(String(error)))
       }
     })
@@ -108,7 +119,9 @@ export class WorkerRpc {
           if (!entry) return
           this.pending.delete(id)
           const what = (message as { type?: unknown }).type
-          entry.reject(new Error(`${this.name} did not answer${typeof what === 'string' ? ` the "${what}" request` : ''} in ${limitMs / 1000} s; it was let go.`))
+          const reason = `${this.name} did not answer${typeof what === 'string' ? ` the "${what}" request` : ''} in ${limitMs / 1000} s; it was let go.`
+          useTaskActivity.getState().timeoutTask(this.taskId(id), `${reason} Work may still be running.`)
+          entry.reject(new Error(reason))
         }, limitMs)
       })
     }
@@ -119,7 +132,7 @@ export class WorkerRpc {
   post(message: unknown): void { this.worker?.postMessage(message) }
   dispose(): void {
     this.onFailure = null
-    this.fail(`${this.name} was shut down.`)
+    this.fail(`${this.name} was shut down.`, 'interrupted')
   }
 }
 

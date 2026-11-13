@@ -67,6 +67,7 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
     ctx.progress('Loading the mesh reducer…')
     const simplifier = await loadSimplifier()
     const result = reduceMesh(simplifier, g, settings, () => ctx.surfaceOf(g, 'Preparing the scan to measure the reduction against…'), ctx.progress)
+    ctx.progress('Preparing reduced mesh for display...')
     const vertexCount = result.positions.length / 3
     const adjacency = buildAdjacency(result.indices, vertexCount)
     const slots = wireSlots(adjacency.offsets, adjacency.list, vertexCount)

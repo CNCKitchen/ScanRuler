@@ -25,7 +25,8 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals())
 
 const send = (msg: WorkerRequest) => scope.onmessage!({ data: msg })
-const answers = (id: number) => replies.filter((m) => 'requestId' in m && m.requestId === id && m.type !== 'align-progress')
+const answers = (id: number) => replies.filter((m) =>
+  'requestId' in m && m.requestId === id && m.type !== 'align-progress' && m.type !== 'progress')
 const buffer = () => {
   const bytes = stlBytes(boxMesh(20, 8))
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer

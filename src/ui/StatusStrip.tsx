@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Machine status strip: ready-lamp, what the tool is doing right now, the
-// running tally of what has been measured, and the imprint. Nothing that is a
-// switch — the ways of looking at the part are on the view bar in the corner
-// of the stage, and what is set once and left is in Settings; a strip that
-// held both was a row of small print nobody could find anything in.
+// running tally of what has been measured, process details, and the imprint.
 
 import { useStore } from '../state/store'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { pluginBusy, useCommandActivity, watchSession } from '../commands/activity'
 import { useAgentLink } from '../commands/agentLink'
 import { progressPhaseText, useTaskActivity } from '../state/taskActivity'
+import { needsAttention } from '../state/taskHistory'
 import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
+import { ProcessReporting } from './ProcessReporting'
 
 export function StatusStrip() {
   const busy = useStore((s) => s.busy)
@@ -25,6 +24,8 @@ export function StatusStrip() {
   const agent = useCommandActivity((s) => s.running)
   const agentConnected = useAgentLink((s) => s.status === 'connected')
   const tasks = useTaskActivity((s) => s.tasks)
+  const history = useTaskActivity((s) => s.history)
+  const attention = history.find(needsAttention)
   const taskList = Object.values(tasks)
   const task = taskList.find((t) => t.percent !== null) ?? taskList[0]
   const progress = useStore((s) => s.progress)
@@ -43,8 +44,51 @@ export function StatusStrip() {
     : aligning ? 'Aligning scan' : mapping ? 'Measuring deviation' : volume ? 'Finding volume errors'
       : measuring ? 'Measuring wall thickness' : edges ? 'Detecting image edges' : pluginWork)
   const active = Boolean(busy || agent || activity || task)
-  const lamp = errorText ? 'lamp err' : active ? 'lamp busy' : 'lamp'
-  const state = errorText ? 'ERROR' : active ? 'WORKING' : 'READY'
+  const [processesOpen, setProcessesOpen] = useState(false)
+  const [recent, setRecent] = useState(false)
+  const [closeAt, setCloseAt] = useState<number | null>(null)
+  const wasActive = useRef(active)
+  useEffect(() => {
+    if (attention) {
+      setProcessesOpen(true)
+      setRecent(true)
+      setCloseAt(null)
+    }
+  }, [attention?.id])
+  useEffect(() => {
+    if (active) {
+      if (!wasActive.current && !attention) setRecent(false)
+      setCloseAt(null)
+    }
+    else if (wasActive.current && processesOpen && !attention) {
+      setRecent(true)
+      setCloseAt((history[0]?.endedAt ?? Date.now()) + 1800)
+    }
+    wasActive.current = active
+  }, [active, processesOpen, attention, history])
+  useEffect(() => {
+    if (closeAt === null) return
+    const timer = window.setTimeout(() => {
+      setProcessesOpen(false)
+      setCloseAt(null)
+    }, Math.max(0, closeAt - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [closeAt])
+  const dismiss = () => {
+    useTaskActivity.getState().acknowledgeHistory()
+    setProcessesOpen(false)
+    setCloseAt(null)
+  }
+  const toggleProcesses = () => {
+    if (processesOpen) dismiss()
+    else {
+      setRecent(!active || Boolean(attention))
+      setCloseAt(null)
+      setProcessesOpen(true)
+    }
+  }
+  const lamp = errorText || attention ? 'lamp err' : active ? 'lamp busy' : 'lamp'
+  const state = errorText || attention ? 'ERROR' : active ? 'WORKING' : 'READY'
   const fraction = (busy || working || aligning || mapping || volume || measuring) && progress !== null && Number.isFinite(progress)
     ? Math.round(Math.max(0, Math.min(100, progress * 100))) : null
   const percent = task ? task.percent : fraction
@@ -55,9 +99,24 @@ export function StatusStrip() {
   const dimensions = useStore((s) => s.dimensions)
 
   return (
+    <>
+    <ProcessReporting active={active} open={processesOpen} phase={phase} percent={percent} recent={recent}
+      error={errorText} onClose={dismiss} onView={setRecent} />
     <footer className="strip">
       <div data-test="app-activity-state" role="status">
-        <span className={lamp} /> {state}{state === 'WORKING' && percent !== null ? ` ${percent}%` : ''}
+        {active || history.length > 0 ? (
+          <button
+            type="button"
+            className="strip-process-toggle"
+            data-test="process-toggle"
+            aria-expanded={processesOpen}
+            aria-controls="process-reporting"
+            title="Show or hide process details"
+            onClick={toggleProcesses}
+          >
+            <span className={lamp} /> {state}{state === 'WORKING' && percent !== null ? ` · phase ${percent}%` : ''}{!active ? attention ? ' · View details' : ' · Recent operations' : ''} <span aria-hidden="true">{processesOpen ? '▾' : '▴'}</span>
+          </button>
+        ) : <><span className={lamp} /> {state}</>}
       </div>
       {elements.length > 0 && (
         <div>
@@ -99,5 +158,6 @@ export function StatusStrip() {
         )}
       </a>
     </footer>
+    </>
   )
 }

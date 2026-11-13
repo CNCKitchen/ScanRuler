@@ -10,6 +10,7 @@
 
 import type { Vec3 } from '../../../src/core/types'
 import { WorkerRpc } from '../../../src/core/workerRpc'
+import type { TaskProgress } from '../../../src/state/taskActivity'
 import type { Rigid } from '../../../src/core/deviation/rigid'
 import type { KernelMesh, StepCheck, StepLabel, StepMend } from './kernel'
 import type { BodyCheck, BuiltBody, DrawnBody, EdgeInfo, FaceInfo, FeatureResult, FilletTries, Overlap, PreviewResult, PreviewStep } from './build'
@@ -136,8 +137,8 @@ export class ReClient {
   }
 
   /** A message from the worker: noted as heard from, and taken in when it
-   *  tells what a kernel is at — true then, so it answers no request. */
-  private heard(data: unknown): boolean {
+   *  tells what a kernel is at — a phase report then, so it answers no request. */
+  private heard(data: unknown): false | TaskProgress {
     this.lastHeard = Date.now()
     if (!isKernelEvent(data)) return false
     const e = data as ReWorkerEvent
@@ -146,7 +147,12 @@ export class ReClient {
     const at = was?.requestId === e.requestId ? was : { requestId: e.requestId, step: null, since: this.lastHeard, call: null, told: false }
     if (e.event === 'step') this.atWork.set(kernel, { ...at, step: e.id, since: this.lastHeard, call: null, told: true })
     else this.atWork.set(kernel, { ...at, call: e.what })
-    return true
+    const who = e.helper ? `CAD helper ${e.helper}` : 'CAD kernel'
+    const step = e.event === 'step' && e.id !== null ? this.asked.get(e.requestId)?.steps.find((s) => s.id === e.id) : undefined
+    const text = e.event === 'call' ? e.what
+      : e.id === null ? 'feature steps finished; preparing the result'
+        : `feature ${e.id}${step && 'name' in step && step.name ? `: ${step.name}` : ''}`
+    return { text: `${who}: ${text}`, percent: null }
   }
 
   private request<T>(msg: ReWorkerRequest, transfer: Transferable[] = [], limitMs?: number): Promise<T> {

@@ -17,8 +17,9 @@ export interface WorkerContext {
    *  it is the plugin's from here on. Undefined when there is none by that
    *  number. */
   takeStaged(id: number): MeshGraph | undefined
-  /** A line for the status strip while the request runs. */
-  progress(text: string): void
+  /** A line for the status strip while the request runs, and optionally the
+   *  measured fraction of this phase, not an estimate of the whole job. */
+  progress(text: string, fraction?: number): void
   /** A mesh prepared for closest-point queries, built on first use and kept
    *  until its vertices move. `why` is what the status says meanwhile. */
   surfaceOf(mesh: MeshGraph, why: string): NominalSurface

@@ -5,6 +5,31 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Keep export outcomes consistent.** Export preparation and saving share
+  one error boundary, so a failed save cannot be followed by a false
+  Completed entry for the same export.
+
+- **Keep recent process outcomes.** The compact reporting panel retains up to
+  20 request outcomes, last phases and reported errors, with Copy diagnostics
+  and Clear history. An open successful report closes within two seconds;
+  failure, timeout and interruption details stay until dismissed. Tab-local
+  recovery marks unfinished requests interrupted without inventing a cause
+  or restarting work. No geometry is stored or uploaded. Copy diagnostics
+  briefly confirms that text was copied to the clipboard, not saved as a file.
+
+- **See what a pending process has reported.** A shared Processes panel lists
+  tracked worker and export requests across workspaces, elapsed time and the
+  age of the last received report. Click **WORKING** in the status strip to
+  open the compact panel, with overall and per-process timing and explanations
+  behind its information icon. Reported percentages are labelled by phase,
+  not as an estimated completion time. Reduce mesh now names its preparation,
+  simplification and verification phases, with measured point counts during
+  verification; CAD reports name the current feature or kernel call. Quiet
+  synchronous library calls remain explicitly unquantified. This does not add
+  cancellation or change geometry calculations.
+
 ## 0.11.2 — 2026-11-11
 
 - **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and
