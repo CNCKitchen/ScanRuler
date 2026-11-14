@@ -37,6 +37,7 @@ function applySearch(s: Search) {
 
 const measure: Command<Search> = {
   name: 'measure',
+  scanOps: ['thickness'],
   title: 'Measure the wall thickness',
   description:
     'Measure the wall thickness at every point of the scan, as the Wall Thickness workspace’s Measure button does, with the search settings given or those in hand. Returns the statistics (min, max, mean, sigma, share under the thin-wall limit, points measured) and the settings. One undo step.',

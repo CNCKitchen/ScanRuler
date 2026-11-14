@@ -8,7 +8,7 @@
 // nominalVersion are there for callers to tell.
 
 import { WorkerRpc } from './workerRpc'
-import { readSourceFile } from './sourceFile'
+import { readInPieces, readSourceFile } from './sourceFile'
 import type { MeshCentroid } from './geometry/centroid'
 import type { CreaseSetting, CreaseReport } from './geometry/crease'
 import type { ScanSpot } from './geometry/nearest'
@@ -43,6 +43,13 @@ export interface LoadedMesh {
 }
 
 export interface LoadedScan extends LoadedMesh {
+  /** 'cloud' for a point cloud, which has no triangles. */
+  kind: 'mesh' | 'cloud'
+  /** A cloud's typical point spacing, mm. */
+  spacing?: number
+  /** A cloud from buffers (prepareCloud): each input point's vertex, -1
+   *  where it was dropped. */
+  vertexMap?: Int32Array
   /** The vertex each appended copy stands in for — see geometry/crease.ts. */
   copyOf: Uint32Array
   crease: CreaseReport
@@ -131,7 +138,7 @@ export class MeshWorkerClient {
   private rpc: WorkerRpc
   private recovering: Promise<void> | null = null
   restoreState: (() => {
-    scan: { name: string; file: Blob; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number } | null
+    scan: { name: string; file: Blob; crease: CreaseSetting; transform: Rigid | null; units?: MeshUnits; scale?: number; maxPoints?: number } | null
     nominal: { name: string; file: Blob; units?: MeshUnits } | null
   }) | null = null
   /** What the plugins put back after a restart, once the scan and the
@@ -173,9 +180,11 @@ export class MeshWorkerClient {
       const state = this.restoreState?.()
       if (state?.scan) {
         this.renderParity = false
-        const { name, file, crease, transform, units, scale } = state.scan
-        const buffer = await readSourceFile(file, name)
-        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm', scale ?? 1) } as Request, [buffer]) // units-ok: the file's own units, an id
+        const { name, file, crease, transform, units, scale, maxPoints } = state.scan
+        // Read back as it was opened: a large cloud from disk a piece at a
+        // time, thinned to the same points.
+        const buffer = readInPieces(file, name) ? file : await readSourceFile(file, name)
+        await this.rpc.request({ type: 'load', requestId: this.nextId++, name, buffer, crease, transform: transform ?? undefined, scale: fileScale(name, units ?? 'mm', scale ?? 1), ...(maxPoints ? { maxPoints } : {}) } as Request, buffer instanceof ArrayBuffer ? [buffer] : []) // units-ok: the file's own units, an id
       }
       if (state?.nominal) {
         const { name, file, units } = state.nominal
@@ -211,13 +220,30 @@ export class MeshWorkerClient {
   }
 
   /** `companions` are the files that came with a textured OBJ, its images
-   *  decoded (see app/scanFiles); they are handed over, not copied. */
-  async prepareScan(name: string, buffer: ArrayBuffer, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions, scale = 1): Promise<{ id: number; mesh: LoadedScan }> {
+   *  decoded (see app/scanFiles); they are handed over, not copied. A
+   *  point cloud may come as its File, read in the worker a piece at a time,
+   *  and is thinned evenly to `maxPoints` when it holds more. */
+  async prepareScan(name: string, buffer: ArrayBuffer | Blob, crease: CreaseSetting, transform?: Rigid, units: MeshUnits = 'mm', companions?: ObjCompanions, scale = 1, maxPoints?: number): Promise<{ id: number; mesh: LoadedScan }> {
     const id = this.nextId++
-    const transfer: Transferable[] = [buffer, ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
+    const transfer: Transferable[] = [...(buffer instanceof ArrayBuffer ? [buffer] : []), ...(companions?.images.map((img) => img.rgba.buffer as ArrayBuffer) ?? [])]
     // `scale` on top of the units: the factor the scan was scaled by to its
     // true size (core/scanScale), read into it as the units are.
-    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: fileScale(name, units, scale), ...(companions ? { companions } : {}) }, transfer)
+    const mesh = await this.request<LoadedScan>({ type: 'load', requestId: id, name, buffer, crease, staged: true, transform, scale: fileScale(name, units, scale), ...(companions ? { companions } : {}), ...(maxPoints ? { maxPoints } : {}) }, transfer)
+    return { id, mesh }
+  }
+
+  /** A point cloud from memory — in millimetres, with its normals — as a
+   *  staged import, as prepareScan does; the arrays are handed over, not
+   *  copied — unless one is a view into a larger buffer, which is copied
+   *  rather than the whole buffer taken from its owner. `transform` is put
+   *  on it as the file's is. */
+  async prepareCloud(positions: Float32Array, normals: Float32Array, crease: CreaseSetting, transform?: Rigid): Promise<{ id: number; mesh: LoadedScan }> {
+    if (normals.length !== positions.length) throw new Error('A point cloud needs one normal for each point.')
+    const whole = (a: Float32Array) => (a.byteOffset === 0 && a.byteLength === a.buffer.byteLength ? a : a.slice())
+    positions = whole(positions)
+    normals = whole(normals)
+    const id = this.nextId++
+    const mesh = await this.request<LoadedScan>({ type: 'load-buffers', requestId: id, positions, normals, crease, staged: true, transform }, [positions.buffer as ArrayBuffer, normals.buffer as ArrayBuffer])
     return { id, mesh }
   }
 
@@ -613,6 +639,17 @@ export class MeshWorkerClient {
     return { min: res.min, max: res.max }
   }
 
+  /** The point cloud the worker holds as a binary PLY in millimetres,
+   *  carried by `toFile` into its file's frame, with `colors` (three bytes a
+   *  point) if given. See the 'held-cloud' request. */
+  async heldCloud(toFile: Rigid, colors: Uint8Array | null, comment: string): Promise<{ bytes: Uint8Array; points: number }> {
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'held-cloud-ok' }>>(
+      { type: 'held-cloud', requestId, toFile, comment, ...(colors ? { colors } : {}) },
+    )
+    return { bytes: res.bytes, points: res.points }
+  }
+
   /** The scan's vertices inside a box — facing a direction within an angle
    *  if asked — with their positions and normals, at most `limit` of them
    *  spread evenly through what matched. See geometry/query. */
@@ -627,6 +664,13 @@ export class MeshWorkerClient {
   async heights(grid: RayGrid): Promise<Float32Array> {
     const requestId = this.nextId++
     return (await this.request<Extract<WorkerResponse, { type: 'heights-ok' }>>({ type: 'heights', requestId, grid })).values
+  }
+
+  /** On a point cloud: how far each ray runs to a point that looks back at
+   *  it — see geometry/insideRays. */
+  async insideRays(grid: RayGrid): Promise<Float32Array> {
+    const requestId = this.nextId++
+    return (await this.request<Extract<WorkerResponse, { type: 'inside-rays-ok' }>>({ type: 'inside-rays', requestId, grid })).values
   }
 
   /** The same, with the triangle each ray met: its corners (scan vertex

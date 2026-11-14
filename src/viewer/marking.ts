@@ -14,6 +14,9 @@ import { INTERSECTED, NOT_INTERSECTED } from 'three-mesh-bvh'
 import type { RegionColors } from './regionColors'
 import { DEFAULT_THEME, type ViewTheme } from './viewThemes'
 import { frontSurface } from './frontSurface'
+import { polygonTester, pixelSpan } from './screenSelect'
+import { brushCloud, marqueeCloud } from './cloudMarking'
+import type { PointGrid } from '../core/geometry/pointGrid'
 import { modHeld } from '../ui/platform'
 
 /** How a marking gesture takes surface: dragged over it with a round brush,
@@ -112,32 +115,6 @@ export function lineSteps(lengthPx: number, brushPx: number): number {
   return Math.ceil(lengthPx / Math.max(brushPx / 8, 1))
 }
 
-/** Point-in-polygon by crossing number, with the outline's bounding box in
- *  front of it. The box rejects the great majority of a part's triangles for
- *  four comparisons, which matters when the test runs once per triangle of a
- *  million-triangle scan. A lasso that crosses itself is filled by the
- *  odd-even rule — the same thing every drawing program does with one. */
-function polygonTester(outline: { x: number; y: number }[]): (x: number, y: number) => boolean {
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-  for (const p of outline) {
-    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x)
-    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y)
-  }
-  const n = outline.length
-  return (x, y) => {
-    if (x < minX || x > maxX || y < minY || y > maxY) return false
-    let inside = false
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const yi = outline[i].y
-      const yj = outline[j].y
-      if (yi > y === yj > y) continue
-      const xi = outline[i].x
-      if (x < ((outline[j].x - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
-    }
-    return inside
-  }
-}
-
 /** A triangle's raw (unnormalised) normal from its winding — the one edge
  *  cross product both the facing test and the brush's face check run on. */
 function rawFaceNormal(
@@ -169,30 +146,13 @@ function facesCamera(
   return rawFaceNormal(pos, a, b, c, facingScratch).dot(view) < 0
 }
 
-/**
- * How many millimetres a pixel spans where the outline marks. A parallel
- * camera spans the same everywhere. In perspective it grows with depth, so it
- * is taken at the mean depth of what is drawn inside the outline's box.
- */
-function pixelSpan(
-  camera: THREE.OrthographicCamera | THREE.PerspectiveCamera,
-  h: number,
-  sx: Float32Array,
-  sy: Float32Array,
-  sz: Float32Array,
-  clipped: Uint8Array,
-  box: { minX: number; minY: number; maxX: number; maxY: number },
-): number {
-  if (!(camera instanceof THREE.PerspectiveCamera)) return (camera.top - camera.bottom) / camera.zoom / h
-  let sum = 0
-  let n = 0
-  for (let v = 0; v < sz.length; v++) {
-    if (clipped[v] || sx[v] < box.minX || sx[v] > box.maxX || sy[v] < box.minY || sy[v] > box.maxY) continue
-    sum += sz[v]
-    n++
-  }
-  const depth = n > 0 ? sum / n : camera.position.length()
-  return (2 * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / camera.zoom / h
+/** A point cloud as the marking sees it: the drawn object (its raycast is the
+ *  cloud pick), the index over its points, and what the brush needs. */
+export interface MarkedCloud {
+  object: THREE.Object3D
+  grid: PointGrid
+  normals: Float32Array
+  spacing: number
 }
 
 /** Everything the marking is allowed to touch outside itself. */
@@ -208,6 +168,9 @@ export interface MarkingContext {
   regions: RegionColors
   setPickRay(clientX: number, clientY: number): void
   mesh(): THREE.Mesh | null
+  /** The scan when it is a point cloud — null for a mesh and with none
+   *  loaded. Marking walks its points instead of triangles. */
+  cloud?(): MarkedCloud | null
   /** The mesh's paint-mask attribute — flagged dirty after every gesture that
    *  moved the marking. */
   paintAttr(): THREE.BufferAttribute | null
@@ -335,12 +298,17 @@ export class SurfaceMarking {
     return this.paint !== null && this.gestureOf(this.paint) !== null
   }
 
+  /** What is marked: the scan's mesh, or its point cloud. */
+  private scan(): THREE.Object3D | null {
+    return this.ctx.mesh() ?? this.ctx.cloud?.()?.object ?? null
+  }
+
   /** The gesture a pointerdown would start. Nothing is marked on a scan that
    *  is switched off: a gesture over a hidden part would take surface the user
    *  cannot see to judge, and the window and lasso do not raycast, so nothing
    *  else would stop them. */
   pointerGesture(): MarkGesture | null {
-    return this.paint && this.ctx.mesh()?.visible ? this.gestureOf(this.paint) : null
+    return this.paint && this.scan()?.visible ? this.gestureOf(this.paint) : null
   }
 
   /**
@@ -453,7 +421,7 @@ export class SurfaceMarking {
    * setPaintBrush then finds both in place and leaves them alone.
    */
   setPaintedVertices(vertices: Uint32Array, colorHex: string): void {
-    if (!this.ctx.mesh()) return
+    if (!this.scan()) return
     this.heldDabs.length = 0
     this.ctx.setPaintColor(colorToRgb(colorHex))
     if (!this.ctx.regions.setPaintedVertices(vertices)) return
@@ -478,10 +446,18 @@ export class SurfaceMarking {
    *  it would a stroke. Only a marking session's marking is turned. */
   invertPaint(): void {
     const mesh = this.ctx.mesh()
+    const cloud = this.ctx.cloud?.()
     const attr = this.ctx.paintAttr()
-    if (!this.paint || !mesh || !attr) return
-    const index = (mesh.geometry as THREE.BufferGeometry).getIndex()
-    if (!index || !this.ctx.regions.invertPaint(index.array, this.ctx.graphVertex)) return
+    if (!this.paint || !(mesh || cloud) || !attr) return
+    // A cloud has no triangles: every point stands for itself (no shading
+    // copies, so graphVertex is the identity).
+    let index: ArrayLike<number> | null = null
+    if (cloud) {
+      const ids = new Uint32Array(cloud.grid.positions.length / 3)
+      for (let i = 0; i < ids.length; i++) ids[i] = i
+      index = ids
+    } else index = ((mesh as THREE.Mesh).geometry as THREE.BufferGeometry).getIndex()?.array ?? null
+    if (!index || !this.ctx.regions.invertPaint(index, this.ctx.graphVertex)) return
     attr.needsUpdate = true
     this.ctx.invalidate()
     this.ctx.onPaintChange(this.ctx.regions.paintCount)
@@ -521,6 +497,14 @@ export class SurfaceMarking {
    * spilling onto the face around the corner.
    */
   private dab(clientX: number, clientY: number, erase: boolean): void {
+    const cloud = this.ctx.cloud?.()
+    if (cloud) {
+      if (this.paint && this.ctx.paintAttr()) {
+        this.ctx.setPickRay(clientX, clientY)
+        this.dabCloud(cloud, erase)
+      }
+      return
+    }
     const mesh = this.ctx.mesh()
     if (!mesh || !this.paint || !this.ctx.paintAttr()) return
     const geometry = mesh.geometry as THREE.BufferGeometry
@@ -642,6 +626,59 @@ export class SurfaceMarking {
     })
   }
 
+  /** The brush on a cloud: the point under the pick ray and every point
+   *  within the brush's radius of it. Like the mesh's, it keeps to the way
+   *  the surface under the cursor faces unless the brush goes through, so it
+   *  neither reaches the far side of a thin wall nor spills round an edge. */
+  private dabCloud(cloud: MarkedCloud, erase: boolean): void {
+    const brush = this.paint
+    if (!brush) return
+    // The cloud's raycast is its pick: clip planes and the nearest point.
+    const hit = this.ctx.raycaster.intersectObject(cloud.object, false)[0]
+    const i = hit?.index
+    if (i === undefined || i === null) return
+    const pos = cloud.grid.positions
+    const nrm = cloud.normals
+    const centre: [number, number, number] = [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]]
+    const fx = nrm[3 * i], fy = nrm[3 * i + 1], fz = nrm[3 * i + 2]
+    const anyFacing = brush.backfaces === true
+    const own = this.ctx.graphVertex
+    for (const j of brushCloud(cloud.grid, centre, Math.max(brush.diameter / 2, 1e-6))) {
+      if (!anyFacing && nrm[3 * j] * fx + nrm[3 * j + 1] * fy + nrm[3 * j + 2] * fz <= 0) continue
+      this.ctx.regions.markVertex(own(j), erase)
+    }
+  }
+
+  /** A window or lasso over a cloud — see markMarquee. */
+  private markMarqueeCloud(cloud: MarkedCloud, outline: { x: number; y: number }[], erase: boolean): void {
+    const marker = this.paint
+    if (!marker || !this.ctx.paintAttr()) return
+    const { container, partGroup } = this.ctx
+    partGroup.updateWorldMatrix(true, false)
+    const material = (cloud.object as THREE.Points).material as THREE.Material | THREE.Material[] | undefined
+    const m = Array.isArray(material) ? material[0] : material
+    const regions = this.ctx.regions
+    const before = regions.paintCount
+    const own = this.ctx.graphVertex
+    const taken = marqueeCloud({
+      positions: cloud.grid.positions,
+      normals: cloud.normals,
+      spacing: cloud.spacing,
+      camera: this.ctx.camera(),
+      partMatrix: partGroup.matrixWorld,
+      width: container.clientWidth || 1,
+      height: container.clientHeight || 1,
+      outline,
+      backfaces: marker.backfaces === true,
+      clip: m?.clippingPlanes?.length ? m.clippingPlanes : [],
+    })
+    for (const i of taken) regions.markVertex(own(i), erase)
+    if (regions.paintCount !== before) {
+      this.ctx.paintAttr()!.needsUpdate = true
+      this.ctx.invalidate()
+    }
+  }
+
   /** A triangle's unit normal, or null for a degenerate sliver that has no
    *  direction to compare anything against. */
   private faceNormal(
@@ -756,6 +793,11 @@ export class SurfaceMarking {
    * cut away is never taken: it is not there to be seen through either.
    */
   private markMarquee(outline: { x: number; y: number }[], erase: boolean): void {
+    const cloud = this.ctx.cloud?.()
+    if (cloud) {
+      if (outline.length >= 3) this.markMarqueeCloud(cloud, outline, erase)
+      return
+    }
     const mesh = this.ctx.mesh()
     const marker = this.paint
     if (!mesh || !marker || !this.ctx.paintAttr() || outline.length < 3) return
@@ -976,12 +1018,31 @@ export class SurfaceMarking {
     // settings) moved — either way the ring is worth redrawing, even when the
     // change is just the ring going away.
     this.ctx.invalidate()
+    const cloud = this.ctx.cloud?.()
     const mesh = this.ctx.mesh()
-    if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !mesh?.visible) {
+    if (!this.paint || this.gestureOf(this.paint) !== 'brush' || !at || !(mesh ?? cloud?.object)?.visible) {
       this.brushRing.visible = false
       return
     }
     this.ctx.setPickRay(at.x, at.y)
+    if (cloud) {
+      const i = this.ctx.raycaster.intersectObject(cloud.object, false)[0]?.index
+      const nrm = i === undefined ? null : new THREE.Vector3(cloud.normals[3 * i], cloud.normals[3 * i + 1], cloud.normals[3 * i + 2])
+      if (i === undefined || !nrm || nrm.lengthSq() < 1e-24) {
+        this.brushRing.visible = false
+        return
+      }
+      const pos = cloud.grid.positions
+      this.brushRing.position.set(pos[3 * i], pos[3 * i + 1], pos[3 * i + 2])
+      this.brushRing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), nrm.normalize())
+      this.brushRing.scale.setScalar(Math.max(this.paint.diameter / 2, 1e-6))
+      this.brushRing.visible = true
+      return
+    }
+    if (!mesh) {
+      this.brushRing.visible = false
+      return
+    }
     const hit = this.ctx.raycaster.intersectObject(mesh, false)[0]
     if (!hit || hit.faceIndex === undefined || hit.faceIndex === null) {
       this.brushRing.visible = false

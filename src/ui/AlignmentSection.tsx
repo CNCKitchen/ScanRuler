@@ -23,6 +23,7 @@ import { InfoDot } from './InfoDot'
 import { providersFor } from './RefSelect'
 import { useLength } from '../app/useUnits'
 import { ScaleBox } from './ScaleBox'
+import { useCloudRefusal } from './cloudGate'
 
 /** What the levelled direction becomes, said the way a person holds a part:
  *  which side of it the picked face is. The face's outward direction maps onto
@@ -164,6 +165,8 @@ export function AlignmentSection({
   onApplyScale: (factor: number, references: ScaleReference[]) => void
 }) {
   const fileName = useStore((s) => s.fileName)
+  const noAuto = useCloudRefusal('auto-align')
+  const noSymmetry = useCloudRefusal('symmetry')
   const busy = useStore((s) => s.busy)
   const elements = useStore((s) => s.elements)
   const modelSize = useStore((s) => s.modelSize)
@@ -310,7 +313,8 @@ export function AlignmentSection({
           <button
             className="block"
             data-test="auto-align"
-            disabled={!fileName || busy}
+            disabled={!fileName || busy || noAuto !== null}
+            title={noAuto ?? undefined}
             onClick={onAutoAlign}
           >
             Auto-align
@@ -489,8 +493,8 @@ export function AlignmentSection({
           <button
             className="block"
             data-test="align-symmetry"
-            disabled={busy || alignDraft.pickSlot !== null}
-            title="Find the part’s mirror plane on the scan — or use a symmetry plane already measured — and settle this pose on it: the axis nearest its normal turned onto it, the zero point put on it. With nothing set up yet, Auto-align’s pose is the start. Nothing is applied until Confirm alignment is pressed"
+            disabled={busy || alignDraft.pickSlot !== null || noSymmetry !== null}
+            title={noSymmetry ?? "Find the part’s mirror plane on the scan — or use a symmetry plane already measured — and settle this pose on it: the axis nearest its normal turned onto it, the zero point put on it. With nothing set up yet, Auto-align’s pose is the start. Nothing is applied until Confirm alignment is pressed"}
             onClick={onAlignSymmetry}
           >
             Use symmetry

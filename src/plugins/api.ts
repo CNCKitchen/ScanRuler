@@ -47,6 +47,8 @@ import type { GripSide, PickHit, SceneManager } from '../viewer/SceneManager'
 // guide) adds a guide guide.read serves an agent before a task — the
 // plugin's workflow in Markdown, loaded when first read.
 
+export { registerCloudMesher, cloudMesher, useCloudMesher } from '../app/cloudMesher'
+export type { CloudMesher } from '../app/cloudMesher'
 export { registerCommands, registerSettle, runningChange } from '../commands/registry'
 export { registerStateSection } from '../commands/stateSections'
 export { registerBusy } from '../commands/activity'
@@ -74,6 +76,13 @@ export interface WorkspaceTab {
   /** Where the tab stands among the plugins' tabs, which follow the app's
    *  own; lower comes first. */
   order: number
+  /**
+   * Why the workspace cannot be used now — the tab is greyed with this as
+   * its tooltip, and the workspace gives way to 3D Measure if it is open —
+   * or null when it can. A plain function of the stores, read as they
+   * change; Mesh Tools and Reverse engineer say so for a point cloud.
+   */
+  unavailable?(): string | null
   /**
    * The workspace's guided hint, as a React hook: the step to ring once a
    * scan is open (opening one is the app's own first step), or 'done' when
@@ -130,6 +139,12 @@ export interface PluginHost {
   /** Put another version of the scan in place under the session, read in
    *  the pose `transform` — see app/scanSwap. */
   swapScan(source: ScanSource, transform: Rigid | null): Promise<void>
+  /** The same from a point cloud in memory — positions and normals in
+   *  millimetres, handed over (not copied). `source.file` is the PLY of them
+   *  that the project and the undo history read back. Answers the vertex
+   *  each point became, -1 for one dropped (no usable normal); exact
+   *  duplicates are one vertex. */
+  swapScanBuffers(source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null): Promise<Int32Array>
   /** Renumber everything held by vertex onto the version just put in place. */
   remapScan(vertexMap: Int32Array): void
   /** Measure everything on the scan again after a swap — the elements from

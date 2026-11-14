@@ -87,6 +87,8 @@ function MeshExportRow({ disabled, onExport }: { disabled: boolean; onExport: (f
 export function ReversePanel({ onOpenScan, onExportStep, onExportMesh, onCompare, chainsOf }: { onOpenScan: (file: File) => void; onExportStep: () => void; onExportMesh: (format: MeshFormat) => void; onCompare: () => void; chainsOf: () => SketchChains | null }) {
   const fileName = useStore((s) => s.fileName)
   const triangleCount = useStore((s) => s.triangleCount)
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
+  const vertexCount = useStore((s) => s.vertexCount)
   const busy = useStore((s) => s.busy)
   const sections = useStore((s) => s.sections)
   const elements = useStore((s) => s.elements)
@@ -263,7 +265,7 @@ export function ReversePanel({ onOpenScan, onExportStep, onExportMesh, onCompare
             </p>
           </InfoDot>
         </div>
-        <ModelSlot role="Scan" name={fileName} detail={`${triangleCount.toLocaleString('en-US')} triangles`} dotColor="#8b9099" busy={busy} onOpen={onOpenScan} />
+        <ModelSlot role="Scan" name={fileName} detail={scanIsCloud ? `${vertexCount.toLocaleString('en-US')} points` : `${triangleCount.toLocaleString('en-US')} triangles`} dotColor="#8b9099" busy={busy} onOpen={onOpenScan} />
         <p className="hint" data-test="kernel-status">
           {kernelStatus === 'idle' && 'CAD kernel: waiting.'}
           {kernelStatus === 'loading' && (

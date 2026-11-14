@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
@@ -9,6 +12,23 @@ import react from '@vitejs/plugin-react'
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
   version: string
 }
+
+// Vitest keeps each module as it transformed it, keyed by the module's own
+// source. The plugin registries' globs (src/plugins/registry.ts,
+// src/core/workerPlugins.ts) are expanded in that transform from the plugins
+// on disk, so a checkout with another set of plugins would be handed the old
+// list. The cache is kept per set of plugins instead.
+const pluginFiles = (() => {
+  // Only listed, never imported: a build stands with any plugins or none.
+  const root = join(fileURLToPath(new URL('.', import.meta.url)), 'plugins')
+  if (!existsSync(root)) return ''
+  return readdirSync(root, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .flatMap((d) => ['plugin.ts', 'worker.ts'].filter((f) => existsSync(join(root, d.name, f))).map((f) => `${d.name}/${f}`))
+    .sort()
+    .join('\n')
+})()
+const pluginSet = createHash('sha1').update(pluginFiles).digest('hex').slice(0, 12)
 
 export default defineConfig({
   plugins: [react()],
@@ -54,5 +74,6 @@ export default defineConfig({
     // hang is found quickly. The files whose tests build solids in the kernel
     // or fit real scans raise it for themselves.
     testTimeout: 20_000,
+    fsModuleCachePath: `node_modules/.vitest-cache/plugins-${pluginSet}`,
   },
 })

@@ -296,14 +296,15 @@ export class ReClient {
   /** Hand the worker the scan for the live map — the positions are
    *  transferred, so pass a copy — or only a new transform for the scan it
    *  has; null puts the scan away. The normals, when there are no
-   *  triangles to work them out from. */
-  async setScan(positions: Float32Array | null | undefined, transform: Rigid | null, indices?: Uint32Array | null, normals?: Float32Array | null): Promise<void> {
+   *  triangles to work them out from. `cloud`: the scan is a point cloud —
+   *  its points then stand for its surface. */
+  async setScan(positions: Float32Array | null | undefined, transform: Rigid | null, indices?: Uint32Array | null, normals?: Float32Array | null, cloud = false): Promise<void> {
     const requestId = this.nextId++
     const transfer: Transferable[] = []
     if (positions) transfer.push(positions.buffer)
     if (indices) transfer.push(indices.buffer)
     if (normals) transfer.push(normals.buffer)
-    await this.request<Extract<ReWorkerResponse, { type: 'scan-ok' }>>({ type: 'scan', requestId, positions, indices, ...(normals ? { normals } : {}), transform }, transfer, HEAVY_MS)
+    await this.request<Extract<ReWorkerResponse, { type: 'scan-ok' }>>({ type: 'scan', requestId, positions, indices, ...(normals ? { normals } : {}), ...(cloud ? { cloud } : {}), transform }, transfer, HEAVY_MS)
   }
 
   /** The live map against the last preview's solid or against bodies of

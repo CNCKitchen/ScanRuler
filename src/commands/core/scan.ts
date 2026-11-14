@@ -28,6 +28,8 @@ import { usePrefs } from '../../state/prefsStore'
 import { elementRefSchema, findElement, planeRef, type ElementRef } from '../refs'
 import { setMarked } from '../marked'
 import { scale } from './scanScale'
+import { cloudSizeOfFile } from '../../core/parsers/cloudSize'
+import { CLOUD_POINT_BUDGET } from '../../core/parsers/thin'
 
 export const unitsSchema = enumOf(
   MESH_UNITS.map((u) => u.id),
@@ -51,34 +53,44 @@ export async function scanSummary() {
   }
 }
 
-const open: Command<{ bytes: Uint8Array; name: string; units?: MeshUnits; discard?: boolean }> = {
+const open: Command<{ bytes: Uint8Array; name: string; units?: MeshUnits; discard?: boolean; maxPoints?: number }> = {
   name: 'open',
   title: 'Open a scan',
   description:
-    'Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.',
+    'Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. A point cloud (PLY without faces, XYZ, ASC, PTS) of more than 30,000,000 points is refused unless maxPoints says how many to keep — thinned evenly as it is read — or 0 for every point (thinned: from and to points in the answer). Not undoable: a new scan starts a new history.',
   input: obj(
     {
       bytes: bytes('The file’s contents.'),
       name: fileNameSchema('"ballbar.stl"'),
       units: unitsSchema,
       discard: discardSchema,
+      maxPoints: int('A point cloud of more points is thinned evenly to this many as it is read; 0 keeps every point. Needed for a cloud of more than 30,000,000 points.', { minimum: 0 }),
     },
     ['bytes', 'name'],
   ),
   history: false,
   discards: ({ discard }) => discard === true,
-  run: async ({ bytes: data, name, units, discard }) => {
+  run: async ({ bytes: data, name, units, discard, maxPoints }) => {
     requireDiscardable(discard, 'opening another scan')
     const { session } = commandHost()
+    const file = fileOf(data, name)
+    // Told before the file is read: a cloud past the budget took the tab
+    // down, and an agent has no question put to it.
+    const size = await cloudSizeOfFile(file)
+    if (maxPoints === undefined && size && size.points > CLOUD_POINT_BUDGET) {
+      const n = size.points.toLocaleString('en-US')
+      throw new CommandError('invalid_input', `${name} holds ${size.exact ? '' : 'about '}${n} points — more than a browser tab holds well (${CLOUD_POINT_BUDGET.toLocaleString('en-US')}). Open it with maxPoints: ${CLOUD_POINT_BUDGET} to thin it evenly to ${CLOUD_POINT_BUDGET.toLocaleString('en-US')} points as it is read, or maxPoints: 0 to open all ${n}.`)
+    }
     const before = session.clientRef.current!.scanVersion
     const reference = useDeviation.getState().nominalName
-    await session.scan.openScan(fileOf(data, name), units ?? 'mm')
+    await session.scan.openScan(file, units ?? 'mm', undefined, maxPoints ?? 0)
     if (session.clientRef.current!.scanVersion === before) {
       throw new CommandError('failed', lastError(`${name} could not be opened.`))
     }
     const kept = useDeviation.getState().nominalName
     return {
       scan: await scanSummary(),
+      ...(maxPoints && size && size.points > maxPoints ? { thinned: { from: size.points, to: maxPoints, ...(size.exact ? {} : { estimated: true }) } } : {}),
       ...(kept ? { referenceKept: kept } : reference ? { referenceDropped: reference } : {}),
     }
   },
@@ -205,6 +217,7 @@ const query: Command<QueryIn> = {
 
 const nearest: Command<{ at: Location }> = {
   name: 'nearest',
+  scanOps: ['nearest'],
   title: 'Find a place on the scan',
   description:
     'Where a place lands on the scan: the vertex (a point snaps to the nearest), its coordinates and outward normal, a triangle it is a corner of, and how far it lies from the point asked about. Use it to check a point lies on the surface before fitting there.',
@@ -314,6 +327,7 @@ async function draftSplit(split: DraftSplitIn): Promise<{ point: Vec3; normal: V
 
 const draft: Command<{ pull: Vec3; box?: { min: Vec3; max: Vec3 }; nearDeg?: number; patches?: number; minArea?: number; split?: DraftSplitIn }> = {
   name: 'draft',
+  scanOps: (i) => (typeof i.split === 'string' && i.split.trim().toLowerCase() === 'symmetry' ? ['symmetry'] : []),
   title: 'Read the draft against a pull',
   description:
     'The scan’s walls that run near a pull direction — the sides a mould opens along — gathered into patches, each with draftDeg, the angle it leans off the pull: positive where the wall faces partly along the pull, negative where it faces back (a back draft, an undercut); with sigmaDeg, spreadDeg, centroid, box, area (mm²), count, facing, turnDeg and round for a boss’s or hole’s round side. Needs pull; box, nearDeg (10), patches (12), minArea (1 mm²) and split (a plane no patch reaches across: "symmetry", a plane element, "XY", "YZ", "XZ" or { point, normal }) narrow it. Trap: read it early on a moulded or cast part, along each direction the tools open — walls that lean half a degree to a few explain fits that miss by the lean. Changes nothing.',
@@ -645,6 +659,7 @@ const heightmap: Command<{
   picture?: boolean
 }> = {
   name: 'heightmap',
+  scanOps: ['heights'],
   title: 'Map the scan’s heights',
   description:
     `Where the scan is first met looking along an axis (axis, -z by default: the top surface from above) or square onto a plane (plane: an element, "XY", "YZ", "XZ", or { origin, normal, u? }), over a grid of cells: pocket floors, ledges, a step's height, a face's tilt, a pad's tiers, an icon on a key in one call. of: height (the default), deviation (the map's reading where each ray lands) or relief (the height less the surface round it, for icons, grooves and lettering). Returns cell, origin [u0, v0], cols, rows, grid (rows of mm from the low v up, null where nothing; grid[r][c] stands at u0 + (c + ½)·cell, v0 + (r + ½)·cell), min, max, hit, valued; with plane also its frame (a cell's point is origin + u·U + v·V + height·normal). levels: true gives the values gathered into levels in place of the grid, largest first — of a height, each holding 5 % of the map or more with its plane { origin, normal } (fitted to its cells, normal towards the viewer), which align.datum { primary: { plane } } levels on: the sheet itself, not its bead crowns; a gentle warp that ran levels together is taken out first and said (warp { rise, bow, note }); picture: true adds the map coloured. Trap: with plane, box is [u, v, height] in the plane's frame (or { world }), and scanLies says where the scan lies when few cells meet it. Changes nothing.`,
@@ -865,6 +880,7 @@ const OUTLINE_LOOPS = 4
 
 const outline: Command<{ axis?: AxisName; plane?: PlaneIn; flip?: boolean; box?: BoxIn; tolerance?: number; loops?: number }> = {
   name: 'outline',
+  scanOps: ['heights'],
   title: 'Read the scan’s outline',
   description: `The scan’s outline seen along an axis, or square onto a plane, read as a sketch would draw it: a flange’s plan, a bezel’s opening, a gasket’s shape — each loop as the fewest lines and arcs that follow it within tolerance (mm, ${OUTLINE_TOLERANCE} by default), a round loop as one circle. axis, plane, flip and box as scan.heightmap takes them, u, v as it lays them. Returns loops, the largest first (${OUTLINE_LOOPS} by default): hole, area (mm²), box, points ([u, v] corners), rounds { at, radius, center }, arcs { from, radius, center, mid } (from points[from] through mid to the next point: mid says which way it bulges, a slot’s half-round end too) or circle { center, radius, rms }, and worst (mm the trace strays from what is drawn, worstAt when past the tolerance). Changes nothing.`,
   input: obj({
@@ -968,6 +984,7 @@ function axisLine(axis: AxisIn): { origin: Vec3; dir: Vec3; name?: string } {
 
 const pattern: Command<{ axis: AxisIn; at?: (number | Vec3)[]; radius?: { min?: number; max?: number }; maxCount?: number; instances?: boolean }> = {
   name: 'pattern',
+  scanOps: ['section'],
   title: 'Count the repeats round an axis',
   description: `Rotational repeats about an axis — a fan's blades, a flange's holes, a wheel's spokes, a gear's teeth — counted from the scan: it is cut square to the axis at each height in at, and each cut (between radius.min and radius.max) is turned against itself. Needs axis: a cylinder, cone, line or circle element, "X", "Y", "Z", or { origin, dir }. Returns per height count, pitchDeg, phaseDeg, betweenDeg (angles as section.cut { across: { axis, angleDeg } } takes them), score (0 to 1; under 0.5 count is 1 and tried says the best), rms, worst, instances (each angleDeg, radius, offDeg, rms, worst, share) and rings (round outlines about the axis: radius, off, towardDeg, rms). Trap: features at different heights and radii need a cut through each, radius kept to one ring. Changes nothing.`,
   input: obj(
@@ -1075,6 +1092,7 @@ const circleOut = (c: RimCircle) => ({ center: c.center.map((x) => roundTo(x, 3)
 
 const qa: Command<{ axis?: 'x' | 'y' | 'z' | Vec3 }> = {
   name: 'qa',
+  scanOps: ['scan-qa', 'heights'],
   title: 'Check the scan before modelling',
   description:
     'One call before modelling, to know what the scan will and will not give. Returns rims (the open edges of its holes: count, total length, the longest few with rim number, centre, size and circle where one fits — element.fit { kind: "circle", rim } makes it an element), noise (the median scatter of small plane fits, mm; 0 on a CAD tessellation), tessellation where the mesh is an STL exported from CAD (cad, its facets exactly flat; sparse where its vertices lie only on edges and rims, too far apart to fit on — densifyTo, the edge length to subdivide it to first, noise.measured the bends between facets that a fit would read), thickness through the part along axis (p5, p50, p95, the main faces’ tiltDeg and faces { topDeg, bottomDeg }), sheet where most of the area has a second skin facing back within reach mm (gauge { p5, p50, p95 }, twoSkins: that share), apart on such a part with flat walls (regions standing over reach mm off every main wall — tabs bent in, ribs, bosses: center, box, area mm², largest first) and notes, what looks wrong, plainly. Traps: a scanned skin with no rims, or only pinholes, is a wrap bridging the holes it did not see through; on a sheet, thickness reads the box across the part — the gauge is sheet.gauge. Changes nothing.',

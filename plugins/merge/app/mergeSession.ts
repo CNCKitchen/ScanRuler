@@ -1,0 +1,729 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// The Merge workspace's verbs, outside React — what the panel's buttons run.
+//
+// A layer is a file opened beside the scan: staged as any import is
+// (prepareScan), taken by the worker's Merge part under an id (add-layer),
+// and drawn by the viewport's MergeScene in a colour of its own. Its pose —
+// layer frame to the base as shown — lives in the store; a move or an
+// alignment is one step of the undo history, which keeps the poses (and what
+// is shown) and nothing else. An alignment runs in the worker, stoppable,
+// with the panel busy meanwhile: nothing queues behind it, so the panel and
+// the commands refuse what would swap the scan under it (registerBusy).
+//
+// Merge writes the base and the layers shown as one cloud in the base's
+// file frame, swaps it in under the session with the base's alignment, and
+// carries everything measured on the base across (remapScan, remeasureScan)
+// — one step of the history. The worker drops its layers on any scan
+// replaced but the workspace's own: merge-begin / undo-begin arm that for
+// the next replacement, and *-end disarms it whatever happened. The main
+// side keeps the same one-shot flag for the swapped event. A new scan, or
+// leaving the workspace, drops the layers.
+//
+// useMergePlugin makes one session and draws from it; under a test it stands
+// without a viewport — every scene call in it is optional.
+
+import type { RefObject } from 'react'
+import type { MeshWorkerClient } from '../../../src/core/workerClient'
+import type { ElementKind, FitOutput, Vec3 } from '../../../src/core/types'
+import type { SceneManager } from '../../../src/viewer/SceneManager'
+import type { ImportQueue } from '../../../src/app/importQueue'
+import type { ScanSource } from '../../../src/app/scanSwap'
+import { prepareScan, runImport } from '../../../src/app/imports'
+import { onScan } from '../../../src/app/scanEvents'
+import { boundLength } from '../../../src/app/useUnits'
+import { creaseSetting } from '../../../src/core/geometry/crease'
+import { cloneRigid, identityRigid, rigidCompose, rigidInvert, rigidRotate, type Rigid } from '../../../src/core/deviation/rigid'
+import { is3mfFile } from '../../../src/core/formats'
+import { fileScale, unitsLabel } from '../../../src/core/meshUnits'
+import { historyAction, historyAsync, registerHistory, useHistory } from '../../../src/state/historyStore'
+import { usePrefs } from '../../../src/state/prefsStore'
+import { useShell } from '../../../src/state/shellStore'
+import { useStore } from '../../../src/state/store'
+import { MergeScene } from '../viewer/mergeScene'
+import { BASE, MERGE, MIN_CONSTRAINT, type AlignReply, type DatumIds, type MergeOps } from '../core/protocol'
+import type { LayerAlignResult } from '../core/layerAlign'
+import { alignNote, count } from '../ui/mergeFormat'
+import { LAYER_COLORS, layerRow, mergeDedupe, useMerge, type LayerRow, type LayerUnits, type MergeSnapshot } from '../state/mergeStore'
+import { MemoryFile } from '../../../src/core/sourceFile'
+
+/** The question a merge onto a mesh asks first — exact, see the spec. */
+export const MESH_BASE_CONFIRM = 'The result is a point cloud — triangle-only tools and their results go.'
+
+/** The workspace's id. */
+export const MERGE_WORKSPACE = 'merge'
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const shown = () => boundLength(usePrefs.getState().units)
+
+/** The factor a layer's file is multiplied by to millimetres: the units it
+ *  is read in — a 3MF or a STEP says its own, and arrives in millimetres. */
+export function layerScale(name: string, units: LayerUnits): number {
+  return is3mfFile(name) ? 1 : fileScale(name, units)
+}
+
+/** Base vertex → merged point → the vertex the loaded scan made of it: the
+ *  merged cloud is graphed again as it loads, which drops a point with no
+ *  usable normal and makes one vertex of exact duplicates. -1 for gone. */
+export function composeMaps(baseMap: Int32Array, loaded: Int32Array): Int32Array {
+  const out = new Int32Array(baseMap.length)
+  for (let i = 0; i < baseMap.length; i++) {
+    const k = baseMap[i]
+    out[i] = k >= 0 && k < loaded.length ? loaded[k] : -1
+  }
+  return out
+}
+
+export interface MergeSessionDeps {
+  clientRef: RefObject<MeshWorkerClient | null>
+  sceneRef: RefObject<SceneManager | null>
+  imports: ImportQueue
+  /** Open a file as the scan — the first file with none open. */
+  openScan: (file: File, units?: LayerUnits) => Promise<void>
+  swapScanBuffers: (source: ScanSource, buffers: { positions: Float32Array; normals: Float32Array }, transform: Rigid | null) => Promise<Int32Array>
+  remapScan: (vertexMap: Int32Array) => void
+  remeasureScan: (refit: boolean) => Promise<void>
+}
+
+export type MergeSession = ReturnType<typeof createMergeSession>
+
+export function createMergeSession({ clientRef, sceneRef, imports, openScan, swapScanBuffers, remapScan, remeasureScan }: MergeSessionDeps) {
+  /** Each layer's file, read again when its units change. */
+  const files = new Map<string, File>()
+  /** Each layer's centre in its own frame, mm — what a change of units
+   *  scales it about. */
+  const centres = new Map<string, Vec3>()
+  /** The poses someone chose — a move, an alignment by pairs or datums —
+   *  and those carried on from one (a refine from it, a baked move, a change
+   *  of units). Held by the pose object, which a step of the history puts
+   *  back as it was: undone back to the pose a layer was opened at, a refine
+   *  starts from no one's guess again, and is never called confident. */
+  const guessed = new WeakSet<Rigid>()
+  /** `pose`, a guess if `from` was one. */
+  const carried = (from: Rigid, pose: Rigid): Rigid => {
+    if (guessed.has(from)) guessed.add(pose)
+    return pose
+  }
+  let nextLayer = 1
+  /** The next scan replacement is the workspace's own: its layers stay. */
+  let ownSwap = false
+
+  const call = <K extends keyof MergeOps>(op: K, payload: MergeOps[K]['payload']) =>
+    clientRef.current!.pluginCall<MergeOps[K]['result']>(MERGE, op, payload)
+
+  // ---- The viewport ---------------------------------------------------------------
+
+  let scene: MergeScene | null = null
+  let sceneFor: SceneManager | null = null
+  let removeScene: (() => void) | null = null
+  /** The layers' part of the viewport — made on first use; none without one. */
+  const sceneOf = (): MergeScene | null => {
+    const manager = sceneRef.current
+    if (!manager) return null
+    if (sceneFor !== manager) {
+      removeScene?.()
+      scene = new MergeScene(manager.layerHost())
+      removeScene = manager.addLayer(scene)
+      sceneFor = manager
+    }
+    return scene
+  }
+
+  // ---- Refusals ---------------------------------------------------------------------
+
+  /** Why nothing may start now, or null. */
+  const refusal = (): string | null => {
+    if (useMerge.getState().confirming) return 'Answer the question in the panel first.'
+    if (useMerge.getState().running) return 'Wait for the alignment or the merge in progress to finish — or stop it.'
+    if (useStore.getState().busy || imports.busy || useHistory.getState().restoring) return 'Wait for the work in progress to finish.'
+    return null
+  }
+  const refused = (): boolean => {
+    const why = refusal()
+    if (why) useStore.getState().setError(why)
+    return why !== null
+  }
+
+  const rowOf = (id: string): LayerRow => {
+    const row = useMerge.getState().layers.find((l) => l.id === id)
+    if (!row) throw new Error(`There is no layer "${id}".`)
+    return row
+  }
+
+  // ---- Layers -----------------------------------------------------------------------
+
+  /** Stage a file and hand it to the worker as layer `id`, `scale` to mm.
+   *  Answers what the worker holds and a copy of its geometry. */
+  const stageLayer = async (file: File, id: string, scale: number) => {
+    const client = clientRef.current!
+    const prepared = await prepareScan(client, null, file, creaseSetting(useStore.getState()), undefined, 'mm') // units-ok: read as is, add-layer scales it
+    try {
+      const added = await call('add-layer', { stagedId: prepared.id, id, scale })
+      const geometry = await call('layer-geometry', { id })
+      return { added, geometry }
+    } finally {
+      // Taken by add-layer when it went through; dropped here when it did not.
+      await client.discardImport([prepared.id])
+    }
+  }
+
+  /** The middle of a layer's bounding box. */
+  const centreOf = (p: Float32Array): Vec3 => {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity]
+    for (let i = 0; i < p.length; i += 3) {
+      for (let c = 0; c < 3; c++) {
+        if (p[i + c] < lo[c]) lo[c] = p[i + c]
+        if (p[i + c] > hi[c]) hi[c] = p[i + c]
+      }
+    }
+    return p.length ? [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2] : [0, 0, 0]
+  }
+
+  /**
+   * Open a file beside the scan, as a layer in `units` — or, with no scan
+   * open, as the scan. Answers the layer's id (BASE for the scan); rejects
+   * with the reason it could not be opened, which the status line says too.
+   */
+  const openLayer = async (file: File, units: LayerUnits): Promise<string> => {
+    if (!useStore.getState().fileName) {
+      await openScan(file, units)
+      if (!useStore.getState().fileName) throw new Error(useStore.getState().errorText ?? `${file.name} could not be opened.`)
+      return BASE
+    }
+    const why = refusal()
+    if (why) {
+      useStore.getState().setError(why)
+      throw new Error(why)
+    }
+    const id = `L${nextLayer++}`
+    let opened = false
+    await runImport(imports, `Reading ${file.name} as a layer…`, async () => {
+      const { added, geometry } = await stageLayer(file, id, layerScale(file.name, units))
+      const used = new Set(useMerge.getState().layers.map((l) => l.color))
+      const color = LAYER_COLORS.find((c) => !used.has(c)) ?? LAYER_COLORS[(nextLayer - 2) % LAYER_COLORS.length]
+      files.set(id, file)
+      centres.set(id, centreOf(geometry.positions))
+      sceneOf()?.add(id, { ...geometry, spacing: added.spacing }, color)
+      useMerge.getState().addLayer(layerRow(id, file.name, color, units, added))
+      useStore
+        .getState()
+        .setStatus(
+          `Opened ${file.name} as a layer — ${count(added.vertexCount)} ${added.isCloud ? 'points' : 'vertices'}. Move it near its place, or align it by pairs or datums, then refine.`,
+        )
+      opened = true
+    })
+    if (!opened) throw new Error(useStore.getState().errorText ?? `${file.name} could not be opened as a layer.`)
+    return id
+  }
+
+  /** The layer gone from here, the viewport and — unless it is gone there
+   *  already — the worker. */
+  const forget = (id: string) => {
+    sceneOf()?.remove(id)
+    useMerge.getState().removeLayer(id)
+    files.delete(id)
+    centres.delete(id)
+  }
+
+  const removeLayer = async (id: string): Promise<void> => {
+    rowOf(id)
+    if (refused()) return
+    await call('remove-layer', { id })
+    forget(id)
+  }
+
+  /** Every layer dropped: `inWorker` when the worker still holds them. */
+  const dropLayers = (inWorker: boolean) => {
+    // A merge waiting on its question has nothing left to merge; an
+    // alignment running has no layer to land on.
+    answerConfirm(false)
+    if (useMerge.getState().running === 'Aligning the layer…') clientRef.current?.abortAlign()
+    const ids = useMerge.getState().layers.map((l) => l.id)
+    if (ids.length === 0) return
+    if (inWorker && clientRef.current) for (const id of ids) void call('remove-layer', { id }).catch(() => {})
+    sceneOf()?.clear()
+    useMerge.getState().clearLayers()
+    files.clear()
+    centres.clear()
+  }
+
+  /** A layer read again in `units` — removed from the worker and added
+   *  again at that scale — where it stands: no pose change, no history.
+   *  Outside the import queue, so the history's restore (which holds the
+   *  queue) can run it too. */
+  const reread = async (id: string, units: LayerUnits): Promise<void> => {
+    const row = rowOf(id)
+    const file = files.get(id)
+    if (!file) throw new Error(`The file of layer "${row.name}" is no longer at hand.`)
+    const k = layerScale(file.name, units) / layerScale(file.name, row.units)
+    await call('remove-layer', { id })
+    let staged
+    try {
+      staged = await stageLayer(file, id, layerScale(file.name, units))
+    } catch (e) {
+      // The worker has let it go: so does everything else.
+      forget(id)
+      throw e
+    }
+    const c = centres.get(id) ?? [0, 0, 0]
+    centres.set(id, [c[0] * k, c[1] * k, c[2] * k])
+    const view = sceneOf()
+    view?.add(id, { ...staged.geometry, spacing: staged.added.spacing }, row.color)
+    view?.setPose(id, row.pose)
+    view?.setVisible(id, row.visible)
+    if (handle?.id === id) attachHandle()
+    useMerge.getState().patchLayer(id, { units, vertexCount: staged.added.vertexCount, spacing: staged.added.spacing, isCloud: staged.added.isCloud, last: undefined })
+    // Its fits went with it in the worker.
+    useMerge.getState().clearDatums(id)
+  }
+
+  /** A layer read again in other units, scaled about its centre so it stays
+   *  where it was laid — one step of the history, which keeps the units
+   *  with the poses: a step back reads it in the old units and puts the old
+   *  pose back, so no pose is ever put on the layer at another scale. */
+  const changeUnits = async (id: string, units: LayerUnits): Promise<void> => {
+    const row = rowOf(id)
+    const file = files.get(id)
+    if (!file || row.units === units) return
+    if (refused()) return
+    const k = layerScale(file.name, units) / layerScale(file.name, row.units)
+    await runImport(imports, `Reading ${row.name} again in ${unitsLabel(units).toLowerCase()}…`, async () => {
+      await historyAsync(`Merge: read layer in ${unitsLabel(units).toLowerCase()}`, async () => {
+        // The centre c stays where the pose put it: R(k c) + t' = R c + t.
+        const c = centres.get(id) ?? [0, 0, 0]
+        const rc = new Float64Array(3)
+        rigidRotate(row.pose, c[0], c[1], c[2], rc)
+        const pose = carried(row.pose, cloneRigid(row.pose))
+        for (let i = 0; i < 3; i++) pose.t[i] += (1 - k) * rc[i]
+        await reread(id, units)
+        useMerge.getState().setPose(id, pose)
+      })
+      useStore.getState().setStatus(`${row.name} is read in ${unitsLabel(units).toLowerCase()} now, scaled about its centre. Ctrl+Z reads it as it was.`)
+    })
+  }
+
+  /** A layer's colour, visibility, lock or units. */
+  const setLayer = async (id: string, patch: Partial<Pick<LayerRow, 'color' | 'visible' | 'units' | 'locked'>>): Promise<void> => {
+    rowOf(id)
+    const { units, ...rest } = patch
+    // What is shown is what a merge takes: not while one runs or asks.
+    if (rest.visible !== undefined && refused()) return
+    if (Object.keys(rest).length > 0) useMerge.getState().patchLayer(id, rest)
+    if (units !== undefined) await changeUnits(id, units)
+  }
+
+  // ---- Moving and aligning ----------------------------------------------------------
+
+  const lockedNote = (row: LayerRow) => useStore.getState().setStatus(`${row.name} is locked — unlock it to move it.`)
+
+  /** Put a layer at `pose`, as one step of the history. False for a locked
+   *  layer, which stays. */
+  const moveLayer = (id: string, pose: Rigid): boolean => {
+    const row = rowOf(id)
+    if (row.locked) {
+      lockedNote(row)
+      return false
+    }
+    if (refused()) return false
+    historyAction('Merge: move layer', () => useMerge.getState().setPose(id, pose))
+    useMerge.getState().patchLayer(id, { last: undefined })
+    guessed.add(pose)
+    return true
+  }
+
+  /** The pose of `target` — the base, or a layer — in the base as shown. */
+  const targetPose = (target: string): Rigid => (target === BASE ? identityRigid() : rowOf(target).pose)
+
+  /** An alignment run in the worker and, when it lands, the layer put
+   *  there as one step of the history. The worker answers the pose into the
+   *  target's frame; a layer target's pose carries it on to the base. */
+  const align = async (id: string, target: string, label: string, run: () => Promise<AlignReply>, seeds: boolean | 'if-confident'): Promise<LayerAlignResult | null> => {
+    const row = rowOf(id)
+    const unguessed = seeds === false && !guessed.has(row.pose)
+    if (target !== BASE) rowOf(target)
+    if (row.locked) {
+      lockedNote(row)
+      return null
+    }
+    if (refused()) return null
+    useMerge.getState().setRunning('Aligning the layer…')
+    useStore.getState().setStatus(`Aligning ${row.name}…`)
+    let reply: AlignReply
+    try {
+      reply = await run()
+    } catch (e) {
+      useStore.getState().setError(message(e))
+      return null
+    } finally {
+      useMerge.getState().setRunning(null)
+    }
+    if ('stopped' in reply) {
+      useStore.getState().setStatus(`Stopped — ${row.name} stays where it was.`)
+      return null
+    }
+    if ('refused' in reply) {
+      useStore.getState().setError(reply.refused)
+      return null
+    }
+    // The layers went meanwhile — a new scan, the workspace left.
+    const gone = (l: string) => l !== BASE && !useMerge.getState().layers.some((r) => r.id === l)
+    if (gone(id) || gone(target)) return null
+    const pose = rigidCompose(targetPose(target), reply.pose)
+    historyAction(`Merge: ${label}`, () => useMerge.getState().setPose(id, pose))
+    const result: LayerAlignResult = { ...reply, pose }
+    useMerge.getState().patchLayer(id, { last: result })
+    // An auto pose is no one's guess unless it is sure of itself; picks or
+    // datums the refine drifted off are not a guess either — a Refine from
+    // there would call it confident with the picks no longer checked.
+    if ((seeds === true && !reply.drifted) || (seeds === 'if-confident' && reply.confident)) guessed.add(pose)
+    else if (seeds === false) carried(row.pose, pose)
+    const len = shown()
+    const note = alignNote(reply, len.fmt, MIN_CONSTRAINT, unguessed)
+    useStore
+      .getState()
+      .setStatus(
+        note.kind === 'ok'
+          ? `${row.name} aligned — RMS ${len.fmt(reply.rms, 3)}, ${(reply.matched * 100).toFixed(1)} % of it on its target. Ctrl+Z puts it back.`
+          : `${row.name}: ${note.text}${reply.lowOverlap ? ' Check it before merging.' : ''}`,
+      )
+    return result
+  }
+
+  /** Lay a layer on its target from picked pairs: points on the layer, in
+   *  its frame, and the same points on the target, in the target's. */
+  const alignPairs = (id: string, target: string, pairs: { layer: Vec3; target: Vec3 }[]) =>
+    align(id, target, 'align layer by pairs', () => call('align-pairs', { id, target, pairs }), true)
+
+  /** Lay a layer on its target by datums fitted on both (fitDatum). */
+  const alignDatums = (id: string, target: string, layer: DatumIds, targetDatums: DatumIds) =>
+    align(id, target, 'align layer by datums', () => call('align-datums', { id, target, layer, targetDatums }), true)
+
+  /** Refine a layer onto its target from where it stands. */
+  const refine = (id: string, target: string) => {
+    const start = rigidCompose(rigidInvert(targetPose(target)), rowOf(id).pose)
+    return align(id, target, 'refine layer', () => call('refine', { id, target, start, fromUserGuess: guessed.has(rowOf(id).pose) }), false)
+  }
+
+  /** Lay a layer on its target from no start: the shapes matched, the
+   *  likely poses tried, the best refined. Ambiguous or weak results come
+   *  back not confident, for the warning row to say so. */
+  const autoAlign = (id: string, target: string) =>
+    align(id, target, 'auto align layer', () => call('auto-align', { id, target }), 'if-confident')
+
+  /** A datum fitted on a layer or on the base (BASE) from picked vertices of
+   *  it — kept by the worker for alignDatums, never a session element.
+   *  Null when it could not be fitted, which the status line says. */
+  const fitDatum = async (side: string, elementType: ElementKind, seeds: number[]): Promise<{ fitId: number; fit: FitOutput } | null> => {
+    if (side !== BASE) rowOf(side)
+    if (refused()) return null
+    useMerge.getState().setRunning('Fitting the datum…')
+    try {
+      const r = await call('fit', { id: side, elementType, seeds, settings: useStore.getState().settings })
+      if (side === BASE || useMerge.getState().layers.some((l) => l.id === side)) useMerge.getState().addDatum(side, { fitId: r.fitId, kind: elementType })
+      return r
+    } catch (e) {
+      useStore.getState().setError(message(e))
+      return null
+    } finally {
+      useMerge.getState().setRunning(null)
+    }
+  }
+
+  /** The handle the panel wants on a layer, kept so a layer read again
+   *  (new units, a step across them) gets it back: the viewport drops it
+   *  with the layer it was on. */
+  let handle: { id: string; mode: 'translate' | 'rotate' } | null = null
+  const attachHandle = () => {
+    const view = sceneOf()
+    if (!view) return
+    if (!handle) view.gizmo(null, () => {})
+    else {
+      const id = handle.id
+      view.gizmo(id, (pose) => moveLayer(id, pose), handle.mode)
+    }
+  }
+  /** Put the handle on a layer, or away with null. */
+  const setGizmo = (id: string | null, mode: 'translate' | 'rotate' = 'translate') => {
+    handle = id === null ? null : { id, mode }
+    attachHandle()
+  }
+
+  /** Stop the alignment running. */
+  const stop = () => clientRef.current?.abortAlign()
+
+  // ---- The question a mesh base asks ---------------------------------------------------
+
+  let answer: ((yes: boolean) => void) | null = null
+  const ask = (text: string) =>
+    new Promise<boolean>((resolve) => {
+      answer?.(false)
+      answer = resolve
+      useMerge.getState().setConfirming(text)
+    })
+  /** The panel's yes or no to the question on screen. */
+  const answerConfirm = (yes: boolean) => {
+    const a = answer
+    answer = null
+    useMerge.getState().setConfirming(null)
+    a?.(yes)
+  }
+
+  // ---- Merge ------------------------------------------------------------------------
+
+  /**
+   * The base and the layers shown, as one cloud put in place of the scan
+   * under everything measured on it — one step of the history. A mesh base
+   * asks first. `dedupe`: a layer point within this of one kept before it
+   * goes, mm; null keeps every point. Resolves true when the scan was
+   * merged; false when nothing changed — refused (busy, no layer shown),
+   * answered no at the mesh question (`confirmed` says yes to it
+   * beforehand), or failed (the error line says why).
+   */
+  const merge = async ({ dedupe, confirmed = false }: { dedupe: number | null; confirmed?: boolean }): Promise<boolean> => {
+    if (refused()) return false
+    const shown = () => useMerge.getState().layers.filter((l) => l.visible)
+    const none = () => {
+      useStore.getState().setError('Show at least one layer to merge — the hidden ones are left out.')
+      return false
+    }
+    if (shown().length === 0) return none()
+    if (!confirmed && !useStore.getState().scanIsCloud && !(await ask(MESH_BASE_CONFIRM))) return false
+    if (refused()) return false
+    // Read again after the question: the layers and their poses are what
+    // they are now, not when it was asked.
+    const visible = shown()
+    if (visible.length === 0) return none()
+    let merged: { points: number; dropped: number } | null = null
+    useMerge.getState().setRunning('Merging the layers…')
+    try {
+      await runImport(imports, 'Merging the layers…', async () => {
+        // Loaded here, not with the workspace: the writer is an export
+        // writer, which the app fetches only when one is asked for. First,
+        // so a failed fetch refuses the merge before the worker starts on it.
+        const { buildPointCloudPly } = await import('../../../src/core/exportPointCloud')
+        await historyAsync('Merge: merge layers', async () => {
+          await call('merge-begin', null)
+          ownSwap = true
+          try {
+            const s = useStore.getState()
+            const alignment = s.appliedAlignment
+            const out = await call('merge', {
+              poses: Object.fromEntries(visible.map((l) => [l.id, l.pose])),
+              visible: visible.map((l) => l.id),
+              // Into the base's file frame, at the size it is read at: the
+              // swap puts the alignment back on, and the app has scaled it
+              // on load already.
+              toFile: alignment ? rigidInvert(alignment) : identityRigid(),
+              scale: 1,
+              dedupe,
+            })
+            const base = (s.fileName ?? 'scan').replace(/\.[^.]+$/, '')
+            const name = `${base}-merged.ply`
+            // Written before the swap: the buffers are handed over to it.
+            const file = new MemoryFile(new Uint8Array(buildPointCloudPly(out.positions, out.normals, null, `${s.fileName ?? 'scan'} merged with ${visible.length} layer${visible.length === 1 ? '' : 's'} in ScanRuler`)), name)
+            const dropped = out.dropped
+            // units-ok: the file's own unit, an id — the cloud is written in mm.
+            const loaded = await swapScanBuffers({ name, file, units: 'mm', scale: 1 }, { positions: out.positions, normals: out.normals }, alignment)
+            // Counted as soon as the scan is swapped: the step is recorded
+            // even if what follows throws, and undo must know it crosses one.
+            useMerge.setState((m) => ({ merges: m.merges + 1 }))
+            // Points laid exactly on one another are one point of the scan.
+            const points = useStore.getState().vertexCount
+            remapScan(composeMaps(out.baseMap, loaded))
+            useMerge.setState((m) => ({ layers: m.layers.map((l) => ({ ...l, visible: false })) }))
+            await remeasureScan(true)
+            merged = { points, dropped }
+          } finally {
+            ownSwap = false
+            await call('merge-end', null)
+          }
+        })
+      })
+    } finally {
+      useMerge.getState().setRunning(null)
+    }
+    if (!merged) return false
+    const m = merged as { points: number; dropped: number }
+    useStore
+      .getState()
+      .setStatus(
+        `Merged ${visible.length} layer${visible.length === 1 ? '' : 's'} into the scan — ${count(m.points)} points${m.dropped > 0 ? `, ${count(m.dropped)} dropped as doubles` : ''}. The layers are hidden; Ctrl+Z goes back to the scan before.`,
+      )
+    return true
+  }
+
+  /** What the panel's Merge runs: the dedupe the panel shows. */
+  const mergeShown = () => merge({ dedupe: mergeDedupe(useMerge.getState()) })
+
+  // ---- Keeping in step ----------------------------------------------------------------
+
+  /** Start what keeps the workspace in step with the session: the
+   *  viewport with the store, the poses with a baked move of the base, the
+   *  layers with the scan, and the history's steps across a merge with the
+   *  worker. The returned function stops it. */
+  const watch = () => {
+    const stops = [
+      // The viewport draws what the store says — a step of the history
+      // included.
+      useMerge.subscribe((s, prev) => {
+        const view = sceneOf()
+        if (!view || s.layers === prev.layers) return
+        for (const l of s.layers) {
+          const was = prev.layers.find((p) => p.id === l.id)
+          if (!was) continue
+          if (was.pose !== l.pose) view.setPose(l.id, l.pose)
+          if (was.visible !== l.visible) view.setVisible(l.id, l.visible)
+          if (was.color !== l.color) view.setColor(l.id, l.color)
+        }
+      }),
+      // An alignment baked into the base moves what was laid on it: the
+      // poses are relative to the base as shown. The viewport's layer does
+      // the same of itself (MergeScene.partMoved). Picked pairs are points
+      // as shown, so they are dropped.
+      useStore.subscribe((s, prev) => {
+        if (s.appliedAlignment === prev.appliedAlignment) return
+        if (useMerge.getState().pairs.length > 0) useMerge.getState().setPairs([])
+        const layers = useMerge.getState().layers
+        if (layers.length === 0) return
+        const delta = rigidCompose(s.appliedAlignment ?? identityRigid(), rigidInvert(prev.appliedAlignment ?? identityRigid()))
+        useMerge.setState({ layers: layers.map((l) => ({ ...l, pose: carried(l.pose, rigidCompose(delta, l.pose)) })) })
+      }),
+      onScan({
+        // Another part: its layers go — the worker has dropped them.
+        loaded: () => dropLayers(false),
+        swapped: () => {
+          // The worker's fits on the base were of the vertices that went.
+          useMerge.getState().clearDatums(BASE)
+          if (ownSwap) ownSwap = false
+          else dropLayers(false)
+        },
+      }),
+      // Leaving the workspace puts the layers away for good.
+      useShell.subscribe((s, prev) => {
+        if (prev.workspace === MERGE_WORKSPACE && s.workspace !== MERGE_WORKSPACE) dropLayers(true)
+      }),
+      registerHistory({
+        blocked: () => useMerge.getState().running !== null || useMerge.getState().confirming !== null,
+        // A step across a change of units reads the layer again in the
+        // step's units before its pose goes back on.
+        beforeRestore: async (patch) => {
+          const value = patch[MERGE] as MergeSnapshot | undefined
+          if (!value?.units || !clientRef.current) return
+          for (const l of useMerge.getState().layers) {
+            const i = value.ids.indexOf(l.id)
+            if (i >= 0 && value.units[i] !== l.units) await reread(l.id, value.units[i])
+          }
+        },
+        // A step across a merge re-swaps the scan: the layers stay for it.
+        aroundRestore: async (patch, restore) => {
+          const value = patch[MERGE] as { merges?: number } | undefined
+          const crosses = value !== undefined && value.merges !== useMerge.getState().merges && 'scan' in patch && clientRef.current !== null
+          if (!crosses) return restore()
+          await call('undo-begin', null)
+          ownSwap = true
+          try {
+            await restore()
+          } finally {
+            ownSwap = false
+            await call('undo-end', null)
+          }
+        },
+      }),
+    ]
+    return () => {
+      stops.forEach((s) => s())
+      removeScene?.()
+      removeScene = null
+      scene = null
+      sceneFor = null
+    }
+  }
+
+  return {
+    clientRef,
+    sceneRef,
+    sceneOf,
+    openLayer,
+    removeLayer,
+    setLayer,
+    moveLayer,
+    alignPairs,
+    fitDatum,
+    alignDatums,
+    refine,
+    autoAlign,
+    merge,
+    mergeShown,
+    stop,
+    setGizmo,
+    answerConfirm,
+    dropLayers,
+    layers: (): LayerRow[] => useMerge.getState().layers,
+    /** The vertex of a layer, or of the scan (BASE), nearest `point` — in the
+     *  layer's own frame, or the scan's as shown. Rejects when none lies
+     *  within 5 × the side's point spacing: a point off the part (a typo, the
+     *  wrong frame or units) would seed a datum on whatever vertex is least
+     *  far. With the spacing unknown there is nothing to judge that by: it
+     *  rejects, asking for seeds. */
+    nearestVertex: async (side: string, point: Vec3): Promise<{ vertex: number; distance: number }> => {
+      const of = side === BASE ? 'the base' : `layer "${side}"`
+      let found: { vertex: number; distance: number }
+      let spacing: number
+      if (side === BASE) {
+        // Two questions, asked together.
+        const [s, b] = await Promise.all([clientRef.current!.nearest({ point }), call('base-spacing', null)])
+        found = { vertex: s.vertex, distance: s.distance }
+        spacing = b.spacing
+      } else {
+        spacing = rowOf(side).spacing
+        found = await call('nearest-vertex', { id: side, point })
+      }
+      if (!(spacing > 0)) throw new Error(`The point spacing of ${of} is unknown, so a point near it cannot be told from one off it — give seeds instead of at.`)
+      const cap = 5 * spacing
+      if (!(found.vertex >= 0) || !(found.distance <= cap)) {
+        throw new Error(`No point of ${of} within ${Math.round(cap * 100) / 100} mm of at.`) // units-ok: the command API answers in mm
+      }
+      return found
+    },
+    /** The middle of a layer's bounding box in its own frame, mm. */
+    layerCentre: (id: string): Vec3 => centres.get(id) ?? [0, 0, 0],
+    watch,
+  }
+}
+
+let installed: MergeSession | null = null
+
+/** Make `session` the one the workspace's busy check stops through. The
+ *  returned function takes it away again. */
+export function installMergeSession(session: MergeSession): () => void {
+  installed = session
+  return () => {
+    if (installed === session) installed = null
+  }
+}
+
+/** The session installed, or null with none. */
+export const mergeSession = (): MergeSession | null => installed
+
+/** Resolves once nothing of the workspace runs, or after `ms` at the most:
+ *  a merge cannot be stopped and runs to its end, and a wait on it must not
+ *  hold a command for good — past `ms` the busy check says it still runs. */
+export function mergeIdle(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (useMerge.getState().running === null) return resolve()
+    const done = () => {
+      clearTimeout(timer)
+      unsubscribe()
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    const unsubscribe = useMerge.subscribe((s) => {
+      if (s.running === null) done()
+    })
+  })
+}
+
+/** What the workspace's machinery is busy with, for registerBusy. */
+export function mergeBusy(): string | null {
+  const running = useMerge.getState().running
+  return running ? running.replace(/…$/, '').toLowerCase() : null
+}

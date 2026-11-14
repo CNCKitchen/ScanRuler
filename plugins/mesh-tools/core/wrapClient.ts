@@ -20,6 +20,9 @@ export class WrapClient {
   private nextId = 1
   private listening: { id: number; onProgress: (text: string) => void } | null = null
   private cancelled = new Set<number>()
+  /** Every wrap asked for and not yet answered: one running, the rest
+   *  waiting in the worker behind it. */
+  private inFlight = new Set<number>()
   /** The field kept between wraps run in this thread. */
   private memo = new WrapMemo()
 
@@ -27,6 +30,16 @@ export class WrapClient {
    *  copied. Progress lines go to `onProgress`. */
   async run(positions: Float32Array, indices: Uint32Array, settings: WrapSettings, onProgress: (text: string) => void): Promise<WrapResult> {
     const requestId = this.nextId++
+    this.inFlight.add(requestId)
+    try {
+      return await this.wrap(requestId, positions, indices, settings, onProgress)
+    } finally {
+      this.inFlight.delete(requestId)
+      this.cancelled.delete(requestId)
+    }
+  }
+
+  private async wrap(requestId: number, positions: Float32Array, indices: Uint32Array, settings: WrapSettings, onProgress: (text: string) => void): Promise<WrapResult> {
     if (typeof document === 'undefined') {
       // No page: in this thread, all at once.
       const [{ wrapMesh }, { loadSimplifier }] = await Promise.all([import('./wrap'), import('./reduce')])
@@ -56,10 +69,10 @@ export class WrapClient {
     }
   }
 
-  /** Stop the wrap running, if one is: its run rejects with WrapCancelled. */
+  /** Stop the wrap running, if one is, and any waiting behind it: each
+   *  run rejects with WrapCancelled. */
   cancel(): void {
-    const running = this.listening?.id ?? this.nextId - 1
-    this.cancelled.add(running)
+    for (const id of this.inFlight) this.cancelled.add(id)
     if (this.rpc) {
       this.rpc.dispose()
       this.rpc = null

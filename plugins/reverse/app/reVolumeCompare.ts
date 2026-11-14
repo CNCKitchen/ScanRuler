@@ -27,6 +27,8 @@ type VolumeIn = { bodies?: Ref[]; tolerance?: number; cell?: number; regions?: n
 
 export const volumeCompare: Command<VolumeIn> = {
   name: 'volume_compare',
+  // The scan as a solid: a cloud has no inside to read.
+  needsTriangles: true,
   title: 'Volume error of the bodies',
   description:
     // units-ok: the command's description, for the agent — in millimetres always.

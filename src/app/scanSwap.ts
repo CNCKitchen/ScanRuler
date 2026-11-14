@@ -23,14 +23,16 @@ import { creaseSetting } from '../core/geometry/crease'
 import { useThickness } from '../state/thicknessStore'
 import type { SceneManager } from '../viewer/SceneManager'
 import type { SourceFiles } from './project'
-import { readSourceFile } from '../core/sourceFile'
+import { readInPieces, readSourceFile } from '../core/sourceFile'
 import { scanRemapped, scanRemeasure, scanSwapped, scanSwapping } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { scanCompanions } from './scanFiles'
+import { cloudOf } from './imports'
+import type { LoadedScan } from '../core/workerClient'
 
 /** A scan as the session holds it: its file, its units, and the files that
- *  came with it. An edited version is new bytes, kept as a file of its own
- *  with `new Blob([bytes])`. */
+ *  came with it. An edited version is new bytes, kept as a file of its own:
+ *  a MemoryFile of them. */
 export type ScanSource = NonNullable<SourceFiles['scan']>
 
 export function scanSwap({
@@ -59,11 +61,13 @@ export function scanSwap({
    */
   const swapScan = async (source: ScanSource, transform: Rigid | null): Promise<void> => {
     const client = clientRef.current!
-    const buffer = await readSourceFile(source.file, source.name)
+    // A large cloud is read from its file in the worker, thinned as before.
+    const pieces = readInPieces(source.file, source.name)
+    const buffer = pieces ? source.file : await readSourceFile(source.file, source.name)
     // An edit is a mesh of its own, colourless; the scan before it, on
     // undo, comes back with whatever came with it.
-    const companions = await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? [])
-    const { id, mesh } = await client.prepareScan(
+    const companions = buffer instanceof ArrayBuffer ? await scanCompanions(source.name, new Uint8Array(buffer), source.companions ?? []) : undefined
+    const prepared = await client.prepareScan(
       source.name,
       buffer,
       creaseSetting(useStore.getState()),
@@ -71,7 +75,36 @@ export function scanSwap({
       source.units ?? 'mm', // units-ok: the file's own units, an id
       companions,
       source.scale ?? 1,
+      source.maxPoints,
     )
+    await commitSwap(prepared, source)
+  }
+
+  /**
+   * Put a point cloud from memory in place of the scan: `buffers` are in the
+   * scaled file frame, in millimetres, and are handed over to the worker —
+   * the caller writes `source.file` (a PLY of them, scale 1) first, the file
+   * the project and the history read back. `transform` is the alignment put
+   * on them as they are read, the one the session holds: what is shown is
+   * the cloud moved by it. Answers which vertex of the scan each point
+   * became, -1 where one was dropped: points without a usable normal go,
+   * and exact duplicates are one vertex.
+   */
+  const swapScanBuffers = async (
+    source: ScanSource,
+    buffers: { positions: Float32Array; normals: Float32Array },
+    transform: Rigid | null,
+  ): Promise<Int32Array> => {
+    const n = buffers.positions.length / 3
+    const prepared = await clientRef.current!.prepareCloud(buffers.positions, buffers.normals, creaseSetting(useStore.getState()), transform ?? undefined)
+    await commitSwap(prepared, source)
+    return prepared.mesh.vertexMap ?? Int32Array.from({ length: n }, (_, i) => i)
+  }
+
+  /** The prepared scan made the session's: shared by both swaps. */
+  const commitSwap = async (prepared: { id: number; mesh: LoadedScan }, source: ScanSource): Promise<void> => {
+    const client = clientRef.current!
+    const { id, mesh } = prepared
     try {
       await client.commitImport({ scan: id })
     } catch (e) {
@@ -97,10 +130,11 @@ export function scanSwap({
     // Without a viewport the part's size is read off the mesh, as an open
     // reads it.
     const scene = sceneRef.current
-    scene?.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null)
+    scene?.replaceScan(mesh.positions, mesh.indices, mesh.normals, mesh.wireSlots, mesh.copyOf, mesh.colors ?? null, cloudOf(mesh))
     const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
     useStore.setState((s) => ({
       scanColors: Boolean(mesh.colors),
+      scanIsCloud: mesh.kind === 'cloud',
       vertexCount: mesh.vertexCount,
       triangleCount: mesh.triangleCount,
       modelSize: scene?.modelSize() ?? bounds!.radius,
@@ -166,5 +200,5 @@ export function scanSwap({
     scanRemapped(remap)
   }
 
-  return { swapScan, remeasureScan, remapScan }
+  return { swapScan, swapScanBuffers, remeasureScan, remapScan }
 }

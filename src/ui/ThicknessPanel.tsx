@@ -7,6 +7,7 @@
 
 import { useShallow } from 'zustand/react/shallow'
 import { CONE_CHOICES, useThickness } from '../state/thicknessStore'
+import { useCloudRefusal } from './cloudGate'
 import { useStore } from '../state/store'
 import { usePulse } from '../app/useHints'
 import { CopyButton } from './CopyButton'
@@ -28,6 +29,7 @@ export function ThicknessPanel({
   onCopy: () => void
 }) {
   const scanName = useStore((s) => s.fileName)
+  const noThickness = useCloudRefusal('thickness')
   const scanTriangles = useStore((s) => s.triangleCount)
   const scanBusy = useStore((s) => s.busy)
   // Only what the panel shows and sets: the store is also written when a map
@@ -233,7 +235,8 @@ export function ThicknessPanel({
           className={pulse ? 'primary block pulse' : 'primary block'}
           data-test="measure-thickness"
           data-confirm={t.status === 'ready' ? undefined : 1}
-          disabled={!ready || busy}
+          disabled={!ready || busy || noThickness !== null}
+          title={noThickness ?? undefined}
           onClick={onMeasure}
         >
           {t.status === 'running' ? (

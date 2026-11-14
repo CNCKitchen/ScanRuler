@@ -150,6 +150,23 @@ describe('scan.segment', () => {
     for (const n of past) expect(n.deg).toBeLessThanOrEqual(35)
   })
 
+  it('gives each region a point on it: a ring’s, not its centroid in the hole', async () => {
+    // The inner ring of the beaded plate runs 10 to 23.8 mm out: its centroid
+    // is the origin, in the hole, where a plane seeded on it fits nothing.
+    await run('scan.open', { bytes: stlBytes(beadedPlate(25, 1.2)), name: 'bead.stl', discard: true })
+    const s = await run<Segmented>('scan.segment', { minArea: 10 })
+    const flat = s.regions.filter((r) => near(r.normal, [0, 0, 1]) && Math.abs(r.point[2]) < 0.05)
+    expect(flat.length).toBeGreaterThan(0)
+    for (const r of flat) {
+      const rho = Math.hypot(r.point[0], r.point[1])
+      expect(rho, `region ${r.id}`).toBeGreaterThan(9.9)
+      // A vertex of the plate's rings, by its radius.
+      expect(rho < 23.85 || rho > 26.15, `region ${r.id}`).toBe(true)
+    }
+    const seeded = await run<{ element: { fit: { normal: Vec3 }; sigma?: number } }>('element.fit', { kind: 'plane', at: { point: flat[0].point } })
+    expect(Math.abs(seeded.element.fit.normal[2])).toBeGreaterThan(0.999)
+  })
+
   it('names the strips a curved surface is cut into, and the run they make', async () => {
     // R40 over 60°: a plane grows about 10° of it before its σ reaches
     // maxRms, so it comes out as several regions.

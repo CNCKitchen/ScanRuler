@@ -52,11 +52,13 @@ import type { OfferedSolid, SolidMesh } from '../../../src/app/solids'
 import { booleanSolids, namesOf } from './booleanSolids'
 import { creaseSetting } from '../../../src/core/geometry/crease'
 import type { ReduceReport } from '../core/reduce'
+import type { MeshCloudReport, MeshCloudSettings } from '../core/meshCloud'
 import { WrapCancelled, WrapClient } from '../core/wrapClient'
 import type { WrapReport } from '../core/wrap'
 import { boundLength } from '../../../src/app/useUnits'
 import type { DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
+import { MemoryFile } from '../../../src/core/sourceFile'
 
 const count = (n: number) => n.toLocaleString('en-US')
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
@@ -147,6 +149,9 @@ export function createMeshToolsSession({
   // was made of, whose vertices it keeps none of.
   const wrapped: { current: { positions: Float32Array; indices: Uint32Array; from: number } | null } = { current: null }
   const wrapClient = new WrapClient()
+  /** Bumped by every cancel: a wrap still waiting for its triangles sees it
+   *  moved and never starts. */
+  let wrapStops = 0
 
   const tools = () => meshToolsOf(clientRef.current!)
 
@@ -230,8 +235,11 @@ export function createMeshToolsSession({
     // volume before, measured there while the wrap is worked out in its own.
     const triangles = client.triangles()
     const before = client.describe().catch(() => null)
+    const stops = wrapStops
     try {
       const { positions, indices } = await triangles
+      // Cancelled while the triangles were still on their way: no wrap starts.
+      if (stops !== wrapStops) throw new WrapCancelled()
       const from = positions.length / 3
       const result = await wrapClient.run(positions, indices, settings, (text) => {
         useMeshTools.getState().wrapProgress(text)
@@ -262,7 +270,9 @@ export function createMeshToolsSession({
 
   /** Stop the wrap being worked out; the one on hand, if any, stays. */
   const cancelWrap = () => {
-    if (useMeshTools.getState().wrapStatus === 'running') wrapClient.cancel()
+    if (useMeshTools.getState().wrapStatus !== 'running') return
+    wrapStops++
+    wrapClient.cancel()
   }
 
   /** Put the wrap on hand away: the mesh it was made of is shown again. */
@@ -428,6 +438,48 @@ export function createMeshToolsSession({
   }
 
   /**
+   * Mesh this cloud: the point-cloud scan made a mesh (core/meshCloud) and
+   * loaded in its place under everything measured on it, as one step of the
+   * undo history. The marks and selections made on the cloud's points go —
+   * a mesh has other vertices — and the elements are fitted again on it.
+   * Undone, the cloud is back. The report, or null when it did not go
+   * through (the error line says why).
+   */
+  const meshThisCloud = async (settings: MeshCloudSettings = {}, run?: EditRun): Promise<MeshCloudReport | null> => {
+    const c = clientRef.current
+    if (!c || !useStore.getState().scanIsCloud) return null
+    if (refused(run, 'Finish or cancel what is open first — the scan cannot change under it.')) return null
+    let report: MeshCloudReport | null = null
+    useMeshTools.getState().setEditing(true)
+    try {
+      await runImport(imports, 'Meshing the cloud…', async () => {
+        const made = await meshToolsOf(c).meshCloud(settings)
+        const s = useStore.getState()
+        const before = s.vertexCount
+        // Kept in the frame the scan was opened in, as an edited copy is, so
+        // the alignment goes on it as it goes on the scan.
+        const alignment = s.appliedAlignment
+        if (alignment) rigidApplyToPoints(rigidInvert(alignment), made.positions)
+        const name = s.fileName ?? 'scan'
+        const bytes = buildBinaryPly(made.positions, made.indices, `${name}, meshed in ScanRuler`)
+        await historyAsync('Mesh this cloud', async () => {
+          // units-ok: the file's own unit, an id — the mesh is written in mm.
+          await swapScan({ name: `${name.replace(/\.[^.]+$/, '')}.ply`, file: new MemoryFile(bytes, `${name.replace(/\.[^.]+$/, '')}.ply`), units: 'mm' }, alignment)
+          // No vertex of the mesh is a point of the cloud.
+          remapScan(new Int32Array(before).fill(-1))
+          await remeasureScan(true)
+        })
+        const len = lengthsOf(run?.units)
+        useStore.getState().setStatus(`The cloud is a mesh now — ${count(made.report.triangles)} triangles, ${len.fmt(made.report.cell)} cells. Ctrl+Z returns the cloud.`)
+        report = made.report
+      })
+    } finally {
+      useMeshTools.getState().setEditing(false)
+    }
+    return report
+  }
+
+  /**
    * Take the edited copy into use: it becomes the scan every workspace
    * measures, loaded in place of it under everything measured on it — the
    * elements fitted again on it, the maps measured again — as one step of
@@ -443,9 +495,12 @@ export function createMeshToolsSession({
     try {
       await runImport(imports, 'Taking the edited mesh into use…', async () => {
         await historyAsync('Mesh Tools: use the edited mesh for analysis', async () => {
-          // The session keeps a scan as a file: the edited bytes become one.
+          // The session keeps a scan as a file: the edited bytes become one —
+          // shared with the copy, not copied. Neither writes to them, every
+          // read of a MemoryFile is a copy (nothing hands their buffer to a
+          // worker), and the history weighs them with the scan.
           const { name, bytes, units } = copy.source
-          await swapScan({ name, file: new Blob([bytes as BlobPart]), units }, useStore.getState().appliedAlignment)
+          await swapScan({ name, file: new MemoryFile(bytes, name), units }, useStore.getState().appliedAlignment)
           remapScan(copy.map)
           useMeshTools.getState().takePending()
           await remeasureScan(true)
@@ -1078,6 +1133,7 @@ export function createMeshToolsSession({
     applyWrap,
     setEditedCopy,
     adoptEditedCopy,
+    meshThisCloud,
     discardEditedCopy,
     removeIslands,
     deleteMarked,

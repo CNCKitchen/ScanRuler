@@ -11,6 +11,7 @@ import { useThickness } from '../state/thicknessStore'
 import { sheetKeyOf, sheetOf, useFlat, type FlatSubject, type SheetState } from '../state/flatStore'
 import { CORE_WORKSPACES, useShell, type Workspace } from '../state/shellStore'
 import { plugins } from '../plugins/registry'
+import { workspaceUnavailable } from './workspaceAvailability'
 import { keptParts, projectSections } from './projectSections'
 import {
   alignFromJson,
@@ -35,6 +36,7 @@ import {
 } from '../core/project/manifest'
 import type { ArchiveMember } from '../core/project/archive'
 import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
+import { byteSizeText, storedBytes } from '../core/sourceFile'
 
 /** The original bytes of every model the session holds, kept from the moment
  *  each was opened: the worker takes its copy by transfer and the scene keeps
@@ -50,8 +52,11 @@ export interface SourceFiles {
    *  and is read the same way again from a project or after a worker
    *  restart. Absent means millimetres. `scale` is the factor the scan was
    *  scaled by to its true size (core/scanScale), read into it on top of the
-   *  units the same way; absent means 1. */
-  scan: { name: string; file: Blob; units?: MeshUnits; scale?: number; companions?: ScanCompanion[] } | null
+   *  units the same way; absent means 1. `maxPoints`: a point cloud thinned
+   *  evenly to that many as it was read, and so read again. `held`: the file
+   *  is a cloud the app held and wrote into a project (ScanPart.heldCloud),
+   *  not the one it was first opened from. */
+  scan: { name: string; file: Blob; units?: MeshUnits; scale?: number; maxPoints?: number; held?: true; companions?: ScanCompanion[] } | null
   reference: { name: string; file: Blob; units?: MeshUnits } | null
   image: { name: string; bytes: Uint8Array } | null
 }
@@ -159,6 +164,55 @@ export function projectHasContent(sources: SourceFiles): boolean {
   )
 }
 
+/** Past this size a cloud's file is not packed into a project: the cloud
+ *  the app holds is, as a PLY (heldCloud). Not tied to what a project may
+ *  hold (PROJECT_LIMITS): the file is read whole into the tab to be packed,
+ *  and a cloud read in pieces may be past the 2 GiB one member can be. */
+export const PACK_ORIGINAL_BYTES = 512 * 1024 * 1024
+
+/** Whether a project keeps the cloud the app holds in place of the scan's
+ *  file: a point cloud thinned as it was read — its file holds points the
+ *  session does not, and would be thinned again on every open — or one
+ *  whose file is past `limit`. A mesh, and a cloud kept whole and small,
+ *  keep their file. */
+export function packsHeldCloud(scan: SourceFiles['scan'], scanIsCloud: boolean, limit = PACK_ORIGINAL_BYTES): boolean {
+  if (!scan || !scanIsCloud || scan.held) return false
+  return !!scan.maxPoints || scan.file.size > limit
+}
+
+/** A collected project with its scan member swapped for `ply`, the cloud
+ *  the app holds written as a PLY in millimetres in the file's frame: no
+ *  units, scale or thinning left to put on it, and no companions. The
+ *  project given is left as it is — it is what the session is compared
+ *  against for unsaved changes. */
+export function withHeldCloud(
+  project: { manifest: ProjectManifest; members: ArchiveMember[] },
+  ply: Uint8Array,
+): { manifest: ProjectManifest; members: ArchiveMember[] } {
+  const scan = project.manifest.scan
+  if (!scan) return project
+  const member = memberName(SCAN_STEM, 'cloud.ply')
+  const dropped = new Set([member, scan.member, ...(scan.companions ?? []).map((c) => c.member)])
+  const held: ScanPart = { ...scan, member, heldCloud: true }
+  delete held.units
+  delete held.scale
+  delete held.maxPoints
+  delete held.companions
+  return {
+    manifest: { ...project.manifest, scan: held },
+    members: [{ name: member, bytes: ply }, ...project.members.filter((m) => !dropped.has(m.name))],
+  }
+}
+
+/** The status line's word on a project whose scan went in as the cloud the
+ *  app holds: what it is instead of the file, and why. */
+export function heldCloudWord(scan: NonNullable<SourceFiles['scan']>, points: number): string {
+  const count = points.toLocaleString('en-US')
+  return scan.maxPoints
+    ? ` The scan is saved as the ${count} points it was thinned to, not the original ${scan.name}.`
+    : ` The scan is saved as the ${count} points read from ${scan.name}, not the ${byteSizeText(scan.file.size)} file itself.`
+}
+
 export function collectProject(
   sources: SourceFiles,
   scope: Uint32Array | null,
@@ -217,7 +271,7 @@ function coreProject(
   let scan: ScanPart | null = null
   if (sources.scan && s.fileName) {
     const member = memberName(SCAN_STEM, sources.scan.name)
-    members.push({ name: member, bytes: sources.scan.file })
+    members.push({ name: member, bytes: storedBytes(sources.scan.file) })
     // What came with it, each under a member of its own and the name it came
     // under — the name is how the OBJ and its library find it again.
     const companions = (sources.scan.companions ?? []).map((c, i) => {
@@ -231,6 +285,8 @@ function coreProject(
       ...(companions.length > 0 ? { companions } : {}),
       ...(sources.scan.units && sources.scan.units !== 'mm' ? { units: sources.scan.units } : {}),
       ...(sources.scan.scale !== undefined && sources.scan.scale !== 1 ? { scale: sources.scan.scale } : {}),
+      ...(sources.scan.maxPoints && !sources.scan.held ? { maxPoints: sources.scan.maxPoints } : {}),
+      ...(sources.scan.held ? { heldCloud: true as const } : {}),
       ...(s.scanScale ? { scaled: s.scanScale } : {}),
       appliedAlignment: s.appliedAlignment ? rigidToJson(s.appliedAlignment) : null,
       elements: s.elements.map(elementToJson),
@@ -255,7 +311,7 @@ function coreProject(
   let reference: DeviationPart['reference'] = null
   if (sources.reference && dev.nominalName) {
     const member = memberName(REFERENCE_STEM, sources.reference.name)
-    members.push({ name: member, bytes: sources.reference.file })
+    members.push({ name: member, bytes: storedBytes(sources.reference.file) })
     reference = {
       fileName: dev.nominalName,
       member,
@@ -548,7 +604,7 @@ export function prepareProjectState(m: ProjectManifest, members: ReadonlyMap<str
 /** Open the workspace a project was saved in — one of the app's, or one a
  *  plugin in use adds. A workspace this build does not have opens 3D
  *  Measure instead. */
-function applyWorkspace(w: string): void {
+export function applyWorkspace(w: string): void {
   const known: Workspace[] = [...CORE_WORKSPACES, ...plugins().flatMap((p) => (p.workspace ? [p.workspace.id] : []))]
-  useShell.getState().setWorkspace(known.includes(w) ? w : 'elements')
+  useShell.getState().setWorkspace(known.includes(w) && workspaceUnavailable(w) === null ? w : 'elements')
 }

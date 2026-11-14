@@ -86,6 +86,11 @@ describe('worker import transactions', () => {
     if (nominal.type === 'nominal-loaded') expect(nominal.bboxDiagonal).toBeCloseTo(10 * Math.SQRT2)
   })
 
+  it('names every scan format, the point clouds too, when it refuses a file', () => {
+    const reply = send({ type: 'load', requestId: 1, name: 'scan.dat', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 } })
+    expect(reply).toMatchObject({ type: 'error', message: 'Unsupported file type ".dat" — use STL, PLY, OBJ, 3MF, STEP, XYZ, ASC or PTS.' })
+  })
+
   it('refuses a unit scale that is not a positive number', () => {
     expect(send({ type: 'load', requestId: 1, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, scale: 0 }).type).toBe('error')
     expect(send({ type: 'load', requestId: 2, name: 'scan.obj', buffer: triangle(0), crease: { mode: 'off', angleDeg: 30 }, scale: NaN }).type).toBe('error')

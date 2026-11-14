@@ -27,20 +27,80 @@ import { localNoise } from '../geometry/scanQa'
 import { cylinderResidual, fitCylinderOnAxis, refineCylinderGeometric, splitTwoCylinders } from './cylinder'
 import { fitHeight } from './heightSurface'
 import { normalizeOrZ, orthoBasis, rmsOver, symmetricEigen3 } from './linalg'
+import { cloudGridOf } from '../geometry/cloudGrid'
 import { planeResidual, splitTwoPlanes } from './plane'
 
 const DEG = Math.PI / 180
 
 /** Each vertex's share of the scan's surface: a third of every triangle it
  *  is a corner of. Kept per graph — the triangles never change under it, and
- *  a rigid alignment leaves their areas as they are. */
+ *  a rigid alignment leaves their areas as they are. A cloud's points each
+ *  stand for the patch around them (see cloudAreas). */
 const areaCache = new WeakMap<MeshGraph, Float32Array>()
+
+/** A cloud's points have no triangles, so each stands for the patch of
+ *  surface around it. The disc out to the k-th nearest neighbour holds k
+ *  points, so a point's share is pi r^2 / k — with r^2 taken midway between
+ *  the k-th and the (k+1)-th neighbour's, which is unbiased on scattered
+ *  points and does not swing with how a regular grid's rings fall. Unlike a
+ *  fixed spacing^2 it follows the density: a Poisson-sampled or half-dense
+ *  cloud still sums to its true area. A point on the rim of the cloud sees
+ *  its neighbours on one side only, so its disc is half empty and the share
+ *  too large; the widest angular gap among its neighbours, seen along its
+ *  normal, scales it back. Reach is capped at 3 spacings so a stray point is
+ *  not given the area of the gap to the cloud; a point with no neighbour in
+ *  reach gets spacing^2. */
+const CLOUD_AREA_K = 8
+function cloudAreas(g: MeshGraph, out: Float32Array): void {
+  const n = g.vertexCount
+  if (n === 0) return
+  const p = g.positions
+  const nrm = g.normals
+  const spacing = g.spacing ?? g.bboxDiag / Math.cbrt(n)
+  const reach = 3 * spacing
+  // The shared grid: any cell answers a query out to `reach`.
+  const grid = cloudGridOf(g, spacing)
+  const near = new Int32Array(CLOUD_AREA_K + 1)
+  const angles: number[] = []
+  const d2 = (v: number, w: number) => (p[w * 3] - p[v * 3]) ** 2 + (p[w * 3 + 1] - p[v * 3 + 1]) ** 2 + (p[w * 3 + 2] - p[v * 3 + 2]) ** 2
+  for (let v = 0; v < n; v++) {
+    const m = grid.kNearest(v, CLOUD_AREA_K + 1, reach, near)
+    if (m === 0) {
+      out[v] = spacing * spacing
+      continue
+    }
+    let area: number
+    if (m > CLOUD_AREA_K) area = (Math.PI * (d2(v, near[CLOUD_AREA_K - 1]) + d2(v, near[CLOUD_AREA_K]))) / (2 * (CLOUD_AREA_K + 0.5))
+    else area = (Math.PI * d2(v, near[m - 1])) / m
+    // The widest empty wedge around the point, in its tangent plane.
+    const [[ux, uy, uz], [wx, wy, wz]] = orthoBasis([nrm[v * 3], nrm[v * 3 + 1], nrm[v * 3 + 2]])
+    angles.length = 0
+    const take = Math.min(m, CLOUD_AREA_K)
+    for (let i = 0; i < take; i++) {
+      const q = near[i] * 3
+      const dx = p[q] - p[v * 3], dy = p[q + 1] - p[v * 3 + 1], dz = p[q + 2] - p[v * 3 + 2]
+      angles.push(Math.atan2(dx * wx + dy * wy + dz * wz, dx * ux + dy * uy + dz * uz))
+    }
+    if (angles.length >= 2) {
+      angles.sort((x, y) => x - y)
+      let gap = angles[0] + 2 * Math.PI - angles[angles.length - 1]
+      for (let i = 1; i < angles.length; i++) gap = Math.max(gap, angles[i] - angles[i - 1])
+      area /= 1 + Math.max(0, gap - (2 * Math.PI) / 3) / (Math.PI / 3)
+    }
+    out[v] = area
+  }
+}
 
 export function vertexAreas(g: MeshGraph): Float32Array {
   const kept = areaCache.get(g)
   if (kept) return kept
   const { positions: p, indices } = g
   const out = new Float32Array(g.vertexCount)
+  if (g.triangleCount === 0) {
+    cloudAreas(g, out)
+    areaCache.set(g, out)
+    return out
+  }
   for (let t = 0; t + 2 < indices.length; t += 3) {
     const a = indices[t] * 3, b = indices[t + 1] * 3, c = indices[t + 2] * 3
     const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
@@ -571,6 +631,42 @@ export function planeRegionReport(
  *  peeled off the region, so the region stops a little short. */
 const CLOSED_REACH_OF_R = 1
 
+/** A point on a floor or cap has its normal this close to along the axis (cos). */
+const FLOOR_ALONG = 0.5
+
+/** A cloud has no triangles for the axis to cross, so a floor or cap is read
+ *  from its points: those within one spacing of the axis line whose normals
+ *  lie along it (the bore's own wall lies a radius off). The points of one
+ *  surface are not at one t on a rough scan, so those within a spacing of
+ *  each other along the axis count as one crossing, at their mean. */
+function crossingsOfPoints(g: MeshGraph, pu: Float32Array, pv: Float32Array, pt: Float32Array, a: Vec3, hits: number[]): void {
+  // Every cloud graph carries its spacing (buildPointGraph); a mesh never gets here.
+  const spacing = g.spacing
+  if (!(spacing && spacing > 0)) return
+  const n = g.normals
+  const near: number[] = []
+  for (let k = 0; k < g.vertexCount; k++) {
+    if (Math.hypot(pu[k], pv[k]) > spacing) continue
+    if (Math.abs(n[k * 3] * a[0] + n[k * 3 + 1] * a[1] + n[k * 3 + 2] * a[2]) < FLOOR_ALONG) continue
+    near.push(pt[k])
+  }
+  near.sort((x, y) => x - y)
+  let sum = 0
+  let count = 0
+  let last = -Infinity
+  for (const t of near) {
+    if (count > 0 && t - last > spacing) {
+      hits.push(sum / count)
+      sum = 0
+      count = 0
+    }
+    sum += t
+    count++
+    last = t
+  }
+  if (count > 0) hits.push(sum / count)
+}
+
 /**
  * Whether a bore is closed at an end, read by casting its axis from the
  * middle of the wall toward each end: on the axis inside a bore there is
@@ -620,6 +716,7 @@ export function closedAlong(g: MeshGraph, region: Uint32Array, fit: { center: Ve
     pt[k] = qx * a[0] + qy * a[1] + qz * a[2]
   }
   const hits: number[] = []
+  if (g.triangleCount === 0) crossingsOfPoints(g, pu, pv, pt, a, hits)
   for (let f = 0; f + 2 < indices.length; f += 3) {
     const i0 = indices[f], i1 = indices[f + 1], i2 = indices[f + 2]
     const u0 = pu[i0], u1 = pu[i1], u2 = pu[i2]
@@ -673,8 +770,12 @@ export interface SegmentOptions {
 export interface SegmentedPlane {
   /** Out of the part, by a vote of the region's vertex normals. */
   normal: Vec3
-  /** The region's centroid, on its plane. */
+  /** The region's centroid, on its plane — which need not lie on the region:
+   *  a boss top's falls in its hole. */
   point: Vec3
+  /** A point of the region itself: its member nearest the centroid. A fit
+   *  seeded here seeds on the region. */
+  on: Vec3
   /** RMS of the region's points off its plane, mm. */
   sigma: number
   area: number
@@ -1021,10 +1122,18 @@ export function segmentPlanes(g: MeshGraph, opts: SegmentOptions): Segmentation 
         if (x > max[k]) max[k] = x
       }
     }
+    let near = r.members[0], nearD2 = Infinity
+    for (const v of r.members) {
+      const d2 = (P[v * 3] - r.point[0]) ** 2 + (P[v * 3 + 1] - r.point[1]) ** 2 + (P[v * 3 + 2] - r.point[2]) ** 2
+      if (d2 < nearD2) { nearD2 = d2; near = v }
+    }
+    const on: Vec3 = [P[near * 3], P[near * 3 + 1], P[near * 3 + 2]]
     const [e1, e2] = orthoBasis(r.normal)
     const curve = curveOf(P, vertices.subarray(offsets[i], offsets[i + 1]), r.normal, e1, e2, CURVE_SAMPLE_SEGMENT)
-    const region: SegmentedPlane = { normal: r.normal, point: r.point, sigma: r.sigma, area: r.area, min, max, count: r.members.length, neighbours: [], curve, curved: false }
-    region.curved = isCurved(region)
+    const region: SegmentedPlane = { normal: r.normal, point: r.point, on, sigma: r.sigma, area: r.area, min, max, count: r.members.length, neighbours: [], curve, curved: false }
+    // A bow below the float32 floor of the positions is rounding, not a curve: on
+    // exact data the quadric's sigma is that rounding too, and the ratios decide at random.
+    region.curved = isCurved(region) && region.curve!.sagitta >= bandFloor
     return region
   })
 

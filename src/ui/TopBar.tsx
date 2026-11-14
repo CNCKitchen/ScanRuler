@@ -16,11 +16,12 @@ import { plugins } from '../plugins/registry'
 import { UndoRedo } from './UndoRedo'
 import { AGENT_STATUS, useAgentLink } from '../commands/agentLink'
 import { Icon, type IconName } from './icons'
-import { IMAGE_ACCEPT, SCAN_ACCEPT, isImageFile, isModelFile, isTextureFile } from '../core/formats'
+import { IMAGE_ACCEPT, OPENABLE_FORMATS, SCAN_ACCEPT, isImageFile, isModelFile, isTextureFile } from '../core/formats'
 import { bundleFiles } from '../app/scanFiles'
 import { PROJECT_ACCEPT, PROJECT_EXTENSION, projectStem } from '../core/project/manifest'
 import { holdsProject, isProjectFile } from '../app/useProject'
 import { APP_VERSION } from '../version'
+import { watchWorkspaceAvailability, workspaceUnavailable } from '../app/workspaceAvailability'
 import type { RecoveryStatus } from '../app/useRecovery'
 
 const GITHUB_URL = 'https://github.com/CNCKitchen/scanruler'
@@ -186,6 +187,10 @@ export function TopBar({
   recovery: RecoveryStatus
 }) {
   const fileName = useStore((s) => s.fileName)
+  // Read in render: the bar redraws when the scan turns into a cloud.
+  const unavailable = workspaceUnavailable
+  useEffect(() => watchWorkspaceAvailability(), [])
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
   const triangleCount = useStore((s) => s.triangleCount)
   const vertexCount = useStore((s) => s.vertexCount)
   const busy = useStore((s) => s.busy)
@@ -216,7 +221,7 @@ export function TopBar({
                 .setError(
                   isTextureFile(file.name)
                     ? `${file.name} is part of a textured scan — open it together with its OBJ (select the OBJ, the .mtl and the image at once).`
-                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, STEP, PNG or JPEG.`,
+                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, ${OPENABLE_FORMATS}.`,
                 ),
         )
     }
@@ -249,9 +254,9 @@ export function TopBar({
             data-test={`workspace-${w.id}`}
             aria-selected={workspace === w.id}
             className={workspace === w.id ? 'on' : undefined}
-            title={`${w.label}\n${w.title}`}
+            title={unavailable(w.id) ?? `${w.label}\n${w.title}`}
             aria-label={w.label}
-            disabled={picking}
+            disabled={picking || unavailable(w.id) !== null}
             onClick={() => setWorkspace(w.id)}
           >
             <Icon name={w.icon} size={16} />
@@ -264,8 +269,8 @@ export function TopBar({
         <div className="partchip file-info" title={fileName}>
           <b>{fileName}</b>
           <span>
-            {triangleCount.toLocaleString('en-US')} triangles ·{' '}
-            {vertexCount.toLocaleString('en-US')} vertices
+            {scanIsCloud ? '' : `${triangleCount.toLocaleString('en-US')} triangles · `}
+            {vertexCount.toLocaleString('en-US')} {scanIsCloud ? 'points' : 'vertices'}
           </span>
         </div>
       )}

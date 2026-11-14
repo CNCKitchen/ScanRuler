@@ -244,19 +244,35 @@ async function nearNote(path) {
   return ` ${folder} is there, with nothing in it named like ${missing}.`
 }
 
+/** The largest file a path hands to the page, bytes. It goes as one
+ *  WebSocket message, which the page holds whole beside the copy it reads:
+ *  a 1.35 GB cloud took the tab down (its renderer was gone, nothing said
+ *  why), so a larger file is refused before it is read, by its size. */
+export const MAX_FILE_BYTES = 1024 ** 3
+
+/** A size in bytes as people read it: "1.35 GB", "1 GiB". */
+const sizeText = (bytes) => (bytes === 1024 ** 3 ? '1 GiB' : bytes >= 1e9 ? `${(bytes / 1e9).toFixed(2)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`)
+
 /** The tool call's arguments as the command's input: a path read into the
  *  bytes it names. Returns the input, the input field the bytes go in, and
  *  the file read — a folder's one file, when the path named a folder. */
-export async function inputFor(command, args, { cwd }) {
+export async function inputFor(command, args, { cwd, maxBytes = MAX_FILE_BYTES }) {
   const input = { ...(args ?? {}) }
   delete input.saveTo
   const bytesKey = bytesProperty(command)
   if (bytesKey) {
     const file = await fileAt(command, absolute(String(input.path ?? ''), cwd))
     delete input.path
+    const size = (await stat(file).catch(() => null))?.size ?? 0
+    if (size > maxBytes) {
+      throw { code: 'invalid_input', message: `${file} is ${sizeText(size)} — too large to hand to the ScanRuler page: a file goes over the link to it in one message of at most ${sizeText(maxBytes)} (${maxBytes.toLocaleString('en-US')} bytes). Open it in the page itself (the start screen's Open, or drop it on the page), which reads a point cloud past 2 GiB (offering to thin one too large to hold) and a mesh up to 2 GiB.` }
+    }
     let bytes
     try {
-      bytes = new Uint8Array(await readFile(file))
+      // A view of the Buffer read, not a copy of it: a scan of hundreds of
+      // megabytes would otherwise be held twice.
+      const read = await readFile(file)
+      bytes = new Uint8Array(read.buffer, read.byteOffset, read.byteLength)
     } catch (e) {
       if (e.code !== 'ENOENT') throw { code: 'invalid_input', message: `Could not read ${file}: ${e.message}.` }
       throw { code: 'invalid_input', message: `Could not read ${file}: there is no such file.${await nearNote(file)}` }
@@ -346,6 +362,10 @@ export function wholeUtf8(bytes, most = bytes.length) {
   return cut
 }
 
+/** The most base64 characters a picture is sent inline with: well under
+ *  the 10 MB a client's stdio read buffer takes. */
+export const INLINE_PICTURE_MOST = 6 * 1024 * 1024
+
 /** A picture a command handed back, as MCP content: the image, and the rest
  *  of the result as text — where the picture was written, if the call gave
  *  a path, in place of its bytes; written and not shown with `inline:
@@ -353,6 +373,14 @@ export function wholeUtf8(bytes, most = bytes.length) {
 export async function imageContent(result, args, { cwd, outDir }) {
   const file = result?.file
   if (!file || !(file.bytes instanceof Uint8Array) || !String(file.mimeType ?? '').startsWith('image/')) return null
+  // Clients read a message off the server's stdout into a buffer that
+  // closes the channel past its size (the MCP SDK's is 10 MB), which ends
+  // this server with it: a picture whose base64 would come near that is
+  // written to a file and not shown.
+  if (Math.ceil(file.bytes.byteLength / 3) * 4 > INLINE_PICTURE_MOST) {
+    const saved = await saveFileResult(result, args?.path ? args : { ...args, path: undefined }, { cwd, outDir })
+    return [{ type: 'text', text: agentJson({ ...saved, notInline: `The picture is ${file.bytes.byteLength.toLocaleString('en-US')} bytes, too large to send inline; it was written to ${saved.file.path}. Ask for a smaller width and height to see it here.` }) }]
+  }
   const saved = args?.path ? await saveFileResult(result, args, { cwd, outDir }) : { ...result, file: { name: file.name, mimeType: file.mimeType, size: file.bytes.byteLength } }
   if (args?.path && args?.inline === false) return [{ type: 'text', text: agentJson(saved) }]
   return [

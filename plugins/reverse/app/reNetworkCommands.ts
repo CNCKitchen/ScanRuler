@@ -490,6 +490,8 @@ const CREATE_WHOLE = createIn(true)
 
 export const networkCreate: Command<{ name?: string; curves: CurveIn[]; fill?: FillIn; snap?: number; fit?: { smoothness?: number; robust?: boolean; tolerance?: number }; detail?: 'none' | 'brief' }> = {
   name: 'create',
+  // A patch network's cells are the scan's triangles; a cloud has none.
+  needsTriangles: true,
   title: 'Make a patch network',
   description:
     `Make a Patch network as the panel’s box makes one: curves drawn on the scan, the regions they close filled with B-spline patches fitted to the scan together — neighbours share the curve between them exactly and meet tangent across it, unless it is a crease. One body: a sheet, or a solid where the network closes — a fitted surface model, not a parametric one, for fold-back, several patches meeting tangent, and creases. Each curve is its points in order (first end, grips, last end), each taken onto the scan (offScan for one more than ${OFF_SCAN_MM} mm off it), the curve following the scan between them; curves meet only at their points — a point within snap of a node, a grip or the run of a curve given before is a node of both (joined). A region closes with three to six sides; fill: "all" (the default) fills every closed region, or give a point inside each. One undo step. Returns the feature’s row and result, line (the box’s status line), curves (the ids each curve given became), joined, offScan, openEnds, patches (rms, max, net), the cells refused and why, unfilled and the bodies changed; reverse.network.read reads it whole, reverse.network.edit changes it.`,
@@ -591,6 +593,8 @@ const EDIT_WHOLE = editIn(true)
 
 export const networkEdit: Command<EditIn> = {
   name: 'edit',
+  // A patch network's cells are the scan's triangles; a cloud has none.
+  needsTriangles: true,
   title: 'Edit a patch network',
   description:
     'Change a Patch network as reopening its box and drawing does, in one undo step, the network built again after. Curves, nodes, grips and cells are named by the ids and indices reverse.network.read gives before the edit, and the changes go in this order: set (per curve: crease; spans, null back to Auto; along and side, null letting either go), move (a node or a curve’s grip to a point, taken onto the scan, the curves through it following), remove (grips; curves, with the nodes no other curve ends at; nodes, with every curve ending at them), grips (a grip put into a curve on its run nearest the point: on the curve it keeps its course, off it bends the curve there), add (curves as reverse.network.create takes them, joined where their points land on the network; added gives their ids), unfill and fill (cells by index or "all"; a network keeps one filled region at least), fit and name. Answers as reverse.network.create.',
@@ -704,6 +708,8 @@ export const networkEdit: Command<EditIn> = {
 
 export const networkRead: Command<{ feature: Ref; detail?: 'brief' | 'full' }> = {
   name: 'read',
+  // A patch network's cells are the scan's triangles; a cloud has none.
+  needsTriangles: true,
   title: 'Read a patch network',
   description:
     'A Patch network as its box reads it after the last build: status (ok, failed with why, not built, suppressed), line (the box’s status line), counts, closed (a solid), worstAngle (degrees, across a tangent curve) and worstGap (mm, between the kernel’s faces along a shared curve); patches (index, cell, rms and max off the scan, misfit — what it misses the scan by beyond the scan’s noise —, the worst points, net, points, dropped, the curves of its sides and its corners’ nodes); cells (each seed with its sides and patches, or why it was refused and where); unfilled (closed regions no seed fills, a point inside each); curves (id, from, to, via, crease, along, side, strip, and where two patches share it gap and angle, or fold on a crease); nodes; strips (spans, auto, curves); corners (where three, five or six patches meet, or four whose tangency could not be held, with their angle); openEnds; lost (curves with no path along the scan). detail "brief": status, line, counts, closed, worst, the patches’ rms, max, misfit and net, the cells refused and unfilled. Ids and indices are what reverse.network.edit names. Changes nothing.',
@@ -783,6 +789,8 @@ export const networkRead: Command<{ feature: Ref; detail?: 'brief' | 'full' }> =
 
 export const networkSuggestCreases: Command<{ box?: { min: Vec3; max: Vec3 }; strongDeg?: number; weakDeg?: number; limit?: number }> = {
   name: 'suggest_creases',
+  // A patch network's cells are the scan's triangles; a cloud has none.
+  needsTriangles: true,
   title: 'Suggest creases for a patch network',
   description:
     'The scan’s sharp ridges and folds traced as curves for a Patch network — the box’s Suggest creases: each edge’s fold between the scan’s normals, kept where it folds past strongDeg and followed on while it folds past weakDeg (25° and 12° unless given), thinned to single lines, chains too short for a patch’s side dropped, the rest fitted with their ends merged into shared nodes; within box, or over the whole scan. Each candidate’s curve is ready for reverse.network.create { curves } or reverse.network.edit { add } — its points end to end, crease: true — with its length (mm) and angle (how far the scan folds along it, degrees), the longest first, limit of them (40 by default). A fillet that rounds the fold over is no crease, and is not offered. Changes nothing.',

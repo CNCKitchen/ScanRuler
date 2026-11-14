@@ -31,10 +31,13 @@ import { Icon, type IconName } from './icons'
 import { InfoDot } from './InfoDot'
 import { ModelSlot } from './ModelSlot'
 import { SectionEditor } from './SectionEditor'
+import { CLOUD_REFUSAL } from '../core/capabilities'
 import { CombControls } from './CombControls'
 import { ExportMeshButton } from './ExportMeshButton'
+import { MeshCloudOffer } from './MeshCloudOffer'
 import type { MeshFormat } from '../core/exportMesh'
 import { useUnits } from '../app/useUnits'
+import { useCloudRefusal } from './cloudGate'
 
 /** The picture on each element type's key. */
 const KIND_ICON: Record<(typeof ELEMENT_KINDS)[number]['id'], IconName> = {
@@ -129,6 +132,7 @@ export function Panel({
   onFindSymmetry: () => void
 }) {
   const fileName = useStore((s) => s.fileName)
+  const noSection = useCloudRefusal('section')
   const busy = useStore((s) => s.busy)
   // Every reading in the lists is written in the units shown.
   const units = useUnits()
@@ -140,6 +144,8 @@ export function Panel({
     return `${el.name}: ${describeConstruction(el.source.method, names, el.source.params, units)} — linked, it follows its sources. Open it to unlink.`
   }
   const triangleCount = useStore((s) => s.triangleCount)
+  const vertexCount = useStore((s) => s.vertexCount)
+  const scanIsCloud = useStore((s) => s.scanIsCloud)
   const elements = useStore((s) => s.elements)
   const draft = useStore((s) => s.draft)
   const discarded = useStore((s) => s.discarded)
@@ -220,10 +226,11 @@ export function Panel({
         </div>
         <ModelSlotBlock
           fileName={fileName}
-          triangleCount={triangleCount}
+          detail={scanIsCloud ? `${vertexCount.toLocaleString('en-US')} points` : `${triangleCount.toLocaleString('en-US')} triangles`}
           busy={busy}
           onOpenScan={onOpenScan}
         />
+        <MeshCloudOffer busy={busy} />
       </div>
 
       <AlignmentSection
@@ -288,8 +295,8 @@ export function Panel({
             ))}
             <button
               data-test="fit-section"
-              disabled={!fileName || busy || dimDraft !== null}
-              title="Cut the scan with a plane, to measure the cut in the 2D Measure workspace"
+              disabled={!fileName || busy || dimDraft !== null || noSection !== null}
+              title={noSection ?? 'Cut the scan with a plane, to measure the cut in the 2D Measure workspace'}
               onClick={onStartSection}
             >
               <Icon name="section" />
@@ -541,9 +548,9 @@ export function Panel({
             </button>
             <ExportMeshButton
               testId="export-mesh"
-              disabled={busy}
+              disabled={busy || scanIsCloud}
               onExport={onExportMesh}
-              title="Save the scan as an STL or a 3MF where it now stands — any alignment or move you applied comes with it"
+              title={scanIsCloud ? CLOUD_REFUSAL : 'Save the scan as an STL or a 3MF where it now stands — any alignment or move you applied comes with it'}
             />
             <button
               data-test="export-cloud"
@@ -563,12 +570,12 @@ export function Panel({
 // Kept out of the main component so the file-slot block reads as one unit.
 function ModelSlotBlock({
   fileName,
-  triangleCount,
+  detail,
   busy,
   onOpenScan,
 }: {
   fileName: string | null
-  triangleCount: number
+  detail: string
   busy: boolean
   onOpenScan: (file: File) => void
 }) {
@@ -577,7 +584,7 @@ function ModelSlotBlock({
       <ModelSlot
         role="Scan"
         name={fileName}
-        detail={`${triangleCount.toLocaleString('en-US')} triangles`}
+        detail={detail}
         dotColor="#8b9099"
         busy={busy}
         onOpen={onOpenScan}

@@ -3,6 +3,7 @@
 // running over work open in the panel, waiting for the stores to settle, and
 // files in and out.
 
+import { workspaceUnavailable } from '../../app/workspaceAvailability'
 import type { BuiltFile } from '../../app/exports'
 import { holdsWords, projectUnsaved, sessionHolds, sessionIsDirty } from '../../app/project'
 import { dimHolds } from '../../state/historyStore'
@@ -13,6 +14,7 @@ import { useDeviation } from '../../state/deviationStore'
 import { bool, str, type JsonSchema } from '../schema'
 import { CommandError, type FileOut } from '../types'
 import { watchSession } from '../activity'
+import { MemoryFile } from '../../core/sourceFile'
 
 /**
  * Refuse while something open in the 3D Measure panel holds work the command
@@ -49,8 +51,11 @@ export function requireFlatFree(): void {
   }
 }
 
-/** Put a workspace on screen, so the person sees what the command does. */
+/** Put a workspace on screen, so the person sees what the command does —
+ *  refused when the workspace cannot be used now (a point cloud's). */
 export function showWorkspace(w: Workspace): void {
+  const unavailable = workspaceUnavailable(w)
+  if (unavailable !== null) throw new CommandError('invalid_state', unavailable)
   if (useShell.getState().workspace !== w) useShell.getState().setWorkspace(w)
 }
 
@@ -89,7 +94,9 @@ export const fileNameSchema = (examples: string): JsonSchema =>
   str(`The file's name with its extension — ${examples}.`, { minLength: 1 })
 
 /** Bytes handed in, as the File the panels' inputs give. */
-export const fileOf = (bytes: Uint8Array, name: string): File => new File([bytes as BlobPart], name)
+/** The bytes an agent handed over as a file to open, read from memory where
+ *  they are (see MemoryFile: a large new Blob cannot be read back). */
+export const fileOf = (bytes: Uint8Array, name: string): File => new MemoryFile(bytes, name)
 
 /** A built export as a command result. */
 export function fileResult(built: BuiltFile): { file: FileOut; status: string } {

@@ -6,6 +6,7 @@ import type { RefObject } from 'react'
 import { drawnFit } from '../core/elements/assumed'
 import type { StepSection } from '../core/exportStep'
 import { buildMeshFile, type MeshFormat } from '../core/exportMesh'
+import { CLOUD_REFUSAL } from '../core/capabilities'
 import type { CloudFormat } from '../core/exportPointCloud'
 import { computeVertexNormals } from '../core/geometry/normals'
 import { liftFlatFit } from '../core/section/lift'
@@ -171,6 +172,8 @@ export const exportElementsStep = () => runExport(async () => saveBuilt(await bu
  *  textured scan's. */
 export function buildScanMesh(scene: SceneManager | null, format: MeshFormat): BuiltFile | null {
   const store = useStore.getState()
+  // A cloud has no triangles to write; the cloud export is its file.
+  if (store.scanIsCloud) throw new Error(CLOUD_REFUSAL)
   const geometry = scene?.scanGeometry()
   if (!geometry || !store.fileName) return null
   const positions = geometry.getAttribute('position')?.array as Float32Array | undefined

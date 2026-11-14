@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { SNAPSHOT } from '../src/mcp.js'
-import { agentJson, batchedPicture, bytesProperty, imageContent, inputFor, saveFileResult, toolFor, toolName, timingsIn, waitIn, writeNew } from '../src/tools.js'
+import { agentJson, batchedPicture, bytesProperty, imageContent, INLINE_PICTURE_MOST, inputFor, saveFileResult, toolFor, toolName, timingsIn, waitIn, writeNew } from '../src/tools.js'
 
 const command = (name) => SNAPSHOT.find((c) => c.name === name)
 
@@ -43,6 +43,16 @@ test('a schema passes through as it is, but for files, and a change takes wait a
   assert.equal(toolFor(command('session.state'), { outDir: '/out' }).inputSchema.properties.timings, undefined)
   assert.equal(toolFor(command('session.state'), { outDir: '/out' }).annotations.readOnlyHint, true)
   assert.equal(toolFor(fit, { outDir: '/out' }).annotations.readOnlyHint, false)
+})
+
+test('finding the scan’s flat regions runs as a job: a long read, it takes wait and stays read-only', () => {
+  // 28 M points took it past the answer limit with no job to wait on.
+  const segment = command('scan.segment')
+  assert.equal(segment.long, true)
+  const tool = toolFor(segment, { outDir: '/out' })
+  assert.equal(tool.inputSchema.properties.wait, waitIn)
+  assert.equal(tool.inputSchema.properties.timings, undefined)
+  assert.equal(tool.annotations.readOnlyHint, true)
 })
 
 test('a command that takes a file takes a path instead, its name defaulting to the file’s', () => {
@@ -136,6 +146,14 @@ test('a picture comes back as an image, and is written to a file only when asked
   // inline: false without a path still shows it — there is nowhere else.
   assert.equal((await imageContent(result, { inline: false }, { cwd: dir, outDir: dir }))[1].type, 'image')
   assert.equal(await imageContent({ file: { name: 'a.step', mimeType: 'model/step', bytes: png } }, {}, { cwd: dir, outDir: dir }), null)
+  // A picture too large to send inline (a client's read buffer would close
+  // the channel) is written to the output folder and only named.
+  const huge = new Uint8Array(Math.ceil(INLINE_PICTURE_MOST * 3 / 4) + 3)
+  const big = await imageContent({ file: { name: 'huge.png', mimeType: 'image/png', bytes: huge } }, {}, { cwd: dir, outDir: dir })
+  assert.equal(big.length, 1)
+  const told = JSON.parse(big[0].text)
+  assert.match(told.notInline, /too large to send inline/)
+  assert.equal((await readFile(told.file.path)).length, huge.length)
 })
 
 test('a picture in a batch, where it cannot be shown, is written to a file all the same', async () => {

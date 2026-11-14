@@ -239,7 +239,7 @@ export async function launch(argv, { env = process.env, packageDir = PACKAGE_DIR
 
 /** In a copy handed to: stop when the launcher is gone — killed by the
  *  client, which on Windows does not take its children with it. */
-export function watchParent(env = process.env, { every = 2000, alive = processAlive, exit = () => process.exit(0) } = {}) {
+export function watchParent(env = process.env, { every = 2000, alive = processAlive, exit = () => stopForParent() } = {}) {
   const pid = Number(env[PARENT_ENV])
   if (!env[HANDED_OFF_ENV] || !Number.isInteger(pid) || pid <= 0) return null
   const timer = setInterval(() => {
@@ -247,6 +247,11 @@ export function watchParent(env = process.env, { every = 2000, alive = processAl
   }, every)
   timer.unref?.()
   return timer
+}
+
+function stopForParent() {
+  stderrLog('Stopping: the launcher that started this copy has gone.')
+  process.exit(0)
 }
 
 function processAlive(pid) {

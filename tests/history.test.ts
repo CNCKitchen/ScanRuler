@@ -275,6 +275,33 @@ describe('a failing participant', () => {
   })
 })
 
+describe('a participant around a step', () => {
+  it('wraps the whole of it, the app swapping the scan included, once — outermost first', async () => {
+    const older = { name: 'older' }, newer = { name: 'newer' }
+    let scan: object = older
+    const said: string[] = []
+    unconfigure()
+    unconfigure = configureHistory({
+      getScan: () => scan,
+      beforeRestore: async (patch) => { if ('scan' in patch) { said.push('swap'); scan = patch.scan as object } },
+      afterRestore: async () => { said.push('after') },
+    })
+    const around = (name: string) => registerHistory({
+      aroundRestore: async (patch, restore) => {
+        said.push(`${name} in${'scan' in patch ? ' (scan)' : ''}`)
+        try { await restore() } finally { said.push(`${name} out`) }
+      },
+    })
+    const stops = [around('a'), around('b')]
+    try {
+      historyAction('Merge: merge', () => { scan = newer })
+      await undo()
+      expect(scan).toBe(older)
+      expect(said).toEqual(['a in (scan)', 'b in (scan)', 'swap', 'after', 'b out', 'a out'])
+    } finally { stops.forEach((stop) => stop()) }
+  })
+})
+
 describe('a change made without history', () => {
   it('records no step and keeps the redo stack (issue 34)', async () => {
     useShell.getState().setWorkspace('deviation')

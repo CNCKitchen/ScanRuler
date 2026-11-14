@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* The Cloud Tools faceplate: its rows of three — the tools, the plane's axes. */
+
+.moderow.cloud-three {
+  grid-template-columns: repeat(3, 1fr);
+  margin: 8px 0;
+}
+
+.cloud-panel .slider {
+  width: 100%;
+}

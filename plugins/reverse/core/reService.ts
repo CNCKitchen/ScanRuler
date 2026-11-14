@@ -9,7 +9,9 @@
 
 import type { Vec3 } from '../../../src/core/types'
 import type { Rigid } from '../../../src/core/deviation/rigid'
-import type { NominalSurface } from '../../../src/core/deviation/surface'
+import type { ClosestSurface, NominalSurface } from '../../../src/core/deviation/surface'
+import { CloudSurface } from '../../../src/core/deviation/cloudSurface'
+import { cloudSpacing } from '../../../src/core/geometry/buildPointGraph'
 import { computeVertexNormals } from '../../../src/core/geometry/normals'
 import type { KernelMesh, ReKernel, StepCheck, StepLabel, StepMend } from './kernel'
 import type { ManifoldToplevel } from 'manifold-3d'
@@ -65,7 +67,7 @@ export type ReWorkerRequest =
    *  requests, in the frame the bodies are built in. Positions left out
    *  keep the scan already here; null puts it away. The vertex normals
    *  come along when there are no triangles to work them out from. */
-  | { type: 'scan'; requestId: number; positions: Float32Array | null | undefined; indices?: Uint32Array | null; normals?: Float32Array | null; transform: Rigid | null }
+  | { type: 'scan'; requestId: number; positions: Float32Array | null | undefined; indices?: Uint32Array | null; normals?: Float32Array | null; cloud?: boolean; transform: Rigid | null }
   /** The live map: the scan's signed distance to the last preview's solid,
    *  or to the given bodies of the last build, for the vertices within
    *  reach of it — see liveMap.ts. */
@@ -141,6 +143,18 @@ function bodyBuffers(bodies: readonly DrawnBody[]): Transferable[] {
  *  the build waits on it. */
 export const CRASH_DIAGNOSIS_MS = 10_000
 
+/** The scan as a surface for a split's cell test and a trim: its triangles,
+ *  or — a point cloud, none — its points with their normals, each standing
+ *  for its patch (CloudSurface). Null while the scan waits to be moved (a
+ *  transform not yet baked), or with nothing to read it by. */
+export function scanSurface(scan: { positions: Float32Array; indices: Uint32Array | null; normals: Float32Array | null; cloud: boolean; transform: Rigid | null }): ClosestSurface | null {
+  if (scan.transform) return null
+  if (scan.indices) return surfaceOfMeshes([{ positions: scan.positions, normals: new Float32Array(0), indices: scan.indices }])
+  // A mesh sent without its triangles (no viewport) is no cloud.
+  if (scan.cloud && scan.normals && scan.normals.length === scan.positions.length && scan.positions.length >= 6) return new CloudSurface(scan.positions, scan.normals, cloudSpacing(scan.positions))
+  return null
+}
+
 /** The service over the kernel `loadKernel` brings up on the first request,
  *  and the mesh boolean `loadManifold` brings up on the first ask for the
  *  bodies' overlaps. With `helpers`, a build's groups of steps are shared
@@ -159,7 +173,7 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
   /** The scan, for the live map: the vertices as the viewport holds them —
    *  every datum alignment baked in — so a body built in that frame is
    *  compared in it too. */
-  let scan: { positions: Float32Array; indices: Uint32Array | null; normals: Float32Array | null; transform: Rigid | null } | null = null
+  let scan: { positions: Float32Array; indices: Uint32Array | null; normals: Float32Array | null; cloud: boolean; transform: Rigid | null } | null = null
   /** The steps the kernel trapped on, by their keys (stepKeys), with what it
    *  said: built as failed — not played — until the step is changed, so a
    *  step that crashes the kernel crashes it once. */
@@ -197,7 +211,7 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
     parallel = null
     lastPreview = null
     const b = await load()
-    b.setScan(scan && scan.indices && !scan.transform ? surfaceOfMeshes([{ positions: scan.positions, normals: new Float32Array(0), indices: scan.indices }]) : null, scan && !scan.transform ? scan.positions : null)
+    b.setScan(scan ? scanSurface(scan) : null, scan && !scan.transform ? scan.positions : null)
     return b
   }
 
@@ -326,13 +340,13 @@ export function createReService(loadKernel: () => Promise<ReKernel>, loadManifol
           // The normals the map and the comparison read the scan's side by:
           // the triangles' winding, as the scan was loaded.
           const normals = msg.normals ?? (msg.indices ? computeVertexNormals(msg.positions, msg.indices) : null)
-          scan = { positions: msg.positions, indices: msg.indices ?? null, normals, transform: msg.transform }
+          scan = { positions: msg.positions, indices: msg.indices ?? null, normals, cloud: msg.cloud === true, transform: msg.transform }
         } else if (scan) scan = { ...scan, transform: msg.transform }
         // The scan as a surface for a split's cell test: built once per scan,
         // the moment it is here — a few hundred milliseconds on a big scan,
         // spent in the worker. The scan is not watertight, so only the
         // distance is read, never the sign.
-        b.setScan(scan && scan.indices && !scan.transform ? surfaceOfMeshes([{ positions: scan.positions, normals: new Float32Array(0), indices: scan.indices }]) : null, scan && !scan.transform ? scan.positions : null)
+        b.setScan(scan ? scanSurface(scan) : null, scan && !scan.transform ? scan.positions : null)
         return answer({ type: 'scan-ok', requestId: msg.requestId })
       }
       if (msg.type === 'map') {

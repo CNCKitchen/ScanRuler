@@ -15,7 +15,7 @@ import { loadFolders, saveFolders } from '../src/config.js'
 import { PageLink } from '../src/link.js'
 import { createMcpServer, SNAPSHOT } from '../src/mcp.js'
 import { httpServer } from '../src/serve.js'
-import { fileKind, inputFor, withFiles } from '../src/tools.js'
+import { fileKind, inputFor, MAX_FILE_BYTES, withFiles } from '../src/tools.js'
 import { fakePage } from './fakePage.js'
 
 const TOKEN = 'a-token-for-the-files-tests'
@@ -117,6 +117,17 @@ test('a folder in place of a file: the one mesh in it opens; none, or several, i
   // A command that takes no folder says so, with what is there.
   const reference = SNAPSHOT.find((c) => c.name === 'deviation.open_reference')
   await assert.rejects(inputFor(reference, { path: one }, { cwd: dir }), (e) => /is a folder — give a file in it: /.test(e.message))
+})
+
+test('a file too large to hand to the page is refused by its size, before it is read', async () => {
+  const scanOpen = SNAPSHOT.find((c) => c.name === 'scan.open')
+  const big = join(dir, 'big.ply')
+  await writeFile(big, Buffer.alloc(2_000_000))
+  await assert.rejects(inputFor(scanOpen, { path: big }, { cwd: dir, maxBytes: 1_000_000 }), (e) =>
+    e.code === 'invalid_input' && e.message.startsWith(`${big} is 2 MB — too large to hand to the ScanRuler page: a file goes over the link to it in one message of at most 1 MB (1,000,000 bytes).`))
+  const read = await inputFor(scanOpen, { path: big }, { cwd: dir, maxBytes: 2_000_000 })
+  assert.equal(read.input.bytes.byteLength, 2_000_000)
+  assert.equal(MAX_FILE_BYTES, 1024 ** 3)
 })
 
 test('scanruler_write writes reports, and nothing an agent or a tool would act on', async () => {

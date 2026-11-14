@@ -24,10 +24,16 @@ import type { SourceFiles } from './project'
 import { scanLoaded } from './scanEvents'
 import { forgetAllSurfaces } from './surfaces'
 import { usePrefs } from '../state/prefsStore'
+import { pluginBusy } from '../commands/activity'
 import { fmtLen, lengthInputText, unitWord } from '../core/units'
 import { noTrueSize } from '../core/scanScale'
+import { cloudSizeOfFile } from '../core/parsers/cloudSize'
+import { CLOUD_POINT_BUDGET, thinQuestion } from '../core/parsers/thin'
 
 const LARGE_TRIANGLE_WARNING = 5_000_000
+/** The same work on a cloud: a mesh has about half as many vertices as
+ *  triangles, and a cloud's fits go by its points. */
+const LARGE_POINT_WARNING = LARGE_TRIANGLE_WARNING / 2
 
 /** What became of the sharp-edge split, for the status line. Null when it
  *  went as asked and there is nothing to add. */
@@ -74,6 +80,16 @@ export interface ScanImportDeps {
   imports: ImportQueue
   maps: ScanMaps
   clearPreview: () => void
+}
+
+/** A workspace's own machinery at work on the scan — an alignment running
+ *  in the worker, say (registerBusy): a new scan is refused rather than put
+ *  under it, said on the error line. Asked when the open is asked for and
+ *  again at the head of the import queue. */
+function pluginRefuses(): boolean {
+  const busy = pluginBusy()
+  if (busy) useStore.getState().setError(`Wait for the work in progress to finish before opening another scan — ${busy}.`)
+  return busy !== null
 }
 
 export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearPreview }: ScanImportDeps) {
@@ -126,6 +142,7 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
       const bounds = scene ? null : boundsOf(mesh.positions, mesh.vertexCount)
       const modelSize = scene?.modelSize() ?? bounds!.radius
       store.finishLoad(mesh.vertexCount, mesh.triangleCount, modelSize, scene?.modelCenter() ?? bounds!.center)
+      useStore.setState({ scanIsCloud: mesh.kind === 'cloud' })
       useMark.getState().sizeToModel(modelSize)
       useThickness.getState().suggestMaxThickness(2 * modelSize)
       scanLoaded({ positions: mesh.positions, indices: mesh.indices, modelSize })
@@ -143,14 +160,26 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
    *  given: a file the instrument wrote itself, in millimetres like
    *  everything it holds. A question dismissed leaves the file unopened.
    *  `shouldStart`, asked at the head of the import queue — so it sees work
-   *  made while the file waited — leaves it unopened when it says no. */
-  const openScan = async (file: File, units?: MeshUnits, shouldStart?: () => boolean): Promise<void> => {
+   *  made while the file waited — leaves it unopened when it says no. A
+   *  point cloud of more than CLOUD_POINT_BUDGET points is offered thinned
+   *  evenly to that many, unless `maxPoints` settles it: a count to thin to,
+   *  or 0 for every point. */
+  const openScan = async (file: File, units?: MeshUnits, shouldStart?: () => boolean, maxPoints?: number): Promise<void> => {
+    if (pluginRefuses()) return
     const read = units ?? (await meshUnitsFor(file.name))
     if (!read) return
+    const size = await cloudSizeOfFile(file)
+    let keep = maxPoints !== undefined && maxPoints > 0 ? maxPoints : undefined
+    if (maxPoints === undefined && size && size.points > CLOUD_POINT_BUDGET && typeof globalThis.confirm === 'function') {
+      keep = globalThis.confirm(thinQuestion(file.name, size.points, size.exact)) ? CLOUD_POINT_BUDGET : undefined
+    }
+    const thinnedWord = keep !== undefined && size && size.points > keep
+      ? `Thinned evenly from ${size.exact ? '' : 'about '}${size.points.toLocaleString('en-US')} to ${keep.toLocaleString('en-US')} points as it was read. `
+      : ''
     await runImport(imports, isStepFile(file.name) ? 'Reading STEP file — tessellating the CAD surfaces…' : 'Reading file…', async () => {
       const client = clientRef.current!
       const crease = creaseSetting(useStore.getState())
-      const prepared = await prepareScan(client, sceneRef.current, file, crease, undefined, read)
+      const prepared = await prepareScan(client, sceneRef.current, file, crease, undefined, read, 1, keep)
       try {
         // A reference made from the session's work goes with the scan.
         await client.commitImport({ scan: prepared.id, ...(useDeviation.getState().nominalFromSession ? { nominal: null } : {}) })
@@ -166,15 +195,17 @@ export function scanImport({ clientRef, sceneRef, sources, imports, maps, clearP
           ? ` ${none.why === 'meshroom' ? 'Photogrammetry gives a part no true size' : `It is ${fmtLen(across, usePrefs.getState().units, 3)} across — its units look off`}: Scale part, under Alignment, sets it from a length measured on the real part.`
           : ''
         useStore.getState().setStatus(
-          unitsWord + scanFileNote(mesh) +
-          (mesh.triangleCount > LARGE_TRIANGLE_WARNING
-            ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
-            : 'Pick an element type in the panel to start measuring.') + creaseWord + sizeWord)
+          unitsWord + thinnedWord + scanFileNote(mesh) +
+          (mesh.kind === 'cloud' && mesh.vertexCount > LARGE_POINT_WARNING
+            ? `Large point cloud (${mesh.vertexCount.toLocaleString('en-US')} points) — fits may take a moment. Pick an element type to start.`
+            : mesh.kind !== 'cloud' && mesh.triangleCount > LARGE_TRIANGLE_WARNING
+              ? `Large mesh (${mesh.triangleCount.toLocaleString('en-US')} triangles) — fits may take a moment. Pick an element type to start.`
+              : 'Pick an element type in the panel to start measuring.') + creaseWord + sizeWord)
       } finally {
         prepared.view.dispose()
         await client.discardImport([prepared.id])
       }
-    }, shouldStart)
+    }, () => !pluginRefuses() && (shouldStart?.() ?? true))
   }
 
   return { commitScan, openScan }

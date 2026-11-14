@@ -6,6 +6,7 @@
 
 import type { NominalSurface } from './deviation/surface'
 import type { Rigid } from './deviation/rigid'
+import type { Steps } from './deviation/steps'
 import type { MeshGraph } from './types'
 
 /** What the worker lends a plugin's request. */
@@ -22,6 +23,14 @@ export interface WorkerContext {
   /** A mesh prepared for closest-point queries, built on first use and kept
    *  until its vertices move. `why` is what the status says meanwhile. */
   surfaceOf(mesh: MeshGraph, why: string): NominalSurface
+  /** A long computation run a slice at a time, as the worker runs a best
+   *  fit, so that Stop (MeshWorkerClient.abortAlign) is heard between
+   *  slices: its value, or null when it was stopped. Return the promise's
+   *  answer from `handle`, so every other request waits for it. Stop pressed
+   *  before the run started — the request still queued, or awaiting
+   *  something before it drives — stops it too: the request still has its
+   *  turn, but `drive` answers null at once, without a slice run. */
+  drive<T>(steps: Steps<T>): Promise<T | null>
 }
 
 /** A request's answer, with the buffers to hand over rather than copy. */
@@ -33,6 +42,10 @@ export interface WorkerReply {
 export interface WorkerPlugin {
   /** The plugin's id, as its plugin.ts gives it. */
   id: string
+  /** The plugin handles a point cloud scan itself (one with no triangles):
+   *  all its ops, or those the function says yes to. Default false: the
+   *  worker refuses its requests on a cloud before `handle` is called. */
+  acceptsClouds?: boolean | ((op: string) => boolean)
   /** Answer a request. An answer that is a promise holds every other request
    *  back until it settles: nothing may run inside the wait that would
    *  change what it is working on. Throw to answer with an error. */

@@ -1,0 +1,78 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+/* The Merge workspace's own rules, on top of the app's stylesheet
+   (src/styles.css), whose tokens and base rules they use. */
+
+/* A layer's row: clickable to take it in hand. */
+.merge-layer {
+  cursor: pointer;
+  gap: 6px;
+}
+
+/* The colour dot is the colour picker: the input sits under it, unseen. */
+.merge-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.merge-swatch input[type='color'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+}
+
+.merge-layer select.merge-units {
+  flex: none;
+  width: auto;
+  font-size: 11px;
+  padding: 1px 4px;
+}
+
+button.x.merge-lock.on {
+  color: var(--accent-d);
+}
+
+/* A clean alignment: said quietly, as a hint. */
+.merge-ok {
+  margin: 2px 0 4px;
+}
+
+.moderow.merge-tools,
+.moderow.merge-datum-kinds {
+  grid-template-columns: repeat(3, 1fr);
+  margin: 8px 0;
+}
+
+.toolrow.merge-refine {
+  margin-top: 8px;
+}
+
+/* The question a merge onto a mesh asks: the yes and the no side by side. */
+.merge-confirm {
+  margin-top: 8px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--amber) 8%, var(--panel));
+}
+
+.merge-confirm p {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* A key with an icon: the two on one line. */
+.merge-panel .toolrow button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}

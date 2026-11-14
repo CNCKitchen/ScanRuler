@@ -1,12 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // PLY in all three encodings — ASCII, and binary of either byte order — read
-// for vertex positions, per-vertex colours and face lists; normals and the
-// other properties a scanner writes are stepped over. One header comment is
-// honoured besides: a file that says its winding is settled
-// (PLY_KEEP_WINDING) keeps it as written instead of having it guessed again.
+// for vertex positions, per-vertex colours and face lists; the other
+// properties a scanner writes are stepped over. A file with no faces is a
+// point cloud and is read for its normals too, or refused when it has none.
+// One header comment is honoured besides: a file that says its winding is
+// settled (PLY_KEEP_WINDING) keeps it as written instead of having it guessed
+// again.
+// A body is read a run of vertices at a time from a ByteSource, so a cloud
+// past the 2 GiB a browser reads in one piece opens too, and is thinned as
+// it is read when asked (thin.ts).
 
 import type { ParsedMesh } from '../types'
-import { gatherIndices, Words } from './textChunks'
+import { gatherIndices, TEXT_CHUNK, Words } from './textChunks'
+import { READ_CHUNK, sourceOf, type ByteSource } from './byteSource'
+import { Thinning, thinTarget, type CloudReadOptions } from './thin'
 
 interface PlyProperty {
   name: string
@@ -16,7 +23,7 @@ interface PlyProperty {
   itemType?: string
 }
 
-interface PlyElement {
+export interface PlyElement {
   name: string
   count: number
   props: PlyProperty[]
@@ -51,6 +58,15 @@ function colorProps(el: PlyElement): [number, number, number] | null {
   const g = find(['green', 'g', 'diffuse_green'])
   const b = find(['blue', 'b', 'diffuse_blue'])
   return r < 0 || g < 0 || b < 0 ? null : [r, g, b]
+}
+
+/** Where an element's normal properties sit; null when any is missing. */
+function normalProps(el: PlyElement): [number, number, number] | null {
+  const find = (name: string) => el.props.findIndex((p) => !p.list && p.name === name)
+  const x = find('nx')
+  const y = find('ny')
+  const z = find('nz')
+  return x < 0 || y < 0 || z < 0 ? null : [x, y, z]
 }
 
 /** A colour channel as a byte: floats run 0…1, integer types 0…255. */
@@ -108,12 +124,24 @@ function readScalar(dv: DataView, off: number, type: string, little: boolean): n
   }
 }
 
-export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => void): ParsedMesh {
-  const bytes = new Uint8Array(buffer)
+/** What a PLY's header says: its encoding, its elements, where its body
+ *  starts, and whether its winding is settled. */
+export interface PlyHeader {
+  format: string
+  keepWinding: boolean
+  elements: PlyElement[]
+  bodyStart: number
+}
+
+/** How far into a file its header may reach. */
+export const PLY_HEADER_LIMIT = 64 * 1024
+
+/** The header, read off the file's first bytes (PLY_HEADER_LIMIT of them do). */
+export function readPlyHeader(bytes: Uint8Array): PlyHeader {
   // Locate "end_header" plus its newline in the raw bytes. The body offset
   // must not come from decoded text: a multi-byte character in a comment
   // would put every character index off its byte.
-  const headerLimit = Math.min(bytes.length, 64 * 1024)
+  const headerLimit = Math.min(bytes.length, PLY_HEADER_LIMIT)
   const endTag = indexOfAscii(bytes, 'end_header', headerLimit)
   const isPly = bytes[0] === 0x70 && bytes[1] === 0x6c && bytes[2] === 0x79
   if (!isPly || endTag < 0) throw new Error('Not a valid PLY file.')
@@ -155,19 +183,39 @@ export function parsePLY(buffer: ArrayBuffer, onProgress?: (text: string) => voi
       }
     }
   }
+  return { format, keepWinding, elements, bodyStart }
+}
+
+/** The points a PLY's header counts when it is a point cloud — vertices and
+ *  no faces — or null for a mesh. */
+export function plyCloudPoints(header: PlyHeader): number | null {
+  const vertexEl = header.elements.find((e) => e.name === 'vertex')
+  const faceEl = header.elements.find((e) => e.name === 'face')
+  if (!vertexEl || (faceEl && faceEl.count > 0)) return null
+  return vertexEl.count
+}
+
+/** A PLY read from memory or a piece at a time (see byteSource). A point
+ *  cloud of more than `maxPoints` is thinned evenly to that many as it is
+ *  read (see thin.ts); a mesh is read whole whatever it says. */
+export function parsePLY(input: ArrayBuffer | ByteSource, onProgress?: (text: string) => void, options: CloudReadOptions = {}): ParsedMesh {
+  const src = sourceOf(input)
+  const { format, keepWinding, elements, bodyStart } = readPlyHeader(src.read(0, PLY_HEADER_LIMIT))
 
   const vertexEl = elements.find((e) => e.name === 'vertex')
   const faceEl = elements.find((e) => e.name === 'face')
   if (!vertexEl) throw new Error('PLY file has no vertex element.')
-  if (!faceEl || faceEl.count === 0) {
-    throw new Error('This PLY contains no faces — point clouds are not supported yet.')
+  const cloud = !faceEl || faceEl.count === 0
+  if (cloud && !normalProps(vertexEl)) {
+    throw new Error('This point cloud has no normals — ScanRuler needs them to measure on points.')
   }
+  const target = cloud ? thinTarget(options.maxPoints) ?? 0 : 0
 
   const little = format === 'binary_little_endian'
   if (format !== 'ascii' && !little && format !== 'binary_big_endian') throw new Error(`Unsupported PLY format "${format}".`)
   const mesh = format === 'ascii'
-    ? parseAsciiBody(bytes, bodyStart, elements, onProgress)
-    : parseBinaryBody(buffer, bodyStart, elements, little, onProgress)
+    ? parseAsciiBody(src, bodyStart, elements, cloud, target, options.chunk ?? TEXT_CHUNK, onProgress)
+    : parseBinaryBody(src, bodyStart, elements, little, cloud, target, options.chunk ?? READ_CHUNK, onProgress)
   if (keepWinding) mesh.keepWinding = true
   return mesh
 }
@@ -182,107 +230,140 @@ function indexOfAscii(bytes: Uint8Array, needle: string, limit: number): number 
   return -1
 }
 
+const viewOf = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
+
 function parseBinaryBody(
-  buffer: ArrayBuffer,
+  src: ByteSource,
   bodyStart: number,
   elements: PlyElement[],
   little: boolean,
+  cloud: boolean,
+  target: number,
+  chunk: number,
   onProgress?: (text: string) => void,
 ): ParsedMesh {
-  const dv = new DataView(buffer)
   let off = bodyStart
   let positions: Float32Array | null = null
   let colors: Uint8Array | null = null
+  let normals: Float32Array | null = null
   let indices = new Uint32Array(0)
 
   for (const el of elements) {
-    checkRoom(el, minStride(el), buffer.byteLength - off)
+    checkRoom(el, minStride(el), src.size - off)
     if (el.name === 'vertex') {
       const xi = el.props.findIndex((p) => p.name === 'x')
       const yi = el.props.findIndex((p) => p.name === 'y')
       const zi = el.props.findIndex((p) => p.name === 'z')
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
       const hasList = el.props.some((p) => p.list)
-      positions = new Float32Array(el.count * 3)
+      // Only a cloud is thinned: a mesh's faces number its vertices.
+      const thin = new Thinning(el.count, cloud ? target : 0)
+      positions = new Float32Array(thin.kept * 3)
       const rgb = colorProps(el)
-      if (rgb) colors = new Uint8Array(el.count * 3)
+      if (rgb) colors = new Uint8Array(thin.kept * 3)
+      const nrm = cloud ? normalProps(el) : null
+      if (nrm) normals = new Float32Array(thin.kept * 3)
+      let w = 0
       if (!hasList) {
-        // Fixed stride fast path.
+        // Fixed stride: a run of whole vertices read at a time.
         let stride = 0
         const offsets: number[] = []
         for (const p of el.props) {
           offsets.push(stride)
           stride += TYPE_SIZE[p.type]
         }
-        for (let i = 0; i < el.count; i++) {
-          const base = off + i * stride
-          positions[i * 3] = readScalar(dv, base + offsets[xi], el.props[xi].type, little)
-          positions[i * 3 + 1] = readScalar(dv, base + offsets[yi], el.props[yi].type, little)
-          positions[i * 3 + 2] = readScalar(dv, base + offsets[zi], el.props[zi].type, little)
-          if (rgb) {
-            for (let c = 0; c < 3; c++) {
-              const type = el.props[rgb[c]].type
-              colors![i * 3 + c] = channel(readScalar(dv, base + offsets[rgb[c]], type, little), type)
+        const per = Math.max(1, Math.floor(chunk / stride))
+        for (let first = 0; first < el.count; first += per) {
+          const n = Math.min(per, el.count - first)
+          const dv = viewOf(src.read(off + first * stride, off + (first + n) * stride))
+          for (let j = 0; j < n; j++) {
+            if (!thin.keep()) continue
+            const base = j * stride
+            positions[w * 3] = readScalar(dv, base + offsets[xi], el.props[xi].type, little)
+            positions[w * 3 + 1] = readScalar(dv, base + offsets[yi], el.props[yi].type, little)
+            positions[w * 3 + 2] = readScalar(dv, base + offsets[zi], el.props[zi].type, little)
+            if (rgb) {
+              for (let c = 0; c < 3; c++) {
+                const type = el.props[rgb[c]].type
+                colors![w * 3 + c] = channel(readScalar(dv, base + offsets[rgb[c]], type, little), type)
+              }
             }
+            if (nrm) {
+              for (let c = 0; c < 3; c++) {
+                normals![w * 3 + c] = readScalar(dv, base + offsets[nrm[c]], el.props[nrm[c]].type, little)
+              }
+            }
+            w++
           }
-          if (onProgress && (i & 0xfffff) === 0 && i > 0) {
-            onProgress(`Reading PLY vertices… ${Math.round((i / el.count) * 100)}%`)
+          if (onProgress && first + n < el.count) {
+            onProgress(`Reading PLY vertices… ${Math.round(((first + n) / el.count) * 100)}%`)
           }
         }
         off += el.count * stride
       } else {
+        // Lists make every vertex its own length: the rest of the file at once.
+        const dv = viewOf(src.read(off, src.size))
+        let o = 0
         for (let i = 0; i < el.count; i++) {
+          const kept = thin.keep()
           for (let p = 0; p < el.props.length; p++) {
             const prop = el.props[p]
             if (prop.list) {
-              const n = listLength(readScalar(dv, off, prop.countType!, little))
-              off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
+              const n = listLength(readScalar(dv, o, prop.countType!, little))
+              o += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             } else {
-              const v = readScalar(dv, off, prop.type, little)
-              if (p === xi) positions[i * 3] = v
-              else if (p === yi) positions[i * 3 + 1] = v
-              else if (p === zi) positions[i * 3 + 2] = v
-              else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
-              off += TYPE_SIZE[prop.type]
+              if (kept) {
+                const v = readScalar(dv, o, prop.type, little)
+                if (p === xi) positions[w * 3] = v
+                else if (p === yi) positions[w * 3 + 1] = v
+                else if (p === zi) positions[w * 3 + 2] = v
+                else if (rgb && rgb.includes(p)) colors![w * 3 + rgb.indexOf(p)] = channel(v, prop.type)
+                else if (nrm && nrm.includes(p)) normals![w * 3 + nrm.indexOf(p)] = v
+              }
+              o += TYPE_SIZE[prop.type]
             }
           }
+          if (kept) w++
         }
+        off += o
       }
     } else if (el.name === 'face') {
       // Two passes: total the triangles first, then fill an exact-size index
       // buffer. A scan-sized file fans out to tens of millions of indices,
       // which a growing JS number array both crawls through and triples in
       // memory. The sizing pass only touches each face's list count.
-      const faceStart = off
+      const region = src.read(off, src.size)
+      const dv = viewOf(region)
+      let o = 0
       let triTotal = 0
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = listLength(readScalar(dv, off, prop.countType!, little))
-            off += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
+            const n = listLength(readScalar(dv, o, prop.countType!, little))
+            o += TYPE_SIZE[prop.countType!] + n * TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
               if (n >= 3) triTotal += n - 2
             }
           } else {
-            off += TYPE_SIZE[prop.type]
+            o += TYPE_SIZE[prop.type]
           }
         }
       }
-      if (off > buffer.byteLength) throw new Error('PLY face lists run past the end of the file.')
+      if (o > region.byteLength) throw new Error('PLY face lists run past the end of the file.')
       indices = new Uint32Array(triTotal * 3)
-      off = faceStart
+      o = 0
       let w = 0
       for (let i = 0; i < el.count; i++) {
         for (const prop of el.props) {
           if (prop.list) {
-            const n = listLength(readScalar(dv, off, prop.countType!, little))
-            off += TYPE_SIZE[prop.countType!]
+            const n = listLength(readScalar(dv, o, prop.countType!, little))
+            o += TYPE_SIZE[prop.countType!]
             const itemSize = TYPE_SIZE[prop.itemType!]
             if (prop.name === 'vertex_indices' || prop.name === 'vertex_index') {
-              const first = readScalar(dv, off, prop.itemType!, little)
-              let prev = readScalar(dv, off + itemSize, prop.itemType!, little)
+              const first = readScalar(dv, o, prop.itemType!, little)
+              let prev = readScalar(dv, o + itemSize, prop.itemType!, little)
               for (let k = 2; k < n; k++) {
-                const cur = readScalar(dv, off + k * itemSize, prop.itemType!, little)
+                const cur = readScalar(dv, o + k * itemSize, prop.itemType!, little)
                 indices[w] = first
                 indices[w + 1] = prev
                 indices[w + 2] = cur
@@ -290,15 +371,16 @@ function parseBinaryBody(
                 prev = cur
               }
             }
-            off += n * itemSize
+            o += n * itemSize
           } else {
-            off += TYPE_SIZE[prop.type]
+            o += TYPE_SIZE[prop.type]
           }
         }
         if (onProgress && (i & 0xfffff) === 0 && i > 0) {
           onProgress(`Reading PLY faces… ${Math.round((i / el.count) * 100)}%`)
         }
       }
+      off += o
     } else {
       // Skip unknown elements (only possible when fixed-size).
       let stride = 0
@@ -311,22 +393,27 @@ function parseBinaryBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
+  if (cloud) return withColors({ kind: 'cloud', positions, normals: normals! }, colors)
   return withColors({ kind: 'indexed', positions, indices }, colors)
 }
 
 function parseAsciiBody(
-  bytes: Uint8Array,
+  src: ByteSource,
   bodyStart: number,
   elements: PlyElement[],
+  cloud: boolean,
+  target: number,
+  chunk: number,
   onProgress?: (text: string) => void,
 ): ParsedMesh {
   onProgress?.('Reading PLY…')
   // A word at a time, as a large file is too long to hold as text.
-  const words = new Words(bytes.subarray(bodyStart), (done) => onProgress?.(`Reading PLY… ${Math.round(done * 100)}%`))
+  const body: ByteSource = { size: src.size - bodyStart, read: (a, b) => src.read(bodyStart + a, bodyStart + b) }
+  const words = new Words(body, (done) => onProgress?.(`Reading PLY… ${Math.round(done * 100)}%`), chunk)
   // A word and the space after it take two bytes at least, so the body
   // holds no more words than this — what the header counts are checked
   // against before anything is allocated for them.
-  const wordsAtMost = Math.ceil((bytes.length - bodyStart) / 2)
+  const wordsAtMost = Math.ceil((src.size - bodyStart) / 2)
   let read = 0
   let reading = ''
   const next = () => {
@@ -340,6 +427,7 @@ function parseAsciiBody(
   }
   let positions: Float32Array | null = null
   let colors: Uint8Array | null = null
+  let normals: Float32Array | null = null
   const indices = gatherIndices()
 
   for (const el of elements) {
@@ -351,22 +439,31 @@ function parseAsciiBody(
       const yi = el.props.findIndex((p) => p.name === 'y')
       const zi = el.props.findIndex((p) => p.name === 'z')
       if (xi < 0 || yi < 0 || zi < 0) throw new Error('PLY vertex element is missing x/y/z.')
-      positions = new Float32Array(el.count * 3)
+      const thin = new Thinning(el.count, cloud ? target : 0)
+      positions = new Float32Array(thin.kept * 3)
       const rgb = colorProps(el)
-      if (rgb) colors = new Uint8Array(el.count * 3)
+      if (rgb) colors = new Uint8Array(thin.kept * 3)
+      const nrm = cloud ? normalProps(el) : null
+      if (nrm) normals = new Float32Array(thin.kept * 3)
+      let w = 0
       for (let i = 0; i < el.count; i++) {
+        const kept = thin.keep()
         for (let p = 0; p < el.props.length; p++) {
           const prop = el.props[p]
           if (prop.list) {
             skip(listLength(parseInt(next(), 10)))
+          } else if (!kept) {
+            next()
           } else {
             const v = parseFloat(next())
-            if (p === xi) positions[i * 3] = v
-            else if (p === yi) positions[i * 3 + 1] = v
-            else if (p === zi) positions[i * 3 + 2] = v
-            else if (rgb && rgb.includes(p)) colors![i * 3 + rgb.indexOf(p)] = channel(v, prop.type)
+            if (p === xi) positions[w * 3] = v
+            else if (p === yi) positions[w * 3 + 1] = v
+            else if (p === zi) positions[w * 3 + 2] = v
+            else if (rgb && rgb.includes(p)) colors![w * 3 + rgb.indexOf(p)] = channel(v, prop.type)
+            else if (nrm && nrm.includes(p)) normals![w * 3 + nrm.indexOf(p)] = v
           }
         }
+        if (kept) w++
       }
     } else if (el.name === 'face') {
       for (let i = 0; i < el.count; i++) {
@@ -403,5 +500,6 @@ function parseAsciiBody(
   }
 
   if (!positions) throw new Error('PLY file has no vertices.')
+  if (cloud) return withColors({ kind: 'cloud', positions, normals: normals! }, colors)
   return withColors({ kind: 'indexed', positions, indices: indices.take() }, colors)
 }

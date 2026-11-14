@@ -15,8 +15,9 @@
 // tests. Owns the kernel handles: a build's shapes are released once no
 // kept build holds them.
 
-import type { NominalSurface } from '../../../src/core/deviation/surface'
-import { emptyHit } from '../../../src/core/deviation/surface'
+import type { ClosestSurface } from '../../../src/core/deviation/surface'
+import { emptyHit, NominalSurface } from '../../../src/core/deviation/surface'
+import { CLOUD_REFUSAL } from '../../../src/core/capabilities'
 import type { Vec3 } from '../../../src/core/types'
 import { addScaled, cross, dot, len, normalize, scale, sub } from '../../../src/core/vec'
 import { frameKey, sketchFrameOn } from '../../../src/core/section/frame'
@@ -172,7 +173,7 @@ export class Builder {
   /** The scan as a surface to test split fragments against — set by the
    *  worker once the scan is over; null in a build with no scan, where
    *  a split keeps its largest fragment instead. */
-  private scan: NominalSurface | null = null
+  private scan: ClosestSurface | null = null
   /** The scan's vertices, the frame the bodies are built in — what a
    *  surface is fitted through, by the region's indices. */
   private scanPositions: Float32Array | null = null
@@ -296,7 +297,7 @@ export class Builder {
    *  first time a network is built on this scan. */
   private paths: ScanPaths | null = null
 
-  setScan(surface: NominalSurface | null, positions: Float32Array | null = null): void {
+  setScan(surface: ClosestSurface | null, positions: Float32Array | null = null): void {
     this.scan = surface
     this.scanPositions = positions
     this.paths = null
@@ -580,6 +581,8 @@ export class Builder {
    *  where no cell could be filled, why, with what the cells came to. */
   private networkReading(step: Extract<BuildStep, { kind: 'network' }>): NetworkReading | { message: string; report: NetworkReport } {
     if (!this.scan || !this.scanPositions) throw new Error('The scan is not here to draw a patch network on.')
+    // A network's cells are the scan's triangles: a cloud has none.
+    if (!(this.scan instanceof NominalSurface)) throw new Error(CLOUD_REFUSAL)
     if (!this.paths) this.paths = new ScanPaths(this.scanPositions, this.scan.index)
     // The bodies it rests on, as they stand before it: an edge by its
     // fingerprint as its points; a face's normals by the kernel.

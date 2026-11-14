@@ -39,7 +39,7 @@ export function buildMeshGraph(parsed: ParsedMesh, onProgress?: (text: string) =
 
   indices = filterDegenerateTriangles(indices)
   if (indices.length === 0) {
-    throw new Error('The file contains no usable triangles — point clouds are not supported yet.')
+    throw new Error('The file contains no usable triangles.')
   }
   const vertexCount = positions.length / 3
   for (let i = 0; i < indices.length; i++) {

@@ -163,6 +163,8 @@ const openImage: Command<{ bytes: Uint8Array; name: string }> = {
     const flat = commandHost().flat
     if (!flat) throw new CommandError('unavailable', 'Opening an image needs the browser.')
     showWorkspace('flat')
+    // Kept in the page: prepareImage hands the browser's decoder a Blob of
+    // the bytes, refused by size where blob storage would not read it back.
     await flat.openImage(fileOf(data, name))
     if (useFlat.getState().imageName !== name) throw new CommandError('failed', lastError(`${name} could not be opened.`))
     return { flat: describeFlat() }

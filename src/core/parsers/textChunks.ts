@@ -4,6 +4,8 @@
 // with the numbers gathered in typed arrays, which a plain array of the same
 // length would need twice the memory for and stop at about 134 million.
 
+import { bytesSource, type ByteSource } from './byteSource'
+
 /** How much of the file is decoded at once, in bytes. */
 export const TEXT_CHUNK = 16 * 1024 * 1024
 
@@ -37,8 +39,15 @@ class Gathered<T extends Float32Array | Uint32Array> {
     this.store = bigger
   }
 
-  /** The numbers, in an array of just their length. */
+  /** The numbers, in an array of just their length — the store itself when
+   *  it was sized right, so a known count is not copied at the end. */
   take(): T {
+    if (this.length === this.store.length) {
+      const full = this.store
+      this.store = this.make(0)
+      this.length = 0
+      return full
+    }
     const out = this.make(this.length)
     out.set(this.store.subarray(0, this.length))
     this.store = this.make(0)
@@ -47,23 +56,40 @@ class Gathered<T extends Float32Array | Uint32Array> {
   }
 }
 
-export const gatherFloats = (): Gathered<Float32Array> => new Gathered((n) => new Float32Array(n))
+export const gatherFloats = (capacity?: number): Gathered<Float32Array> => new Gathered((n) => new Float32Array(n), capacity)
 export const gatherIndices = (): Gathered<Uint32Array> => new Gathered((n) => new Uint32Array(n))
+
+const asSource = (bytes: Uint8Array | ByteSource): ByteSource => (bytes instanceof Uint8Array ? bytesSource(bytes) : bytes)
 
 /** The text of the bytes a piece at a time, cut anywhere, multi-byte characters
  *  kept whole. `done` says how far through the bytes the piece reaches, 0 to 1. */
-export function* textPieces(bytes: Uint8Array, chunk = TEXT_CHUNK): Generator<{ text: string; done: number }> {
+export function* textPieces(bytes: Uint8Array | ByteSource, chunk = TEXT_CHUNK): Generator<{ text: string; done: number }> {
+  const src = asSource(bytes)
   const decoder = new TextDecoder()
-  for (let at = 0; at < bytes.length; at += chunk) {
-    const end = Math.min(at + chunk, bytes.length)
-    yield { text: decoder.decode(bytes.subarray(at, end), { stream: end < bytes.length }), done: end / bytes.length }
+  for (let at = 0; at < src.size; at += chunk) {
+    const end = Math.min(at + chunk, src.size)
+    yield { text: decoder.decode(src.read(at, end), { stream: end < src.size }), done: end / src.size }
   }
+}
+
+/** How many lines the bytes hold, counted on the bytes without decoding
+ *  them: what eachLine would visit. */
+export function countLines(bytes: Uint8Array | ByteSource, chunk = TEXT_CHUNK): number {
+  const src = asSource(bytes)
+  let lines = 0
+  let last = 0x0a
+  for (let at = 0; at < src.size; at += chunk) {
+    const piece = src.read(at, at + chunk)
+    for (let i = piece.indexOf(0x0a); i >= 0; i = piece.indexOf(0x0a, i + 1)) lines++
+    if (piece.length > 0) last = piece[piece.length - 1]
+  }
+  return last === 0x0a ? lines : lines + 1
 }
 
 /** Each line of the bytes, without its line feed, and its index from 0: the
  *  same lines text.split('\n') would give, the empty one after a last line feed
  *  left out. */
-export function eachLine(bytes: Uint8Array, visit: (line: string, index: number) => void, onPiece?: (done: number) => void, chunk = TEXT_CHUNK): void {
+export function eachLine(bytes: Uint8Array | ByteSource, visit: (line: string, index: number) => void, onPiece?: (done: number) => void, chunk = TEXT_CHUNK): void {
   let tail = ''
   let index = 0
   for (const { text: piece, done } of textPieces(bytes, chunk)) {
@@ -81,7 +107,7 @@ export function eachLine(bytes: Uint8Array, visit: (line: string, index: number)
 
 /** A character that ends a word, as the pattern \s has it for the text formats
  *  in use: the ASCII white space, and the rest of what a file might hold. */
-const isSpace = (c: number) => c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff || c === 0x2028 || c === 0x2029 || c === 0x3000 || c === 0x1680 || c === 0x202f || c === 0x205f || (c >= 0x2000 && c <= 0x200a)
+export const isSpace = (c: number): boolean => c === 32 || (c >= 9 && c <= 13) || c === 0xa0 || c === 0xfeff || c === 0x2028 || c === 0x2029 || c === 0x3000 || c === 0x1680 || c === 0x202f || c === 0x205f || (c >= 0x2000 && c <= 0x200a)
 
 /** The words of the bytes, one call at a time: what parts split on white space
  *  would give, without holding the whole text. */
@@ -91,7 +117,7 @@ export class Words {
   private at = 0
   private ended = false
 
-  constructor(bytes: Uint8Array, private onPiece?: (done: number) => void, chunk = TEXT_CHUNK) {
+  constructor(bytes: Uint8Array | ByteSource, private onPiece?: (done: number) => void, chunk = TEXT_CHUNK) {
     this.pieces = textPieces(bytes, chunk)
   }
 

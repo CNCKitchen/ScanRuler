@@ -22,13 +22,15 @@ import { useShell } from '../state/shellStore'
 import { useMark } from '../state/markStore'
 import { CommandError } from './types'
 
-/** A project packed, or why it could not be. */
-export type PackedProject = { name: string; bytes: Uint8Array } | { error: string }
+/** A project packed, as the parts of the file in order (a Blob of them is
+ *  the file; one past 2 GiB fits no one buffer), or why it could not be. */
+export type PackedProject = { name: string; parts: Uint8Array[]; size: number } | { tooLarge: number } | { error: string }
 
 /** The project file verbs, as the top bar's Save and Load run them. */
 export interface ProjectHost {
-  /** The session as a project file — what Save Project downloads. */
-  save(): Promise<PackedProject>
+  /** The session as a project file — what Save Project downloads. Past
+   *  `maxBytes` it is refused, and the session is not taken as saved. */
+  save(maxBytes?: number): Promise<PackedProject>
   /** Open a project in place of the session. `discard` stands in for the
    *  question a person is asked before work is thrown away. */
   open(file: File, discard: boolean): Promise<void>

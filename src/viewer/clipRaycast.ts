@@ -48,7 +48,7 @@ export function keptHits(
       let crossed = 0
       for (const h of sorted) {
         if (h.distance >= at) break
-        if (h.faceIndex !== undefined && h.faceIndex !== null && capped[h.faceIndex] === 1) crossed++
+        if (h.faceIndex !== undefined && h.faceIndex !== null && h.faceIndex >= 0 && capped[h.faceIndex] === 1) crossed++
       }
       if (crossed % 2 === 1) kept = kept.filter((h) => h.distance < at)
     }

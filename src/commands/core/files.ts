@@ -8,6 +8,8 @@ import { sessionHolds } from '../../app/project'
 import { hasSurface } from '../../app/surfaces'
 import { projectSections } from '../../app/projectSections'
 import { MESH_FORMATS, type MeshFormat } from '../../core/exportMesh'
+import { joinParts } from '../../core/project/archive'
+import { byteSizeText } from '../../core/sourceFile'
 import type { CloudFormat } from '../../core/exportPointCloud'
 import type { StepStyle } from '../../core/exportStep'
 import { useFlat } from '../../state/flatStore'
@@ -62,6 +64,7 @@ const stl: Command<{ format?: MeshFormat }> = {
   input: obj({ format: enumOf([...MESH_FORMATS], 'stl (the default) or 3mf.') }),
   readOnly: true,
   returnsFile: true,
+  needsTriangles: true,
   run: async ({ format = 'stl' }) => {
     requireScan()
     return fileResult(buildScanMesh(requireScene('The mesh export'), format) ?? nothing('no scan is open'))
@@ -115,22 +118,30 @@ const csv = fileCommand(
   'nothing is on the 2D sheet',
 )
 
+/** The most a file can be in one message over the link to the agent's local
+ *  server (mcp/src/link.js, MAX_PAYLOAD). */
+const LINK_FILE_BYTES = 1024 ** 3
+
 const save: Command = {
   name: 'save',
   title: 'Save the project',
   description:
-    'The session as a .scanruler project file, as Save Project downloads it: the scan, the reference, the image and every measurement, each rebuilt when it is opened. Needs the browser. Returns the file’s bytes and its name, holds (what is in it, counted — read it before calling the file a revision: a page reset holds no model), aligned (whether the scan stands in an aligned frame) and says (what a workspace wants said of the work saved).',
+    'The session as a .scanruler project file, as Save Project downloads it: the scan, the reference, the image and every measurement, each rebuilt when it is opened. Needs the browser. A project past 1 GiB is refused, as too large for the link; Save Project in the page saves it. Returns the file’s bytes and its name, holds (what is in it, counted — read it before calling the file a revision: a page reset holds no model), aligned (whether the scan stands in an aligned frame) and says (what a workspace wants said of the work saved).',
   input: obj({}),
   readOnly: true,
   returnsFile: true,
   run: async () => {
     const project = commandHost().project
     if (!project) throw new CommandError('unavailable', 'Saving a project needs the browser.')
-    const packed = await project.save()
+    const packed = await project.save(LINK_FILE_BYTES)
     if ('error' in packed) throw new CommandError('failed', packed.error)
+    if ('tooLarge' in packed) {
+      // tooLarge is how far the packing got before it was given up: a floor.
+      throw new CommandError('failed', `The project is past ${byteSizeText(packed.tooLarge)} — more than the 1 GiB (${LINK_FILE_BYTES.toLocaleString('en-US')} bytes) a file can be handed to the agent in over the link. It is not saved: save it in the page with Save Project, which writes a project of up to 4 GiB of files.`)
+    }
     const says = projectSections().flatMap((p) => p.saveSays?.() ?? [])
     return {
-      file: { name: packed.name, mimeType: 'application/zip', bytes: packed.bytes },
+      file: { name: packed.name, mimeType: 'application/zip', bytes: joinParts(packed.parts) },
       status: useStore.getState().statusText,
       holds: sessionHolds(),
       aligned: useStore.getState().appliedAlignment !== null,

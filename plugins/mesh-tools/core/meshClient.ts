@@ -12,6 +12,7 @@ import type { LoadedScan, MeshWorkerClient } from '../../../src/core/workerClien
 import { MESH_TOOLS, type MeshRegion, type MeshToolsOps, type ScanEditRequest, type TrimBody } from './protocol'
 import type { ReduceSettings } from './reduce'
 import type { TrimSettings } from './trimToScan'
+import type { MeshCloudSettings } from './meshCloud'
 
 class MeshToolsClient {
   /** Bumped whenever the edited copy is put in place or taken away. A copy
@@ -33,6 +34,12 @@ class MeshToolsClient {
    *  every alignment baked in — with its measured deviation from it. */
   reduce(settings: ReduceSettings) {
     return this.call('reduce', { settings })
+  }
+
+  /** The point-cloud scan meshed as it now stands — every alignment baked
+   *  in. Nothing changes. */
+  meshCloud(settings: MeshCloudSettings) {
+    return this.call('mesh-cloud', { settings })
   }
 
   /** Its pieces, and the islands among them — those smaller than `minSize`

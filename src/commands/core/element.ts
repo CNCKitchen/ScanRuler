@@ -5,7 +5,7 @@
 // again before the command returns.
 
 import { hasDiameter } from '../../core/elements/assumed'
-import { methodsForKind } from '../../core/elements/construct'
+import { methodsForKind, scanOpsOfMethod } from '../../core/elements/construct'
 import { isExtendable, type ExtendSide } from '../../core/elements/extend'
 import { isOrientable, type OrientRelation } from '../../core/elements/orient'
 import { worldAxisDir, worldPlaneName, type WorldAxis } from '../../core/section/frame'
@@ -291,7 +291,7 @@ function seedsAnswer(spots: ScanSpot[], kind: FitKind, region: Uint32Array, elem
   const el = useStore.getState().elements.find((e) => e.id === elementId)
   const fit = el?.measured ?? el?.fit
   const members = new Set(region)
-  const read = spots.map((s) => ({ spot: s, inRegion: s.triangle.some((v) => members.has(v)), off: fit ? seedOff(fit, s.point, s.normal) : null }))
+  const read = spots.map((s) => ({ spot: s, inRegion: (s.triangle ?? [s.vertex]).some((v) => members.has(v)), off: fit ? seedOff(fit, s.point, s.normal) : null }))
   const seeds = read.map(({ spot, inRegion, off }) => ({ ...spotJson(spot), inRegion, ...(off ? { offMm: roundTo(off.offMm, 3), deg: roundTo(off.deg, 1) } : {}) }))
   const out = read.map((r, i) => ({ ...r, n: i + 1 })).filter((r) => !r.inRegion)
   if (!out.length || !fit) return { seeds }
@@ -331,6 +331,7 @@ function toldAnswer(told: FitTold | undefined) {
 
 const fit: Command<{ kind: FitKind; at?: Location | Location[]; rim?: number; mark?: boolean } & FitGuide & Finishing> = {
   name: 'fit',
+  scanOps: (i) => (i.rim !== undefined ? ['scan-rim'] : ['nearest', 'plane-region']),
   title: 'Fit an element',
   description:
     'Fit an element on the scan where the panel would take a click: a plane, sphere, cylinder, cone or torus grows its surface from the place (or places) in at and is best-fitted to it; a point is the place itself; a circle goes through three or more places, or round an open rim (rim, numbered by scan.qa). A place is { vertex } or { point: [x, y, z] } (mm, current frame; the nearest vertex is taken). Trap: a seed near an edge can land on the wrong surface — say what is sought with side, radius, axis or within, and surfaces that do not match are passed over; that guide stays with the element, which is fitted with it again when the project reopens. Returns the element with its fit, the seeds used (inRegion, offMm, deg), the region grown (area, box, normalSpreadDeg, fill, sagitta) and a warning when the points look like two surfaces, a bore steps or is closed at an end, or a plane is a bead’s crown — the measure-reference guide (Elements) says how to read each. One undo step.',
@@ -369,7 +370,8 @@ const fit: Command<{ kind: FitKind; at?: Location | Location[]; rim?: number; ma
       m.startDraft(input.kind)
       if (input.sigma !== undefined) useStore.getState().setDraftSigma(input.sigma)
       if (input.knownDiameter !== undefined) useStore.getState().setDraftKnownDiameter(input.knownDiameter)
-      const picks = spots.map((s) => s.triangle)
+      // A cloud has no triangle: the point stands in for all three corners a click would give.
+      const picks = spots.map((s): [number, number, number] => s.triangle ?? [s.vertex, s.vertex, s.vertex])
       const points = spots.map((s) => s.point)
       if (input.kind === 'point') {
         // A picked point is the place itself — no worker round-trip.
@@ -546,6 +548,7 @@ const construct: Command<{
   vertices?: number[]
 } & Omit<Finishing, 'sigma' | 'knownDiameter' | 'extend'>> = {
   name: 'construct',
+  scanOps: (i) => scanOpsOfMethod(i.method),
   title: 'Construct an element',
   description:
     'Construct an element from others and typed-in numbers, as the panel’s creation methods do — point: point-coords, point-centroid, point-midpoint, point-line-plane, point-center (of a sphere, circle or torus), point-three-planes, point-line-line (params gap: the most two measured lines may pass apart and be taken to cross, 0.1 mm by default; skew past it is refused), point-project (a point onto a plane); line: line-two-points, line-axis (of a cylinder, cone, torus or circle), line-plane-plane, line-plane-point (square to a plane through a point), line-project (a line or axis onto a plane), line-coords (dx, dy, dz, px, py, pz, length); plane: plane-three-points, plane-offset, plane-offset-point (parallel through a point), plane-midplane, plane-line-point (normal to a line through a point), plane-angle (refs axis, zero-angle plane; params angle in degrees, right-handed about the axis), plane-line-plane (through a line, square to a plane), plane-two-lines (params gap as for point-line-line), plane-tangent-sphere, plane-tangent-cylinder (refs the feature, a point on the side to touch), plane-coords, plane-symmetry; circle: circle-plane-cylinder, circle-plane-sphere, circle-coords. Constructions stay linked to their sources, rebuilt when one changes; element.unlink freezes one where it stands. refs fill the slots in order, by id or name (a section stands in a plane’s slot as its cut plane; "XY", "YZ", "XZ" become plane elements, listed under made); params are the numbers in order or by key. point-centroid and plane-symmetry measure the scan (vertices confines them, seed starts the symmetry search), plane-symmetry answering symmetry { rms, matched, sampled }. Returns the element. One undo step.',

@@ -3,11 +3,13 @@
 // what each part of this is to the app.
 
 import type { HintStep } from '../../src/core/hints'
-import { registerBusy, registerCommands, registerStateSection, type ScanRulerPlugin } from '../../src/plugins/api'
+import { registerBusy, registerCloudMesher, registerCommands, registerStateSection, type ScanRulerPlugin } from '../../src/plugins/api'
 import { pick, registerHistory } from '../../src/state/historyStore'
 import { registerProjectSection } from '../../src/app/projectSections'
 import { meshSection } from './app/projectSection'
 import { MESH_SETTINGS, reductionApplied, useMeshTools } from './state/meshStore'
+import { CLOUD_REFUSAL } from '../../src/core/capabilities'
+import { useStore } from '../../src/state/store'
 import { useMark } from '../../src/state/markStore'
 import { useMeshPlugin } from './app/useMeshPlugin'
 import { MeshNotices } from './ui/MeshNotices'
@@ -28,6 +30,8 @@ const plugin: ScanRulerPlugin = {
     title: 'Clean the scan up — islands, holes, scatter — expand, shrink or hollow it, and reduce it to a light mesh for CAD held within a tolerance you set',
     icon: 'wsMesh',
     order: 20,
+    // Every tool here works on triangles.
+    unavailable: () => (useStore.getState().scanIsCloud ? CLOUD_REFUSAL : null),
     // Two steps deep: the app's own, the scan, then a reduction — walked
     // only while Reduce mesh is the tool in hand.
     useHintStep() {
@@ -79,7 +83,15 @@ const plugin: ScanRulerPlugin = {
     // What an agent works through: the commands under the workspace's id —
     // the plugin's has a hyphen, which a command's name does not take — its
     // part of the readout, and what it is busy with.
-    registerCommands('mesh', meshCommands)
+    // Every tool here works on triangles but Mesh this cloud, which makes them.
+    // Of the reads, the export writes the triangles out, so a cloud is told
+    // to mesh itself rather than that there is no edited copy.
+    registerCommands('mesh', meshCommands.map((c) => ((c.readOnly && c.name !== 'export') || c.name === 'mesh_cloud' ? c : { ...c, needsTriangles: true })))
+    registerCloudMesher({
+      label: 'Mesh this cloud',
+      command: 'mesh.mesh_cloud',
+      mesh: async () => (await meshToolsSession()?.meshThisCloud()) != null,
+    })
     registerStateSection('mesh', describeMesh)
     registerBusy('mesh', meshBusy, [useMeshTools], stopMeshWork)
     registerHistory({

@@ -15,7 +15,7 @@ import { useDeviation } from '../state/deviationStore'
 import { useThickness } from '../state/thicknessStore'
 import { useFlat } from '../state/flatStore'
 import { forgetKeptParts, keepUnownedParts, projectSections } from './projectSections'
-import { ProjectClient } from '../core/project/projectClient'
+import { ProjectClient, ProjectTooLargeError } from '../core/project/projectClient'
 import { isProjectName, PROJECT_EXTENSION, projectStem, rigidFromJson, startsAsProject } from '../core/project/manifest'
 import { saveFile } from './exports'
 import {
@@ -31,8 +31,12 @@ import { APP_VERSION } from '../version'
 import { useRecovery } from './useRecovery'
 import type { PackedProject } from '../commands/host'
 import type { ImportQueue } from './importQueue'
-import { prepareScan, prepareNominal, prepareImage, runImport, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
+import { prepareScan, prepareNominal, prepareImage, runImport, runImportDone, type PreparedScan, type PreparedNominal, type PreparedImage } from './imports'
 import { bundleFiles } from './scanFiles'
+import { MemoryFile } from '../core/sourceFile'
+import { identityRigid, rigidInvert } from '../core/deviation/rigid'
+import { HeldCloudCache, storedProject } from './heldCloud'
+import { pluginBusy } from '../commands/activity'
 
 /** A project by its name: `.scanruler`, or that with a count a browser
  *  put after it (isProjectName). */
@@ -89,26 +93,53 @@ export function useProject({
   const projectClient = useRef<ProjectClient | null>(null)
   const client = () => (projectClient.current ??= new ProjectClient())
   const capture = () => collectProject(sources.current, elementScope.current, APP_VERSION)
-  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProject(file, true))
+  // A cloud thinned as it was read, or too large to pack, goes into a
+  // project or a checkpoint as the points the worker holds: in the frame of
+  // its file, the alignment put on again on opening, as Cloud Tools writes
+  // an edit.
+  const heldCloud = useRef<HeldCloudCache | null>(null)
+  heldCloud.current ??= new HeldCloudCache((alignment) => {
+    const s = useStore.getState()
+    return clientRef.current!.heldCloud(
+      alignment ? rigidInvert(alignment) : identityRigid(),
+      sceneRef.current?.scanFileColors() ?? null,
+      `${s.fileName ?? 'scan'} as held by ScanRuler`,
+    )
+  })
+  const stored = (snapshot: ReturnType<typeof capture>) => storedProject(snapshot, sources, useStore.getState(), heldCloud.current!)
+  const recovery = useRecovery(capture, () => imports.busy || useStore.getState().busy, (file) => openProjectDone(file, true), async (snapshot) => (await stored(snapshot))?.project ?? null)
 
   /** The session as a project file, and the session marked saved — what
-   *  Save Project downloads and project.save hands back. */
-  const packProject = () => imports.run(async (): Promise<PackedProject> => {
+   *  Save Project downloads and project.save hands back. One past `maxBytes`
+   *  is refused, and the session stays unsaved. */
+  const packProject = (maxBytes = Infinity) => imports.run(async (): Promise<PackedProject> => {
     const store = useStore.getState()
     if (!projectHasContent(sources.current)) return { error: 'There is nothing to save yet — no scan, image or work.' }
     store.setError(null)
     useStore.setState({ busy: true, statusText: 'Saving project…' })
     try {
       const snapshot = capture()
-      const { manifest, members } = snapshot
-      const bytes = await client().pack(manifest, members)
+      // Nothing changes the scan while this runs in the import queue.
+      const { project: saved, word: heldWord } = (await stored(snapshot)) ?? { project: snapshot, word: '' }
+      // Given up in the worker once past maxBytes, not built whole first.
+      let parts: Uint8Array[]
+      try {
+        parts = await client().pack(saved.manifest, saved.members, Number.isFinite(maxBytes) ? maxBytes : undefined)
+      } catch (e) {
+        if (!(e instanceof ProjectTooLargeError)) throw e
+        useStore.setState({ busy: false, statusText: '' })
+        return { tooLarge: e.size }
+      }
+      const size = parts.reduce((sum, part) => sum + part.byteLength, 0)
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
+      // The session as captured, not as packed: it is what later captures
+      // are compared with.
       recovery.markSaved(snapshot)
       useStore.setState({
         busy: false,
-        statusText: `Project saved — ${(bytes.byteLength / 1e6).toFixed(1)} MB.`,
+        statusText: `Project saved — ${(size / 1e6).toFixed(1)} MB.${heldWord}`,
       })
-      return { name: `${stem}.${PROJECT_EXTENSION}`, bytes }
+      return { name: `${stem}.${PROJECT_EXTENSION}`, parts, size }
     } catch (e) {
       if (projectClient.current?.dead) projectClient.current = null
       useStore.setState({ busy: false, statusText: '' })
@@ -118,25 +149,42 @@ export function useProject({
     }
   })
 
+  // A Blob of the parts, never one buffer: blob storage takes it to disk as
+  // the download needs it, and nothing reads it back here.
   const saveProject = () => packProject().then((packed) => {
-    if ('bytes' in packed) saveFile(packed.name, new Blob([packed.bytes as BlobPart], { type: 'application/zip' }))
+    if ('parts' in packed) saveFile(packed.name, new Blob(packed.parts as BlobPart[], { type: 'application/zip' }))
   })
+
+  /** A workspace's own machinery at work on the scan (registerBusy): a
+   *  project is not put under it, as a scan is not (scanImport). Asked at the
+   *  head of the import queue, so it sees work started while this waited. */
+  const pluginRefuses = (what: string): boolean => {
+    const busy = pluginBusy()
+    if (busy) useStore.getState().setError(`Wait for the work in progress to finish before ${what} — ${busy}.`)
+    return busy !== null
+  }
 
   /** Open a project in place of the session — after asking, when there is
    *  work to lose, unless the caller has settled that (`settled`). */
-  const openProject = (file: File, recovered = false, settled = false) => runImport(imports, 'Reading project…', async () => {
+  const openProject = (file: File, recovered = false, settled = false) => openProjectDone(file, recovered, settled).then(() => {})
+
+  /** openProject, resolving to whether the project was opened: not when it
+   *  was declined or refused, nor when it failed (shown as the error). */
+  const openProjectDone =(file: File, recovered = false, settled = false) => runImportDone(imports, 'Reading project…', async () => {
     const meshClient = clientRef.current!
     let scan: PreparedScan | null = null
     let nominal: PreparedNominal | null = null
     let image: PreparedImage | null = null
     let committed = false
     try {
-      const { manifest, members } = await client().unpack(new Uint8Array(await file.arrayBuffer()))
+      const { manifest, members } = await client().unpack(file)
       const applyState = prepareProjectState(manifest, members)
       const memberFile = (member: string, name: string) => {
         const bytes = members.get(member)
         if (!bytes) throw new Error(`Project is missing ${member}.`)
-        return new File([bytes as BlobPart], name)
+        // Not copied: a MemoryFile's reads are copies, so what goes to a
+        // worker is never the member's own buffer.
+        return new MemoryFile(bytes, name)
       }
       // Check every referenced member before allocating candidate geometry.
       const scanFile = manifest.scan && memberFile(manifest.scan.member, readAs(manifest.scan.fileName, manifest.scan.member))
@@ -155,7 +203,10 @@ export function useProject({
       // the worker's current scan/reference. Any member may still fail here.
       // A member saved in other units is read in millimetres from them again,
       // the way it was when it came in; the manifest checked the value.
-      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, bundleFiles([scanFile, ...companions])!, creaseSetting(useStore.getState()), alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm', manifest.scan?.scale ?? 1) // units-ok: the file's own units, an id
+      // A cloud the app held and wrote is read as it is: thinned already.
+      const held = manifest.scan?.heldCloud === true
+      if (scanFile) scan = await prepareScan(meshClient, sceneRef.current!, bundleFiles([scanFile, ...companions])!, creaseSetting(useStore.getState()), alignment ?? undefined, meshUnitsOf(manifest.scan?.units) ?? 'mm', manifest.scan?.scale ?? 1, held ? undefined : manifest.scan?.maxPoints) // units-ok: the file's own units, an id
+      if (scan && held) scan.source.held = true
       if (nominalFile) nominal = await prepareNominal(meshClient, sceneRef.current!, nominalFile, meshUnitsOf(ref?.units) ?? 'mm') // units-ok: the file's own units, an id
       if (imageFile) image = await prepareImage(imageFile)
 
@@ -217,7 +268,7 @@ export function useProject({
       if (!committed) image?.bitmap.close()
       await meshClient.discardImport([scan?.id, nominal?.id].filter((id): id is number => id !== undefined))
     }
-  }, () => settled || !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?'))
+  }, () => !pluginRefuses('opening a project') && (settled || !sessionIsDirty() || window.confirm('Opening a project replaces the measurements in this session. Continue?')))
 
   /** Start a new project in place of the session: the scan, the reference
    *  and the image closed, every measurement and every workspace's work let
@@ -239,7 +290,7 @@ export function useProject({
     sceneRef.current?.frameAll()
     useStore.setState({ busy: false, statusText: 'New project.' })
     recovery.markSaved(capture())
-  }, () => settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.'))
+  }, () => !pluginRefuses('starting a new project') && (settled || !recovery.dirty || window.confirm('Start a new project? The changes in this one that are not saved are lost.')))
 
   return { saveProject, packProject, openProject, newProject, recovery }
 }

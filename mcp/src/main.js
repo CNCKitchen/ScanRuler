@@ -12,6 +12,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { openInBrowser } from './browser.js'
 import { configDir, loadConfig, loadFolders, loadLastProject, loadRemembered, saveFolders, saveLastProject, saveRemembered } from './config.js'
 import { CHECKOUT_ENGINE, EngineLink, loadEngine } from './engine.js'
+import { describe, guardExits } from './exits.js'
 import { originAllowed, originOf } from './link.js'
 import { ANSWER_WITHIN_MS, createMcpServer, parseToolMode } from './mcp.js'
 import { SharedLink } from './relay.js'
@@ -20,6 +21,10 @@ import { httpServer } from './serve.js'
 import { NO_UPDATE_ENV, startUpdates, watchParent } from './update.js'
 
 const DEFAULT_PORT = 7317
+/** The most one message from the agent may hold before its newline. The
+ *  SDK's own 10 MB would end the session over one long call: its transport
+ *  closes, and this process with it. */
+const STDIN_MAX_BYTES = 256 * 1024 ** 2
 const HOSTED_APP = 'https://scanruler.com/'
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -80,7 +85,7 @@ and the token.
 
 /** ScanRuler run in this process from the engine at `file`, in place of
  *  the page — no port, no pairing. */
-async function headless(file, { cwd, outDir, tools, trace, answerWithinMs, updates }) {
+async function headless(file, { cwd, outDir, tools, trace, answerWithinMs, updates, stop }) {
   // stdout is the MCP channel, the transport's alone: whatever else writes
   // to it — the app's logging, the kernel's own reports — goes to stderr.
   const stdout = process.stdout
@@ -104,11 +109,8 @@ async function headless(file, { cwd, outDir, tools, trace, answerWithinMs, updat
     trace,
     answerWithinMs,
   })
-  server.onclose = () => {
-    link.close()
-    process.exit(0)
-  }
-  await server.connect(new StdioServerTransport(process.stdin, channel))
+  watchChannel(server, () => link.close(), stop)
+  await server.connect(new StdioServerTransport(process.stdin, channel, { maxBufferSize: STDIN_MAX_BYTES }))
   log('Ready, headless.')
 }
 
@@ -117,6 +119,23 @@ function join2(a, b) {
 }
 
 const log = (line) => process.stderr.write(`[scanruler-mcp] ${line}\n`)
+
+/** The MCP channel's errors said, and its close — the agent gone, or the
+ *  channel broken — the end of this copy, saying which. */
+function watchChannel(server, cleanUp, stop) {
+  let lastError = null
+  server.onerror = (error) => {
+    lastError = error
+    log(`The MCP channel: ${describe(error)}`)
+  }
+  server.onclose = () => {
+    try {
+      cleanUp()
+    } finally {
+      stop(lastError ? `the MCP channel closed; its last error was: ${lastError?.message ?? lastError}` : 'the agent closed the MCP channel.', 0)
+    }
+  }
+}
 
 export async function main(argv = process.argv.slice(2)) {
   const { values } = parseArgs({
@@ -169,10 +188,12 @@ export async function main(argv = process.argv.slice(2)) {
     return
   }
 
+  // From here on the process serves: whatever ends it says why first.
+  const stop = guardExits({ log })
   // Kept current in the background (update.js); a copy handed to stops
   // with the launcher that started it.
   const updates = startUpdates({ version: VERSION, argv })
-  watchParent()
+  watchParent(process.env, { exit: () => stop('the launcher that started this copy has gone.', 0) })
   const cwd = process.cwd()
   // Resolved, so "../reports" is a plain absolute folder with this
   // system's separators in the status and the answers.
@@ -181,7 +202,7 @@ export async function main(argv = process.argv.slice(2)) {
   const trace = traceDir ? createTrace(resolve(cwd, traceDir), { args: values['trace-args'] === true, secrets: [token] }) : null
   if (trace) log(`Tracing every call to ${trace.file}${trace.args ? ', arguments too' : ''}.`)
   const engineFile = values.engine ?? process.env.SCANRULER_ENGINE ?? (values.headless ? CHECKOUT_ENGINE : null)
-  if (engineFile) return headless(resolve(cwd, engineFile), { cwd, outDir, tools, trace, answerWithinMs, updates })
+  if (engineFile) return headless(resolve(cwd, engineFile), { cwd, outDir, tools, trace, answerWithinMs, updates, stop })
   const origins = (values['allow-origin'] ?? []).map((url) => {
     // A value that is no URL would silently never match, so it is refused.
     const origin = originOf(url)
@@ -213,15 +234,15 @@ export async function main(argv = process.argv.slice(2)) {
     trace,
     answerWithinMs,
   })
-  const transport = new StdioServerTransport()
-  server.onclose = () => {
-    link.close()
-    process.exit(0)
-  }
+  const transport = new StdioServerTransport(process.stdin, process.stdout, { maxBufferSize: STDIN_MAX_BYTES })
+  watchChannel(server, () => link.close(), stop)
   await server.connect(transport)
   // The agent gone — its end of stdin closed — is the end of this copy too.
   // An agent stops a server it started itself, but one started through
   // `docker run` would otherwise outlive it, holding the port.
-  process.stdin.once('end', () => server.close())
+  process.stdin.once('end', () => {
+    log('stdin ended: the agent has gone.')
+    void server.close()
+  })
   log(`Ready. ${connectHelp()}`)
 }

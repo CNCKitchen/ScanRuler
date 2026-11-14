@@ -44,18 +44,21 @@ function plyComment(text: string): string {
 }
 
 /** A binary little-endian PLY holding the vertices as a point cloud: xyz
- *  per vertex, with nx ny nz per vertex unless `normals` is null.
- *  `transform` is applied to every point and turned onto every normal on
- *  the way out; null exports the vertices as they stand. `comment` is one
- *  line for the header's comment. */
+ *  per vertex, with nx ny nz per vertex unless `normals` is null, and red
+ *  green blue bytes when `colors` holds three a point. `transform` is
+ *  applied to every point and turned onto every normal on the way out; null
+ *  exports the vertices as they stand. `comment` is one line for the
+ *  header's comment. */
 export function buildPointCloudPly(
   positions: Float32Array,
   normals: Float32Array | null,
   transform: Rigid | null,
   comment: string,
+  colors: Uint8Array | null = null,
 ): ArrayBuffer {
   const count = Math.floor(positions.length / 3)
   const { xyz, nrm } = posed(positions, normals, transform)
+  const rgb = colors && colors.length === count * 3 ? colors : null
   const lines = [
     'ply',
     'format binary_little_endian 1.0',
@@ -66,9 +69,10 @@ export function buildPointCloudPly(
     'property float z',
   ]
   if (nrm) lines.push('property float nx', 'property float ny', 'property float nz')
+  if (rgb) lines.push('property uchar red', 'property uchar green', 'property uchar blue')
   lines.push('end_header')
   const header = new TextEncoder().encode(lines.join('\n') + '\n')
-  const stride = nrm ? 24 : 12
+  const stride = (nrm ? 24 : 12) + (rgb ? 3 : 0)
   const buffer = new ArrayBuffer(header.length + count * stride)
   new Uint8Array(buffer).set(header)
   const view = new DataView(buffer)
@@ -82,6 +86,12 @@ export function buildPointCloudPly(
       view.setFloat32(at + 12, nrm[j], true)
       view.setFloat32(at + 16, nrm[j + 1], true)
       view.setFloat32(at + 20, nrm[j + 2], true)
+    }
+    if (rgb) {
+      const c = at + (nrm ? 24 : 12)
+      view.setUint8(c, rgb[j])
+      view.setUint8(c + 1, rgb[j + 1])
+      view.setUint8(c + 2, rgb[j + 2])
     }
     at += stride
   }

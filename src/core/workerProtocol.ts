@@ -32,8 +32,13 @@ export type WorkerRequest =
   /** `scale` is millimetres per unit of the file — an STL in inches is
    *  25.4 — applied to the coordinates before anything is built on them.
    *  Absent or 1, the file is taken in millimetres. `companions` are the
-   *  files that came with a textured OBJ, the images decoded. */
-  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number; companions?: ObjCompanions }
+   *  files that came with a textured OBJ, the images decoded. A point
+   *  cloud may come as the File itself, read here a piece at a time, and
+   *  is thinned evenly to `maxPoints` as it is read when it holds more. */
+  | { type: 'load'; requestId: number; name: string; buffer: ArrayBuffer | Blob; crease: CreaseSetting; staged?: boolean; transform?: Rigid; scale?: number; companions?: ObjCompanions; maxPoints?: number }
+  /** A point cloud already in millimetres, from memory: the same reply as
+   *  a loaded cloud. `transform` is put on it as on `load`. */
+  | { type: 'load-buffers'; requestId: number; positions: Float32Array; normals: Float32Array; crease: CreaseSetting; staged: true; transform?: Rigid }
   /** Staged imports leave the current scan/reference available until all
    *  members and their render resources have been prepared. Omitted keeps a
    *  slot; null clears it; a number selects a staged load's request id. */
@@ -185,6 +190,11 @@ export type WorkerRequest =
   /** The box around the scan's own vertices, in the frame they are measured
    *  in now — every datum alignment baked in. */
   | { type: 'bounds'; requestId: number }
+  /** The point cloud as the worker holds it, carried by `toFile` into the
+   *  frame of the file it came from, written as a binary PLY in
+   *  millimetres: what a project keeps of a cloud too large to keep, or
+   *  thinned as it was read. `colors`, three bytes a point, go in with it. */
+  | { type: 'held-cloud'; requestId: number; toFile: Rigid; colors?: Uint8Array; comment: string }
   /** The scan's vertices inside a box, facing `normal` within its angle if
    *  one is given, at most `limit` of them — see geometry/query. */
   | { type: 'query'; requestId: number; min: Vec3; max: Vec3; normal?: { dir: Vec3; cosLimit: number }; limit: number }
@@ -192,6 +202,7 @@ export type WorkerRequest =
    *  geometry/scanQa (firstHits); with `corners`, the triangle each ray met
    *  and the hit's weights on its corners too (firstHitsAt). */
   | { type: 'heights'; requestId: number; grid: RayGrid; corners?: boolean }
+  | { type: 'inside-rays'; requestId: number; grid: RayGrid }
   /** Open rims and surface noise — see geometry/scanQa; with `sheet`,
    *  whether it is a sheet, over so many points — see geometry/sheet. */
   | { type: 'scan-qa'; requestId: number; sample: number; rims: number; sheet?: { sample: number; apartSample: number } }
@@ -268,6 +279,11 @@ export type WorkerResponse =
   | {
       type: 'loaded'
       requestId: number
+      /** 'cloud' for a point cloud: no triangles, `indices` and `copyOf`
+       *  empty. */
+      kind: 'mesh' | 'cloud'
+      /** A cloud's typical point spacing, mm. */
+      spacing?: number
       positions: Float32Array
       indices: Uint32Array
       normals: Float32Array
@@ -282,6 +298,10 @@ export type WorkerResponse =
       /** The scan's own vertices — what every region and marking indexes. */
       vertexCount: number
       triangleCount: number
+      /** A cloud loaded from buffers: each input point's vertex, or -1 where
+       *  it was dropped (no normal, not finite); an exact duplicate gets the
+       *  copy kept. */
+      vertexMap?: Int32Array
       /** The part's own colour per vertex (of `vertexCount`), sRGB bytes —
        *  a textured OBJ's, read off its image. */
       colors?: Uint8Array
@@ -371,12 +391,14 @@ export type WorkerResponse =
   | { type: 'auto-align-ok'; requestId: number; result: AutoAlignResult }
   | { type: 'nearest-ok'; requestId: number; result: ScanSpot }
   | { type: 'bounds-ok'; requestId: number; min: Vec3; max: Vec3 }
+  | { type: 'held-cloud-ok'; requestId: number; bytes: Uint8Array; points: number }
   /** The vertices kept, with their positions and normals gathered, how many
    *  matched before the limit, and the stride the limit thinned them by. */
   | { type: 'query-ok'; requestId: number; vertices: Uint32Array; positions: Float32Array; normals: Float32Array; matched: number; step: number }
   /** Per ray, the coordinate of its first hit along the axis, NaN for none;
    *  asked for, the corners and weights of where it landed. */
   | { type: 'heights-ok'; requestId: number; values: Float32Array; corners?: Uint32Array; weights?: Float32Array }
+  | { type: 'inside-rays-ok'; requestId: number; values: Float32Array }
   | { type: 'scan-qa-ok'; requestId: number; rims: { count: number; total: number; largest: ScanRim[]; circles: ScanRim[]; moreCircles: number }; noise: { median: number; p90: number; sampled: number }; tessellation: Tessellation; sheet?: SheetReading }
   /** The rim's loop in order, null past the last rim. */
   | { type: 'scan-rim-ok'; requestId: number; rim: { vertices: Uint32Array; positions: Float32Array; corners: Uint32Array; closed: boolean; length: number; circle?: RimCircle } | null }

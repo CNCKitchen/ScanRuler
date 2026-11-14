@@ -11,13 +11,21 @@
 import type { MeshGraph, ParsedMesh, TextureNote, Vec3 } from './types'
 import type { SerializedTree, WorkerRequest, WorkerResponse } from './workerProtocol'
 import { parseSTL } from './parsers/stl'
+import { parseXYZ } from './parsers/xyz'
 import { parsePLY } from './parsers/ply'
+import { blobSource } from './parsers/byteSource'
 import { parseOBJ } from './parsers/obj'
 import { parse3MF } from './parsers/threemf'
 import type { ObjCompanions } from './parsers/objTexture'
 import { parseSTEP, type StepInfo } from './parsers/step'
-import { extensionOf } from './formats'
+import { extensionOf, isCloudTextFile, REFERENCE_CLOUD_REFUSAL } from './formats'
+import { CLOUD_HEAD_BYTES, cloudSizeOf } from './parsers/cloudSize'
 import { buildMeshGraph } from './geometry/buildGraph'
+import { buildPointGraph } from './geometry/buildPointGraph'
+import { buildPointCloudPly } from './exportPointCloud'
+import { isCloud } from './geometry/cloud'
+import { forgetCloudGrid } from './geometry/cloudGrid'
+import { CLOUD_REFUSAL, refusesOnCloud } from './capabilities'
 import { wireSlots } from './geometry/wireSlots'
 import { scanRender, splitCreases, type CreaseSetting } from './geometry/crease'
 import { getFitter, getSelectionFitter } from './elements/registry'
@@ -40,6 +48,7 @@ import { meshArea, meshLongEdges, readReference, sampleSpacing, subdivideForMap 
 import { buildSolidIndex, computeThickness, suggestThicknessScale } from './thickness/thickness'
 import { computeThicknessParallel, helpersFor } from './thickness/parallel'
 import { sliceMesh } from './section/slice'
+import { sliceCloud } from './section/sliceCloud'
 import { shadowMesh } from './section/shadow'
 import { meshCentroid } from './geometry/centroid'
 import { trianglesWithin } from './geometry/region'
@@ -57,6 +66,7 @@ import type { WorkerContext } from './workerPluginApi'
 import * as THREE from 'three'
 import { MeshBVH, type MeshBVHOptions } from 'three-mesh-bvh'
 import { reply } from './workerRpc'
+import { insideRays } from './geometry/insideRays'
 import { firstHits, firstHitsAt, localNoise, scanRim, scanRims, tessellationOf } from './geometry/scanQa'
 import { sheetReading, type SheetReading } from './geometry/sheet'
 import { rimLoops, type RimLoop } from './geometry/openEdges'
@@ -123,6 +133,36 @@ function postScan(
   progress: (t: string) => void,
   file?: ScanFileFacts,
 ): void {
+  if (isCloud(g)) {
+    // Points: nothing to split, no corners to slot, no triangles for a tree.
+    const positions = g.positions.slice()
+    const normals = g.normals.slice()
+    const indices = new Uint32Array(0)
+    const slots = new Uint8Array(g.vertexCount)
+    const copyOf = new Uint32Array(0)
+    renderCopies.set(g, copyOf)
+    const colors = file?.colors && file.colors.length === g.vertexCount * 3 ? file.colors : undefined
+    post(
+      {
+        type: 'loaded',
+        requestId,
+        kind: 'cloud',
+        ...(g.spacing !== undefined ? { spacing: g.spacing } : {}),
+        positions,
+        indices,
+        normals,
+        wireSlots: slots,
+        copyOf,
+        crease: { added: 0, skipped: 'off' },
+        vertexCount: g.vertexCount,
+        triangleCount: 0,
+        ...(colors ? { colors } : {}),
+        ...(file?.vertexMap ? { vertexMap: file.vertexMap.slice() } : {}),
+      },
+      [positions.buffer, normals.buffer, slots.buffer, ...(colors ? [colors.buffer] : [])],
+    )
+    return
+  }
   if (crease.mode !== 'off') progress('Finding sharp edges…')
   const { positions, indices, normals, wireSlots: slots, copyOf, crease: report } = scanRender(g, crease)
   // Kept: the posted one goes over with the rest.
@@ -134,6 +174,7 @@ function postScan(
     {
       type: 'loaded',
       requestId,
+      kind: 'mesh',
       positions,
       indices,
       normals,
@@ -153,6 +194,8 @@ function postScan(
 /** What the scan's file said besides its geometry, for the render thread. */
 interface ScanFileFacts {
   colors?: Uint8Array
+  /** Buffers handed over: which vertex each input point became. */
+  vertexMap?: Int32Array
   texture?: TextureNote
   step?: StepInfo
 }
@@ -172,14 +215,23 @@ function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) 
   if (ext === 'ply') return parsePLY(buffer, onProgress)
   if (ext === 'obj') return parseOBJ(buffer, onProgress, companions)
   if (ext === '3mf') return parse3MF(buffer, onProgress, companions)
-  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF or STEP.`)
+  if (ext === 'xyz' || ext === 'asc' || ext === 'pts') return parseXYZ(buffer, onProgress)
+  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF, STEP, XYZ, ASC or PTS.`)
 }
 
 /** The scan: a mesh, or a CAD part opened in a scan's place — cut finer
  *  than a reference is (see parsers/step), since it is worked on rather
  *  than measured against. */
-function parseScan(name: string, buffer: ArrayBuffer, onProgress: (t: string) => void, companions?: ObjCompanions): { parsed: ParsedMesh; step?: StepInfo } {
+function parseScan(name: string, input: ArrayBuffer | Blob, onProgress: (t: string) => void, companions?: ObjCompanions, maxPoints?: number): { parsed: ParsedMesh; step?: StepInfo } {
   const ext = extensionOf(name)
+  // A cloud is read a piece at a time, from the file itself when it came as
+  // one, and thinned as it is read when asked.
+  if (ext === 'ply' || ext === 'xyz' || ext === 'asc' || ext === 'pts') {
+    const src = input instanceof Blob ? blobSource(input, name) : input
+    return { parsed: ext === 'ply' ? parsePLY(src, onProgress, { maxPoints }) : parseXYZ(src, onProgress, { maxPoints }) }
+  }
+  if (input instanceof Blob) throw new Error(`${name} is read whole, not from disk a piece at a time.`)
+  const buffer = input
   if (ext === 'step' || ext === 'stp') {
     const imported = parseSTEP(buffer, onProgress, true)
     return { parsed: imported.mesh, step: imported.info }
@@ -195,6 +247,12 @@ function parseNominal(
   onProgress: (t: string) => void,
 ): { parsed: ParsedMesh; step?: StepInfo } {
   const ext = extensionOf(name)
+  // A cloud is refused before it is read: a text cloud by its name, a PLY one
+  // by the counts in its header.
+  if (isCloudTextFile(name)) throw new Error(REFERENCE_CLOUD_REFUSAL)
+  if (ext === 'ply' && cloudSizeOf(name, new Uint8Array(buffer, 0, Math.min(buffer.byteLength, CLOUD_HEAD_BYTES)), buffer.byteLength)) {
+    throw new Error(REFERENCE_CLOUD_REFUSAL)
+  }
   if (ext === 'step' || ext === 'stp') {
     const imported = parseSTEP(buffer, onProgress)
     return { parsed: imported.mesh, step: imported.info }
@@ -224,6 +282,15 @@ let holding = false
  *  worker's contract is that it answers one thing at a time, and slicing the
  *  fit must not quietly break it: everything but the abort waits its turn. */
 const queued: Exclude<WorkerRequest, { type: 'align-abort' }>[] = []
+/** Plugin requests Stop came for before their computation started: still
+ *  waiting in the queue, or held before they drove one. Each still has its
+ *  turn — what it does besides may be what the page counts on, a layer
+ *  removed, say — but what it drives (ctx.drive) is stopped before its first
+ *  slice, so it answers as one stopped part-way does. */
+const stoppedPlugin = new Set<number>()
+/** The plugin request holding the queue, and whether it is driving. */
+let heldPlugin: number | null = null
+let driving = false
 /** How long a slice of the fit may hold the worker before it goes back to the
  *  inbox. Long enough that the slicing costs nothing measurable, short enough
  *  that a stop lands within a frame or two. */
@@ -239,10 +306,14 @@ self.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     // clears the flag, so it would otherwise run and apply as if never stopped.
     for (let i = queued.length - 1; i >= 0; i--) {
       const waiting = queued[i]
+      if (waiting.type === 'plugin') stoppedPlugin.add(waiting.requestId)
       if (waiting.type !== 'align') continue
       queued.splice(i, 1)
       post({ type: 'align-stopped', requestId: waiting.requestId })
     }
+    // A plugin's request in its wait before the computation it drives — a
+    // library loading, say — is stopped too: driving clears the flag.
+    if (heldPlugin !== null && !driving) stoppedPlugin.add(heldPlugin)
     return
   }
   if (alignRun || holding) {
@@ -275,6 +346,7 @@ function answer(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
  *  reference gets — built on first use and kept until the scan or its
  *  vertices change. */
 function scanSurfaceOf(g: MeshGraph, progress: (t: string) => void, why: string): NominalSurface {
+  if (isCloud(g)) throw new Error(CLOUD_REFUSAL)
   let surface = scanSurfaces.get(g)
   if (!surface) {
     progress(why)
@@ -291,7 +363,7 @@ const scanReplaced = () => {
 }
 
 /** What the worker lends a plugin's request. */
-const contextOf = (progress: (t: string) => void): WorkerContext => ({
+const contextOf = (progress: (t: string) => void, requestId: number): WorkerContext => ({
   scan: () => graph,
   takeStaged: (id) => {
     const g = stagedScans.get(id)
@@ -300,10 +372,61 @@ const contextOf = (progress: (t: string) => void): WorkerContext => ({
   },
   progress,
   surfaceOf: (g, why) => scanSurfaceOf(g, progress, why),
+  drive: <T>(steps: Steps<T>) => (stoppedPlugin.has(requestId) ? Promise.resolve(null) : driveSteps(steps)),
 })
+
+/** A plugin's long computation, driven the way pumpAlign drives a fit: a
+ *  slice at a time, the inbox read between slices for the abort. Nothing
+ *  else runs meanwhile — the plugin hands the promise back from `handle`,
+ *  which holds the queue — so the abort flag is this run's alone. */
+function driveSteps<T>(steps: Steps<T>): Promise<T | null> {
+  alignAborted = false
+  driving = true
+  return new Promise<T | null>((resolve, reject) => {
+    const pump = (): void => {
+      try {
+        const until = performance.now() + ALIGN_SLICE_MS
+        for (;;) {
+          if (alignAborted) {
+            resolve(null)
+            return
+          }
+          const step = steps.next()
+          if (step.done) {
+            resolve(step.value)
+            return
+          }
+          if (step.value instanceof Promise) {
+            // A pass that fails ends the run with its error: left waiting,
+            // the run would hold the queue, and every request behind it, for good.
+            step.value.then(pump, reject)
+            return
+          }
+          if (performance.now() >= until) {
+            setTimeout(pump, 0)
+            return
+          }
+        }
+      } catch (e) {
+        reject(e)
+      }
+    }
+    pump()
+  }).finally(() => {
+    driving = false
+  })
+}
 
 function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   const progress = (text: string, fraction?: number) => post({ type: 'progress', text, ...(fraction !== undefined ? { fraction } : {}) })
+
+  // The closed shells of the reference are the reference's own: a cloud scan
+  // has no say in them.
+  const refusal = msg.type === 'closed-shells' && msg.which === 'nominal' ? null : refusesOnCloud(msg.type, graph)
+  if (refusal) {
+    post({ type: 'error', requestId: msg.requestId, message: refusal })
+    return
+  }
 
   if (msg.type === 'discard-import') {
     for (const id of msg.ids) { stagedScans.delete(id); stagedNominals.delete(id) }
@@ -334,16 +457,42 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     return
   }
 
-  if (msg.type === 'load') {
+  if (msg.type === 'load' || msg.type === 'load-buffers') {
     try {
-      const { parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions)
-      scaleToMm(parsed, msg.scale)
-      const candidate = buildMeshGraph(parsed, progress)
+      let parsed: ParsedMesh
+      let step: ReturnType<typeof parseScan>['step']
+      if (msg.type === 'load') {
+        ;({ parsed, step } = parseScan(msg.name, msg.buffer, progress, msg.companions, msg.maxPoints))
+        scaleToMm(parsed, msg.scale)
+      } else {
+        // A cloud already in memory, in millimetres: the same path as a
+        // parsed one from here on.
+        parsed = { kind: 'cloud', positions: msg.positions, normals: msg.normals }
+        step = undefined
+      }
+      let candidate: MeshGraph
+      let colors = parsed.colors
+      let vertexMap: Int32Array | undefined
+      if (parsed.kind === 'cloud') {
+        const built = buildPointGraph(parsed, progress)
+        candidate = built
+        // Whoever handed the points over numbers them its own way.
+        if (msg.type === 'load-buffers') vertexMap = built.vertexMap
+        // The file's colours are per input point; the graph keeps fewer.
+        if (colors && colors.length === built.vertexMap.length * 3) {
+          const kept = new Uint8Array(built.vertexCount * 3)
+          for (let i = 0; i < built.vertexMap.length; i++) {
+            const k = built.vertexMap[i]
+            if (k >= 0) kept.set(colors.subarray(3 * i, 3 * i + 3), 3 * k)
+          }
+          colors = kept
+        } else colors = undefined
+      } else candidate = buildMeshGraph(parsed, progress)
       if (msg.transform) {
         rigidApplyToPoints(msg.transform, candidate.positions)
         rigidRotateVectors(msg.transform, candidate.normals)
       }
-      postScan(msg.requestId, candidate, msg.crease, progress, { colors: parsed.colors, texture: parsed.texture, step })
+      postScan(msg.requestId, candidate, msg.crease, progress, { colors, texture: parsed.texture, step, vertexMap })
       if (msg.staged) stagedScans.set(msg.requestId, candidate)
       else { graph = candidate; scanSolid = null; scanReplaced() }
     } catch (e) {
@@ -410,6 +559,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
   if (msg.type === 'load-nominal') {
     try {
       const { parsed, step } = parseNominal(msg.name, msg.buffer, progress)
+      if (parsed.kind === 'cloud') throw new Error(REFERENCE_CLOUD_REFUSAL)
       scaleToMm(parsed, msg.scale)
       // The nominal goes through the same welding as a scan: the pseudonormals
       // that give a signed distance its sign are sums over the faces meeting at
@@ -526,6 +676,7 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     scanSolid = null
     scanSurfaces = new WeakMap()
     scanTrees = new WeakMap()
+    forgetCloudGrid(graph)
     post({ type: 'transform-ok', requestId: msg.requestId })
     return
   }
@@ -673,6 +824,17 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     return
   }
 
+  if (msg.type === 'held-cloud') {
+    if (!graph || !isCloud(graph)) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No point cloud loaded.' })
+      return
+    }
+    const n = graph.vertexCount
+    const ply = buildPointCloudPly(graph.positions.subarray(0, 3 * n), graph.normals.subarray(0, 3 * n), msg.toFile, msg.comment, msg.colors ?? null)
+    post({ type: 'held-cloud-ok', requestId: msg.requestId, bytes: new Uint8Array(ply), points: n }, [ply])
+    return
+  }
+
   if (msg.type === 'query') {
     if (!graph) {
       post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
@@ -684,6 +846,16 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       { type: 'query-ok', requestId: msg.requestId, vertices: found.vertices, positions, normals, matched: found.matched, step: found.step },
       [found.vertices.buffer, positions.buffer, normals.buffer],
     )
+    return
+  }
+
+  if (msg.type === 'inside-rays') {
+    if (!graph) {
+      post({ type: 'error', requestId: msg.requestId, message: 'No model loaded.' })
+      return
+    }
+    const values = insideRays(graph, msg.grid)
+    post({ type: 'inside-rays-ok', requestId: msg.requestId, values }, [values.buffer])
     return
   }
 
@@ -805,23 +977,35 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       fail(new Error(`No worker part for the plugin "${msg.plugin}".`))
       return
     }
+    const takesCloud = typeof plugin.acceptsClouds === 'function' ? plugin.acceptsClouds(msg.op) : plugin.acceptsClouds === true
+    if (graph && isCloud(graph) && !takesCloud) {
+      fail(new Error(CLOUD_REFUSAL))
+      return
+    }
+    let held = false
     try {
-      const reply = plugin.handle(msg.op, msg.payload, contextOf(progress))
+      const reply = plugin.handle(msg.op, msg.payload, contextOf(progress, msg.requestId))
       if (!(reply instanceof Promise)) {
         post({ type: 'plugin-ok', requestId: msg.requestId, result: reply.result }, reply.transfer ?? [])
         return
       }
       // An answer that awaits holds the queue until it settles.
       holding = true
+      held = true
+      heldPlugin = msg.requestId
       reply
         .then((r) => post({ type: 'plugin-ok', requestId: msg.requestId, result: r.result }, r.transfer ?? []))
         .catch(fail)
         .finally(() => {
           holding = false
+          heldPlugin = null
+          stoppedPlugin.delete(msg.requestId)
           drainQueue()
         })
     } catch (e) {
       fail(e)
+    } finally {
+      if (!held) stoppedPlugin.delete(msg.requestId)
     }
     return
   }
@@ -848,9 +1032,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
     try {
       // The vertices here carry every alignment baked so far, so the cut
       // lands in the same frame the elements are measured in.
-      const cut = sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, {
-        minLength: msg.minLength,
-      })
+      // A cloud has no triangles to cut: the cut is read off its points.
+      const cut = isCloud(graph)
+        ? sliceCloud(graph.positions, graph.normals, graph.spacing ?? 0, msg.origin, msg.normal, { minLength: msg.minLength })
+        : sliceMesh(graph.positions, graph.indices, msg.origin, msg.normal, { minLength: msg.minLength })
       post(
         { type: 'section-ok', requestId: msg.requestId, points: cut.points, offsets: cut.offsets, normals: cut.normals },
         cut.normals ? [cut.points.buffer, cut.offsets.buffer, cut.normals.buffer] : [cut.points.buffer, cut.offsets.buffer],
@@ -1026,7 +1211,10 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
       lastPercent = percent
       progress(`Measuring the scan against the reference — ${percent}%…`)
     }
-    const deviate = (nearestFaces: Int32Array | null) => {
+    const fail = (e: unknown) => post({ type: 'error', requestId, message: errorText(e) })
+    // Returns the helpers' work when the map went out to them, for whoever
+    // holds the queue to hold it until that is done.
+    const deviate = (nearestFaces: Int32Array | null): Promise<void> | undefined => {
       const directions = new Int8Array(scan.positions.length)
       const options = {
         // With the faces in hand the GPU had the first half of the bar.
@@ -1052,33 +1240,34 @@ function handle(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
           [values.buffer, directions.buffer],
         )
       }
-      const fail = (e: unknown) => post({ type: 'error', requestId, message: errorText(e) })
       try {
         // Faces from the GPU leave only the readings, quick on one thread; a
         // CPU search is sliced across helpers (parallel.ts) when big enough.
         const map = nearestFaces ? computeDeviation(reference, scan.positions, transform, options) : computeDeviationAuto(reference, scan.positions, transform, options)
-        if (!(map instanceof Promise)) return finish(map)
-        // Gone out to helpers: held meanwhile, as for any request that awaits.
-        holding = true
-        map.then(finish, fail).finally(() => {
-          holding = false
-          drainQueue()
-        })
+        if (!(map instanceof Promise)) { finish(map); return }
+        return map.then(finish).catch(fail)
       } catch (e) {
         fail(e)
       }
     }
-    // A big scan's nearest faces are looked up on the GPU first, where there
-    // is one, and the CPU tree searched as ever where there is not. The wait
-    // holds the queue, as an awaiting plugin's does.
-    if (scan.positions.length / 3 < GPU_MIN_VERTICES) return deviate(null)
-    holding = true
-    gpuNearestFaces(reference, scan.positions, transform, (f) => report(f * 0.5))
-      .then(deviate)
-      .finally(() => {
+    // Gone out to helpers or the GPU: held meanwhile, as for any request
+    // that awaits — once, until all of it is done.
+    const hold = (work: Promise<unknown>) => {
+      holding = true
+      work.finally(() => {
         holding = false
         drainQueue()
       })
+    }
+    // A big scan's nearest faces are looked up on the GPU first, where there
+    // is one, and the CPU tree searched as ever where there is not. The wait
+    // holds the queue, as an awaiting plugin's does.
+    if (scan.positions.length / 3 < GPU_MIN_VERTICES) {
+      const work = deviate(null)
+      if (work) hold(work)
+      return
+    }
+    hold(gpuNearestFaces(reference, scan.positions, transform, (f) => report(f * 0.5)).then(deviate).catch(fail))
     return
   }
 }
@@ -1126,8 +1315,15 @@ function pumpAlign(): void {
         break
       }
       if (step.value instanceof Promise) {
-        // A pass is out with the helpers (it never rejects); an abort is read when it is back.
-        step.value.then(pumpAlign)
+        // A pass is out with the helpers; an abort is read when it is back.
+        // Should it fail, the fit ends with its error rather than waiting on
+        // with the queue held.
+        step.value.then(pumpAlign, (e) => {
+          if (alignRun !== run) return
+          end()
+          post(alignAborted ? { type: 'align-stopped', requestId: run.requestId } : { type: 'error', requestId: run.requestId, message: errorText(e) })
+          drainQueue()
+        })
         return
       }
       if (performance.now() >= until) {

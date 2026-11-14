@@ -16,7 +16,7 @@ import { icpSteps, sampleScan, type IcpPool, type ScanSamples } from './icp'
 import { preAlignCandidates, principalFrame } from './prealign'
 import { identityRigid, rigidDisagreement, type Rigid } from './rigid'
 import { runSteps, type Steps } from './steps'
-import type { NominalSurface } from './surface'
+import type { ClosestSurface } from './surface'
 
 /** How the scan came to lie on the reference: a best fit of one of three
  *  kinds — or none at all, `built`, for a reference modelled on this very
@@ -111,13 +111,13 @@ function flipped(samples: ScanSamples): ScanSamples {
  * facing test: the fit matched nothing and still said "Aligned" (issue 34).
  * Only asked where the pose is roughly right, which is where the vote holds.
  */
-function outwardSamples(surface: NominalSurface, samples: ScanSamples, pose: Rigid): ScanSamples {
+function outwardSamples(surface: ClosestSurface, samples: ScanSamples, pose: Rigid): ScanSamples {
   if (!samples.normals || samples.count === 0) return samples
   return scanNormalsSign(surface, samples.xyz, samples.normals, pose) === 1 ? samples : flipped(samples)
 }
 
 function* fine(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   given: ScanSamples,
   start: Rigid,
   source: AlignSource,
@@ -173,7 +173,7 @@ function* fine(
  * it looked; the winner then gets the long run on ten times the points.
  */
 export function autoAlign(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   options: AlignOptions = {},
@@ -183,7 +183,7 @@ export function autoAlign(
 
 /** The automatic fit, a pass at a time — see steps.ts. */
 export function* autoAlignSteps(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   options: AlignOptions = {},
@@ -309,7 +309,7 @@ export interface PointPair {
  * absent means the whole scan, which is what nearly every part wants.
  */
 export function alignFromPairs(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   pairs: PointPair[],
@@ -323,7 +323,7 @@ export function alignFromPairs(
 
 /** The picked-point fit, a pass at a time — see steps.ts. */
 export function* alignFromPairsSteps(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   pairs: PointPair[],
@@ -428,7 +428,7 @@ export interface LocalAlignOptions extends AlignOptions {
  * *reading*.
  */
 export function alignLocal(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   vertices: Uint32Array,
@@ -442,7 +442,7 @@ export function alignLocal(
 
 /** The fine fit, a pass at a time — see steps.ts. */
 export function* alignLocalSteps(
-  surface: NominalSurface,
+  surface: ClosestSurface,
   scanPositions: Float32Array,
   scanNormals: Float32Array | null,
   vertices: Uint32Array,

@@ -158,3 +158,67 @@ export function frontSurface(
     return (za + zb + zc) / 3 <= nearest + onSurface + slope
   }
 }
+
+/** A point cloud projected onto the screen — pixels across and down, depth
+ *  away from the camera in world units. */
+export interface ProjectedPoints {
+  sx: Float32Array
+  sy: Float32Array
+  sz: Float32Array
+  /** Points that are not drawn (cut away, or past the camera's planes). */
+  dropped: ((point: number) => boolean) | null
+}
+
+/** The widest a point's depth splat is drawn, in pixels of radius. */
+const MAX_SPLAT_PX = 24
+
+/**
+ * The same question for a cloud: which points can be seen. Each point is
+ * drawn into a depth buffer over `box` as a flat disc of radius `splat`
+ * (the cloud's spacing on screen, at least a pixel — the size the points are
+ * drawn at, so the discs close up into a surface), nearest depth winning. A
+ * point is in front when its depth is within `tolerance` (world units) of the
+ * buffer's at its own pixel — `tolerance` being a number for all, or a
+ * function of the point (a surface turned away from the screen falls away by
+ * more than a spacing between neighbours: see marqueeCloud). A point off the
+ * box reads as in front.
+ */
+export function frontSurfacePoints(
+  points: ProjectedPoints,
+  box: ScreenBox,
+  splat: number,
+  tolerance: number | ((point: number) => number),
+): (point: number) => boolean {
+  const { sx, sy, sz, dropped } = points
+  const r = Math.min(MAX_SPLAT_PX, Math.max(1, Math.ceil(splat)))
+  // The margin lets a point on the box's edge still have its pixel.
+  const x0 = Math.floor(box.minX) - 1
+  const y0 = Math.floor(box.minY) - 1
+  const w = Math.max(1, Math.ceil(box.maxX) + 2 - x0)
+  const h = Math.max(1, Math.ceil(box.maxY) + 2 - y0)
+  const depth = new Float32Array(w * h).fill(Infinity)
+  const n = sx.length
+  const r2 = r * r
+  for (let p = 0; p < n; p++) {
+    if (dropped?.(p)) continue
+    const cx = Math.floor(sx[p]) - x0
+    const cy = Math.floor(sy[p]) - y0
+    if (cx < -r || cy < -r || cx > w + r || cy > h + r) continue
+    const z = sz[p]
+    const j0 = Math.max(0, cy - r), j1 = Math.min(h - 1, cy + r)
+    const i0 = Math.max(0, cx - r), i1 = Math.min(w - 1, cx + r)
+    for (let j = j0; j <= j1; j++)
+      for (let i = i0; i <= i1; i++) {
+        const dx = i - cx, dy = j - cy
+        if (dx * dx + dy * dy > r2) continue
+        const k = j * w + i
+        if (z < depth[k]) depth[k] = z
+      }
+  }
+  return (p) => {
+    const i = Math.floor(sx[p]) - x0
+    const j = Math.floor(sy[p]) - y0
+    if (i < 0 || j < 0 || i >= w || j >= h) return true
+    return sz[p] <= depth[j * w + i] + (typeof tolerance === 'number' ? tolerance : tolerance(p))
+  }
+}

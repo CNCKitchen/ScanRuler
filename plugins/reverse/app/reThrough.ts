@@ -107,7 +107,10 @@ export async function throughOn(frame: SectionFrame, band: [number, number], opt
   // within cuts it off again.
   const pad = 4 * asked + 0.01 * Math.max(hi[0] - lo[0], hi[1] - lo[1])
   const g = gridOver([lo[0] - pad, lo[1] - pad, from], [hi[0] + pad, hi[1] + pad, to], 2, asked, 1, THROUGH_CELLS)
-  const hits = await worker.heights(sheetRays(frame, g, from, to))
+  // A cloud has no triangles for a ray to meet: its points that face back
+  // at the ray stand in for them (geometry/insideRays).
+  const rays = sheetRays(frame, g, from, to)
+  const hits = useStore.getState().scanIsCloud ? await worker.insideRays(rays) : await worker.heights(rays)
   const mask = new Uint8Array(hits.length)
   let met = 0
   for (let i = 0; i < hits.length; i++) {

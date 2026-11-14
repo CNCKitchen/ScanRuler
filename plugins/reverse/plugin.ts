@@ -78,6 +78,10 @@ const plugin: ScanRulerPlugin = {
     // An agent's way in: the workspace's commands under reverse.*, its part
     // of the session's readout, and what its kernel is busy with — loading,
     // or building the bodies — so no command runs over it.
+    // On a point cloud too: a section is read off the points, the fits take
+    // points, the bodies are compared with them. The commands that need a
+    // surface — volume compare, the patch network — say so themselves
+    // (needsTriangles) and are refused there, naming Mesh this cloud.
     registerCommands('reverse', reverseCommands)
     // How to go about it, for an agent — guide.read serves them.
     registerReverseGuides()

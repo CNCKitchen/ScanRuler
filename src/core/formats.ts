@@ -18,6 +18,12 @@ const MESH_EXTENSIONS = ['stl', 'ply', 'obj', '3mf'] as const
  *  open. */
 const MODEL_EXTENSIONS = [...MESH_EXTENSIONS, 'step', 'stp'] as const
 
+/** Point-cloud text formats: a scan only — a cloud cannot be the reference. */
+const CLOUD_EXTENSIONS = ['xyz', 'asc', 'pts'] as const
+
+/** What the scan opens: a model, or a point cloud. */
+const SCAN_EXTENSIONS = [...MODEL_EXTENSIONS, ...CLOUD_EXTENSIONS] as const
+
 /** Flat-scan formats: what a flatbed scanner writes and a browser decodes. */
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg'] as const
 
@@ -28,21 +34,34 @@ const TEXTURE_EXTENSIONS = ['mtl', ...IMAGE_EXTENSIONS, 'bmp', 'webp'] as const
 const accept = (exts: readonly string[]) => exts.map((e) => `.${e}`).join(',')
 
 /** What the scan's picker offers: a model, and a texture's files with it. */
-export const SCAN_ACCEPT = accept([...MODEL_EXTENSIONS, ...TEXTURE_EXTENSIONS])
+export const SCAN_ACCEPT = accept([...SCAN_EXTENSIONS, ...TEXTURE_EXTENSIONS])
 export const REFERENCE_ACCEPT = accept(MODEL_EXTENSIONS)
 export const IMAGE_ACCEPT = accept(IMAGE_EXTENSIONS)
 
-export const SCAN_FORMATS = 'STL, PLY, OBJ, 3MF or STEP · mm' // units-ok: the unit a scan file is read in, not the display's
+export const SCAN_FORMATS = 'STL, PLY, OBJ, 3MF, STEP or XYZ/ASC/PTS · mm' // units-ok: the unit a scan file is read in, not the display's
 export const REFERENCE_FORMATS = 'STL, PLY, OBJ, 3MF or STEP'
 export const IMAGE_FORMATS = 'PNG or JPEG'
+
+/** Why a point cloud is refused as the reference, wherever it is caught. */
+export const REFERENCE_CLOUD_REFUSAL = 'A point cloud cannot be the reference yet — open a mesh or CAD file.'
+
+/** A second spelling of a format, not named again where the formats are listed. */
+const ALIASES: readonly string[] = ['stp', 'jpg']
+
+/** Every format the app opens on its own — a scan, a reference, a flat scan
+ *  — named once each, from the lists above: "STL, PLY, … PNG or JPEG". */
+export const OPENABLE_FORMATS = (() => {
+  const names = [...SCAN_EXTENSIONS, ...IMAGE_EXTENSIONS].filter((e) => !ALIASES.includes(e)).map((e) => e.toUpperCase())
+  return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`
+})()
 
 export function extensionOf(fileName: string): string {
   return fileName.split('.').pop()?.toLowerCase() ?? ''
 }
 
-/** A file the scan or the reference opens: a mesh, or CAD. */
+/** A file the scan opens: a mesh, CAD, or a point cloud. */
 export function isModelFile(fileName: string): boolean {
-  return (MODEL_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
+  return (SCAN_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
 }
 
 /** A file that comes with a textured OBJ: its material library or an image. */
@@ -59,8 +78,13 @@ export function isStepFile(fileName: string): boolean {
   return ext === 'step' || ext === 'stp'
 }
 
+/** A point-cloud text file: XYZ, ASC or PTS. */
+export function isCloudTextFile(fileName: string): boolean {
+  return (CLOUD_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
+}
+
 export function isReferenceFile(fileName: string): boolean {
-  return isModelFile(fileName)
+  return (MODEL_EXTENSIONS as readonly string[]).includes(extensionOf(fileName))
 }
 
 export function isImageFile(fileName: string): boolean {
