@@ -27,10 +27,10 @@ import { buildPointGraph, type PointGraph } from '../../../src/core/geometry/bui
 import { parsePLY } from '../../../src/core/parsers/ply'
 import type { Vec3 } from '../../../src/core/types'
 
-const DIR = process.env.SCANRULER_RUBEN_DIR || 'C:/Users/Jozkah/AppData/Roaming/RevoMetro/Projects/Ruben test/data'
+const DIR = process.env.SCANRULER_RUBEN_DIR ?? ''
 const LAYER = join(DIR, 'de0ba0ec-556a-4adc-849f-676b7139de15', 'fuse.ply')
 const TARGET = join(DIR, '6816dc6a-7784-4a14-8c7f-046ee521bbb5', 'fuse.ply')
-const EXISTS = existsSync(LAYER) && existsSync(TARGET)
+const EXISTS = Boolean(DIR) && existsSync(LAYER) && existsSync(TARGET)
 if (!EXISTS) {
   console.warn(`\n⚠ Ruben head passes not found under "${DIR}" — their alignment tests are SKIPPED.\n  Set SCANRULER_RUBEN_DIR to the RevoMetro project's data folder to run them.\n`)
 }

@@ -71,7 +71,7 @@ function gearPly({ teeth = 15, tip = 25, root = 21, width = 12, bore = 6, step =
 const dir = mkdtempSync(join(tmpdir(), 'scanruler-reverse-cloud-'))
 const GEAR = join(dir, 'gear.ply')
 writeFileSync(GEAR, gearPly())
-const REVO = join(process.env.SCANRULER_REVO_DIR || 'C:/Users/Jozkah/AppData/Roaming/RevoMetro/Projects/Project09052026214810', 'data', '920a4e47-c165-45e6-80d6-2b5c7f46e81f', 'model_pointcloud.ply')
+const REVO = process.env.SCANRULER_REVO_DIR ? join(process.env.SCANRULER_REVO_DIR, 'data', '920a4e47-c165-45e6-80d6-2b5c7f46e81f', 'model_pointcloud.ply') : ''
 
 const { agent } = await launchAgent(startAgent)
 const { call } = agent

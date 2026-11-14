@@ -23,7 +23,7 @@ import type { Vec3 } from '../../../src/core/types'
 
 const BENCH = process.env.SCANRULER_BENCH === '1'
 const R = revo()
-const RUBEN = process.env.SCANRULER_RUBEN_DIR || 'C:/Users/Jozkah/AppData/Roaming/RevoMetro/Projects/Ruben test/data'
+const RUBEN = process.env.SCANRULER_RUBEN_DIR ?? ''
 const RUBEN_LAYER = join(RUBEN, 'de0ba0ec-556a-4adc-849f-676b7139de15', 'fuse.ply')
 const RUBEN_TARGET = join(RUBEN, '6816dc6a-7784-4a14-8c7f-046ee521bbb5', 'fuse.ply')
 const DEG = Math.PI / 180
@@ -91,7 +91,7 @@ describe.skipIf(!BENCH || !R.exists)('refine bench: Revo gear', () => {
   }, 1_800_000)
 })
 
-describe.skipIf(!BENCH || !existsSync(RUBEN_LAYER) || !existsSync(RUBEN_TARGET))('refine bench: Ruben head', () => {
+describe.skipIf(!BENCH || !RUBEN || !existsSync(RUBEN_LAYER) || !existsSync(RUBEN_TARGET))('refine bench: Ruben head', () => {
   it('refines the head from auto align and from rough starts', () => {
     const t = load(RUBEN_TARGET)
     const surface = new CloudSurface(t.positions, t.normals!, t.spacing)

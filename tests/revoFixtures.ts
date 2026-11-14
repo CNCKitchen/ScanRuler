@@ -8,8 +8,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const DEFAULT_DIR = 'C:/Users/Jozkah/AppData/Roaming/RevoMetro/Projects/Project09052026214810'
-
 export type RevoPass = '0905_01' | '0905_02' | '0905_03' | '0905_04' | '0905_05'
 
 /** The data folder of each pass (a fuse.ply, binary LE x y z nx ny nz). */
@@ -36,7 +34,7 @@ export interface Revo {
 }
 
 export function revo(): Revo {
-  const dir = process.env.SCANRULER_REVO_DIR || DEFAULT_DIR
+  const dir = process.env.SCANRULER_REVO_DIR ?? ''
   const file = (guid: string, name: string) => join(dir, 'data', guid, name)
   // Every file a test reads: a project copied in part skips the tests, as an
   // absent one does, rather than failing them on the first missing pass.
@@ -46,10 +44,10 @@ export function revo(): Revo {
     file(MERGE, 'model_mesh.ply'),
     ...Object.values(GUID).map((g) => file(g, 'fuse.ply')),
   ]
-  const missing = needed.filter((f) => !existsSync(f))
+  const missing = dir ? needed.filter((f) => !existsSync(f)) : needed
   const exists = missing.length === 0
   if (!exists) {
-    const what = missing.length === needed.length ? `not found at "${dir}"` : `at "${dir}" lacks ${missing.map((f) => f.slice(dir.length + 1)).join(', ')}`
+    const what = !dir ? 'not given' : missing.length === needed.length ? `not found at "${dir}"` : `at "${dir}" lacks ${missing.map((f) => f.slice(dir.length + 1)).join(', ')}`
     console.warn(
       `\n⚠ Revo project ${what} — its point-cloud acceptance tests are SKIPPED.\n` +
         `  These run the real scanner passes through the cloud pipeline.\n` +
