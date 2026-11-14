@@ -316,8 +316,10 @@ export function zipDirectory(source: ByteSource, maxMembers: number): ZipMember[
       offset: dv.getUint32(at + 42, true),
     }
     // A zip64 extra field holds, in order, those of the three that did not fit.
-    for (let x = at + 46 + nameLength; x + 4 <= at + 46 + nameLength + extraLength;) {
+    const extraEnd = at + 46 + nameLength + extraLength
+    for (let x = at + 46 + nameLength; x + 4 <= extraEnd;) {
       const id = dv.getUint16(x, true), length = dv.getUint16(x + 2, true)
+      if (x + 4 + length > extraEnd) throw new ZipFormatError('Broken zip extra field.')
       if (id === 1) {
         let y = x + 4
         const field = (value: number) => {

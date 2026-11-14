@@ -103,6 +103,26 @@ describe('reading a zip made to hurt the reader', () => {
     expect(() => readZipMember(partsSource([fair]), zipDirectory(partsSource([fair]), 16)[0])).toThrow(/smaller than it says/)
   })
 
+  it('refuses an extra field that runs past the extra region', () => {
+    // The first central header gets a zip64 field claiming 8 bytes but given
+    // none, and a size that sends the reader to it.
+    const zip = joinParts(packProjectParts(blankManifest('0.11.2'), []))
+    const dv = new DataView(zip.buffer, zip.byteOffset)
+    const eocd = zip.length - 22
+    const first = dv.getUint32(eocd + 16, true)
+    const extraAt = first + 46 + dv.getUint16(first + 28, true) + dv.getUint16(first + 30, true)
+    const crafted = new Uint8Array(zip.length + 4)
+    crafted.set(zip.subarray(0, extraAt))
+    crafted.set([1, 0, 8, 0], extraAt)
+    crafted.set(zip.subarray(extraAt), extraAt + 4)
+    const cv = new DataView(crafted.buffer)
+    cv.setUint16(first + 30, dv.getUint16(first + 30, true) + 4, true)
+    cv.setUint32(first + 24, 0xffffffff, true)
+    cv.setUint32(eocd + 4 + 12, dv.getUint32(eocd + 12, true) + 4, true)
+    expect(() => zipDirectory(partsSource([crafted]), 16)).toThrow(ZipFormatError)
+    expect(() => unpackProject(crafted)).toThrow('Not a ScanRuler project file.')
+  })
+
   it('checks every member against its CRC-32', () => {
     const scan = noise(20_000, 3)
     const text = strToU8('facet normal 0 0 1\n'.repeat(2000))
