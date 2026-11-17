@@ -13,7 +13,7 @@ import { addScaled, cross, dot, len, normalize, sub } from '../../../src/core/ve
 import type { ExtrudeExtent } from './features'
 import { FULL_TURN_DEG, liftPoint } from './features'
 import { movedPivot, ringAxes, type Placement } from './move'
-import { AXIS_COLORS } from '../../../src/viewer/axisGizmo'
+import { AXIS_COLORS } from '../../../src/viewer/viewCube'
 import type { Region } from './regions'
 import { polygonCentroid2 } from '../../../src/core/flat/vec2'
 

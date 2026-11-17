@@ -7,9 +7,9 @@
 // puts it back without turning it: the viewpoint is the operator's, only the
 // centre and the zoom are taken back.
 //
-// It sits in the bottom-right corner with the axis gizmo, because that corner
+// It sits in the bottom-right corner with the view cube, because that corner
 // is already where the questions about "where am I looking from" are answered.
-// In the main viewport it parks directly above the gizmo, whose size follows
+// In the main viewport it parks directly above the cube, whose size follows
 // the viewport's — see SceneManager.drawGizmo, which publishes it as
 // --gizmo-size for the stylesheet to offset by.
 

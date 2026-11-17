@@ -629,7 +629,12 @@ export class OrthoNavigator {
     this.orbitLast = { x: clientX, y: clientY }
     if (dx === 0 && dy === 0) return
 
-    const pivot = this.pivot
+    this.turnByPixels(dx, dy, this.pivot)
+  }
+
+  /** Turn the view about `pivot` as a drag of this many pixels orbits it —
+   *  what the view cube's drag turns by, about the screen centre. */
+  turnByPixels(dx: number, dy: number, pivot: THREE.Vector3): void {
     const rotSpeed = 0.005
     // Free trackball orbit: yaw about the camera's own up axis, pitch about its
     // right axis — both screen-relative, so there is no fixed world up, no
