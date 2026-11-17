@@ -107,8 +107,9 @@ export function ImprintModal() {
             Besides that recovery copy, this tool stores your settings on your device, in your
             browser’s localStorage: preferences such as the navigation scheme, colours, units,
             export and fit options, the guided hints and the Beta switch, and, if you use the
-            agent connection, its port and the token that pairs it with the agent server. No
-            personal data is stored.
+            agent connection, its port and the token that pairs it with the agent server — those
+            two also in the tab’s sessionStorage, so each tab keeps its own pairing. No personal
+            data is stored.
           </li>
           <li>
             A link that opens a file (an address with <code>?open=</code> or <code>/s/</code>)
