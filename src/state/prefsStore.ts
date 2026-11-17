@@ -89,6 +89,38 @@ const write = (key: string, value: string): void => {
   }
 }
 
+/** This tab's own copy of a setting, in sessionStorage: it outlives a reload
+ *  of the tab but no other tab reads it. Null where there is none or storage
+ *  is blocked. */
+const readTab = (key: string): string | null => {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+const writeTab = (key: string, value: string): void => {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    // The browser-wide copy still holds it; only a reload of this tab, while
+    // another was paired since, would come back to the other's server.
+  }
+}
+
+/** The agent connection's port and token: the ones this tab was paired with,
+ *  else the ones last paired in this browser. Kept per tab as well as for the
+ *  browser so that several tabs can each be paired with a server of their own
+ *  — one part each, side by side — and a tab reloaded comes back to its own
+ *  server, not to the one another tab was paired with last. */
+const readAgent = (key: string): string | null => readTab(key) ?? read(key)
+
+const writeAgent = (key: string, value: string): void => {
+  write(key, value)
+  writeTab(key, value)
+}
+
 /** System unless told otherwise: an instrument that comes up in the chassis
  *  the rest of the desktop wears. index.html reads the same key the same way
  *  for the first paint. */
@@ -219,8 +251,8 @@ export const usePrefs = create<PrefsState>()((set) => {
     agentLink: agentLinkStored && agentDataOk,
     agentDataOk,
     agentDataAsking: agentLinkStored && !agentDataOk,
-    agentPort: agentPortOf(read(AGENT_PORT_KEY)),
-    agentToken: read(AGENT_TOKEN_KEY) ?? '',
+    agentPort: agentPortOf(readAgent(AGENT_PORT_KEY)),
+    agentToken: readAgent(AGENT_TOKEN_KEY) ?? '',
     spaceMouseSpeed: spaceMouseSpeedOf(read(SPACE_MOUSE_SPEED_KEY)),
     spaceMouseReverse: spaceMouseReverseOf(read(SPACE_MOUSE_REVERSE_KEY)),
     spaceMouseSeen: read(SPACE_MOUSE_SEEN_KEY) === '1',
@@ -299,12 +331,12 @@ export const usePrefs = create<PrefsState>()((set) => {
     },
     setAgentPort: (port) => {
       const agentPort = agentPortOf(port)
-      write(AGENT_PORT_KEY, String(agentPort))
+      writeAgent(AGENT_PORT_KEY, String(agentPort))
       set({ agentPort })
     },
     setAgentToken: (token) => {
       const agentToken = token.trim()
-      write(AGENT_TOKEN_KEY, agentToken)
+      writeAgent(AGENT_TOKEN_KEY, agentToken)
       set({ agentToken })
     },
     setSpaceMouseSpeed: (speed) => {

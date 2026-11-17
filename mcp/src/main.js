@@ -10,7 +10,7 @@ import { resolve } from 'node:path'
 import { format, parseArgs } from 'node:util'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { openInBrowser } from './browser.js'
-import { configDir, loadConfig, loadFolders, loadLastProject, loadRemembered, saveFolders, saveLastProject, saveRemembered } from './config.js'
+import { configDir, DEFAULT_PORT, loadConfig, loadFolders, loadLastProject, loadRemembered, portStateDir, saveFolders, saveLastProject, saveRemembered } from './config.js'
 import { CHECKOUT_ENGINE, EngineLink, loadEngine } from './engine.js'
 import { originAllowed, originOf } from './link.js'
 import { ANSWER_WITHIN_MS, createMcpServer, parseToolMode } from './mcp.js'
@@ -19,7 +19,6 @@ import { createTrace } from './trace.js'
 import { httpServer } from './serve.js'
 import { NO_UPDATE_ENV, startUpdates, watchParent } from './update.js'
 
-const DEFAULT_PORT = 7317
 const HOSTED_APP = 'https://scanruler.com/'
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -188,6 +187,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (!origin) throw new Error(`--allow-origin ${url} is not a URL.`)
     return origin
   })
+  const stateDir = portStateDir(port)
   const http = httpServer({ serve: values.serve, allowOrigin: (origin) => originAllowed(origin, origins), version: VERSION })
   // The port, or — when another copy holds it — the relay through that one.
   const link = new SharedLink({ http, port, token, version: VERSION, origins, log })
@@ -206,7 +206,8 @@ export async function main(argv = process.argv.slice(2)) {
     connectHelp: () => (link.error ? `${link.error} ` : '') + connectHelp(),
     serverInfo: () => ({ name: 'scanruler-mcp', version: VERSION, ...updates.info(), port, role: link.role, ...(link.role === 'relay' ? { holder: { version: link.holderVersion ?? null } } : {}), tools, outDir, config: config.file, ...(trace ? { trace: trace.file } : {}), ...(link.error ? { error: link.error } : {}) }),
     remembered: { load: () => loadRemembered(), save: (commands) => saveRemembered(commands) },
-    folderStore: { load: () => loadFolders(), save: (folders) => saveFolders(folders), loadProject: () => loadLastProject(), saveProject: (project) => saveLastProject(project) },
+    // Per port: another port is another tab, another part (portStateDir).
+    folderStore: { load: () => loadFolders(stateDir), save: (folders) => saveFolders(folders, stateDir), loadProject: () => loadLastProject(stateDir), saveProject: (project) => saveLastProject(project, stateDir) },
     openPage: () => openInBrowser(pairing),
     tools,
     log,

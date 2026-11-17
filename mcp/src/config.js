@@ -22,6 +22,20 @@ export function configDir(env = process.env, platform = process.platform) {
   return join(env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'scanruler-mcp')
 }
 
+/** The port the page connects to unless told otherwise. */
+export const DEFAULT_PORT = 7317
+
+/** Where the copies on `port` keep what belongs to the session their tab
+ *  holds — the folders and the last project (folders.json). Copies on one
+ *  port drive one tab and share it; copies on another port drive another tab,
+ *  another part, and kept with the first they would point an agent whose tab
+ *  reloaded at the other part's project. The default port keeps the config
+ *  folder itself, where it always was; the token, the command list and the
+ *  updates stay there for every port. */
+export function portStateDir(port, dir = configDir()) {
+  return port === DEFAULT_PORT ? dir : join(dir, `port-${port}`)
+}
+
 /** A new token: 24 random bytes, URL-safe — it travels in a link. */
 const newToken = () => randomBytes(24).toString('base64url')
 
