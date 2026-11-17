@@ -79,7 +79,9 @@ function axisLabel(text: string, color: number): THREE.Sprite {
   ctx.fillText(text, 32, 34)
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }))
+  // Depth-tested, as the arrows are: the letter of an axis running behind
+  // the cube goes behind it too, rather than reading as a mark on a face.
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false }))
   sprite.scale.setScalar(0.62)
   sprite.renderOrder = 3
   return sprite

@@ -187,8 +187,9 @@ export function ViewCube({ scene }: { scene: () => SceneManager | null }) {
     if (linger && text !== null) readoutTimer.current = window.setTimeout(() => setReadout(null), READOUT_MS)
   }, [])
 
-  const hover = (region: CubeRegion | null) => {
-    scene()?.setViewCubeHover(region)
+  /** Light what is under the pointer on the cube, or nothing. */
+  const hover = (at: { clientX: number; clientY: number } | null) => {
+    const region = scene()?.hoverViewCube(at ? { x: at.clientX, y: at.clientY } : null) ?? null
     setOverCube(region !== null)
   }
 
@@ -213,7 +214,7 @@ export function ViewCube({ scene }: { scene: () => SceneManager | null }) {
     if (!s) return
     const d = drag.current
     if (!d || d.kind !== 'cube' || d.id !== e.pointerId) {
-      if (!d) hover(s.viewCubeAt(e.clientX, e.clientY))
+      if (!d) hover(e)
       return
     }
     if (!d.pivot) {
@@ -233,7 +234,7 @@ export function ViewCube({ scene }: { scene: () => SceneManager | null }) {
     const s = scene()
     if (!s) return
     if (!d.pivot && d.region) s.viewCubeTo(d.region, turnMs())
-    hover(s.viewCubeAt(e.clientX, e.clientY))
+    hover(e)
   }
 
   // ---- the roll arrows: click a quarter turn, drag to dial, double-click upright ----

@@ -271,6 +271,9 @@ export class SceneManager {
   /** Last gizmo corner published, so the style is written when it changes
    *  rather than on every frame. */
   private gizmoCorner = 0
+  /** Where the pointer is over the view cube, in canvas pixels, or null —
+   *  see hoverViewCube. */
+  private cubePointer: { x: number; y: number } | null = null
   /** The target coordinate frame, shown while an alignment is being set up. */
   private stage: DatumStage
   /** Stage, lights and surface colours — see viewThemes. Held here as well as
@@ -793,9 +796,16 @@ export class SceneManager {
     return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
   }
 
-  /** Light a region of the view cube, or none. */
-  setViewCubeHover(region: CubeRegion | null): void {
+  /** Light the region of the view cube under a client point — or, with
+   *  null, none — and return it. The point is kept, so the light follows
+   *  the cube as it turns under a pointer held still: a click's swing, or
+   *  the keyboard (see drawGizmo). */
+  hoverViewCube(at: { x: number; y: number } | null): CubeRegion | null {
+    const rect = at ? this.viewport.canvasRect() : null
+    this.cubePointer = at && rect ? { x: at.x - rect.left, y: at.y - rect.top } : null
+    const region = this.cubePointer ? this.gizmo.hitTest(this.cubePointer.x, this.cubePointer.y) : null
     if (this.gizmo.setHovered(region)) this.invalidate()
+    return region
   }
 
   /** Turn to look at a face, edge or corner of the view cube — about what
@@ -1502,6 +1512,9 @@ export class SceneManager {
    *  rendered frame and nothing else depends on it. */
   private drawGizmo(w: number, h: number): void {
     const size = this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h)
+    // The cube may have turned under a pointer held still: what is under it
+    // now is lit on the next frame.
+    if (this.cubePointer && this.gizmo.setHovered(this.gizmo.hitTest(this.cubePointer.x, this.cubePointer.y))) this.invalidate()
     if (size === this.gizmoCorner) return
     this.gizmoCorner = size
     this.container.style.setProperty('--gizmo-size', `${Math.round(size)}px`)
