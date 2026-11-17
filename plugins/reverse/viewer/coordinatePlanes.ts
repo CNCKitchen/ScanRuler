@@ -10,7 +10,7 @@
 import * as THREE from 'three'
 import type { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js'
 import { WORLD_AXES, worldCutAxis, worldPlaneName, type WorldAxis } from '../../../src/core/section/frame'
-import { AXIS_COLORS } from '../../../src/viewer/axisGizmo'
+import { AXIS_COLORS } from '../../../src/viewer/viewCube'
 import { pinLabel } from '../../../src/viewer/overlays'
 
 /** Half a plane's side, as a share of the part's size: across most of a

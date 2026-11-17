@@ -43,7 +43,7 @@ const mid = [rect.x + rect.w / 2, rect.y + rect.h / 2]
 // page to measure it.
 //
 // The sampled region is the middle of the viewport, not all of it: the corner
-// orientation gizmo and the support banner are painted on the same canvas area
+// view cube and the support banner are painted on the same canvas area
 // and would otherwise dominate every measurement of "where is the part".
 const CROP = stageCrop(rect)
 
@@ -307,36 +307,73 @@ const front = await sample()
 check(top.hash !== front.hash, 'the 3 key turns from top to front')
 check(front.area > 0.005, `the part is on screen from the front — area ${front.area.toFixed(4)}`)
 
-// ---- the gizmo arrows are buttons for the same views ----
-// From the front the Z arrow points straight up the gizmo: it sits in the
-// bottom-right corner at gizmoSize(w, h) with a 14px pad, its tip 1.1 of 1.75
-// half-extents above the centre. One click looks down Z (top); the arrow then
-// points straight at the viewer, its tip on the gizmo centre, and a second
-// click there turns the part over (bottom) — which the 2 key then holds.
-const gizmoSize = Math.min(120, Math.max(74, Math.min(rect.w, rect.h) * 0.18))
-const gizmoCentre = [rect.x + rect.w - 14 - gizmoSize / 2, rect.y + rect.h - 14 - gizmoSize / 2]
-const zTip = [gizmoCentre[0], gizmoCentre[1] - (1.1 / 1.75) * (gizmoSize / 2)]
-const canvasCursor = () => page.evaluate(() => document.querySelector('.viewport canvas').style.cursor)
-await page.mouse.move(...zTip)
+// ---- the view cube turns to the same views ----
+// Its arrows and buttons are DOM laid over the corner the cube is drawn in,
+// and come up while the pointer is on it. From the front, the arrow above the
+// cube turns the face above round to the front — the top view, which the 1
+// key then holds. The arrow below it, twice, turns the part over to the
+// bottom view the 2 key holds. A drag down the clockwise roll arrow rolls
+// the view by the angle it shows, and a double click stands it upright.
+const centreOf = (test) =>
+  page.evaluate((t) => {
+    const el = document.querySelector(`[data-test=${t}]`)
+    if (!el) return null
+    const r = el.getBoundingClientRect()
+    return [r.x + r.width / 2, r.y + r.height / 2]
+  }, test)
+const cubeCentre = await centreOf('view-cube')
+check(cubeCentre !== null, 'the view cube is in the corner')
+await page.mouse.move(...cubeCentre)
 await sleep(150)
-const cursor = await canvasCursor()
-check(cursor === 'pointer', `hovering the Z arrow shows a pointer (cursor "${cursor}")`)
-await page.mouse.click(...zTip)
+const arrowUp = await centreOf('view-cube-orbit-up')
+check(arrowUp !== null, 'a face looked at square-on offers the orbit arrows')
+await page.mouse.click(...arrowUp)
+await sleep(700)
+const cubeTop = await sample()
+check(cubeTop.hash !== front.hash, 'the arrow above the cube turns the view')
+await page.keyboard.press('1')
 await sleep(250)
-const zOnce = await sample()
-check(zOnce.hash !== front.hash, 'clicking the Z arrow turns the view')
-await page.mouse.click(...gizmoCentre)
-await sleep(250)
-const zTwice = await sample()
-check(zTwice.hash !== zOnce.hash, 'clicking it again turns the part over')
+const keyTop = await sample()
+const cubeTopDiff = await pixelDiff(page, keyTop.png, cubeTop.png)
+check(cubeTopDiff < 0.5, `and that is the top view the 1 key holds (${cubeTopDiff.toFixed(3)}% off)`)
+const arrowDown = await centreOf('view-cube-orbit-down')
+await page.mouse.click(...arrowDown)
+await sleep(700)
+await page.mouse.click(...arrowDown)
+await sleep(700)
+const cubeBottom = await sample()
 await page.keyboard.press('2')
 await sleep(250)
 const bottom = await sample()
-const bottomDiff = await pixelDiff(page, bottom.png, zTwice.png)
-check(bottomDiff < 0.5, `and that is the bottom view the 2 key holds (${bottomDiff.toFixed(3)}% off)`)
+const bottomDiff = await pixelDiff(page, bottom.png, cubeBottom.png)
+check(bottomDiff < 0.5, `the arrow below, twice, turns the part over to the bottom view (${bottomDiff.toFixed(3)}% off)`)
+
+await page.mouse.move(...cubeCentre)
+await sleep(150)
+const rollCw = await centreOf('view-cube-roll-cw')
+check(rollCw !== null, 'the roll arrows are offered')
+await page.mouse.move(...rollCw)
+await page.mouse.down()
+for (let i = 1; i <= 8; i++) {
+  await page.mouse.move(rollCw[0], rollCw[1] + i * 6)
+  await sleep(16)
+}
+const rollShown = await page.evaluate(() => document.querySelector('[data-test=view-cube-roll]')?.textContent ?? null)
+await page.mouse.up()
+await sleep(100)
+check(rollShown === '−24°', `dragging the roll arrow down 48 px rolls the view 24 degrees clockwise (shows ${rollShown})`)
+const rolled = await sample()
+check(rolled.hash !== bottom.hash, 'and the part turns on screen')
+await page.mouse.click(...rollCw, { clickCount: 1 })
+await page.mouse.click(...rollCw, { clickCount: 2 })
+await sleep(700)
+const upright = await page.evaluate(() => document.querySelector('[data-test=view-cube-roll]')?.textContent ?? null)
+check(upright === '0°', `a double click stands the part upright again (shows ${upright})`)
+const reset = await sample()
+const resetDiff = await pixelDiff(page, reset.png, bottom.png)
+check(resetDiff < 0.5, `back where the bottom view had it (${resetDiff.toFixed(3)}% off)`)
 await page.mouse.move(...mid)
 await sleep(150)
-check((await canvasCursor()) === '', 'the pointer goes back to normal off the gizmo')
 
 // ---- picking still works after all that ----
 // A drag must not read as a click, and a click must not read as a drag: sweep
