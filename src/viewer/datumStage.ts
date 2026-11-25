@@ -29,6 +29,10 @@ export class DatumStage {
   private group: THREE.Group | null = null
   private cleanup: (() => void)[] = []
   private radius = 0
+  /** The two parts and their labels. The label renderer draws a CSS2D label
+   *  whatever its parent's visibility, so each is switched itself. */
+  private parts: { planes: THREE.Group; axes: THREE.Group; labels: { planes: CSS2DObject[]; axes: CSS2DObject[] } } | null = null
+  private wanted = { planes: true, axes: true }
 
   constructor(private scene: THREE.Scene) {}
 
@@ -43,6 +47,22 @@ export class DatumStage {
     return this.radius * 1.3
   }
 
+  /** Which of the planes (with their labels) and the axis arrows are drawn.
+   *  Kept across a rebuild at another size. */
+  setParts(planes: boolean, axes: boolean): void {
+    this.wanted = { planes, axes }
+    this.applyParts()
+  }
+
+  private applyParts(): void {
+    const p = this.parts
+    if (!p) return
+    p.planes.visible = this.wanted.planes
+    for (const l of p.labels.planes) l.visible = this.wanted.planes
+    p.axes.visible = this.wanted.axes
+    for (const l of p.labels.axes) l.visible = this.wanted.axes
+  }
+
   /** Show the stage sized to a part of the given radius, or take it down. */
   set(radius: number | null): void {
     if (radius !== null && this.group !== null && Math.abs(radius - this.radius) < 1e-9) return
@@ -51,6 +71,11 @@ export class DatumStage {
     this.radius = radius
     const group = new THREE.Group()
     this.group = group
+    const planes = new THREE.Group()
+    const axes = new THREE.Group()
+    group.add(planes, axes)
+    const labels = { planes: [] as CSS2DObject[], axes: [] as CSS2DObject[] }
+    this.parts = { planes, axes, labels }
 
     const half = this.extent()
     const quad = new THREE.PlaneGeometry(2 * half, 2 * half)
@@ -90,12 +115,12 @@ export class DatumStage {
       })
       const sheet = new THREE.Mesh(quad, fill)
       sheet.rotation.copy(facings[axis][0])
-      group.add(sheet)
+      planes.add(sheet)
 
       const stroke = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.45 })
       const border = new THREE.LineSegments(quadEdges, stroke)
       border.rotation.copy(facings[axis][0])
-      group.add(border)
+      planes.add(border)
       this.cleanup.push(() => {
         fill.dispose()
         stroke.dispose()
@@ -103,7 +128,8 @@ export class DatumStage {
 
       const label = stageLabel(facings[axis][1], color)
       label.position.set(...labelAt[axis])
-      group.add(label)
+      planes.add(label)
+      labels.planes.push(label)
       this.cleanup.push(() => label.element.remove())
     }
 
@@ -133,14 +159,16 @@ export class DatumStage {
       for (const geo of [shaft, head]) {
         const part = new THREE.Mesh(geo, mat)
         part.quaternion.copy(q)
-        group.add(part)
+        axes.add(part)
       }
       const label = stageLabel(names[axis], color)
       label.position.copy(dirs[axis]).multiplyScalar(shaftLen + half * 0.1)
-      group.add(label)
+      axes.add(label)
+      labels.axes.push(label)
       this.cleanup.push(() => label.element.remove())
     }
 
+    this.applyParts()
     this.scene.add(group)
   }
 
@@ -150,6 +178,7 @@ export class DatumStage {
     this.cleanup = []
     this.scene.remove(this.group)
     this.group = null
+    this.parts = null
   }
 
   dispose(): void {

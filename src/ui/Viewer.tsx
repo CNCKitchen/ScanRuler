@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { WorldAxis } from '../core/section/frame'
 import { SceneManager, type GripSide, type PickHit } from '../viewer/SceneManager'
 import { FitButton } from './FitButton'
+import { useContextMenu } from './ContextMenu'
 import { ProjectionButton } from './ProjectionButton'
 
 export function Viewer({
@@ -57,6 +58,16 @@ export function Viewer({
   // a bare grey page, which is indistinguishable from a hung app.
   const [webglError, setWebglError] = useState<string | null>(null)
 
+  // Right-click on the corner gizmo: what is drawn of the coordinate frame.
+  const gizmoMenu = useContextMenu('XYZ datum', () => {
+    const scene = sceneRef.current
+    if (!scene) return []
+    return [
+      { label: 'Axes at zero', checked: scene.axesShown(), onSelect: () => scene.setAxesShown(!scene.axesShown()) },
+      { label: 'XYZ planes at zero', checked: scene.planesShown(), onSelect: () => scene.setPlanesShown(!scene.planesShown()) },
+    ]
+  })
+
   useEffect(() => {
     let scene: SceneManager
     try {
@@ -81,7 +92,14 @@ export function Viewer({
   }, [])
 
   return (
-    <div className="viewport" ref={containerRef}>
+    <div
+      className="viewport"
+      ref={containerRef}
+      onContextMenu={(e) => {
+        if (sceneRef.current?.overGizmo(e.clientX, e.clientY)) gizmoMenu.onContextMenu(e)
+      }}
+    >
+      {gizmoMenu.menu}
       {webglError === null && <FitButton onFit={() => sceneRef.current?.fitToView()} />}
       {webglError === null && <ProjectionButton />}
       {webglError !== null && (

@@ -266,6 +266,12 @@ export class SceneManager {
   private gizmoCorner = 0
   /** The target coordinate frame, shown while an alignment is being set up. */
   private stage: DatumStage
+  /** The alignment editor is open: the stage stands whole and the camera is
+   *  framed around it. */
+  private stageAligning = false
+  /** Which parts of the stage the person has switched on by hand, at the
+   *  part's zero, apart from the editor. */
+  private stageShown = { planes: false, axes: false }
   /** Stage, lights and surface colours — see viewThemes. Held here as well as
    *  in the viewport because a scan or a reference loaded later has to be
    *  dressed in whatever scheme is current. */
@@ -1097,6 +1103,7 @@ export class SceneManager {
         1e-4,
       )
       this.scanAxis = axis
+      this.syncStage()
       this.frameCamera(geometry.boundingBox!, this.scanAxis)
       // Asked for before the closed shells, which only a cut needs: a pick
       // needs the tree.
@@ -1459,7 +1466,7 @@ export class SceneManager {
     if (this.nominalMesh?.visible && this.nominalMesh.geometry.boundingBox) {
       box.union(this.nominalMesh.geometry.boundingBox)
     }
-    if (this.stage.active()) {
+    if (this.stageAligning) {
       const e = this.stage.extent()
       box.union(new THREE.Box3(new THREE.Vector3(-e, -e, -e), new THREE.Vector3(e, e, e)))
     }
@@ -2132,8 +2139,9 @@ export class SceneManager {
    * camera is the operator's.
    */
   setDatumStage(on: boolean): void {
-    if (on === this.stage.active()) return
-    this.stage.set(on ? this.modelRadius : null)
+    if (on === this.stageAligning) return
+    this.stageAligning = on
+    this.syncStage()
     if (on) {
       const e = this.stage.extent()
       const box = new THREE.Box3(
@@ -2145,6 +2153,46 @@ export class SceneManager {
       this.frameCamera(box, null, STAGE_VIEW)
     }
     this.invalidate()
+  }
+
+  /** Make the stage what the editor and the person's own switches ask: the
+   *  editor takes it whole; otherwise only the parts switched on, at the
+   *  size of the part now loaded. Cheap to repeat — safe after a scan or
+   *  size change. */
+  private syncStage(): void {
+    const planes = this.stageAligning || this.stageShown.planes
+    const axes = this.stageAligning || this.stageShown.axes
+    this.stage.set(planes || axes ? this.modelRadius : null)
+    this.stage.setParts(planes, axes)
+  }
+
+  /** The coordinate planes (X = 0, Y = 0, Z = 0), switched on by hand. */
+  planesShown(): boolean {
+    return this.stageShown.planes
+  }
+
+  setPlanesShown(on: boolean): void {
+    this.stageShown.planes = on
+    this.syncStage()
+    this.invalidate()
+  }
+
+  /** The axis arrows out of the zero point, switched on by hand. */
+  axesShown(): boolean {
+    return this.stageShown.axes
+  }
+
+  setAxesShown(on: boolean): void {
+    this.stageShown.axes = on
+    this.syncStage()
+    this.invalidate()
+  }
+
+  /** Whether a client point is over the gizmo's corner — where its menu
+   *  opens. */
+  overGizmo(clientX: number, clientY: number): boolean {
+    const rect = this.viewport.canvasRect()
+    return this.gizmo.contains(clientX - rect.left, clientY - rect.top)
   }
 
   /** Frame the part the way the datum stage was read — front-top-right, Z up —
@@ -3121,6 +3169,7 @@ export class SceneManager {
     this.scanVertices = next.scanVertices
     this.copyOf = next.copyOf
     this.modelRadius = next.modelRadius
+    this.syncStage()
     this.scanAxis = next.axis
     this.synced = { color: -1, tint: -1, paint: -1 }
     // Painted while it waited: uploaded afresh.
@@ -3185,6 +3234,7 @@ export class SceneManager {
     geometry.computeBoundsTree()
     this.modelRadius = Math.max(geometry.boundingBox!.min.distanceTo(geometry.boundingBox!.max) / 2, 1e-4)
     this.scanAxis = principalAxis(positions)
+    this.syncStage()
     // The cap is cut from the geometry.
     this.applySlice()
     this.invalidate()
@@ -3615,6 +3665,7 @@ export class SceneManager {
   private sizeStage(radius: number, frame?: THREE.Box3): void {
     if (this.mesh) return
     this.modelRadius = radius
+    this.syncStage()
     if (frame) this.frameCamera(frame, null, STAGE_VIEW)
     this.invalidate()
   }

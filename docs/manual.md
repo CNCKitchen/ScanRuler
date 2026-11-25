@@ -364,6 +364,26 @@ looking at. Every viewport has one, both halves of the point picker included,
 and it fits whatever is actually being shown — with the scan switched off it
 frames the reference rather than the pair of them.
 
+**Right-click the axis gizmo** for a small menu of what is drawn of the
+coordinate frame, each with a check when on: the **axes at zero** (the X, Y
+and Z arrows out of the origin) and the **XYZ planes at zero** (the X = 0,
+Y = 0 and Z = 0 planes, labelled). The gizmo itself always stays. They stand
+at the origin of the scan's coordinates, which is the part's zero once it has
+been aligned. These switches are kept for the session, not saved in the
+project; the Align part editor shows the whole frame while it is open whatever
+they say, and puts them back as they were when it closes. An agent switches
+the same two with the `axes` and `planes` keys of `view.set` and
+`view.render`.
+
+![The menu that opens when the axis gizmo is right-clicked, with Axes at zero and XYZ planes at zero](images/xyz-datum-menu.png)
+
+With both on, the scan sits among the three planes and the arrows; with only
+the axes on, just the arrows remain; with both off, the view is as it was.
+
+![A scan with the three labelled coordinate planes and the X, Y and Z arrows at zero](images/xyz-datum-planes.png)
+![The same scan with only the X, Y and Z axis arrows at zero](images/xyz-datum-axes.png)
+![The same scan with the coordinate frame switched off](images/xyz-datum-off.png)
+
 The viewport uses a **parallel (orthographic) projection** so nothing is
 foreshortened, and rotates freely around the model's bounding-box center with
 no fixed up-axis — you can turn the part all the way over without hitting a

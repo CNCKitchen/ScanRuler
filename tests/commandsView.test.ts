@@ -98,6 +98,20 @@ describe('the view', () => {
     expect(viewToggles(baseToggles(scene)).has('map')).toBe(false)
   })
 
+  it('has axes and planes keys that put the coordinate frame on screen or away, and put back after a picture', () => {
+    const on = { axes: false, planes: false }
+    const scene = {
+      axesShown: () => on.axes,
+      setAxesShown: (v: boolean) => void (on.axes = v),
+      planesShown: () => on.planes,
+      setPlanesShown: (v: boolean) => void (on.planes = v),
+    } as unknown as Parameters<typeof baseToggles>[0]
+    const applied = applyShow(viewToggles(baseToggles(scene)), { axes: true, planes: true }, (m) => new Error(m))
+    expect(on).toEqual({ axes: true, planes: true })
+    applied.putBack()
+    expect(on).toEqual({ axes: false, planes: false })
+  })
+
   it('lists view.render, flat.render, section.render and scan.heightmap as the commands that answer with a picture', () => {
     const pictures = listCommands().filter((c) => c.returnsImage)
     expect(pictures.map((c) => c.name)).toEqual(['flat.render', 'scan.heightmap', 'section.render', 'view.render'])
