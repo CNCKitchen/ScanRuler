@@ -109,8 +109,8 @@ export class AxisGizmo {
    *  Where two tips overlap, the one nearer the viewer wins — it is the one
    *  drawn on top. */
   hitTest(px: number, py: number): GizmoAxis | null {
+    if (!this.contains(px, py)) return null
     const { x, y, size } = this.drawn
-    if (size === 0 || px < x || py < y || px > x + size || py > y + size) return null
     const unit = size / (2 * GIZMO_HALF)
     this.camera.updateMatrixWorld()
     let best: GizmoAxis | null = null
@@ -131,6 +131,13 @@ export class AxisGizmo {
       }
     }
     return best
+  }
+
+  /** Whether a canvas point (pixels from the top-left) is in the gizmo's
+   *  corner. */
+  contains(px: number, py: number): boolean {
+    const { x, y, size } = this.drawn
+    return size > 0 && px >= x && py >= y && px <= x + size && py <= y + size
   }
 
   /** Light one arrow, or none. Returns whether anything changed, so the

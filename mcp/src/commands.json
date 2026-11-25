@@ -1,6 +1,6 @@
 {
   "app": "0.11.2",
-  "saved": "2026-11-11T18:55:21.207Z",
+  "saved": "2026-11-25T22:11:53.703Z",
   "commands": [
     {
       "name": "align.auto",
@@ -4843,7 +4843,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, axes and planes (the X Y Z arrows and the X = 0, Y = 0, Z = 0 planes at the zero point), comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -4858,6 +4858,12 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "axes": {
+                "type": "boolean"
+              },
+              "planes": {
                 "type": "boolean"
               },
               "comb": {
@@ -5042,7 +5048,7 @@
           },
           "show": {
             "type": "object",
-            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
+            "description": "Keys to show (true) or put away (false): scan, reference, sections, elements (with dimensions), labels, axes and planes (the X Y Z arrows and the X = 0, Y = 0, Z = 0 planes at the zero point), comb (the curvature comb), map (the deviation map, in Deviation and in Reverse engineer), and a workspace’s own (view.set lists every key standing now).",
             "properties": {
               "scan": {
                 "type": "boolean"
@@ -5057,6 +5063,12 @@
                 "type": "boolean"
               },
               "labels": {
+                "type": "boolean"
+              },
+              "axes": {
+                "type": "boolean"
+              },
+              "planes": {
                 "type": "boolean"
               },
               "comb": {

@@ -4545,6 +4545,12 @@ button.x:disabled {
   color: var(--red);
 }
 
+.ctx-check {
+  display: inline-block;
+  width: 16px;
+  color: var(--accent-d);
+}
+
 .ctx-menu button:disabled {
   color: var(--faint);
   cursor: default;

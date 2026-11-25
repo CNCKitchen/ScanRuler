@@ -5,6 +5,17 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## Unreleased
+
+- **Right-click the corner gizmo to show or hide the coordinate frame**
+  (2026-11-25). A small menu over the X Y Z gizmo switches the axis arrows
+  out of the zero point and the three coordinate planes (X = 0, Y = 0,
+  Z = 0) on and off, with a check beside what is on. The gizmo itself always
+  stays. The axes and planes stand at the origin, which is the part's zero
+  once it is aligned. The Align part editor still shows them whole while it
+  is open. An agent has the same two switches as the `axes` and `planes` keys
+  of `view.set` and `view.render`.
+
 ## 0.11.2 — 2026-11-11
 
 - **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and

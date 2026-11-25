@@ -10,6 +10,9 @@ import { useDismiss } from './useDismiss'
 export interface MenuItem {
   label: string
   onSelect: () => void
+  /** A switch: drawn with a check when on, blank when off. Left out for an
+   *  item that is an action. */
+  checked?: boolean
   /** Standing down — drawn greyed, a click does nothing. */
   disabled?: boolean
   /** A destructive item, drawn in red. */
@@ -42,7 +45,8 @@ export function useContextMenu(heading: string, items: () => MenuItem[]): { onCo
       {at.items.map((item) => (
         <button
           key={item.label}
-          role="menuitem"
+          role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+          aria-checked={item.checked}
           className={(item.danger ? 'danger' : '') + (item.rule ? ' rule' : '')}
           disabled={item.disabled}
           onClick={() => {
@@ -50,6 +54,7 @@ export function useContextMenu(heading: string, items: () => MenuItem[]): { onCo
             item.onSelect()
           }}
         >
+          {item.checked !== undefined && <span className="ctx-check">{item.checked ? '✓' : ''}</span>}
           {item.label}
         </button>
       ))}
