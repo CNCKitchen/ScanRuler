@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<html lang="en">
+<meta charset="utf-8">
+<title>ScanRuler — Hardware</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 20px; background: #15171a; color: #e6e8eb }
+  h1 { font-size: 16px; margin: 0 0 12px }
+  table { border-collapse: collapse; width: 100% }
+  td { padding: 4px 8px; border-bottom: 1px solid #2b2f35; vertical-align: top }
+  td:first-child { color: #9aa3ad; width: 200px }
+  select, button { font: inherit; padding: 4px 8px }
+  .row { margin: 14px 0; display: flex; gap: 8px; align-items: center }
+  .warn { color: #e0b050 }
+</style>
+<h1 id="h">Hardware</h1>
+<table id="t"></table>
+<div class="row">
+  <label for="b" id="l"></label>
+  <select id="b"></select>
+  <button id="r"></button>
+</div>
+<p class="warn" id="note"></p>
+<script>
+const $ = (id) => document.getElementById(id)
+const row = (k, v) => `<tr><td>${k}</td><td>${String(v).replace(/[<&]/g, (c) => ({ '<': '&lt;', '&': '&amp;' })[c])}</td></tr>`
+async function load() {
+  const i = await hw.info()
+  const s = i.strings
+  // A probe answer is a description, true (present, unnamed) or false (absent).
+  const present = (v, name) => (v === false ? s.unavailable : v === true ? name ?? s.available : v)
+  document.title = `ScanRuler — ${s.title}`
+  $('h').textContent = s.title
+  $('l').textContent = s.backend
+  $('r').textContent = s.restart
+  $('t').innerHTML = [
+    row(s.gpu, i.gpus.join(' | ') || '—'),
+    row(s.backendChosen, i.backends[i.backendRunning]),
+    row(s.backendRunning, i.angleActive || '—'),
+    row(s.renderer, present(i.page.renderer, 'WebGL2')),
+    row(s.webgpu, i.page.webgpu === false && i.backendRunning !== 'd3d11' ? `${s.unavailable} — ${s.webgpuWhy}` : present(i.page.webgpu)),
+    row(s.cpu, `${i.cpu} — ${i.page.threads} ${s.threads}`),
+    row(s.isolation, i.page.isolated ? s.yes : s.no),
+    row(s.npu, i.page.webnn ? s.available : s.unavailable),
+    row(s.versions, i.versions),
+  ].join('')
+  $('b').innerHTML = Object.entries(i.backends).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')
+  $('b').value = i.backend
+  $('note').textContent = i.backend !== i.backendRunning ? s.changed : ''
+}
+$('b').onchange = async () => { await hw.setBackend($('b').value); load() }
+$('r').onclick = () => hw.restart()
+load()
+</script>

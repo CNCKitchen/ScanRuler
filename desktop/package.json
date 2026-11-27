@@ -1,0 +1,18 @@
+{
+  "name": "scanruler-desktop",
+  "version": "0.1.0",
+  "description": "ScanRuler desktop shell (Electron)",
+  "main": "main.js",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "test": "node test/dicts.mjs && node test/smoke.mjs && node test/creality.mjs",
+    "dist": "node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^45.2.1",
+    "puppeteer-core": "^25.16.0"
+  }
+}
