@@ -1329,6 +1329,7 @@ function Workbench() {
     sources,
     clientRef,
     sceneRef,
+    flatSceneRef,
     elementScope,
     imports,
     commitScan,

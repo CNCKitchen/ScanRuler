@@ -10,6 +10,7 @@
 
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
+import { captureProjectPreview, visiblePreviewBounds } from './projectPreview'
 import { OrthoViewport, STANDARD_VIEWS, viewAcross, type Projection, type StandardView } from './orthoViewport'
 import { AxisGizmo, type GizmoAxis } from './axisGizmo'
 import { DatumStage } from './datumStage'
@@ -1534,6 +1535,13 @@ export class SceneManager {
     const size = this.viewSize()
     const blob = await this.viewport.capture(Math.round(width ?? size.width), Math.round(height ?? size.height))
     return new Uint8Array(await blob.arrayBuffer())
+  }
+
+  captureProjectPreview(): Promise<Uint8Array> {
+    return captureProjectPreview(this.viewport, visiblePreviewBounds([
+      this.partGroup,
+      ...(this.nominalMesh ? [this.nominalMesh] : []),
+    ]))
   }
 
   /**

@@ -9,6 +9,9 @@ import { useRef, type RefObject } from 'react'
 import type { ElementKind } from '../core/types'
 import type { MeshWorkerClient } from '../core/workerClient'
 import type { SceneManager } from '../viewer/SceneManager'
+import type { FlatScene } from '../viewer/FlatScene'
+import { useShell } from '../state/shellStore'
+import { PREVIEW_NAME } from '../core/project/archive'
 import { useStore } from '../state/store'
 import { creaseSetting } from '../core/geometry/crease'
 import { useDeviation } from '../state/deviationStore'
@@ -62,6 +65,7 @@ export function useProject({
   sources,
   clientRef,
   sceneRef,
+  flatSceneRef,
   elementScope,
   imports,
   commitScan,
@@ -75,6 +79,7 @@ export function useProject({
   sources: RefObject<SourceFiles>
   clientRef: RefObject<MeshWorkerClient | null>
   sceneRef: RefObject<SceneManager | null>
+  flatSceneRef: RefObject<FlatScene | null>
   elementScope: RefObject<Uint32Array | null>
   imports: ImportQueue
   commitScan: (scan: PreparedScan | null) => void
@@ -101,7 +106,10 @@ export function useProject({
     try {
       const snapshot = capture()
       const { manifest, members } = snapshot
-      const bytes = await client().pack(manifest, members)
+      const scene = useShell.getState().workspace === 'flat' ? flatSceneRef.current : sceneRef.current
+      if (!scene) throw new Error('The project view is not available for its preview.')
+      const preview = await scene.captureProjectPreview()
+      const bytes = await client().pack(manifest, [{ name: PREVIEW_NAME, bytes: preview }, ...members])
       const stem = projectStem(store.projectName, store.fileName, useFlat.getState().imageName)
       recovery.markSaved(snapshot)
       useStore.setState({

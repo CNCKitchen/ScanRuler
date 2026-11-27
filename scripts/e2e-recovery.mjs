@@ -7,15 +7,11 @@ page.on('dialog', (dialog) => dialog.accept())
 const status = () => page.$eval('[data-test="project-save-status"]', (el) => el.textContent)
 const waitStatus = (text) => page.waitForFunction((value) => document.querySelector('[data-test="project-save-status"]')?.textContent.includes(value), {}, text)
 try {
-  await page.evaluate(async () => {
-    const { useShell } = await import('/src/state/shellStore.ts')
-    useShell.getState().setWorkspace('flat')
-  })
+  await page.click('[data-test="workspace-flat"]')
+  await page.waitForFunction(() => document.querySelector('[data-test="workspace-flat"]')?.getAttribute('aria-selected') === 'true')
   check(await page.evaluate(() => window.dispatchEvent(new Event('beforeunload', { cancelable: true }))), 'switching workspaces in an empty session does not warn on exit')
-  await page.evaluate(async () => {
-    const { useShell } = await import('/src/state/shellStore.ts')
-    useShell.getState().setWorkspace('elements')
-  })
+  await page.click('[data-test="workspace-elements"]')
+  await page.waitForFunction(() => document.querySelector('[data-test="workspace-elements"]')?.getAttribute('aria-selected') === 'true')
   await page.evaluate(async () => {
     const dataTransfer = new DataTransfer()
     dataTransfer.items.add(new File(['v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'], 'recovery.obj'))

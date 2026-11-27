@@ -8,6 +8,8 @@ import { MANIFEST_NAME, validateManifest, type ProjectManifest } from './manifes
 import { readSourceFile } from '../sourceFile'
 import { isMemberName } from './validation'
 
+export const PREVIEW_NAME = 'preview.png'
+
 /** A member as the session hands it over: the scan and the reference are
  *  the files they were opened from (see core/sourceFile), read only when the
  *  archive is built. */
@@ -60,7 +62,7 @@ export function packProject(manifest: ProjectManifest, members: ArchiveFile[], l
   for (const m of members) {
     // Refused here rather than written into a file that will not open.
     if (!isMemberName(m.name)) throw new Error(`The project cannot hold a file named "${m.name}".`)
-    entries[m.name] = [m.bytes, { level: 6 }]
+    entries[m.name] = [m.bytes, { level: m.name === PREVIEW_NAME ? 0 : 6 }]
   }
   return zipSync(entries)
 }
