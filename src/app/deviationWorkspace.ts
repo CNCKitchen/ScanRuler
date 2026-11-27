@@ -27,6 +27,13 @@ import type { Vec3 } from '../core/types'
 import { usePrefs } from '../state/prefsStore'
 import { lengthInputText, type DisplayUnits } from '../core/units'
 import { boundLength } from './useUnits'
+import { buildMeshFile } from '../core/exportMesh'
+import { deflectionSmoothing } from '../core/deviation/deflection'
+import { suggestPreDeformEdge } from '../core/deviation/preDeform'
+import { runExport, saveBuilt } from './exports'
+import { StaleScan } from '../core/workerClient'
+import { BufferAttribute, BufferGeometry } from 'three'
+import { usePreDeformPreview } from '../state/preDeformPreviewStore'
 
 /** What the status strip says the moment the marking tools come out — the
  *  same tools, and so the same instruction, whichever workspace offered them. */
@@ -74,6 +81,7 @@ export function deviationWorkspace({
   }
 
   const commitNominal = (prepared: PreparedNominal | null, options: ReferenceOptions = {}) => {
+    usePreDeformPreview.getState().clear()
     deviation.current = null
     dropReferenceMap()
     deviationRgb.current = null
@@ -230,6 +238,148 @@ export function deviationWorkspace({
       useStore.getState().setStatus('')
     }
   }
+
+  /** The longest edge the reference is cut to for the pre-deformed export:
+   *  the one the user set, else the suggested one for a part this size. */
+  const preDeformEdge = (): number => {
+    const set = useDeviation.getState().preEdge
+    return set ?? suggestPreDeformEdge(2 * useStore.getState().modelSize)
+  }
+
+  /** What the pre-deformed export needs, or why it cannot go: the map on the
+   *  scan, the directions its readings were taken along, and the alignment
+   *  that takes the scan into the reference's frame. */
+  const preDeformInputs = () => {
+    const dev = useDeviation.getState()
+    const values = deviation.current
+    const directions = values ? fieldDirections.get(values) : undefined
+    if (dev.source !== 'reference') return { why: 'The pre-deformed export needs a map against a reference part.' }
+    if (!dev.align || !values || !directions || dev.mapStatus !== 'ready') return { why: 'Fit the scan onto the reference and measure the deviation first.' }
+    return { dev, values, directions, align: dev.align }
+  }
+
+  /** How many triangles the reference has once cut to `maxEdge` — exact, and
+   *  the cut is kept for the export. */
+  const planPreDeform = (maxEdge: number) => clientRef.current?.preDeformPlan(maxEdge) ?? Promise.reject(new Error('No worker.'))
+
+  /** The reference moved against the deformation the map shows, cut to
+   *  `maxEdge`: the mesh in the reference's own frame, and what was done to
+   *  it. `scale` and `maxEdge` default to the panel's. Throws what is
+   *  missing. */
+  const workPreDeform = async (options: { scale?: number; maxEdge?: number; smoothing?: number } = {}) => {
+    const client = clientRef.current
+    const scene = sceneRef.current
+    const input = preDeformInputs()
+    if (!client || !scene) throw new Error('There is no scan on the viewport.')
+    if ('why' in input) throw new Error(input.why)
+    const { dev, values, directions, align } = input
+    const scale = options.scale ?? dev.preScale
+    const maxEdge = options.maxEdge ?? preDeformEdge()
+    const opts = {
+      limit: dev.range,
+      maxDistance: dev.maxDistance,
+      smoothing: deflectionSmoothing(options.smoothing ?? dev.deflectSmoothing, 2 * useStore.getState().modelSize),
+      transform: align.transform,
+      scale,
+      maxEdge,
+    }
+    const ask = (retry: boolean): ReturnType<typeof client.preDeform> =>
+      client.preDeform(values, directions, opts, () => scene.scanPositions()).catch((e) => {
+        // A scan moved while it was worked out is asked once more, of the
+        // scan as it is now; the same answer twice is an error.
+        if (e instanceof StaleScan && !retry) return ask(true)
+        throw e
+      })
+    const out = await ask(false)
+    return {
+      out,
+      scale,
+      maxEdge,
+      basis: { align, scale, maxEdge, range: dev.range, maxDistance: dev.maxDistance, smoothing: opts.smoothing },
+      nominalName: dev.nominalName,
+    }
+  }
+
+  /** The same, written as an STL. */
+  const buildPreDeform = async (options: { scale?: number; maxEdge?: number; smoothing?: number } = {}) => {
+    const { out, scale, maxEdge, nominalName, basis } = await workPreDeform(options)
+    const stem = (nominalName ?? 'reference').replace(/\.[^.]+$/, '')
+    const file = buildMeshFile('stl', [{ name: stem, positions: out.positions, indices: out.indices }], null, 'ScanRuler pre-deformed model')
+    if (!file) throw new Error('The reference has no triangles to write.')
+    const len = boundLength(usePrefs.getState().units)
+    const shown = (mm: number) => `${lengthInputText(Number(mm.toPrecision(3)), len.units)} ${len.word()}`
+    const label = `${Number(scale.toPrecision(3))}x`
+    const edge = out.capped ? ` — cut no finer than ${shown(out.longest)}, the triangle limit` : ''
+    const left = out.unmoved > 0 ? ` ${out.unmoved.toLocaleString('en-US')} vertices beyond the scan stayed where they were.` : ''
+    return {
+      name: `${stem}-predeformed-${label}.stl`,
+      mimeType: file.mimeType,
+      bytes: file.bytes,
+      status: `Pre-deformed model exported — ${file.triangles.toLocaleString('en-US')} triangles${edge}, moved by up to ${shown(out.maxMove)} against the deformation at ${label}.${left}`,
+      triangles: file.triangles,
+      scale,
+      maxEdge,
+      smoothing: basis.smoothing,
+      longest: out.longest,
+      capped: out.capped,
+      unmoved: out.unmoved,
+      maxMove: out.maxMove,
+    }
+  }
+
+  /** The second viewport's mesh: the pre-deformed model worked out from the
+   *  settings in the panel now. Asked for again, it is worked out again; the
+   *  viewport stays, and its camera with it. */
+  const previewPreDeform = async () => {
+    const preview = usePreDeformPreview.getState()
+    if (preview.status === 'running') return
+    preview.begin()
+    try {
+      const { out, basis } = await workPreDeform()
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(out.positions, 3))
+      geometry.setIndex(new BufferAttribute(out.indices, 1))
+      geometry.computeBoundingBox()
+      usePreDeformPreview.getState().resolve(
+        geometry,
+        { triangles: out.indices.length / 3, capped: out.capped, longest: out.longest, unmoved: out.unmoved, maxMove: out.maxMove },
+        basis,
+      )
+    } catch (e) {
+      usePreDeformPreview.getState().fail()
+      // A scan moved under it: whatever moved it does not always ask again,
+      // but the person can, and a toast for that would be noise.
+      if (!(e instanceof StaleScan)) useStore.getState().setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /** The key: the viewport up with the pre-deformed model, or away. Opening
+   *  puts the scan-and-reference split away, since both stand on the same
+   *  side. */
+  const togglePreDeformPreview = async () => {
+    const preview = usePreDeformPreview.getState()
+    if (preview.open) {
+      preview.hide()
+      return
+    }
+    useDeviation.getState().setSplit(false)
+    preview.show()
+    await previewPreDeform()
+    // If the work refused there is nothing to show.
+    const after = usePreDeformPreview.getState()
+    if (!after.geometry) after.hide()
+  }
+
+  /** The panel's button: built, then saved. */
+  const exportPreDeform = () =>
+    runExport(async () => {
+      try {
+        saveBuilt(await buildPreDeform())
+      } catch (e) {
+        if (e instanceof StaleScan) return
+        throw e
+      }
+    })
 
   /** The alignment the map on the reference was last measured under, or
    *  tried under: a map that refused is not asked for again under it. */
@@ -509,6 +659,11 @@ export function deviationWorkspace({
     runDeviation,
     runReferenceMap,
     runVolume,
+    planPreDeform,
+    exportPreDeform,
+    buildPreDeform,
+    previewPreDeform,
+    togglePreDeformPreview,
     setMapOn,
     watch,
     setMapFacing,

@@ -52,6 +52,7 @@ node scripts/e2e-crease.mjs     # sharp-edge shading: Auto / Always / Never, mar
 node scripts/e2e-thickness.mjs  # measure wall thickness, scale, hover and pin
 node scripts/e2e-step.mjs       # STEP reference geometry, measured end to end
 node scripts/e2e-split.mjs      # side-by-side compare + the colour plot off
+node scripts/e2e-predeform.mjs  # the pre-deformed model's second viewport: preview, update, hide
 node scripts/e2e-pick-fit.mjs   # fit to view, stopping a fit, selecting what it fits on
 node scripts/e2e-extend.mjs     # extending an element by field and by grip
 node scripts/e2e-gdt.mjs        # GD&T tolerances and limits: rows, pins, the summary, a renamed datum

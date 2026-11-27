@@ -23,6 +23,7 @@ import { unitsSchema } from './scan'
 import { round3 } from '../../core/round'
 import { deviationFileBytes, isMeasured, type DeviationFormat } from '../../core/deviation/exportDeviation'
 import { exportStem } from '../../app/exports'
+import { MAX_PREDEFORM_SCALE, MIN_PREDEFORM_SCALE } from '../../core/deviation/preDeform'
 
 const nullable = (schema: JsonSchema, description: string): JsonSchema =>
   oneOf([schema, { type: 'null', description: 'Off.' }], description)
@@ -500,4 +501,30 @@ const exportCommand: Command<{ side?: MapSide; format?: DeviationFormat }> = {
   },
 }
 
-export const deviationCommands = [openReference, align, measure, setTarget, settings, hotspotsCommand, exportCommand]
+const preDeform: Command<{ scale?: number; maxEdge?: number; smoothing?: number }> = {
+  name: 'pre_deform',
+  title: 'Export the reference pre-deformed',
+  description:
+    'The reference part moved the opposite way to the deformation the map shows, as an STL in the reference’s frame — the model to make for a process that warps the part as the scan did. Every vertex moves by minus scale times the smoothed deformation (the motion the animation plays, readings past the colour range capped at its end), after the reference is cut so no edge is longer than maxEdge mm (the file stops at 2 M triangles and says so). scale defaults to the panel’s (1: exactly as far as it is out), maxEdge to a hundredth of the part’s diagonal, smoothing (mm: how far the deformation is averaged over the part, low keeping the scan’s noise and high only the broad warp) to the panel’s. Needs a map against the reference part (deviation.align). Returns the file with triangles, smoothing, longest (the longest edge left, mm), capped, unmoved (vertices beyond the scan, not moved) and maxMove (mm). Changes nothing.',
+  input: obj({
+    scale: { type: 'number', description: 'How many times the measured deformation is undone, 0.1–10; 1 (the panel’s) by default.', minimum: MIN_PREDEFORM_SCALE, maximum: MAX_PREDEFORM_SCALE },
+    maxEdge: { type: 'number', description: 'The longest edge left in the model, mm; a hundredth of the part’s diagonal by default.', exclusiveMinimum: 0 },
+    smoothing: { type: 'number', description: 'How far the deformation is averaged over the part, mm; the panel’s by default, a hundredth of the part’s diagonal until set. Held to 0.2 % to 20 % of the diagonal.', exclusiveMinimum: 0 },
+  }),
+  readOnly: true,
+  returnsFile: true,
+  run: async ({ scale, maxEdge, smoothing }) => {
+    requireScan()
+    await mapSettled(sceneOf())
+    const { session } = commandHost()
+    try {
+      const built = await session.deviation.buildPreDeform({ scale, maxEdge, smoothing })
+      const { name, mimeType, bytes, status: _status, ...figures } = built
+      return { ...figures, file: { name, mimeType, bytes } }
+    } catch (e) {
+      throw new CommandError('invalid_state', e instanceof Error ? e.message : String(e))
+    }
+  },
+}
+
+export const deviationCommands = [openReference, align, measure, setTarget, settings, hotspotsCommand, exportCommand, preDeform]

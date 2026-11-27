@@ -5,14 +5,23 @@
 // other workspaces — while a fitted element needs only to be chosen. Everything
 // below the two is the same, because the map they produce is the same map.
 
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { MIN_LOCAL_POINTS } from '../core/deviation/align'
-import { MAX_DEFLECTION_SCALE, MIN_DEFLECTION_SCALE } from '../core/deviation/deflection'
+import {
+  deflectionSmoothing,
+  MAX_DEFLECTION_SCALE,
+  MAX_DEFLECTION_SMOOTHING,
+  MIN_DEFLECTION_SCALE,
+  MIN_DEFLECTION_SMOOTHING,
+} from '../core/deviation/deflection'
 import { DEFAULT_MAP_FACING_DEG } from '../core/deviation/deviation'
+import { MAX_PREDEFORM_SCALE, MIN_PREDEFORM_SCALE, suggestPreDeformEdge } from '../core/deviation/preDeform'
 import { REFERENCE_ACCEPT, REFERENCE_FORMATS } from '../core/formats'
 import { mapHeld, useDeviation, type DeviationSource } from '../state/deviationStore'
 import { useMark } from '../state/markStore'
 import { useStore } from '../state/store'
+import { usePreDeformPreview } from '../state/preDeformPreviewStore'
 import { targetFitOf } from '../app/useElementField'
 import { usePulse } from '../app/useHints'
 import { CopyButton } from './CopyButton'
@@ -57,6 +66,10 @@ export function DeviationPanel({
   onCopy,
   onExportMesh,
   onMeasureVolume,
+  onPreDeformPlan,
+  onExportPreDeform,
+  onPreviewPreDeform,
+  onUpdatePreDeform,
   onFrame,
 }: {
   onOpenScan: (file: File) => void
@@ -95,6 +108,14 @@ export function DeviationPanel({
   onExportMesh: (format: MeshFormat) => void
   /** Measure the deviation as volumes under the alignment in hand. */
   onMeasureVolume: () => void
+  /** How many triangles the reference has once cut to this longest edge. */
+  onPreDeformPlan: (maxEdge: number) => Promise<{ triangles: number; capped: boolean; longest: number }>
+  /** Save the reference moved against the deformation as an STL. */
+  onExportPreDeform: () => void
+  /** Open the second viewport with the pre-deformed model, or put it away. */
+  onPreviewPreDeform: () => void
+  /** Work the model in the second viewport out again from the settings now. */
+  onUpdatePreDeform: () => void
   /** Frame a box of the reference's frame in the viewport. */
   onFrame: (min: Vec3, max: Vec3) => void
 }) {
@@ -116,6 +137,12 @@ export function DeviationPanel({
       alignStopping: s.alignStopping,
       animate: s.animate,
       animScale: s.animScale,
+      preEdge: s.preEdge,
+      deflectSmoothing: s.deflectSmoothing,
+      setDeflectSmoothing: s.setDeflectSmoothing,
+      preScale: s.preScale,
+      setPreEdge: s.setPreEdge,
+      setPreScale: s.setPreScale,
       bands: s.bands,
       clearProbes: s.clearProbes,
       elementStatus: s.elementStatus,
@@ -161,6 +188,47 @@ export function DeviationPanel({
   const elements = useStore((s) => s.elements)
   const pulseAlign = usePulse('align-auto')
   const pulseMeasure = usePulse('measure-deviation')
+  // The pre-deformed export: the count beside the density slider is the
+  // reference's triangles once cut, worked out exactly in the worker, so it is
+  // asked for when the slider has been still a moment rather than at each step.
+  const modelSize = useStore((s) => s.modelSize)
+  const suggestedEdge = suggestPreDeformEdge(2 * modelSize)
+  const preEdge = d.preEdge ?? suggestedEdge
+  const smoothing = deflectionSmoothing(d.deflectSmoothing, 2 * modelSize)
+  const [prePlan, setPrePlan] = useState<{ triangles: number; capped: boolean; longest: number } | null>(null)
+  const preActive = d.source === 'reference' && d.alignStatus === 'done' && d.mapStatus === 'ready'
+  const previewOpen = usePreDeformPreview((s) => s.open)
+  const previewStatus = usePreDeformPreview((s) => s.status)
+  const previewBasis = usePreDeformPreview((s) => s.basis)
+  const previewInfo = usePreDeformPreview((s) => s.info)
+  // The model in the second viewport was worked out from other settings than
+  // these: the Update key is the way to bring it up to date.
+  const previewStale =
+    previewOpen &&
+    previewBasis !== null &&
+    (previewBasis.align !== d.align ||
+      previewBasis.scale !== d.preScale ||
+      previewBasis.maxEdge !== preEdge ||
+      previewBasis.range !== d.range ||
+      previewBasis.smoothing !== smoothing ||
+      previewBasis.maxDistance !== d.maxDistance)
+  useEffect(() => {
+    if (!preActive) return
+    let stale = false
+    const timer = setTimeout(() => {
+      onPreDeformPlan(preEdge).then(
+        (plan) => !stale && setPrePlan(plan),
+        () => !stale && setPrePlan(null),
+      )
+    }, 250)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+    // The plan follows the edge and the reference; the callback is the
+    // session's and does not change with either.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preActive, preEdge, d.nominalName, d.nominalTriangles])
 
   const onElement = d.source === 'element'
   const busy = scanBusy || d.nominalBusy || d.alignStatus === 'running' || d.mapStatus === 'running'
@@ -665,6 +733,133 @@ export function DeviationPanel({
               hint={`How many times the deviation is exaggerated at the far end of the loop. 1× is the part as measured; 20× moves a ${
                 inches ? '0.005 in deviation by 0.1 in' : `0.1 ${len.word()} deviation by 2 ${len.word()}`
               }.`}
+            />
+            {preActive && (
+              <>
+                <div className="sec-head">
+                  Pre-deformed model
+                  <InfoDot title="Export the model pre-deformed">
+                    <p>
+                      Saves the reference — your modelled part — moved the opposite way to the
+                      deformation the animation shows, as an STL. Made by the same process, a part
+                      that warps as this scan did should come out as the model was drawn.
+                    </p>
+                    <p>
+                      Every vertex moves by minus the <b>scale</b> times the smoothed deformation
+                      at that place, the same motion the animation plays. At <b>1×</b> the model is
+                      corrected by exactly the amount the scan is out; less is for a process whose
+                      warp does not repeat in full.
+                    </p>
+                    <p>
+                      The model is cut finer first, because a flat face of two triangles can only
+                      tilt. <b>Longest edge</b> says how fine: the finer, the closer the model
+                      follows the field, and the larger the file. Edges are cut in step with their
+                      neighbours, so a closed model stays closed. Curved faces stay as faceted as
+                      the reference was — the cut adds vertices to move, not curvature.
+                    </p>
+                    <p>
+                      A reading past the end of the colour scale moves only as far as the end, and
+                      parts of the model with no scan near them stay where they are.
+                    </p>
+                  </InfoDot>
+                </div>
+                <NumberField
+                  label="Correction"
+                  testId="pre-scale"
+                  value={d.preScale}
+                  step={0.1}
+                  min={MIN_PREDEFORM_SCALE}
+                  unit="×"
+                  onCommit={(v) => d.setPreScale(Math.min(v, MAX_PREDEFORM_SCALE))}
+                  hint="How many times the measured deformation is undone. 1× moves the model by exactly as much as the scan is out, the other way."
+                />
+                <input
+                  className="slider"
+                  type="range"
+                  data-test="pre-edge-slider"
+                  min={Math.log10(suggestedEdge / 20)}
+                  max={Math.log10(suggestedEdge * 20)}
+                  step={0.01}
+                  // Logarithmic: from a twentieth of the suggested edge, which
+                  // is a file of hundreds of times the triangles, to twenty
+                  // times it, which hardly cuts the model at all.
+                  value={Math.log10(preEdge)}
+                  onChange={(e) => d.setPreEdge(Number((10 ** Number(e.target.value)).toPrecision(3)))}
+                />
+                <NumberField
+                  label="Longest edge"
+                  testId="pre-edge"
+                  value={preEdge}
+                  step={0.1}
+                  min={suggestedEdge / 100}
+                  kind="length"
+                  onCommit={(v) => d.setPreEdge(v)}
+                  hint="Mesh density of the exported model: no edge is left longer than this. Shorter follows the deformation more closely, and makes a larger file."
+                />
+                <p className="hint" data-test="pre-triangles">
+                  {prePlan
+                    ? `${prePlan.triangles.toLocaleString('en-US')} triangles${
+                        prePlan.capped ? ` — at the limit; edges are left up to ${len.fmt(prePlan.longest, 3)}` : ''
+                      }`
+                    : 'Counting the triangles…'}
+                </p>
+                <button
+                  className={previewOpen ? 'block on' : 'block'}
+                  data-test="preview-predeformed"
+                  disabled={busy || d.marking || (!previewOpen && previewStatus === 'running')}
+                  onClick={onPreviewPreDeform}
+                  title="Show the pre-deformed model in a second viewport beside the scan, in the same view"
+                >
+                  {previewOpen ? 'Hide the pre-deformed preview' : 'Preview pre-deformed'}
+                </button>
+                {previewOpen && (
+                  <>
+                    <button
+                      className="block"
+                      data-test="update-predeformed"
+                      disabled={busy || d.marking || previewStatus === 'running'}
+                      onClick={onUpdatePreDeform}
+                      title="Work the preview out again from the correction and the longest edge now set"
+                    >
+                      {previewStatus === 'running' ? 'Working…' : 'Update pre-deform'}
+                    </button>
+                    {previewInfo && (
+                      <p className="hint" data-test="preview-info">
+                        {previewInfo.triangles.toLocaleString('en-US')} triangles
+                        {previewInfo.capped ? `, edges left up to ${len.fmt(previewInfo.longest, 3)}` : ''}; moved by up to{' '}
+                        {len.fmt(previewInfo.maxMove, 3)}
+                        {previewInfo.unmoved > 0 ? `; ${previewInfo.unmoved.toLocaleString('en-US')} vertices beyond the scan stay` : ''}.
+                        {previewStale && ' The settings have changed since: press Update.'}
+                      </p>
+                    )}
+                  </>
+                )}
+                <button className="block" data-test="export-predeformed" disabled={busy || d.marking} onClick={onExportPreDeform}>
+                  Export pre-deformed STL
+                </button>
+              </>
+            )}
+            <input
+              className="slider"
+              type="range"
+              data-test="smoothing-slider"
+              min={Math.log10(MIN_DEFLECTION_SMOOTHING * 2 * modelSize)}
+              max={Math.log10(MAX_DEFLECTION_SMOOTHING * 2 * modelSize)}
+              step={0.01}
+              // Logarithmic: from the grain of the scan to a fifth of the part,
+              // which is most of the way to one number for the whole of it.
+              value={Math.log10(smoothing)}
+              onChange={(e) => d.setDeflectSmoothing(Number((10 ** Number(e.target.value)).toPrecision(3)))}
+            />
+            <NumberField
+              label="Smoothing"
+              testId="deflect-smoothing"
+              value={smoothing}
+              step={0.1}
+              min={MIN_DEFLECTION_SMOOTHING * 2 * modelSize}
+              kind="length"
+              onCommit={(v) => d.setDeflectSmoothing(v)}
+              hint="How far the deformation is averaged over the part, for the animation and the pre-deformed model alike. Low follows the scan closely and carries its noise; high keeps only the broad warp, and the model is moved smoothly, without steps. Starts at a hundredth of the part's size."
             />
             {d.animate && !d.showScan && (
               <p className="hint">

@@ -575,6 +575,39 @@ export class MeshWorkerClient {
     return res.vectors
   }
 
+  /** How many triangles the reference has once cut to `maxEdge` — see
+   *  deviation/preDeform.ts refineMesh. Exact; the cut is kept in the worker
+   *  for the export that follows. */
+  async preDeformPlan(maxEdge: number): Promise<{ triangles: number; capped: boolean; longest: number }> {
+    await this.ready()
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'pre-deform-plan-ok' }>>({ type: 'pre-deform-plan', requestId, maxEdge })
+    return { triangles: res.triangles, capped: res.capped, longest: res.longest }
+  }
+
+  /** The reference moved against the deformation `values` and `directions`
+   *  show, cut to `maxEdge` — see deviation/preDeform.ts preDeform. An answer
+   *  about a scan moved or replaced while it was worked out rejects with
+   *  StaleScan. */
+  async preDeform(
+    values: Float32Array,
+    directions: Int8Array,
+    opts: { limit: number; maxDistance: number; smoothing: number; transform: Rigid; scale: number; maxEdge: number },
+    positions?: () => Float32Array | null,
+  ): Promise<{ positions: Float32Array; indices: Uint32Array; unmoved: number; maxMove: number; capped: boolean; longest: number }> {
+    await this.ready()
+    const asked = this.scanToken
+    const own = this.renderParity ? null : (positions?.()?.slice() ?? null)
+    const requestId = this.nextId++
+    const res = await this.request<Extract<WorkerResponse, { type: 'pre-deform-ok' }>>(
+      { type: 'pre-deform', requestId, values, directions, ...opts, ...(own ? { positions: own } : {}) },
+      own ? [own.buffer] : [],
+    )
+    if (this.scanToken !== asked) throw new StaleScan()
+    const { positions: p, indices, unmoved, maxMove, capped, longest } = res
+    return { positions: p, indices, unmoved, maxMove, capped, longest }
+  }
+
   /** The map against a fitted element — see deviation/elementField.ts
    *  computeElementDeviation — measured in the worker, over its own copy of
    *  the scan's vertices. `render` is asked for the viewport's own arrays:

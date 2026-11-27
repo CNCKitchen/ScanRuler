@@ -3387,6 +3387,11 @@ button.x:disabled {
   pointer-events: none;
 }
 
+.splitcap.top {
+  top: 10px;
+  bottom: auto;
+}
+
 .splitcap b {
   font-family: var(--cond);
   font-size: 10.5px;

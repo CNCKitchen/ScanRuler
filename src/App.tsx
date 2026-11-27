@@ -73,6 +73,7 @@ import { MapLegend, type LegendStat } from './ui/MapLegend'
 import { fetchSampleScan } from './app/sampleScan'
 import { StartPane, type StartSlot } from './ui/StartPane'
 import { CompareView } from './ui/CompareView'
+import { usePreDeformPreview } from './state/preDeformPreviewStore'
 import { formatSigned } from './ui/format'
 import { HoverReadout, type HoverReading } from './ui/HoverReadout'
 import { SplitPicker } from './ui/SplitPicker'
@@ -632,6 +633,10 @@ function Workbench() {
     stopPicking,
     runDeviation,
     runVolume,
+    planPreDeform,
+    exportPreDeform,
+    previewPreDeform,
+    togglePreDeformPreview,
     setMapFacing,
     runLocalAlign,
     handleStartMarking,
@@ -1538,7 +1543,23 @@ function Workbench() {
     split && onDeviation && source === 'reference' && !picking && Boolean(nominalGeometry)
   // A plugin's workspace may put a view of its own beside the viewport.
   const pluginSplit = !picking && active?.split ? active.split : null
-  const anySplit = splitOpen || pluginSplit !== null
+  // The pre-deformed model in the same second place, for as long as its map
+  // and fit stand. The scan-and-reference split and this share the place, so
+  // the split wins if both are asked for (opening this one puts the split
+  // away, and the split's key puts this one away: see the effect below).
+  const preview = usePreDeformPreview()
+  const previewOpen =
+    preview.open && Boolean(preview.geometry) && !splitOpen && onDeviation && source === 'reference' && !picking && Boolean(align) && mapReady
+  useEffect(() => {
+    if (split) usePreDeformPreview.getState().hide()
+  }, [split])
+  // A fit let go of takes the model made under it with it: the map, the fit
+  // and the model belong together. A new fit keeps it, and the panel says it
+  // is out of date.
+  useEffect(() => {
+    if (!align) usePreDeformPreview.getState().clear()
+  }, [align])
+  const anySplit = splitOpen || previewOpen || pluginSplit !== null
   // The reference half is kept once the split view has been opened, for as long
   // as the reference it was built from is the one loaded: another reference, or
   // none, lets it go (its context with it) the moment that is seen here, and the
@@ -1623,6 +1644,10 @@ function Workbench() {
             onCopy={handleCopyReport}
             onExportMesh={handleExportMesh}
             onMeasureVolume={() => void runVolume()}
+            onPreDeformPlan={planPreDeform}
+            onExportPreDeform={() => void exportPreDeform()}
+            onPreviewPreDeform={() => void togglePreDeformPreview()}
+            onUpdatePreDeform={() => void previewPreDeform()}
             onFrame={(min, max) => sceneRef.current?.fitBox(min, max)}
           />
         ) : onThickness ? (
@@ -1724,8 +1749,8 @@ function Workbench() {
               plugin={active}
               cancelDraft={handleCancelDraft}
             />
-            {!splitOpen && pluginSplit}
-            {splitOpen && (
+            {!splitOpen && !previewOpen && pluginSplit}
+            {(splitOpen || previewOpen) && (
               <div className="splitcap">
                 <b>Scan</b>
                 <span>{fileName}</span>
@@ -1734,6 +1759,21 @@ function Workbench() {
             {/* Kept after its first opening — see splitKept. A hidden half costs
                 its context and the reference's vertex buffers, once, where
                 building it anew at every opening cost both each time. */}
+            {preview.geometry && sceneRef.current && (
+              <CompareView
+                scene={sceneRef.current}
+                geometry={preview.geometry}
+                flat
+                captionAtTop
+                role="Pre-deformed"
+                name={
+                  preview.basis
+                    ? `${Number(preview.basis.scale.toPrecision(3))}× correction`
+                    : 'model'
+                }
+                active={previewOpen}
+              />
+            )}
             {splitKept && (
               <CompareView
                 scene={sceneRef.current!}
