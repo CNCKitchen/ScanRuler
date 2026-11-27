@@ -178,6 +178,37 @@ tokens cannot share a port: give them the same `SCANRULER_MCP_TOKEN`, or
 each its own `--port`. Changes from several agents run one after another in
 the tab, each one step of the same undo history.
 
+That is one session: agents sharing a tab work on one part. A subagent's
+`scan_open` replaces the scan another subagent was working on.
+
+### Several parts at once
+
+A tab holds one session, one part. To have agents work on several parts
+side by side, give each part a server on a port of its own and a tab of its
+own. In Claude Code, one server entry per part:
+
+```bash
+claude mcp add scanruler-a -e SCANRULER_MCP_PORT=7317 -- npx -y scanruler-mcp@latest --tools compact
+claude mcp add scanruler-b -e SCANRULER_MCP_PORT=7318 -- npx -y scanruler-mcp@latest --tools compact
+```
+
+Each agent is told which server is its own (`scanruler-a`, `scanruler-b`) and
+uses only that server's tools. `scanruler_open` on each server opens a tab
+paired with it. Better still, each in a window of its own, as the tab that
+window shows: browsers slow down the tabs kept in the background. Each tab
+keeps its own pairing, so a reloaded tab comes back to its own server, not to
+the last one paired in the browser. A tab opened afresh, by hand, starts from
+the last pairing made in the browser. A duplicated tab carries its original's
+pairing, and that server turns it away while the original is connected.
+What a server keeps of its tab's session (the folders and the last project,
+`folders.json`) is kept per port, in `port-<n>` in the config folder; the
+default port keeps the config folder itself. The token is one for every port.
+
+`--tools compact` keeps every server's tool list small: listed in full, each
+one adds its hundred-odd tools to the agent's context. Each tab runs a part's
+scan and CAD kernel of its own, so memory and processor time add up with
+every part open.
+
 ### Serving the app yourself
 
 ```bash
@@ -334,9 +365,10 @@ the server last opened a scan or a project from, and nowhere else: not into
 hidden folders, and not as a file agents and tools take instructions or
 settings from, such as `CLAUDE.md`, `AGENTS.md` or `package.json`) and
 `scanruler_files` (that folder's files — name, size, kind — newest first), `scanruler_read` (a text file there, or an answer too long to carry wherever it was written, in parts: `{ text, offset, nextOffset, size }`, in bytes).
-The folders are kept beside `tools.json` (`folders.json`), so a server
-started afresh still writes and lists there, and `scanruler_status` lists
-them. With `--tools compact` only the tab's tools that return a picture are
+The folders are kept beside `tools.json` (`folders.json`; for a port other
+than the default, in `port-<n>` beside it, see *Several parts at once*), so a
+server started afresh still writes and lists there, and `scanruler_status`
+lists them. With `--tools compact` only the tab's tools that return a picture are
 listed; the rest are read through an eighth of the server's own,
 `scanruler_tools` — see *Small local models*. With `--tools` and a list of
 namespaces, only the tab's tools of those namespaces, or all but those — see
