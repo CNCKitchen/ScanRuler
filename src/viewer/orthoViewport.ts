@@ -817,6 +817,20 @@ export class OrthoViewport {
     this.applyPose(goal.q, goal.target, goal.zoom, goal.dist)
   }
 
+  /** What a turn from the view cube swings about: where a turn under way
+   *  lands, or else what the screen centre is on, as the standard views
+   *  turn about it. */
+  turnPivot(): THREE.Vector3 {
+    return this.flight ? this.flight.t1.clone() : this.nav.centrePivot()
+  }
+
+  /** Orbit by a drag of this many pixels about `pivot` — the view cube
+   *  dragged turns the view as a drag on the part would. */
+  dragTurn(dx: number, dy: number, pivot: THREE.Vector3): void {
+    this.flight = null
+    this.nav.turnByPixels(dx, dy, pivot)
+  }
+
   /** Whether a turn is under way. */
   turning(): boolean {
     return this.flight !== null

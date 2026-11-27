@@ -1837,8 +1837,8 @@ button.x:disabled {
   stroke-linejoin: round;
 }
 
-/* In the main viewport the axis gizmo already holds that corner, so the button
-   parks directly above it. How tall a corner the gizmo takes depends on the
+/* In the main viewport the view cube already holds that corner, so the button
+   parks directly above it. How tall a corner the cube takes depends on the
    viewport's size, so the scene publishes it — see SceneManager.drawGizmo. */
 .viewport > .viewfit {
   bottom: calc(var(--gizmo-size, 0px) + 22px);
@@ -1847,6 +1847,221 @@ button.x:disabled {
 /* Parallel or perspective, just left of Fit to view. */
 .viewport > .viewprojection {
   right: 50px;
+}
+
+/* The view cube's controls, laid over the corner of the canvas the cube is
+   drawn in (SceneManager.drawGizmo publishes its size). Home and the menu
+   stay faintly in view; the arrows fade up while the pointer or the focus is
+   on the corner — see ui/ViewCube.tsx. */
+.viewport > .viewcube {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  width: var(--gizmo-size, 0px);
+  height: var(--gizmo-size, 0px);
+  touch-action: none;
+  user-select: none;
+}
+
+.viewcube > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.viewcube-hit,
+.viewcube-pad {
+  fill: transparent;
+  stroke: none;
+}
+
+.viewcube-button {
+  cursor: pointer;
+  fill: var(--panel);
+  stroke: var(--dim);
+  stroke-width: 0.035;
+  stroke-linejoin: round;
+  outline: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    fill 150ms ease-out,
+    stroke 150ms ease-out,
+    opacity 150ms ease-out,
+    scale 150ms ease-out;
+}
+
+.viewcube-button:hover,
+.viewcube-button:focus-visible {
+  fill: var(--accent);
+  stroke: var(--accent-d);
+}
+
+.viewcube-button:active {
+  scale: 0.96;
+}
+
+/* Home and the menu: icons rather than outlined shapes. */
+.viewcube-corner {
+  fill: var(--dim);
+  stroke: none;
+  opacity: 0.5;
+}
+
+.viewcube-active .viewcube-corner {
+  opacity: 0.9;
+}
+
+.viewcube-corner:hover,
+.viewcube-corner:focus-visible {
+  fill: var(--accent);
+  stroke: none;
+  opacity: 1;
+}
+
+/* The focus ring of a drawn button: its hit pad outlined in the accent. */
+.viewcube-button:focus-visible .viewcube-pad {
+  stroke: var(--accent);
+  stroke-width: 0.05;
+}
+
+.viewcube-reveal {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.viewcube-active .viewcube-reveal,
+.viewcube:focus-within .viewcube-reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* The start pane covers the canvas, the cube drawn on it included: its
+   controls go with it rather than float over the invitation to load a file. */
+.stage:has(> .startpane) .viewcube {
+  display: none;
+}
+
+/* The orbit arrows step from a face to the next: off a face they go. */
+.viewcube .viewcube-off {
+  display: none;
+}
+
+/* A roll arrow is a few pixels across; its centre line, stroked wide and
+   unseen, is what the pointer hits. */
+.viewcube-spine {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 0.36;
+  stroke-linecap: round;
+  pointer-events: stroke;
+}
+
+/* The roll while a roll arrow is dragged, and for a moment after a click:
+   above the corner's left side, clear of the cube and of Fit to view. */
+.viewcube-readout {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  transform: translateY(-100%);
+  padding: 2px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 150ms ease-out;
+}
+
+@starting-style {
+  .viewcube-readout {
+    opacity: 0;
+  }
+}
+
+.viewcube-popup {
+  position: absolute;
+  right: 4px;
+  bottom: 22%;
+  z-index: 4;
+  min-width: 13rem;
+  padding: 4px 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 20px rgba(18, 22, 26, 0.16);
+  font-size: 0.82rem;
+  transform-origin: bottom right;
+  transition:
+    opacity 250ms cubic-bezier(0.22, 1, 0.36, 1),
+    scale 250ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@starting-style {
+  .viewcube-popup {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+.viewcube-popup > button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px 5px 8px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Entries without a check line up with the ones that have one. */
+.viewcube-popup > button[role='menuitem'] {
+  padding-left: 26px;
+}
+
+.viewcube-popup > button:hover,
+.viewcube-popup > button:focus-visible {
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.viewcube-check {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  visibility: hidden;
+}
+
+.viewcube-popup > button[aria-checked='true'] .viewcube-check {
+  visibility: visible;
+}
+
+.viewcube-popup > hr {
+  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewcube-button,
+  .viewcube-readout,
+  .viewcube-popup {
+    transition: none;
+  }
 }
 
 /* WebGL could not be started: the one state where the stage has nothing to

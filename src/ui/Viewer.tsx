@@ -5,11 +5,12 @@
 // browser that refuses WebGL gets an explanation and what to try, instead
 // of a bare grey page indistinguishable from a hung app.
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WorldAxis } from '../core/section/frame'
 import { SceneManager, type GripSide, type PickHit } from '../viewer/SceneManager'
 import { FitButton } from './FitButton'
 import { ProjectionButton } from './ProjectionButton'
+import { ViewCube } from './ViewCube'
 
 export function Viewer({
   onReady,
@@ -51,6 +52,7 @@ export function Viewer({
   extendRef.current = onExtendDrag
   const readyRef = useRef(onReady)
   readyRef.current = onReady
+  const getScene = useCallback(() => sceneRef.current, [])
 
   // WebGL could not be started — three's renderer constructor threw. Without
   // this catch that exception would take down the whole React tree and leave
@@ -84,6 +86,7 @@ export function Viewer({
     <div className="viewport" ref={containerRef}>
       {webglError === null && <FitButton onFit={() => sceneRef.current?.fitToView()} />}
       {webglError === null && <ProjectionButton />}
+      {webglError === null && <ViewCube scene={getScene} />}
       {webglError !== null && (
         <div className="webgl-missing" role="alert">
           <b>The 3D view could not be started.</b>

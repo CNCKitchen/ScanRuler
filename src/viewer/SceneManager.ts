@@ -11,7 +11,8 @@
 import * as THREE from 'three'
 import type { LinkedView } from './cameraLink'
 import { OrthoViewport, STANDARD_VIEWS, viewAcross, type Projection, type StandardView } from './orthoViewport'
-import { AxisGizmo, type GizmoAxis } from './axisGizmo'
+import { ViewCube } from './viewCube'
+import { faceOn, orbitStep, regionView, rollUp, screenRoll, upForRoll, type CubeRegion, type OrbitStep } from './viewCubeMath'
 import { DatumStage } from './datumStage'
 import { RegionColors } from './regionColors'
 import { SurfaceMarking, colorToRgb, type PaintBrush } from './marking'
@@ -189,7 +190,7 @@ export type { PickMarker }
  *
  *  A coordinator these days: the viewport chassis, the vertex-colour
  *  compositor, the marking gestures, the extend grips, the overlay drawing
- *  and the axis gizmo each live in their own module, and this class wires
+ *  and the view cube each live in their own module, and this class wires
  *  them to each other and keeps the public face the app talks to. */
 /** The view the datum stage is read from: front-top-right with Z up — the
  *  pose a part standing on the floor plane looks upright in, and the same
@@ -198,6 +199,9 @@ const STAGE_VIEW = STANDARD_VIEWS.iso
 
 /** How see-through the reference's ghost is while it is being fitted. */
 const GHOST_OPACITY = 0.5
+/** How long a turn from the view cube swings for: long enough to follow
+ *  which way the part went, short enough not to wait on. */
+const VIEW_CUBE_TURN_MS = 400
 
 /** The scan's marking, as another viewport needs it: the compositor that owns
  *  the mask, the attribute it is stored in, and the tint. See markingChannel. */
@@ -257,13 +261,19 @@ function rotatedDirection(m: Rigid, a: THREE.Vector3): THREE.Vector3 {
 
 export class SceneManager {
   private viewport: OrthoViewport
-  private gizmo: AxisGizmo
-  /** The div the canvas lives in, kept so the corner the gizmo takes can be
-   *  published to CSS — see drawGizmo. */
+  private gizmo: ViewCube
+  /** The pose Home turns to, set from the view cube's menu; null for the
+   *  three-quarter view the number key 0 shows. Kept for the session. */
+  private homeView: { dir: THREE.Vector3; up: THREE.Vector3 } | null = null
+  /** The div the canvas lives in, kept so the corner the view cube takes can
+   *  be published to CSS — see drawGizmo. */
   private container!: HTMLDivElement
   /** Last gizmo corner published, so the style is written when it changes
    *  rather than on every frame. */
   private gizmoCorner = 0
+  /** Where the pointer is over the view cube, in canvas pixels, or null —
+   *  see hoverViewCube. */
+  private cubePointer: { x: number; y: number } | null = null
   /** The target coordinate frame, shown while an alignment is being set up. */
   private stage: DatumStage
   /** Stage, lights and surface colours — see viewThemes. Held here as well as
@@ -499,7 +509,7 @@ export class SceneManager {
   /** Who currently owns the plain left-drag. The brush and the grips both need
    *  it and must not fight over handing it back — the navigator is told once,
    *  from whether anyone is holding it at all. */
-  private dragClaims = new Set<'paint' | 'handle' | 'gizmo' | 'layer'>()
+  private dragClaims = new Set<'paint' | 'handle' | 'layer'>()
 
   onPick: ((hit: PickHit) => void) | null = null
   onHover: ((hit: PickHit | null) => void) | null = null
@@ -607,7 +617,7 @@ export class SceneManager {
       keepAwake: () => this.deflectionPlaying() || this.marking.strokePending() || this.clipDirty || this.lodShown !== null,
     })
     this.container = container
-    this.gizmo = new AxisGizmo()
+    this.gizmo = new ViewCube()
     this.stage = new DatumStage(this.scene)
     // A material may carry a clip plane of its own — the slice through the
     // part at a sketch plane. Nothing is clipped until one is set.
@@ -772,36 +782,111 @@ export class SceneManager {
    *  aside for both. While a marking gesture is live the grips never get a
    *  look-in: that one asked first. */
   private handlePointerDown(e: PointerEvent): boolean {
-    // The gizmo corner is a button before it is anything else: tested here
-    // rather than read off the hover, because a finger has no hover.
-    if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-      const axis = this.gizmoAt(e.clientX, e.clientY)
-      if (axis !== null) {
-        this.viewAlong(axis)
-        return true
-      }
-    }
     if (this.marking.pointerGesture() !== null) return this.marking.handlePointerDown(e)
     if (this.grips.handlePointerDown(e)) return true
     for (const layer of this.sortedLayers()) if (layer.pointerDown?.(e)) return true
     return false
   }
 
-  /** The gizmo arrow under a client point, if any. */
-  private gizmoAt(clientX: number, clientY: number): GizmoAxis | null {
+  /** The region of the view cube under a client point, if any. The cube's
+   *  corner is laid over by its DOM controls (ui/ViewCube.tsx), which ask
+   *  here what the pointer is on. */
+  viewCubeAt(clientX: number, clientY: number): CubeRegion | null {
     const rect = this.viewport.canvasRect()
     return this.gizmo.hitTest(clientX - rect.left, clientY - rect.top)
   }
 
-  /** Look down a gizmo arrow: the view from the positive end of that axis,
-   *  or, when the camera is already there, from the negative end — so a
-   *  second click on the same arrow turns the part over. */
-  viewAlong(axis: GizmoAxis): void {
-    const [near, far]: [StandardView, StandardView] =
-      axis === 'x' ? ['right', 'left'] : axis === 'y' ? ['rear', 'front'] : ['top', 'bottom']
-    const dir = new THREE.Vector3().subVectors(this.camera.position, this.controls.target).normalize()
-    const there = dir.dot(STANDARD_VIEWS[near].dir) > 0.999
-    this.viewFrom(there ? far : near)
+  /** Light the region of the view cube under a client point — or, with
+   *  null, none — and return it. The point is kept, so the light follows
+   *  the cube as it turns under a pointer held still: a click's swing, or
+   *  the keyboard (see drawGizmo). */
+  hoverViewCube(at: { x: number; y: number } | null): CubeRegion | null {
+    const rect = at ? this.viewport.canvasRect() : null
+    this.cubePointer = at && rect ? { x: at.x - rect.left, y: at.y - rect.top } : null
+    const region = this.cubePointer ? this.gizmo.hitTest(this.cubePointer.x, this.cubePointer.y) : null
+    if (this.gizmo.setHovered(region)) this.invalidate()
+    return region
+  }
+
+  /** Turn to look at a face, edge or corner of the view cube — about what
+   *  the screen centre is on, keeping the zoom, as the standard views do,
+   *  but swung round rather than jumped so it is plain which way it went. */
+  viewCubeTo(region: CubeRegion, ms = VIEW_CUBE_TURN_MS): void {
+    const { dir, up } = regionView(region)
+    this.viewport.animateLook(dir, up, this.viewport.turnPivot(), ms)
+  }
+
+  /** A quarter turn by one of the view cube's orbit arrows. Taken from where
+   *  a turn under way lands, so quick clicks add up rather than restart. */
+  viewCubeOrbit(step: OrbitStep, ms = VIEW_CUBE_TURN_MS): void {
+    const pose = this.viewport.pose()
+    const { dir, up } = orbitStep(pose.dir, pose.up, step)
+    this.viewport.animateLook(dir, up, this.viewport.turnPivot(), ms)
+  }
+
+  /** The face of the view cube looked at square-on — where a turn under way
+   *  lands — or null when the view is off every face. */
+  viewCubeFace(): CubeRegion | null {
+    return faceOn(this.viewport.pose().dir)
+  }
+
+  /** How far the part is turned on screen from standing upright, in
+   *  radians, counter-clockwise positive — where a turn under way lands. */
+  screenRoll(): number {
+    const pose = this.viewport.pose()
+    return screenRoll(pose.dir, pose.up)
+  }
+
+  /** Roll the view about the line of sight by `by` radians (the part turns
+   *  counter-clockwise on screen for a positive one), the same spot kept
+   *  under the screen centre and the same zoom. */
+  rollBy(by: number, ms = VIEW_CUBE_TURN_MS): void {
+    const pose = this.viewport.pose()
+    this.viewport.animateLook(pose.dir, rollUp(pose.dir, pose.up, by), pose.target, ms)
+  }
+
+  /** Roll the view so the part stands `roll` radians counter-clockwise from
+   *  upright — 0 stands it upright again. */
+  setScreenRoll(roll: number, ms = VIEW_CUBE_TURN_MS): void {
+    const pose = this.viewport.pose()
+    this.viewport.animateLook(pose.dir, upForRoll(pose.dir, roll), pose.target, ms)
+  }
+
+  /** What a drag on the view cube turns about: taken once as the drag
+   *  starts, so the part does not hop from surface to surface as it turns. */
+  viewCubeDragPivot(): THREE.Vector3 {
+    return this.viewport.turnPivot()
+  }
+
+  /** The view cube dragged this many pixels: a free orbit, as a drag on the
+   *  part turns it. */
+  viewCubeDrag(dx: number, dy: number, pivot: THREE.Vector3): void {
+    this.viewport.dragTurn(dx, dy, pivot)
+  }
+
+  /** Home: turn to the home view and fit what is shown, as one swing. With
+   *  `ms` of 0 it lands at once, as every view cube turn may. */
+  goHome(ms = VIEW_CUBE_TURN_MS): void {
+    const view = this.homeView ?? STANDARD_VIEWS.iso
+    const box = this.shownBox()
+    if (!box) {
+      this.viewport.animateLook(view.dir.clone(), view.up.clone(), this.viewport.turnPivot(), ms)
+      return
+    }
+    this.viewport.flyToFit(box, ms, { dir: view.dir.clone(), up: view.up.clone() })
+    this.framedClip.center.copy(this.clipSphere.center)
+    this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** Make the view as it stands the one Home turns to. */
+  setHomeView(): void {
+    const pose = this.viewport.pose()
+    this.homeView = { dir: pose.dir, up: pose.up }
+  }
+
+  /** Home back to the three-quarter view. */
+  resetHomeView(): void {
+    this.homeView = null
   }
 
   /** The layers in their order — see sceneLayers.ts. */
@@ -954,28 +1039,18 @@ export class SceneManager {
 
   /** Light what is under a client point — or, with null, nothing. */
   private hoverUnder(at: { x: number; y: number } | null): void {
-    // The gizmo's arrows light under the cursor and take the plain left-drag
-    // off the camera while one is under it, the way the grips do: a press on
-    // an arrow is a click on a button, not the start of an orbit.
-    const axis = at ? this.gizmoAt(at.x, at.y) : null
-    if (this.gizmo.setHovered(axis)) {
-      this.viewport.renderer.domElement.style.cursor = axis !== null ? 'pointer' : ''
-      this.claimDrag('gizmo', axis !== null)
-      this.invalidate()
-    }
     // A coordinate plane on offer lights under the cursor the way an element
-    // does — except under the gizmo corner, which is a button first, and
-    // where an element is: that one would take the click.
-    const plane = at && axis === null ? this.worldPlaneUnder(at.x, at.y) : null
+    // does — except where an element is: that one would take the click. The
+    // view cube's corner never gets here: its controls lie over it.
+    const plane = at ? this.worldPlaneUnder(at.x, at.y) : null
     if (this.sections.setHoveredWorldPlane(plane)) {
       this.viewport.renderer.domElement.style.cursor = plane !== null ? 'pointer' : ''
     }
     if (this.marking.armed()) this.marking.updateBrushRing(at)
     // Then everything that lights under the cursor, in order: what lights
     // covers what comes after it where it says so — a grip, or a sketch
-    // region, over what lies behind — and nothing lights under the gizmo
-    // corner, which is a button first.
-    let covered = axis !== null
+    // region, over what lies behind.
+    let covered = false
     // While a part's tree is still on its way the frame's rays skip it (see
     // bvh.ts sparingRays), and it would hide nothing behind it: an element
     // or a face of a layer's would light through the part. Nothing lights
@@ -1430,13 +1505,16 @@ export class SceneManager {
     this.invalidate()
   }
 
-  /** The gizmo, plus the one thing about it the DOM needs to know: how tall a
-   *  corner it is taking, so the fit-to-view button can sit exactly above it
-   *  at every viewport size. A custom property rather than a React state,
-   *  because this is decided per rendered frame and nothing else depends on
-   *  it. */
+  /** The view cube, plus the one thing about it the DOM needs to know: how
+   *  big a corner it takes, so the fit-to-view button can sit above it and
+   *  its controls over it (ui/ViewCube.tsx) at every viewport size. A custom
+   *  property rather than a React state, because this is decided per
+   *  rendered frame and nothing else depends on it. */
   private drawGizmo(w: number, h: number): void {
     const size = this.gizmo.render(this.viewport.renderer, this.camera, this.controls.target, w, h)
+    // The cube may have turned under a pointer held still: what is under it
+    // now is lit on the next frame.
+    if (this.cubePointer && this.gizmo.setHovered(this.gizmo.hitTest(this.cubePointer.x, this.cubePointer.y))) this.invalidate()
     if (size === this.gizmoCorner) return
     this.gizmoCorner = size
     this.container.style.setProperty('--gizmo-size', `${Math.round(size)}px`)
@@ -1453,6 +1531,15 @@ export class SceneManager {
    * against it.
    */
   fitToView(): void {
+    const box = this.shownBox()
+    if (!box) return
+    this.viewport.fitCamera(box)
+    this.framedClip.center.copy(this.clipSphere.center)
+    this.framedClip.radius = this.clipSphere.radius
+  }
+
+  /** What fit-to-view frames — see fitToView — or null with nothing to fit. */
+  private shownBox(): THREE.Box3 | null {
     const box = new THREE.Box3()
     const moved = this.movedScanBox()
     if (moved && this.mesh?.visible) box.union(moved)
@@ -1475,10 +1562,7 @@ export class SceneManager {
     // Nothing visible to fit — a hidden scan with no reference beside it. The
     // part is still loaded, so fit that rather than doing nothing at all.
     if (box.isEmpty() && moved) box.union(moved)
-    if (box.isEmpty()) return
-    this.viewport.fitCamera(box)
-    this.framedClip.center.copy(this.clipSphere.center)
-    this.framedClip.radius = this.clipSphere.radius
+    return box.isEmpty() ? null : box
   }
 
   /** Whether the stage draws any surface — the scan, the reference, a
@@ -2549,7 +2633,7 @@ export class SceneManager {
 
   /** Take the plain left-drag away from the camera, or give it back, for one
    *  reason among several. The navigator only ever hears the total. */
-  private claimDrag(reason: 'paint' | 'handle' | 'gizmo' | 'layer', on: boolean): void {
+  private claimDrag(reason: 'paint' | 'handle' | 'layer', on: boolean): void {
     const had = this.dragClaims.size > 0
     if (on) this.dragClaims.add(reason)
     else this.dragClaims.delete(reason)
