@@ -281,6 +281,50 @@ describe('cleaning a scan up through the commands', () => {
     expect((await run<Figures>('mesh.inspect')).working).toBe('scan')
   })
 
+  it('stretches a part at a cut and shortens it again, a step each, and says first what it would do', async () => {
+    await open('block.stl', cuboid([0, -10, -10], [20, 10, 10], 4))
+    useHistory.setState({ past: [], future: [] })
+
+    // Asked without a place: through the middle — and nothing is changed for
+    // asking.
+    const seen = await run<{ report: { at: number; newExtent: { min: number; max: number } }; outOfRound: string[] }>('mesh.stretch', {
+      along: 'X',
+      amount: 4,
+      preview: true,
+    })
+    expect(seen.report.at).toBe(10)
+    expect(seen.report.newExtent.max).toBeCloseTo(24, 4)
+    expect(seen.outOfRound).toEqual([])
+    expect(undoLabels()).toEqual([])
+    expect((await run<Figures>('mesh.inspect')).working).toBe('scan')
+
+    // Cut at 5 and 4 put in: the far end out by 4, every cross-section
+    // 20 × 20.
+    const longer = await run<EditAnswer>('mesh.stretch', { along: 'X', at: 5, amount: 4 })
+    expect(longer.edit).toMatchObject({ kind: 'stretch', text: 'Put 4 mm in at X 5 mm' })
+    expect(longer.mesh).toMatchObject({ working: 'edited copy', open: 0, bad: 0 })
+    expect(longer.mesh.bounds.min[0]).toBeCloseTo(0, 3)
+    expect(longer.mesh.bounds.max[0]).toBeCloseTo(24, 3)
+    expect(longer.mesh.volume).toBeCloseTo(24 * 20 * 20, 0)
+    expect(useMeshTools.getState()).toMatchObject({ tool: 'stretch', stretchAmount: 0, stretchAt: 5 })
+
+    // 6 taken out past 12: back to 18 long, closed.
+    const shorter = await run<EditAnswer>('mesh.stretch', { along: 'x', at: 12, amount: -6 })
+    expect(shorter.edit.text).toBe('Took 6 mm out at X 12 mm')
+    expect(shorter.mesh).toMatchObject({ open: 0, bad: 0 })
+    expect(shorter.mesh.bounds.max[0]).toBeCloseTo(18, 3)
+    expect(shorter.mesh.volume).toBeCloseTo(18 * 20 * 20, 0)
+
+    // A cut off the part is refused, and leaves no step.
+    expect((await refused('mesh.stretch', { along: 'X', at: 40, amount: 1 })).code).toBe('invalid_input')
+
+    expect(undoLabels()).toEqual(['Agent: stretch along X', 'Agent: stretch along X'])
+    expect(useMeshTools.getState().pending.map((e) => e.kind)).toEqual(['stretch', 'stretch'])
+    await run('history.undo')
+    await run('history.undo')
+    expect((await run<Figures>('mesh.inspect')).working).toBe('scan')
+  })
+
   it('refuses what the panel would not do, and leaves the settings as they were when an edit fails', async () => {
     await open('box.stl', cuboid([-10, -10, -10], [10, 10, 10], 6))
     useHistory.setState({ past: [], future: [] })

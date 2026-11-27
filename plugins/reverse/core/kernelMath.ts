@@ -86,6 +86,26 @@ export function sameSurface(was: RawFace, candidates: readonly RawFace[]): RawFa
   return best
 }
 
+/** Whether two faces are one face as it stood: on the same kind of
+ *  surface, of the same area, centred at the same point, facing the same
+ *  way, to a millionth — what a face copied untouched reads as. A merge
+ *  of faces on one surface hands back every face of a body under a new
+ *  hash when it merges any (occt-wasm 5.17 and on: it merges a copy), so
+ *  a face that stood before an operation is not known by its hash alone;
+ *  a face the operation cut, trimmed or merged reads otherwise. `size`
+ *  is the body's diagonal, which positions are held to. */
+export function sameFace(a: RawFace, b: RawFace, size: number): boolean {
+  if (a.kind !== b.kind) return false
+  const tol = 1e-6 * Math.max(1, size)
+  if (len(sub(a.centroid, b.centroid)) > tol) return false
+  if (Math.abs(a.area - b.area) > 1e-6 * Math.max(a.area, b.area, tol * tol)) return false
+  if (dot(a.dir, b.dir) < 1 - 1e-9) return false
+  if (a.radius !== undefined || b.radius !== undefined) {
+    if (a.radius === undefined || b.radius === undefined || Math.abs(a.radius - b.radius) > tol) return false
+  }
+  return true
+}
+
 /** Two operations' histories as one: what each old face became after the
  *  first and then the second. A face the first left alone and the second
  *  changed is the second's to tell. */

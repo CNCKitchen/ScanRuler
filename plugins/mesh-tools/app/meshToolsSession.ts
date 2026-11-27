@@ -10,7 +10,7 @@
 // stops. Trim to
 // scan makes something beside the scan too: a body cut to fit the scan's break,
 // the break found and marked on the part to be put right by hand first. Remove islands,
-// Delete marked, Flip normals, Cut, Mirror, Fill holes, Smooth, Shrink / expand,
+// Delete marked, Flip normals, Cut, Mirror, Stretch, Fill holes, Smooth, Shrink / expand,
 // Boolean and Shell edit a copy of the scan: the first edit makes it, the worker hands back the
 // copy as it is to be, it is kept as a file and loaded beside the scan — the
 // worker's and the viewport's, which shows it in the scan's place while Mesh
@@ -35,6 +35,7 @@ import type { BooleanTool } from '../core/boolean'
 import type { TrimReport } from '../core/trimToScan'
 import { buildBinaryPly } from '../core/plyWriter'
 import { cutPlaneOf } from '../core/cutPlane'
+import { pickingPiece, stretchSetupOf } from './stretchSetup'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
 import { useStore } from '../../../src/state/store'
 import { useShell } from '../../../src/state/shellStore'
@@ -688,6 +689,45 @@ export function createMeshToolsSession({
     )
   }
 
+  /** Stretch the part as the panel shows it: cut across the direction, the
+   *  side past the cut moved out and the section put in — or a slab taken
+   *  out — the whole part, or the piece clicked. */
+  const stretchScan = async (run?: EditRun): Promise<EditLanded | null> => {
+    const m = useMeshTools.getState()
+    const s = useStore.getState()
+    const setup = stretchSetupOf(m, s.elements)
+    if (!setup) {
+      s.setError('Choose what to stretch along — a coordinate axis, or an element with a direction.')
+      return null
+    }
+    if (m.stretchAmount === 0) {
+      s.setError('Set how much to put in at the cut first — or, negative, to take out.')
+      return null
+    }
+    if (pickingPiece(m) && !m.stretchPiece) {
+      s.setError('Click the piece to stretch on the part first, where it is to be cut.')
+      return null
+    }
+    const { settings, axisName } = setup
+    const len = lengthsOf(run?.units)
+    return workerEdit(
+      'Mesh Tools: stretch',
+      settings.amount > 0 ? 'Stretching the scan…' : 'Shortening the scan…',
+      () => ({ type: 'stretch', settings }),
+      (r) => {
+        const x = r.kind === 'stretch' ? r.report : null
+        const at = x?.at ?? settings.at ?? 0
+        const reach = x ? x.newExtent.max - x.newExtent.min : 0
+        const what = settings.amount > 0 ? `Put ${typedLen(settings.amount, len.units)} in` : `Took ${typedLen(-settings.amount, len.units)} out`
+        return {
+          edit: { kind: 'stretch', axis: axisName, at, amount: settings.amount, ...(x?.piece ? { piece: true } : {}) },
+          status: `${what} at ${axisName} ${typedLen(at, len.units)}${x?.piece ? ', the piece picked alone' : ''} — the part now reaches ${len.fmt(reach, 3)} along ${axisName}. Ctrl+Z puts it back.`,
+        }
+      },
+      run,
+    )
+  }
+
   /** Close every hole under the size in the panel — or, given a point, the
    *  one of them nearest it alone. */
   const fillScanHoles = (at?: Vec3, run?: EditRun) => {
@@ -1084,6 +1124,7 @@ export function createMeshToolsSession({
     flipScan,
     cutScan,
     mirrorScan,
+    stretchScan,
     fillScanHoles,
     smoothScan,
     densifyScan,

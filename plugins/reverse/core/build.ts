@@ -2725,27 +2725,32 @@ export class Builder {
     return current
   }
 
-  /** The faces of a shape a step made (not in `own`, by hash) that are
-   *  slivers: narrower than SLIVER_MM, twice the area over the perimeter.
-   *  Two bodies cut by one freeform sheet meet along it a hair apart, and
-   *  a Combine of them leaves strips of their walls there, far thinner
-   *  than anything the part has, which block a round on the edges beside
-   *  them. A face that stood before the step stays out, however narrow. */
-  private sliversOf(shape: Shape, own: ReadonlySet<number>): number[] {
-    return this.kernel.narrowFaces(shape, SLIVER_MM, own).map((f) => f.hash)
+  /** The faces of a shape a step made that are slivers: narrower than
+   *  SLIVER_MM, twice the area over the perimeter. Two bodies cut by one
+   *  freeform sheet meet along it a hair apart, and a Combine of them
+   *  leaves strips of their walls there, far thinner than anything the
+   *  part has, which block a round on the edges beside them. A face that
+   *  stood before the step — a face of `before`, by hash or copied
+   *  untouched (stoodBefore) — stays out, however narrow. */
+  private sliversOf(shape: Shape, before: readonly Shape[]): { hash: number; area: number; width: number; centroid: Vec3 }[] {
+    const k = this.kernel
+    const thin = k.narrowFaces(shape, SLIVER_MM, new Set(before.flatMap((b) => k.faceHashes(b))))
+    if (thin.length === 0) return thin
+    const stood = k.stoodBefore(before, shape, thin.map((f) => f.hash))
+    return thin.filter((f) => !stood.has(f.hash))
   }
 
   /** A combine's or a join's result held to leaving no slivers
-   *  (sliversOf) among the faces it made — `own`, the faces of what went
-   *  in, stay out. On one it is played again fuzzy (`replay`), finer then
+   *  (sliversOf) among the faces it made — the faces of `before`, what
+   *  went in, stay out. On one it is played again fuzzy (`replay`), finer then
    *  coarser, and the first try that closes, `stands` and leaves none is
    *  taken, which the row says; when none does, the result stays and the
    *  row names the slivers. Two pieces whose walls lie a hair apart — a
    *  root built of overlapping pieces, two bodies cut by one sheet — meet
    *  that way. */
-  private withoutSlivers<T extends Tracked>(result: T, own: ReadonlySet<number>, replay: () => T, stands: (shape: Shape) => boolean, what: string): T {
+  private withoutSlivers<T extends Tracked>(result: T, before: readonly Shape[], replay: () => T, stands: (shape: Shape) => boolean, what: string): T {
     const k = this.kernel
-    const thin = k.narrowFaces(result.shape, SLIVER_MM, own)
+    const thin = this.sliversOf(result.shape, before)
     if (thin.length === 0) return result
     const n = thin.length
     const s = n === 1 ? '' : 's'
@@ -2757,7 +2762,7 @@ export class Builder {
         if (isTrap(e)) throw e
         continue
       }
-      if (k.isClosedSolid(again.shape) && stands(again.shape) && this.sliversOf(again.shape, own).length === 0) {
+      if (k.isClosedSolid(again.shape) && stands(again.shape) && this.sliversOf(again.shape, before).length === 0) {
         k.release(result.shape)
         // units-ok: build message, also the agent's answer
         this.stepWarnings.push(`The ${what} was played again fuzzy: the first result left ${n} sliver face${s}, under ${SLIVER_MM} mm wide.`)
@@ -2780,9 +2785,14 @@ export class Builder {
   private shellSlivers(shape: Shape, body: Body): void {
     const k = this.kernel
     const own = new Set(k.faceHashes(body.shape))
-    const narrow = new Set(this.sliversOf(shape, own))
+    const narrow = new Set(this.sliversOf(shape, [body.shape]).map((f) => f.hash))
     const faces = k.faces(shape)
-    const tiny = faces.map((f, index) => ({ f, index })).filter(({ f }) => !own.has(f.hash) && (narrow.has(f.hash) || f.area < TINY_FACE_MM2))
+    const small = faces.map((f, index) => ({ f, index })).filter(({ f }) => !own.has(f.hash) && (narrow.has(f.hash) || f.area < TINY_FACE_MM2))
+    if (small.length === 0) return
+    // A face the shell left as it was keeps no hash when the kernel merged
+    // others: it is the body's own all the same, and stays out.
+    const stood = k.stoodBefore([body.shape], shape, small.map(({ f }) => f.hash))
+    const tiny = small.filter(({ f }) => !stood.has(f.hash))
     if (tiny.length === 0) return
     const n = tiny.length
     const named = tiny
@@ -3582,7 +3592,11 @@ export class Builder {
       const was = uncut.get(id)
       if (b === was || b.surface || ![...b.origins.values()].some(mine)) continue
       const { faces, edges } = this.topology(b, (b.fit ? surfaceMeshDeflection : meshDeflection)(this.diagonal(b)))
-      const made = (f: FaceInfo) => mine(f.fingerprint.origin) && !was?.origins.has(f.hash)
+      // A face the body had before keeps no hash when the kernel merged
+      // faces on one surface (stoodBefore): it is not the cut's for that.
+      const fresh = (f: FaceInfo) => mine(f.fingerprint.origin) && !was?.origins.has(f.hash)
+      const stood = was ? this.kernel.stoodBefore([was.shape], b.shape, faces.filter(fresh).map((f) => f.hash)) : new Set<number>()
+      const made = (f: FaceInfo) => fresh(f) && !stood.has(f.hash)
       const said = cutElsewhereWords(step.name, cutsElsewhere(faces, edges, made), todo)
       if (said) this.stepWarnings.push(said)
     }
@@ -3981,10 +3995,9 @@ export class Builder {
       // Any combine, of faces of any kind: three overlapping pieces of a
       // root leave them as well.
       if (step.kind === 'boolean' && !body.surface) {
-        const own = new Set([...intoBodies, ...tools].flatMap((b) => k.faceHashes(b.shape)))
         result = this.withoutSlivers(
           result,
-          own,
+          [...intoBodies, ...tools].map((b) => b.shape),
           () => this.applyToBody(step),
           (shape) => {
             const ask = combineAsk(shape)
@@ -4167,8 +4180,7 @@ export class Builder {
     let joined: Tracked
     try {
       joined = this.guarded(fuseNear, (result) => ({ kind: 'join', parts, result }), 'Joining', [{ name, shape: solid }, ...near.map(([, b]) => b)])
-      const ownFaces = new Set([...own.keys(), ...near.flatMap(([, b]) => k.faceHashes(b.shape))])
-      joined = this.withoutSlivers(joined, ownFaces, fuseNear, (shape) => volumeRefusal({ kind: 'join', parts, result: this.volumeOf(shape) }) === null, 'join')
+      joined = this.withoutSlivers(joined, [solid, ...near.map(([, b]) => b.shape)], fuseNear, (shape) => volumeRefusal({ kind: 'join', parts, result: this.volumeOf(shape) }) === null, 'join')
     } finally {
       k.release(solid)
     }
@@ -4331,7 +4343,7 @@ export class Builder {
     let combined: Tracked
     try {
       combined = this.guarded(combine, (result) => (step.op === 'join' ? { kind: 'join', parts, result } : { kind: 'cut', body: parts[0], result }), step.op === 'join' ? 'Joining' : 'The cut', [target, { name: step.name, shape: solid }])
-      if (step.op === 'join') combined = this.withoutSlivers(combined, new Set(before.keys()), combine, (shape) => volumeRefusal({ kind: 'join', parts, result: this.volumeOf(shape) }) === null, 'join')
+      if (step.op === 'join') combined = this.withoutSlivers(combined, [target.shape, solid], combine, (shape) => volumeRefusal({ kind: 'join', parts, result: this.volumeOf(shape) }) === null, 'join')
       // A join on one body that meets none of it would stand beside it as a
       // body of its own — refused, as a cut that takes nothing is (31_pleuel
       // made a second body so, unseen).

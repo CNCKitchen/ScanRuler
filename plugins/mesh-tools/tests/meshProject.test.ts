@@ -56,6 +56,7 @@ describe('the Mesh Tools part of a project', () => {
       pieceSizeAuto: false,
       cut: { ref: 'z', offset: 0.5, offsetAuto: false, keep: 'plus', cap: true },
       mirror: { ref: 'x', offset: 0, offsetAuto: true, keep: 'plus', mode: 'whole' },
+      stretch: { ref: 'x', at: 0, atAuto: true, amount: 0, scope: 'all' },
       fill: { size: 5, sizeAuto: true, mode: 'curved' },
       smooth: { size: 1, sizeAuto: true, limit: 0.2, limitAuto: true, keepEdges: true, scope: 'all' },
       densify: { edge: 1, edgeAuto: true },
@@ -91,6 +92,12 @@ describe('the Mesh Tools part of a project', () => {
       mirrorOffsetAuto: false,
       mirrorKeep: 'minus',
       mirrorMode: 'symmetric',
+      stretchRef: 5,
+      stretchAt: 6.5,
+      stretchAtAuto: false,
+      stretchAmount: -1.25,
+      stretchScope: 'piece',
+      stretchPiece: [1, 2, 3],
       holeSize: 8,
       holeSizeAuto: false,
       fillMode: 'flat',
@@ -122,6 +129,8 @@ describe('the Mesh Tools part of a project', () => {
         { kind: 'cut', plane: 'XY plane, Z 0.5 mm', removed: 3400, capped: 1, open: 0 },
         { kind: 'mirror', mode: 'whole', plane: 'YZ plane, X 0 mm', triangles: 5000 },
         { kind: 'mirror', mode: 'symmetric', plane: 'Plane 3', triangles: 2600 },
+        { kind: 'stretch', axis: 'X', at: 10, amount: 10 },
+        { kind: 'stretch', axis: 'Cylinder 5', at: 2, amount: -1.5, piece: true },
         { kind: 'fill', maxSize: 8, mode: 'flat', holes: 3, triangles: 96 },
         { kind: 'smooth', size: 0.5, limit: 0.02, maxMove: 0.018 },
         { kind: 'smooth', size: 2, limit: 0.5, maxMove: 0.1, region: 1200 },
@@ -132,7 +141,8 @@ describe('the Mesh Tools part of a project', () => {
     const { manifest } = collectProject(sources(), null, '0.1.0')
     const json = JSON.parse(JSON.stringify(manifest))
     useMeshTools.setState({
-      cutRef: 'z', cutKeep: 'plus', cutCap: true, mirrorRef: 'x', mirrorOffset: 0, mirrorOffsetAuto: true, mirrorKeep: 'plus', mirrorMode: 'whole', holeSize: 5, fillMode: 'curved', smoothScope: 'all', smoothSize: 1, smoothEdges: true, boolOp: 'subtract',
+      cutRef: 'z', cutKeep: 'plus', cutCap: true, mirrorRef: 'x', mirrorOffset: 0, mirrorOffsetAuto: true, mirrorKeep: 'plus', mirrorMode: 'whole',
+      stretchRef: 'x', stretchAt: 0, stretchAtAuto: true, stretchAmount: 0, stretchScope: 'all', holeSize: 5, fillMode: 'curved', smoothScope: 'all', smoothSize: 1, smoothEdges: true, boolOp: 'subtract',
       offsetDistance: 0.1, offsetDirection: 'expand', offsetScope: 'all', shellThickness: 2, shellThicknessAuto: true, shellSide: 'in', edits: [],
       trimOffset: 0, trimDepth: 0.3, trimFlip: false,
     })
@@ -147,6 +157,11 @@ describe('the Mesh Tools part of a project', () => {
       mirrorOffsetAuto: false,
       mirrorKeep: 'minus',
       mirrorMode: 'symmetric',
+      stretchRef: 5,
+      stretchAt: 6.5,
+      stretchAtAuto: false,
+      stretchAmount: -1.25,
+      stretchScope: 'piece',
       holeSize: 8,
       holeSizeAuto: false,
       fillMode: 'flat',
@@ -174,6 +189,9 @@ describe('the Mesh Tools part of a project', () => {
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, mirror: { ...json.mesh.mirror, mode: 'half' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, mirror: { ...json.mesh.mirror, ref: 'w' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'mirror', mode: 'whole', plane: 'XY', triangles: '3' }] } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, stretch: { ...json.mesh.stretch, at: 'middle' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, stretch: { ...json.mesh.stretch, scope: 'some' } } }))).toThrow(/Malformed/)
+    expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'stretch', axis: 'X', at: 0, amount: '2' }] } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, size: 0 } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, smooth: { ...json.mesh.smooth, scope: 'some' } } }))).toThrow(/Malformed/)
     expect(() => prepareProjectState(validateManifest({ ...json, mesh: { ...json.mesh, edits: [{ kind: 'cut', plane: 3, removed: 1, capped: 0, open: 0 }] } }))).toThrow(/Malformed/)

@@ -261,7 +261,17 @@ Decisions that moved while building, recorded here as the plan says:
   keeps each face's area and centroid by hash and each shape's volume by
   handle (ReKernel.faces, volumeOf), sizes go by the loose box
   (ReKernel.extent), and the page draws a body before its faces are read
-  (Builder.buildDrawn, topologiesOf). The pin is
+  (Builder.buildDrawn, topologiesOf). 5.17.1 since 2026-11-14: its
+  merge of faces on one surface (`unifySameDomain`) wrote into the edges
+  a boolean's result shares with its operands, so an operand used again —
+  a kept tool, a join played again fuzzy — could come out of its next
+  boolean invalid; 5.17 merges a copy. When the merge changes anything,
+  every face then comes back under a new hash, the ones it left alone as
+  well: `tracked` takes the merge's history from the kernel
+  (`unifySameDomainWithHistory`, one to one for an untouched face), and
+  what is read by hash across a step without a history — a join's and a
+  shell's slivers, a cut's faces elsewhere — also by geometry
+  (ReKernel.stoodBefore, kernelMath sameFace). The pin is
   exact on purpose, so a fix like that arrives only when someone bumps it:
   look at the wrapper's changelog now and then. The wasm is
   22 MB raw, 7 MB gzipped — not the 4.7 MB brotli the survey quoted; still

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Everything the Mesh Tools workspace knows. Its tools come in two kinds.
 // Some edit the scan itself — Remove islands, Delete marked, Flip normals,
-// Cut, Mirror, Fill holes, Smooth, Shrink / expand, Boolean, Shell — and every
+// Cut, Mirror, Stretch, Fill holes, Smooth, Shrink / expand, Boolean, Shell — and every
 // workspace measures the scan as they leave it; each edit
 // is one step of the undo history, and the list of them says what has been
 // done to the file that was opened. Others make something beside the scan and
@@ -28,6 +28,8 @@ import type { ThickenSide } from '../core/offset'
 import { DEFAULT_BREAK_DEPTH, type BreakReport } from '../core/breakSurface'
 import type { TrimReport } from '../core/trimToScan'
 import type { MirrorMode } from '../core/mirror'
+import type { StretchReport } from '../core/stretch'
+import type { Vec3 } from '../../../src/core/types'
 import { defaultWrapGap, type WrapEdges, type WrapReport } from '../core/wrap'
 
 export type { CopyDeviationStats, MirrorMode }
@@ -37,7 +39,7 @@ import { fmtLen, fmtVol, type DisplayUnits } from '../../../src/core/units'
 import { typedLen } from '../ui/meshFormat'
 
 /** The tool in hand. */
-export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'mirror' | 'holes' | 'smooth' | 'densify' | 'offset' | 'boolean' | 'trim' | 'shell' | 'wrap'
+export type MeshTool = 'reduce' | 'islands' | 'delete' | 'flip' | 'cut' | 'mirror' | 'stretch' | 'holes' | 'smooth' | 'densify' | 'offset' | 'boolean' | 'trim' | 'shell' | 'wrap'
 
 /** What the viewport shows of a reduction: the reduced mesh with its
  *  triangles drawn, the scan painted with how far the reduced mesh strays
@@ -52,7 +54,7 @@ export type CutKeep = 'plus' | 'minus'
 
 /** A change made to the scan, as the list of them tells it. The kinds are
  *  the names a saved project knows them by: `pieces` is Remove islands,
- *  `delete` Delete marked, `flip` Flip normals, `cut`, `mirror`, `fill` Fill holes,
+ *  `delete` Delete marked, `flip` Flip normals, `cut`, `mirror`, `stretch`, `fill` Fill holes,
  *  `smooth`, `offset` Shrink / expand, `boolean`, `shell`, `reduce` a
  *  reduction applied, `wrap` a wrap applied. */
 export type ScanEdit =
@@ -91,6 +93,18 @@ export type ScanEdit =
       plane: string
       /** The triangles the mirror image brought — for whole, every one. */
       triangles: number
+    }
+  | {
+      kind: 'stretch'
+      /** What it was stretched along, as the panel names it: "X", or an
+       *  element's name. */
+      axis: string
+      /** Where it was cut, mm along that direction, and the length put in
+       *  there — or, negative, taken out. */
+      at: number
+      amount: number
+      /** One piece of the part stretched alone. */
+      piece?: boolean
     }
   | { kind: 'fill'; maxSize: number; mode: FillMode; holes: number; triangles: number }
   | {
@@ -173,7 +187,8 @@ export type ScanEdit =
  *  here, or the two part ways. */
 export const MESH_SETTINGS = [
   'tolerance', 'toleranceAuto', 'maxTriangles', 'pieceSize', 'pieceSizeAuto', 'cutRef', 'cutOffset', 'cutOffsetAuto', 'cutKeep',
-  'cutCap', 'mirrorRef', 'mirrorOffset', 'mirrorOffsetAuto', 'mirrorKeep', 'mirrorMode', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
+  'cutCap', 'mirrorRef', 'mirrorOffset', 'mirrorOffsetAuto', 'mirrorKeep', 'mirrorMode', 'stretchRef', 'stretchAt', 'stretchAtAuto',
+  'stretchAmount', 'stretchScope', 'stretchPiece', 'holeSize', 'holeSizeAuto', 'fillMode', 'smoothScope', 'smoothSize', 'smoothSizeAuto', 'smoothLimit', 'smoothLimitAuto',
   'smoothEdges', 'densifyEdge', 'densifyEdgeAuto', 'offsetScope', 'offsetDirection', 'offsetDistance', 'boolOp', 'boolSolids', 'trimSolid', 'trimOffset', 'trimDepth',
   'trimFlip', 'shellThickness', 'shellThicknessAuto', 'shellSide', 'wrapGap', 'wrapGapAuto', 'wrapGrow', 'wrapEdges',
 ] as const
@@ -202,6 +217,10 @@ export type SmoothScope = 'all' | 'marked'
 /** Surface marked for Shrink / expand to move alone: a violet, neither the
  *  orange of what goes nor the blue of what is smoothed. */
 export const OFFSET_MARK_COLOR = '#9b5cf0'
+
+/** What Stretch stretches: the whole part past the cut, or the one piece of
+ *  it picked. */
+export type StretchScope = 'all' | 'piece'
 
 /** Which way Shrink / expand moves the surface: out, the part growing, or
  *  in. */
@@ -345,6 +364,28 @@ interface MeshState {
    *  other — `mirrorKeep` the side kept, as Cut's keep says it. */
   mirrorMode: MirrorMode
   mirrorKeep: CutKeep
+
+  // ---- Stretch ---------------------------------------------------------------
+  /** What the part is stretched along — a coordinate axis, or an element
+   *  with a direction — and where it is cut across it, mm: for an axis, the
+   *  coordinate. While `stretchAtAuto`, through the middle of the part,
+   *  which the preview's report says. */
+  stretchRef: SectionRef
+  stretchAt: number
+  stretchAtAuto: boolean
+  /** The length put in at the cut, mm — or, negative, taken out past it. */
+  stretchAmount: number
+  stretchScope: StretchScope
+  /** The point last clicked on the part, in the frame of the mesh: the
+   *  piece One piece stretches — null for none clicked yet. */
+  stretchPiece: Vec3 | null
+  /** What the stretch the panel shows would do, worked out while Stretch is
+   *  in hand — null while being worked out; or why it cannot be made. */
+  stretchPreview: StretchReport | null
+  stretchError: string | null
+  /** An arrow on the cut is being dragged: the part is shown as it is with
+   *  the cut outlined, and the stretch worked out again once it lets go. */
+  stretchDragging: boolean
 
   // ---- Fill holes -------------------------------------------------------------
   /** Rims smaller than this across are holes to fill, mm. */
@@ -509,6 +550,16 @@ interface MeshState {
   setMirrorOffset: (v: number) => void
   setMirrorKeep: (keep: CutKeep) => void
   setMirrorMode: (mode: MirrorMode) => void
+  /** Another direction to stretch along: the cut goes through the middle of
+   *  the part again, and no piece is picked. */
+  setStretchRef: (ref: SectionRef) => void
+  /** Where the part is cut, mm along the direction. */
+  setStretchAt: (v: number) => void
+  setStretchAmount: (v: number) => void
+  setStretchScope: (scope: StretchScope) => void
+  /** A click on the part: the cut there, and the piece clicked. */
+  setStretchPiece: (at: Vec3 | null) => void
+  setStretchPreview: (report: StretchReport | null, error: string | null) => void
   setHoleSize: (v: number) => void
   setFillMode: (mode: FillMode) => void
   setHoleSurvey: (survey: (HoleSurvey & { maxSize: number }) | null) => void
@@ -602,6 +653,11 @@ const CLEARED = {
   // A plane through the middle of whatever comes next.
   cutOffsetAuto: true,
   mirrorOffsetAuto: true,
+  stretchAtAuto: true,
+  stretchPiece: null,
+  stretchPreview: null,
+  stretchError: null,
+  stretchDragging: false,
 }
 
 export const useMeshTools = create<MeshState>()((set) => ({
@@ -631,6 +687,11 @@ export const useMeshTools = create<MeshState>()((set) => ({
   mirrorOffset: 0,
   mirrorMode: 'whole',
   mirrorKeep: 'plus',
+
+  stretchRef: 'x',
+  stretchAt: 0,
+  stretchAmount: 0,
+  stretchScope: 'all',
 
   holeSize: 5,
   holeSizeAuto: true,
@@ -711,7 +772,14 @@ export const useMeshTools = create<MeshState>()((set) => ({
 
   addEdit: (edit) => set((s) => ({ edits: [...s.edits, edit] })),
 
-  addPending: (edit) => set((s) => ({ pending: [...s.pending, edit] })),
+  // A stretch made leaves nothing more to stretch: the amount goes back to
+  // nothing, the cut stays where it was — in the same step as the edit, so
+  // an undo brings the stretch back to the panel with the mesh.
+  addPending: (edit) =>
+    set((s) => ({
+      pending: [...s.pending, edit],
+      ...(edit.kind === 'stretch' ? { stretchAmount: 0, stretchAt: edit.at, stretchAtAuto: false } : {}),
+    })),
 
   takePending: () => set((s) => ({ edits: [...s.edits, ...s.pending], pending: [] })),
 
@@ -742,6 +810,18 @@ export const useMeshTools = create<MeshState>()((set) => ({
   setMirrorKeep: (mirrorKeep) => set({ mirrorKeep }),
 
   setMirrorMode: (mirrorMode) => set({ mirrorMode }),
+
+  setStretchRef: (stretchRef) => set({ stretchRef, stretchAtAuto: true, stretchPiece: null }),
+
+  setStretchAt: (v) => set(Number.isFinite(v) ? { stretchAt: v, stretchAtAuto: false } : {}),
+
+  setStretchAmount: (v) => set({ stretchAmount: Number.isFinite(v) ? v : 0 }),
+
+  setStretchScope: (stretchScope) => set({ stretchScope }),
+
+  setStretchPiece: (stretchPiece) => set({ stretchPiece }),
+
+  setStretchPreview: (stretchPreview, stretchError) => set({ stretchPreview, stretchError }),
 
   setHoleSize: (v) => set({ holeSize: Math.max(1e-3, v), holeSizeAuto: false }),
 
@@ -866,6 +946,7 @@ export const useMeshTools = create<MeshState>()((set) => ({
       // An element the plane was taken across belonged to the last scan.
       ...(typeof s.cutRef === 'number' ? { cutRef: 'z' as const } : {}),
       ...(typeof s.mirrorRef === 'number' ? { mirrorRef: 'x' as const } : {}),
+      ...(typeof s.stretchRef === 'number' ? { stretchRef: 'x' as const } : {}),
     })),
 }))
 
@@ -934,6 +1015,8 @@ export function scanEditText(e: ScanEdit, units: DisplayUnits = 'mm'): string {
       return `Cut at ${cutPlaneText(e.plane, units)}${e.capped > 0 ? `, closed flat` : ''}`
     case 'mirror':
       return e.mode === 'whole' ? `Mirrored across ${cutPlaneText(e.plane, units)}` : `Made symmetric about ${cutPlaneText(e.plane, units)}`
+    case 'stretch':
+      return `${e.amount >= 0 ? 'Put' : 'Took'} ${len(Math.abs(e.amount))} ${e.amount >= 0 ? 'in' : 'out'} at ${e.axis} ${len(e.at)}${e.piece ? ', one piece' : ''}`
     case 'fill':
       return `Filled ${count(e.holes)} hole${e.holes === 1 ? '' : 's'} under ${len(e.maxSize)}${e.mode === 'flat' ? ', flat' : ''}`
     case 'smooth':
@@ -968,6 +1051,8 @@ export function scanEditFigure(e: ScanEdit, units: DisplayUnits = 'mm'): string 
       return `−${count(e.removed)} △`
     case 'mirror':
       return `⇋ ${count(e.triangles)} △`
+    case 'stretch':
+      return `${e.amount >= 0 ? '+' : '−'}${fmtLen(Math.abs(e.amount), units, 3)}`
     case 'fill':
       return `+${count(e.triangles)} △`
     case 'smooth':

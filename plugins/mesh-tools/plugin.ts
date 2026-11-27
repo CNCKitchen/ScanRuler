@@ -98,6 +98,7 @@ const plugin: ScanRulerPlugin = {
           store: useMeshTools,
           label: 'Mesh Tools',
           names: ['setTolerance', 'setMaxTriangles', 'setPieceSize', 'setCutRef', 'setCutOffset', 'setCutKeep', 'setCutCap', 'setMirrorRef', 'setMirrorOffset', 'setMirrorKeep', 'setMirrorMode',
+            'setStretchRef', 'setStretchAt', 'setStretchAmount', 'setStretchScope', 'setStretchPiece',
             'setHoleSize', 'setFillMode', 'setSmoothScope', 'setSmoothSize', 'setSmoothLimit', 'setSmoothEdges', 'setOffsetScope',
             'setOffsetDirection', 'setOffsetDistance', 'setBoolOp', 'toggleBoolSolid', 'setBoolSolids', 'setTrimSolid', 'toggleTrimSolid',
             'setTrimOffset', 'setTrimDepth', 'setTrimFlip', 'setShellThickness', 'setShellSide', 'setWrapGap', 'setWrapGrow', 'setWrapEdges'],

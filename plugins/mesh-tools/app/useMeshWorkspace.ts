@@ -16,6 +16,8 @@ import { colormapById } from '../../../src/core/field/colormap'
 import { usePrefs } from '../../../src/state/prefsStore'
 import { fmtArea, fmtLen } from '../../../src/core/units'
 import { cutPlaneOf } from '../core/cutPlane'
+import { cutOutline, typedPlace } from '../core/stretch'
+import { pickingPiece, STRETCH_GRIP_COLOR, stretchGrips, stretchSetupOf } from './stretchSetup'
 import { useStore } from '../../../src/state/store'
 import { useShell } from '../../../src/state/shellStore'
 import { useMark } from '../../../src/state/markStore'
@@ -489,6 +491,137 @@ export function useMeshWorkspace(session: MeshToolsSession) {
       }
     }
   }, [mirroring, mirrorRef, mirrorOffset, mirrorOffsetAuto, mirrorKeep, mirrorMode, elements, modelCenter, modelSize, sceneRef])
+
+  // While Stretch is in hand the part is shown as the stretch would leave it,
+  // in the scan's place — the very mesh the worker would make of it, asked
+  // for a moment after the settings settle, and standing until the next one
+  // lands so it does not flicker. With one piece to stretch and none clicked
+  // yet, the cut is shown on the part as it is.
+  const stretchRef = useMeshTools((s) => s.stretchRef)
+  const stretchAt = useMeshTools((s) => s.stretchAt)
+  const stretchAtAuto = useMeshTools((s) => s.stretchAtAuto)
+  const stretchAmount = useMeshTools((s) => s.stretchAmount)
+  const stretchScope = useMeshTools((s) => s.stretchScope)
+  const stretchPiece = useMeshTools((s) => s.stretchPiece)
+  const stretchPreview = useMeshTools((s) => s.stretchPreview)
+  const stretchDragging = useMeshTools((s) => s.stretchDragging)
+  const stretching = workspace === 'mesh' && tool === 'stretch' && fileName !== null
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stretching) return
+    // While an arrow is dragged the stretch is not worked out at all — a
+    // request on every move would queue in the worker behind the last —
+    // but once, as the hand lets go.
+    if (stretchDragging) {
+      meshSceneOf(scene).setStretchPreview(null)
+      return
+    }
+    // The pieces past the cut as the last preview counted them: read, not
+    // waited on — the count changes with the cut, not with what it shows.
+    const { stretchPreview: last } = useMeshTools.getState()
+    const setup = stretchSetupOf({ stretchRef, stretchAt, stretchAtAuto, stretchAmount, stretchScope, stretchPiece, stretchPreview: last }, elements)
+    if (!setup) {
+      meshSceneOf(scene).setStretchPreview(null)
+      useMeshTools.getState().setStretchPreview(null, 'Choose what to stretch along — a coordinate axis, or an element with a direction.')
+      return
+    }
+    const waiting = pickingPiece({ stretchScope, stretchPreview: last }) && !stretchPiece
+    const settings = waiting ? { ...setup.settings, amount: 0 } : setup.settings
+    const client = meshToolsOf(clientRef.current!)
+    const scanVersion = client.scanVersion
+    const editedVersion = client.editedVersion
+    let stale = false
+    const current = () => !stale && scanVersion === client.scanVersion && editedVersion === client.editedVersion
+    const timer = setTimeout(() => {
+      client
+        .stretchPreview(settings)
+        .then((p) => {
+          if (!current()) return
+          meshSceneOf(scene).setStretchPreview(p, { origin: settings.origin, dir: settings.dir, at: p.report.at, amount: settings.amount })
+          useMeshTools.getState().setStretchPreview(p.report, null)
+        })
+        .catch((e: unknown) => {
+          if (!current()) return
+          meshSceneOf(scene).setStretchPreview(null)
+          useMeshTools.getState().setStretchPreview(null, message(e))
+        })
+    }, 80)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [stretching, stretchDragging, stretchRef, stretchAt, stretchAtAuto, stretchAmount, stretchScope, stretchPiece, elements, triangleCount, edits, copyVersion, appliedAlignment, clientRef, sceneRef])
+
+  // The cut being dragged, on the part as it is: its outline worked out here
+  // from the mesh on show, frame by frame, the arrows with it.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stretching || !stretchDragging) return
+    const shown = scene.scanMesh()
+    const setup = stretchSetupOf(useMeshTools.getState(), elements)
+    if (!shown || !setup) return
+    const { origin, dir } = setup.settings
+    const { segments, centre } = cutOutline(shown.positions, shown.indices, origin, dir, stretchAt)
+    meshSceneOf(scene).setStretchGuide(segments)
+    if (centre) scene.setFeatureGrips(stretchGrips(centre, dir), STRETCH_GRIP_COLOR)
+  }, [stretching, stretchDragging, stretchAt, elements, sceneRef])
+
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stretchDragging) return
+    return () => meshSceneOf(scene).setStretchGuide(null)
+  }, [stretchDragging, sceneRef])
+
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stretching) return
+    return () => {
+      meshSceneOf(scene).setStretchPreview(null)
+      scene.setFeatureGrips([], STRETCH_GRIP_COLOR)
+      useMeshTools.getState().setStretchPreview(null, null)
+    }
+  }, [stretching, sceneRef])
+
+  // The arrows on the cut, at the middle of its outline: one pointing each
+  // way along the direction, either dragged to slide the cut — see the
+  // plugin's gripDrag. How much is put in is the panel's number alone.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene || !stretching || useMeshTools.getState().stretchDragging) return
+    const setup = stretchSetupOf(useMeshTools.getState(), useStore.getState().elements)
+    const centre = stretchPreview?.centre
+    if (!setup || !centre) {
+      scene.setFeatureGrips([], STRETCH_GRIP_COLOR)
+      return
+    }
+    scene.setFeatureGrips(stretchGrips(centre, setup.settings.dir), STRETCH_GRIP_COLOR)
+  }, [stretching, stretchPreview, sceneRef])
+
+  // A click on the part while Stretch is in hand: the cut moves there — at a
+  // figure a person would have typed — and the point is the piece One piece
+  // stretches.
+  useEffect(() => {
+    const scene = sceneRef.current
+    if (!scene) return
+    const layer = meshSceneOf(scene)
+    if (!stretching) {
+      layer.onStretchPick = null
+      return
+    }
+    layer.onStretchPick = (at) => {
+      const m = useMeshTools.getState()
+      const setup = stretchSetupOf(m, useStore.getState().elements)
+      const report = m.stretchPreview
+      if (!setup || !report) return
+      const { origin, dir } = setup.settings
+      const raw = (at[0] - origin[0]) * dir[0] + (at[1] - origin[1]) * dir[1] + (at[2] - origin[2]) * dir[2]
+      m.setStretchPiece(at)
+      m.setStretchAt(typedPlace(raw, report.extent.max - report.extent.min))
+    }
+    return () => {
+      layer.onStretchPick = null
+    }
+  }, [stretching, sceneRef])
 
   // ---- The edited copy -------------------------------------------------------------
 

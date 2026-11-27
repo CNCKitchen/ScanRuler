@@ -179,16 +179,20 @@ export function loneSolid(occt: OcctLike, shape: number): Shape {
 }
 
 /** An operation's result as asSolid takes it, with the history carried on
- *  through the unifying: a face the unifying merged, or built again round
- *  an edge it merged, has a new hash, and what the operation said became
- *  of an old face is then said of that new one. */
+ *  through the unifying, as the kernel tells it: a face the unifying
+ *  merged has a new hash, and what the operation said became of an old
+ *  face is then said of that new one. The unifying works on a copy
+ *  (occt-wasm 5.17 and on — it no longer writes into the edges the result
+ *  shares with the operands), so when it merges anything, every face it
+ *  left alone comes back under a new hash too, and the history follows
+ *  each to its copy, one to one. */
 export function tracked(occt: OcctLike, ev: { result: number; modified: number[] }): Tracked {
   const history = parseHistory(ev.modified)
   const solid = loneSolid(occt, ev.result)
   if (solid === ev.result || !unifying) return { shape: solid, history }
-  const unified = occt.unifySameDomain(solid)
   try {
-    return { shape: unified as Shape, history: composeHistory(history, unifyHistory(occt, solid, unified)) }
+    const unified = occt.unifySameDomainWithHistory(solid, occt.subShapeHashes(solid, 'face', HASH_BOUND), HASH_BOUND)
+    return { shape: unified.result as Shape, history: composeHistory(history, parseHistory(unified.modified)) }
   } finally {
     occt.release(solid)
   }
@@ -197,12 +201,14 @@ export function tracked(occt: OcctLike, ev: { result: number; modified: number[]
 /** How near a point must be to a face's surface to be on it, in mm. */
 const ON_SURFACE = 1e-4
 
-/** What unifying did to a solid's faces: each face of `before` whose hash
- *  is not on `after`, to the face of `after` it went into. The kernel
- *  keeps no history of the unifying, so a face is followed by a point
+/** What closing a solid up did to its faces — sewing over a sliver,
+ *  filling rounds out, defeaturing (kernelRounds.ts), which the kernel
+ *  keeps no history of: each face of `before` whose hash is not on
+ *  `after`, to the face of `after` it went into, followed by a point
  *  inside it — the new face holding that point is the one it became. Only
  *  a face with a new hash can have taken one in: a face that kept its
- *  hash is the face it was. */
+ *  hash is the face it was. A plain unifying tells its own history
+ *  (tracked). */
 export function unifyHistory(occt: OcctLike, before: number, after: number): FaceHistory {
   const history: FaceHistory = new Map()
   const was = occt.getSubShapes(before, 'face')

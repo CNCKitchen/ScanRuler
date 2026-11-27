@@ -42,6 +42,10 @@ export interface OcctLike {
   makeVertex(x: number, y: number, z: number): number
   makeCompound(shapes: number[]): number
   unifySameDomain(shape: number): number
+  /** unifySameDomain, with what each face of `faces` became: a merged
+   *  face several old ones, and — when anything merged — every face left
+   *  alone one to one, as it comes back a copy under a new hash. */
+  unifySameDomainWithHistory(shape: number, faces: number[], upper: number): { result: number; modified: number[] }
   getSubShapes(shape: number, type: 'solid' | 'shell' | 'face' | 'edge' | 'vertex'): number[]
   vertexPosition(vertex: number): XYZ
   /** The point of the face's surface nearest `point` — its foot, which may

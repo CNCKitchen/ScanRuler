@@ -49,6 +49,26 @@ export function middleOffset(raw: number, size = 0): number {
   return Number((Math.round(raw / step) * step).toFixed(places)) || 0
 }
 
+/** A direction to work along, as Stretch takes it: a coordinate axis
+ *  through the origin — so a place along it is that coordinate — or an
+ *  element's direction through its centre; and what the panel calls it,
+ *  "X" or the element's name. Null for an element with no direction, or
+ *  one since deleted. */
+export function refAxisOf(
+  ref: SectionRef,
+  elements: readonly { id: number; name: string; fit?: FitData | null }[],
+): { origin: Vec3; dir: Vec3; name: string } | null {
+  if (isWorldAxis(ref)) {
+    const axis = worldCutAxis(ref)
+    return { origin: axis.origin, dir: axis.dir, name: ref.toUpperCase() }
+  }
+  const el = elements.find((e) => e.id === ref)
+  const axis = el?.fit ? cutAxisOf(el.fit) : null
+  const dir = axis && normalize(axis.dir)
+  if (!el || !axis || !dir) return null
+  return { origin: axis.origin, dir, name: el.name }
+}
+
 /** `size` is the part's bounding-box diagonal, which the plane through its
  *  middle is rounded by (see middleOffset). */
 export function cutPlaneOf(

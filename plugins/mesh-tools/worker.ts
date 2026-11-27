@@ -18,6 +18,7 @@ import { markedTriangles, type EditedMesh } from './core/edit'
 import { flipTriangles } from './core/flip'
 import { cutMesh, cutPreview } from './core/cut'
 import { mirrorMesh } from './core/mirror'
+import { stretchMesh } from './core/stretch'
 import { fillHoles, surveyHoles } from './core/fillHoles'
 import { smoothMesh } from './core/smooth'
 import { densifyMesh } from './core/densify'
@@ -111,6 +112,15 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
     return { result: preview, transfer: [preview.cap.buffer, preview.open.buffer] }
   },
 
+  'stretch-preview'({ settings }, ctx) {
+    const g = subjectOf(ctx)
+    const r = stretchMesh(g.positions, g.indices, g.vertexCount, settings)
+    return {
+      result: { positions: r.positions, indices: r.indices, slab: r.slab, rim: r.rim, report: r.report },
+      transfer: [r.positions.buffer, r.indices.buffer, r.slab.buffer, r.rim.buffer],
+    }
+  },
+
   closedness(_payload, ctx) {
     const g = subjectOf(ctx)
     return { result: closedness(g.indices, g.vertexCount) }
@@ -173,6 +183,11 @@ const ops: { [K in keyof MeshToolsOps]: (payload: Payload<K>, ctx: WorkerContext
       const mirrored = mirrorMesh(g.positions, g.indices, g.vertexCount, edit.origin, edit.normal, edit.mode)
       result = mirrored
       report = { kind: 'mirror', report: mirrored.report }
+    } else if (edit.type === 'stretch') {
+      ctx.progress('Stretching the scan…')
+      const stretched = stretchMesh(g.positions, g.indices, g.vertexCount, edit.settings)
+      result = stretched
+      report = { kind: 'stretch', report: stretched.report }
     } else if (edit.type === 'fill-holes') {
       ctx.progress('Filling holes…')
       const filled = fillHoles(g.positions, g.indices, g.vertexCount, edit.maxSize, edit.mode, ctx.progress, edit.at)

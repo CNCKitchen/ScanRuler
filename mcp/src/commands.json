@@ -1,6 +1,6 @@
 {
-  "app": "0.11.2",
-  "saved": "2026-11-11T18:55:21.207Z",
+  "app": "0.11.3",
+  "saved": "2026-11-27T15:10:58.362Z",
   "commands": [
     {
       "name": "align.auto",
@@ -472,7 +472,7 @@
     {
       "name": "deviation.open_reference",
       "title": "Open the reference part",
-      "description": "Open the nominal part the scan is compared with — STEP from CAD, or STL, PLY, OBJ or 3MF — in place of the one there is; any alignment and map against the old one go, the elements measured on the scan stay. Returns the deviation state. Not undoable: a new reference starts a new history.",
+      "description": "Open the nominal part the scan is compared with — STEP from CAD, or STL, PLY, OBJ, 3MF or GLB — in place of the one there is; any alignment and map against the old one go, the elements measured on the scan stay. Returns the deviation state. Not undoable: a new reference starts a new history.",
       "input": {
         "type": "object",
         "properties": {
@@ -3512,7 +3512,7 @@
     {
       "name": "scan.open",
       "title": "Open a scan",
-      "description": "Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.",
+      "description": "Open a mesh as the scan to measure — STL, PLY, OBJ, 3MF or GLB, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.",
       "input": {
         "type": "object",
         "properties": {

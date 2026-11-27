@@ -1856,11 +1856,11 @@ function Workbench() {
                   ? active.startPane.blurb
                   : onDeviation
                   ? source === 'element'
-                    ? 'Load a scan, fit a plane, cylinder or sphere on it in the 3D Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
-                    : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan and reference as STL, PLY, OBJ, 3MF in millimetres or a STEP file straight from CAD — everything stays in this browser.'
+                    ? 'Load a scan, fit a plane, cylinder or sphere on it in the 3D Measure workspace, then map how far the surface strays from that ideal. No reference model, no alignment. STL, PLY, OBJ, 3MF, GLB or STEP, in millimetres — everything stays in this browser.'
+                    : 'Load both, then best-fit the scan onto the reference and read the difference off the part. Scan and reference as STL, PLY, OBJ, 3MF or GLB in millimetres or a STEP file straight from CAD — everything stays in this browser.'
                   : onThickness
-                    ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
-                      : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY, OBJ, 3MF or STEP, in millimetres — everything stays in this browser.'
+                    ? 'Load a scan and measure how thick its walls are, everywhere at once. No reference model, no alignment. STL, PLY, OBJ, 3MF, GLB or STEP, in millimetres — everything stays in this browser.'
+                      : 'Load a scan, then pick features on it to fit spheres, cylinders and planes and measure between them. STL, PLY, OBJ, 3MF, GLB or STEP, in millimetres — everything stays in this browser.'
               }
               slots={startSlots}
               onOpenSample={openSample}
@@ -1937,7 +1937,7 @@ function Workbench() {
             <div className="drop-overlay">
               {onFlat
                 ? 'Drop your PNG / JPEG scan here'
-                : `Drop your STL / PLY / OBJ / 3MF${onDeviation ? ' / STEP' : ''} here`}
+                : `Drop your STL / PLY / OBJ / 3MF / GLB${onDeviation ? ' / STEP' : ''} here`}
             </div>
           )}
         </div>

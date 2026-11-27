@@ -11,6 +11,7 @@ import type { Vec3 } from '../../../src/core/types'
 import type { LoadedScan, MeshWorkerClient } from '../../../src/core/workerClient'
 import { MESH_TOOLS, type MeshRegion, type MeshToolsOps, type ScanEditRequest, type TrimBody } from './protocol'
 import type { ReduceSettings } from './reduce'
+import type { StretchSettings } from './stretch'
 import type { TrimSettings } from './trimToScan'
 
 class MeshToolsClient {
@@ -57,6 +58,12 @@ class MeshToolsClient {
    *  the part with, and leave open. Nothing changes. */
   cutPreview(origin: Vec3, normal: Vec3) {
     return this.call('cut-preview', { origin, normal })
+  }
+
+  /** It as a stretch would leave it, to show before the stretch is made.
+   *  Nothing changes. */
+  stretchPreview(settings: StretchSettings) {
+    return this.call('stretch-preview', { settings })
   }
 
   /** How far it is from closed — open edges, and edges more than two

@@ -7,7 +7,7 @@
 // compared on a capped mean over every sample, not over the survivors of the
 // outlier cut, so a fit cannot score better by letting go of the part.
 
-import { solveLinear } from '../fit/linalg'
+import { solveLinear, symmetricEigenN } from '../fit/linalg'
 import { mulberry32 } from '../fit/ransac'
 import {
   cloneRigid,
@@ -252,6 +252,163 @@ export function pairRange(
   }
 }
 
+/** Of the pairs that hold a freedom of the fit, this share at least lies
+ *  within the scale the outlier cut is taken from — see heldScale. */
+const HELD_SHARE = 0.1
+/** A freedom held by less than this share of what holds the firmest one is
+ *  not held at all: a plate's slide in its own plane, scanned without its rim. */
+const HELD_AT_ALL = 1e-3
+
+/**
+ * The scale of the outlier cut, widened until every freedom of the fit has
+ * pairs within it.
+ *
+ * The cut is a multiple of the median distance, and the median is a scale of
+ * the pairs as a whole — but the fit's six freedoms are not held by the pairs
+ * as a whole. A plate's two faces are most of its surface and hold three of
+ * them: the height and the two tilts. Its rim, a few percent, holds the other
+ * three. Point-to-plane seats the faces in a pass or two, the median drops to
+ * what the faces read, and the rim — still a millimetre out — falls outside
+ * the cut to the last pair. What is left says nothing about sliding in the
+ * plane, so the fit stops there and reports a residual of nothing. Against a
+ * scan's noise the cut stays wide enough for the rim to creep back in over
+ * tens of passes; CAD against CAD it closes to the floor and the fit stalls
+ * for good.
+ *
+ * So the scale is asked of every direction the pose can move in — any mix
+ * of the three turns and three shifts, turns scaled by the pairs' radius to
+ * stand beside shifts. A pair holds a direction by the square of its row of
+ * the normal equations along it. Where the pairs within `scale` hold less
+ * than HELD_SHARE of what all the pairs hold of some direction, the scale is
+ * raised to the distance the nearest HELD_SHARE of that direction's hold lies
+ * within. The direction held least is found, not assumed: on a plate the
+ * slide along its length and the slide across it are held about alike, and
+ * looked at one principal direction at a time a rim seated across the plate
+ * hides one still out along it.
+ *
+ * Pairs that hold a direction no differently from the rest have half of it
+ * within the median, so on a part whose surface faces every way this changes
+ * nothing.
+ */
+function heldScale(pairs: PairArrays, n: number, scale: number): number {
+  const { q, cn, dist, ok } = pairs
+  let cx = 0, cy = 0, cz = 0
+  let paired = 0
+  let beyond = 0
+  for (let i = 0; i < n; i++) {
+    if (!ok[i]) continue
+    cx += q[i * 3]; cy += q[i * 3 + 1]; cz += q[i * 3 + 2]
+    paired++
+    if (dist[i] > scale) beyond++
+  }
+  if (beyond === 0 || paired < 6) return scale
+  cx /= paired; cy /= paired; cz /= paired
+  let radius = 0
+  for (let i = 0; i < n; i++) {
+    if (!ok[i]) continue
+    const x = q[i * 3] - cx, y = q[i * 3 + 1] - cy, z = q[i * 3 + 2] - cz
+    radius += x * x + y * y + z * z
+  }
+  radius = Math.sqrt(radius / paired)
+  if (!(radius > 0)) return scale
+
+  const row = new Float64Array(6)
+  const rowOf = (i: number): void => {
+    const x = (q[i * 3] - cx) / radius, y = (q[i * 3 + 1] - cy) / radius, z = (q[i * 3 + 2] - cz) / radius
+    const nx = cn[i * 3], ny = cn[i * 3 + 1], nz = cn[i * 3 + 2]
+    row[0] = y * nz - z * ny
+    row[1] = z * nx - x * nz
+    row[2] = x * ny - y * nx
+    row[3] = nx
+    row[4] = ny
+    row[5] = nz
+  }
+  // The hold of the pairs within the scale, and of the ones beyond it.
+  const within = new Float64Array(36)
+  const all = new Float64Array(36)
+  for (let i = 0; i < n; i++) {
+    if (!ok[i]) continue
+    rowOf(i)
+    const into = dist[i] > scale ? all : within
+    for (let a = 0; a < 6; a++) for (let b = a; b < 6; b++) into[a * 6 + b] += row[a] * row[b]
+  }
+  for (let a = 0; a < 6; a++) {
+    for (let b = a; b < 6; b++) {
+      all[a * 6 + b] += within[a * 6 + b]
+      all[b * 6 + a] = all[a * 6 + b]
+      within[b * 6 + a] = within[a * 6 + b]
+    }
+  }
+
+  // The freedoms that are held at all, each scaled so that every pair
+  // together holds it by exactly one: in these coordinates the hold of the
+  // pairs within the scale is a share, whichever way one looks.
+  const { values, vectors } = symmetricEigenN(6, all)
+  const basis: number[][] = []
+  for (let j = 0; j < 6; j++) {
+    if (!(values[j] > HELD_AT_ALL * values[5])) continue
+    const s = 1 / Math.sqrt(values[j])
+    basis.push(vectors[j].map((x) => x * s))
+  }
+  const k = basis.length
+  if (k === 0) return scale
+
+  let order: Uint32Array | null = null
+  let taken = 0
+  // Widening for one direction can leave another short, so it is asked again
+  // — a few times at most, each one taking pairs in.
+  for (let round = 0; round < 6; round++) {
+    const share = new Float64Array(k * k)
+    for (let a = 0; a < k; a++) {
+      for (let b = a; b < k; b++) {
+        let s = 0
+        for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) s += basis[a][i] * within[i * 6 + j] * basis[b][j]
+        share[a * k + b] = s
+        share[b * k + a] = s
+      }
+    }
+    // The directions the pairs within the scale hold least, and by how much.
+    const least = symmetricEigenN(k, share)
+    const starved: { along: Float64Array; short: number }[] = []
+    for (let j = 0; j < k && least.values[j] < HELD_SHARE; j++) {
+      const along = new Float64Array(6)
+      for (let a = 0; a < k; a++) for (let i = 0; i < 6; i++) along[i] += least.vectors[j][a] * basis[a][i]
+      starved.push({ along, short: HELD_SHARE - least.values[j] })
+    }
+    if (starved.length === 0) break
+
+    // The pairs beyond the scale, the nearest first, taken in until each
+    // starved direction has its share.
+    if (!order) {
+      order = new Uint32Array(beyond)
+      let o = 0
+      for (let i = 0; i < n; i++) if (ok[i] && dist[i] > scale) order[o++] = i
+      order.sort((a, b) => dist[a] - dist[b])
+    }
+    if (taken >= order.length) break
+    for (const { along, short } of starved) {
+      let sum = 0
+      for (let o = taken; o < order.length && sum < short; o++) {
+        const i = order[o]
+        rowOf(i)
+        const c = row[0] * along[0] + row[1] * along[1] + row[2] * along[2] + row[3] * along[3] + row[4] * along[4] + row[5] * along[5]
+        sum += c * c
+        if (dist[i] > scale) scale = dist[i]
+      }
+    }
+    for (; taken < order.length && dist[order[taken]] <= scale; taken++) {
+      rowOf(order[taken])
+      for (let a = 0; a < 6; a++) {
+        for (let b = a; b < 6; b++) {
+          within[a * 6 + b] += row[a] * row[b]
+          within[b * 6 + a] = within[a * 6 + b]
+        }
+      }
+    }
+  }
+  return scale
+}
+
 /**
  * Point-to-plane ICP fitting `samples` (scan frame) onto `surface` (nominal
  * frame), starting from `initial`.
@@ -352,7 +509,13 @@ export function* icpSteps(
     const head = sorted.subarray(0, found)
     head.sort()
     const median = head[found >> 1]
-    const cutoff = Math.max(median * rejectMedianFactor, surface.bboxDiagonal * 1e-5)
+    const floor = surface.bboxDiagonal * 1e-5
+    // The median, unless a freedom of the fit has too few of its pairs within
+    // it — see heldScale. With the cut switched off there is nothing to widen.
+    const typical = Number.isFinite(rejectMedianFactor)
+      ? heldScale(arrays, n, Math.max(median, floor / rejectMedianFactor))
+      : median
+    const cutoff = Math.max(typical * rejectMedianFactor, floor)
 
     let cx = 0, cy = 0, cz = 0
     let matched = 0

@@ -2,7 +2,7 @@
 // The Mesh Tools faceplate: the scan, the tools, the tool in hand — or with
 // none, the parts in the viewport — and the edited copy. The tools are of the two kinds the workspace has — the edits,
 // which change a copy of the scan until it is taken into use for every
-// workspace (Remove islands, Delete marked, Flip normals, Cut, Mirror, Fill holes,
+// workspace (Remove islands, Delete marked, Flip normals, Cut, Mirror, Stretch, Fill holes,
 // Smooth, Shrink / expand, Boolean, Shell, and Wrap once applied), and those that leave the instrument as
 // geometry for somebody else's: Reduce mesh, the scan reduced to a light mesh
 // to model over in CAD, held within a tolerance and measured to prove it, and
@@ -32,6 +32,7 @@ import { DeleteTool } from './tools/DeleteTool'
 import { FlipTool, type FlipScope } from './tools/FlipTool'
 import { CutTool } from './tools/CutTool'
 import { MirrorTool } from './tools/MirrorTool'
+import { StretchTool } from './tools/StretchTool'
 import { BooleanTool } from './tools/BooleanTool'
 import { TrimTool } from './tools/TrimTool'
 import { HolesTool } from './tools/HolesTool'
@@ -78,6 +79,12 @@ const TOOLS: { id: MeshTool; icon: ReactNode; label: string; title: string }[] =
     icon: <Icon name="mirror" />,
     label: 'Mirror',
     title: 'Reflect the scan across a plane — the whole part, a left hand made of a right — or keep one side and mirror it onto the other to make the part symmetric',
+  },
+  {
+    id: 'stretch',
+    icon: <MeshIcon name="stretch" />,
+    label: 'Stretch',
+    title: 'Make one band of the part longer or shorter along a direction, the rest kept as it is — a spacer lengthened without widening its ends, two holes moved apart without changing their size',
   },
   {
     id: 'holes',
@@ -141,6 +148,7 @@ export function MeshPanel({
   onClearMarking,
   onCut,
   onMirror,
+  onStretch,
   onFillHoles,
   onSmooth,
   onDensify,
@@ -170,6 +178,7 @@ export function MeshPanel({
   onClearMarking: () => void
   onCut: () => void
   onMirror: () => void
+  onStretch: () => void
   onFillHoles: () => void
   onSmooth: () => void
   onDensify: () => void
@@ -215,7 +224,7 @@ export function MeshPanel({
               from the scan where it stands, and exported there.
             </p>
             <p>
-              <b>Remove islands</b>, <b>Delete marked</b>, <b>Flip normals</b>, <b>Cut</b>, <b>Mirror</b>, <b>Fill holes</b>,{' '}
+              <b>Remove islands</b>, <b>Delete marked</b>, <b>Flip normals</b>, <b>Cut</b>, <b>Mirror</b>, <b>Stretch</b>, <b>Fill holes</b>,{' '}
               <b>Smooth</b>, <b>Densify</b>, <b>Shrink/expand</b>, <b>Boolean</b> and <b>Shell/hollow</b> edit a copy of the scan, shown
               here in its place; every other workspace
               goes on measuring the scan as it was until <b>Use for analysis</b> takes the copy into
@@ -285,6 +294,8 @@ export function MeshPanel({
         <CutTool ready={Boolean(scanName)} busy={busy} onCut={onCut} />
       ) : tool === 'mirror' ? (
         <MirrorTool ready={Boolean(scanName)} busy={busy} onMirror={onMirror} />
+      ) : tool === 'stretch' ? (
+        <StretchTool ready={Boolean(scanName)} busy={busy} onStretch={onStretch} />
       ) : tool === 'holes' ? (
         <HolesTool ready={Boolean(scanName)} busy={busy} onFill={onFillHoles} />
       ) : tool === 'boolean' ? (

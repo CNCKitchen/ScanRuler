@@ -10,9 +10,10 @@
 // them, and are read where the scan is prepared.
 
 import { unzipSync } from 'fflate'
-import { is3mfFile, isModelFile, isTextureFile } from '../core/formats'
+import { is3mfFile, isGlbFile, isModelFile, isTextureFile } from '../core/formats'
 import { assertImageDecodable } from '../core/flat/image'
 import type { ObjCompanions, TextureImage } from '../core/parsers/objTexture'
+import { glbColourImages } from '../core/parsers/glb'
 import { ArchiveLimitError, limitedArchiveFilter, THREE_MF_LIMITS, type ArchiveLimits } from '../core/parsers/archiveLimits'
 
 /** What came with a model file, by the file. */
@@ -93,10 +94,13 @@ export async function readCompanions(files: readonly { name: string; bytes: Uint
 }
 
 /** What the worker reads a scan with besides its own bytes: the files that
- *  came with a textured OBJ (readCompanions), or the images a 3MF packs —
- *  decoded here, as the worker has no way to — named by their path in the
- *  package. The package's thumbnails, under Metadata/, are not the part's. */
+ *  came with a textured OBJ (readCompanions), or the images a 3MF or a GLB
+ *  packs — decoded here, as the worker has no way to — a 3MF's named by
+ *  their path in the package, a GLB's by their place in the file (see
+ *  parsers/glb). The package's thumbnails, under Metadata/, are not the
+ *  part's; nor are a GLB's normal and roughness maps. */
 export async function scanCompanions(name: string, bytes: Uint8Array, extras: readonly { name: string; bytes: Uint8Array }[], limits: ArchiveLimits = THREE_MF_LIMITS): Promise<ObjCompanions | undefined> {
+  if (isGlbFile(name)) return glbCompanions(bytes)
   if (!is3mfFile(name)) return readCompanions(extras)
   let packed: Record<string, Uint8Array>
   try {
@@ -108,6 +112,21 @@ export async function scanCompanions(name: string, bytes: Uint8Array, extras: re
   const images: TextureImage[] = []
   for (const [path, data] of Object.entries(packed)) {
     const img = await decodeImage(path, data).catch(() => null)
+    if (img) images.push(img)
+  }
+  return images.length > 0 ? { materials: [], images } : undefined
+}
+
+async function glbCompanions(bytes: Uint8Array): Promise<ObjCompanions | undefined> {
+  let packed: { name: string; bytes: Uint8Array }[]
+  try {
+    packed = glbColourImages(bytes)
+  } catch {
+    return undefined // the worker says what is wrong with the file
+  }
+  const images: TextureImage[] = []
+  for (const f of packed) {
+    const img = await decodeImage(f.name, f.bytes).catch(() => null)
     if (img) images.push(img)
   }
   return images.length > 0 ? { materials: [], images } : undefined

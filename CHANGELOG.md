@@ -5,6 +5,56 @@ bar and the imprint is the entry it belongs to; the `.scanruler` projects it
 saves carry the same number as `appVersion`. How a release is cut is in
 `docs/development.md` under "Releases".
 
+## 0.11.3 — 2026-11-27
+
+- **Best fit no longer stops short on flat parts out of CAD** (2026-11-27).
+  A plate, a lid or a panel compared with another CAD file of itself could
+  come to rest up to a millimetre out along its own faces, turned a
+  fraction of a degree, and still report a deviation of zero: the two big
+  faces fitted exactly at once, and the fit then took the rim, the holes
+  and the pockets — everything that says where the part lies in its own
+  plane — for outliers and left them out. The fit now keeps enough of that
+  surface in play to place the part in every direction, and such a pair
+  lands exactly. Scans of flat parts settle in fewer passes for the same
+  reason.
+- **Stretch, in Mesh Tools** (2026-11-19). A new tool cuts the part across
+  a direction at one place, moves everything past the cut out, and extrudes
+  the cut's own cross-section across the gap: a spacer lengthened without
+  widening its ends, two holes moved apart without changing their size. A
+  negative amount takes a slab that thick out instead and closes the part
+  up again. The direction is X, Y or Z, or the axis of a measured element,
+  so a tube standing at an angle is stretched along its own axis. The cut
+  is outlined on the part and moved by clicking the part or dragging the
+  arrows on it; the amount is typed. The part is shown as the stretch will
+  leave it, the section put in tinted, and a closed part stays closed.
+  **Only the piece clicked** moves only the piece the click is on, such as
+  one leg of a U, and leaves the others as they are.
+  The panel names the measured holes, balls and circles the cut goes
+  through, since those turn out of round. Agents stretch through
+  `mesh.stretch`, which can also preview a stretch without making it.
+- **GLB files open** (2026-11-19). The file phone scanning apps and
+  photogrammetry services share opens as a scan or a reference part, in
+  colour: the base colour texture, vertex colours and material colours are
+  read onto the part. glTF is defined in metres with Y up, so a GLB opens
+  in millimetres without asking about units, and is turned Z up. Meshes
+  placed by the file's nodes come in where the nodes put them. The vertices
+  glTF splits along every texture seam are joined again, so the seams are
+  not open edges. Files quantized or meshopt-compressed by gltfpack open
+  too. A Draco-compressed GLB, or one that keeps its data in files beside
+  it, is refused with a message saying so.
+- **Kernel updated: occt-wasm 5.15.0 → 5.17.1** (2026-11-14, Reverse
+  engineer). After a join or a cut, the kernel merges faces that lie on one
+  surface into one face. Until now, that merge also changed the bodies that
+  went into the step. A body used again afterwards (a tool kept for a second
+  cut, or a join played again to close a gap) could then come out of its
+  next join as an invalid solid. 5.17.1 merges a copy and leaves those
+  bodies as they were. With the new version every face of a body gets a new
+  name in the kernel whenever anything merges, so the Reverse engineer now
+  follows each face through the merge by the kernel's own record, and tells
+  a face the merge left untouched by its shape. Without that, a join's
+  warning about sliver faces would have counted slivers an earlier step left
+  as its own. The seeded test parts build as before, in the same time.
+
 ## 0.11.2 — 2026-11-11
 
 - **Curvature comb** (2026-11-11, issue 64). Where does a fillet start, and

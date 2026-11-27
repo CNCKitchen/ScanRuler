@@ -78,15 +78,18 @@ current session, but history itself is not stored in project or recovery files.
 
 ### How to use it
 
-1. **Open** your scan (STL, PLY, OBJ, 3MF or STEP), or drag & drop it anywhere
+1. **Open** your scan (STL, PLY, OBJ, 3MF, GLB or STEP), or drag & drop it anywhere
    in the window. An STL carries no units, so opening one asks what it is
    in — millimetres, centimetres, metres or inches — and reads it in
    millimetres; **Don't ask again** makes the answer stand for every STL,
    and **Settings → Files** brings the question back. A PLY or OBJ is taken
-   in millimetres; a 3MF and a STEP file say their own units. A textured
+   in millimetres; a 3MF and a STEP file say their own units, and a GLB is
+   in metres by definition. A textured
    scan — an OBJ with its `.mtl` and image — opens in colour when the three
    are picked or dropped together, or their folder is dropped; a 3MF packs
-   its images and colours and opens in colour by itself. A slicer's 3MF
+   its images and colours and opens in colour by itself, and so does a GLB,
+   the file phone scanning apps share — turned Z up, as glTF has Y up. A
+   Draco-compressed GLB is not read: export it without Draco. A slicer's 3MF
    opens as its parts, without the modifiers and support volumes the slicer
    kept beside them.
 2. Press **Sphere**, **Cylinder** or **Plane**, then **click a point on that

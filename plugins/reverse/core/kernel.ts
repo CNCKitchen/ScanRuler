@@ -27,7 +27,7 @@ import { patternPitch } from './features'
 import type { ThreadCut } from './thread'
 import { type FaceHistory, type KernelBounds, type KernelMesh, type LoopPiece, type Profile, type RawEdge, type RawFace, type Shape, type StepLabel, type StepPart, type Tracked, type WasmSource } from './kernelTypes'
 import { type OcctLike, type XcafReader, type XYZ } from './occtTypes'
-import { circleThrough, edgeKindOf, faceKindOf, parseHistory, partName, stepColor, vec, xyz } from './kernelMath'
+import { circleThrough, edgeKindOf, faceKindOf, parseHistory, partName, sameFace, stepColor, vec, xyz } from './kernelMath'
 import { loopMiddle, rectangleLoop } from './loops'
 import { draftFaces, moveFace, offsetFacesTracked } from './kernelFaces'
 import { asSolid, booleanFuzz, bothFaceHashes, FUZZY_COARSE_MM, fuzzyBooleans, HASH_BOUND, isTrap, keepingSplits, KernelError, readFace, run, tracked, tracedHistory, withSubShapes } from './kernelOps'
@@ -365,7 +365,7 @@ export class ReKernel {
       OcctKernel: { init(options?: { wasm?: WasmSource }): Promise<unknown> }
     }
     const kernel = (await mod.OcctKernel.init(wasm === undefined ? undefined : { wasm })) as OcctLike
-    return new ReKernel(kernel, 'OCCT 8.0.1 via occt-wasm 5.15.0')
+    return new ReKernel(kernel, 'OCCT 8.0.1 via occt-wasm 5.17.1')
   }
 
   private wire(loop: readonly LoopPiece[]): Shape {
@@ -2061,6 +2061,55 @@ export class ReKernel {
    *  perimeter) not in `own`, the narrowest first (kernelEdges.ts). */
   narrowFaces(shape: Shape, widthMm: number, own?: ReadonlySet<number>): { hash: number; area: number; width: number; centroid: Vec3 }[] {
     return run('Reading the faces', () => narrowFaces(this.occt, shape, widthMm, own))
+  }
+
+  /** Which faces of `after` stood in `before` as they were — the same face
+   *  by hash, or a copy of one left untouched (sameFace): when the kernel
+   *  merges faces on one surface it hands back every face of the body
+   *  under a new hash, so what an operation made is not told by hash
+   *  alone. `among`: only these faces of `after` are asked. */
+  stoodBefore(before: readonly Shape[], after: Shape, among?: readonly number[]): Set<number> {
+    const asked = among ? new Set(among) : null
+    const out = new Set<number>()
+    if (asked?.size === 0) return out
+    const now = this.faces(after).filter((f) => !asked || asked.has(f.hash))
+    const was = before.flatMap((s) => this.faces(s))
+    const hashes = new Set(was.map((f) => f.hash))
+    // By kind, the least area first, so each face is held to the few of
+    // its own area.
+    const byKind = new Map<string, RawFace[]>()
+    for (const f of was) {
+      const list = byKind.get(f.kind)
+      if (list) list.push(f)
+      else byKind.set(f.kind, [f])
+    }
+    for (const list of byKind.values()) list.sort((a, b) => a.area - b.area)
+    const e = this.extent(after)
+    const size = Math.hypot(e.max[0] - e.min[0], e.max[1] - e.min[1], e.max[2] - e.min[2])
+    for (const f of now) {
+      if (hashes.has(f.hash)) {
+        out.add(f.hash)
+        continue
+      }
+      const list = byKind.get(f.kind)
+      if (!list) continue
+      // The first of no less area than the window's low end, by halving.
+      const lo = f.area * (1 - 2e-6) - 1e-12
+      let i = 0
+      let j = list.length
+      while (i < j) {
+        const m = (i + j) >> 1
+        if (list[m].area < lo) i = m + 1
+        else j = m
+      }
+      for (; i < list.length && list[i].area <= f.area * (1 + 2e-6) + 1e-12; i++) {
+        if (sameFace(list[i], f, size)) {
+          out.add(f.hash)
+          break
+        }
+      }
+    }
+    return out
   }
 
   /** The largest and RMS distance of points of each shape from the

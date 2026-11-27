@@ -55,7 +55,7 @@ const open: Command<{ bytes: Uint8Array; name: string; units?: MeshUnits; discar
   name: 'open',
   title: 'Open a scan',
   description:
-    'Open a mesh as the scan to measure — STL, PLY, OBJ or 3MF, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.',
+    'Open a mesh as the scan to measure — STL, PLY, OBJ, 3MF or GLB, or a STEP part cut into triangles — in place of the one there is; everything measured on the old one goes with it, so it refuses while the session holds measurements unless discard is true (the refusal names what is held). A reference part opened from a file stays, its alignment and maps gone (referenceKept); one made from the session’s own work goes (referenceDropped). Returns the scan: name, units, vertex and triangle counts, bounding box, centre and diagonal (size), mm. Not undoable: a new scan starts a new history.',
   input: obj(
     {
       bytes: bytes('The file’s contents.'),

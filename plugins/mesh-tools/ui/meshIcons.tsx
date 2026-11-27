@@ -53,6 +53,15 @@ const ICONS = {
       <path className="i-a" d="M3.5 12c0-5.5 3.5-8.5 9-8.5 5 0 8 3 8 7.5 0 5.5-3 9.5-8.5 9.5S3.5 17.5 3.5 12Z" />
     </>
   ),
+  // A part's two ends kept as they are, and the band between them made
+  // longer: the arrow over it says which way.
+  stretch: (
+    <>
+      <path className="i-g" d="M2.5 8h5v10h-5ZM16.5 8h5v10h-5Z" />
+      <path className="i-f" d="M7.5 11h9v4h-9Z" />
+      <path className="i-a" d="M7.5 4.5h9M7.5 4.5l2-2M7.5 4.5l2 2M16.5 4.5l-2-2M16.5 4.5l-2 2" />
+    </>
+  ),
   // A part cut open: a wall the same thickness all round a sealed hollow.
   shellSolid: (
     <>

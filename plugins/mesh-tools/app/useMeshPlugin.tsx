@@ -17,7 +17,9 @@ import { formatSigned } from '../../../src/ui/format'
 import { useLength } from '../../../src/app/useUnits'
 import { lengthInputText } from '../../../src/core/units'
 import { Icon, type IconName } from '../../../src/ui/icons'
-import type { PickHit } from '../../../src/viewer/SceneManager'
+import type { GripSide, PickHit } from '../../../src/viewer/SceneManager'
+import { typedPlace } from '../core/stretch'
+import { STRETCH_CUT_BACK, STRETCH_CUT_ON } from './stretchSetup'
 import { DELETE_MARK_COLOR, FLIP_MARK_COLOR, OFFSET_MARK_COLOR, reductionApplied, SMOOTH_MARK_COLOR, TRIM_MARK_COLOR, useMeshTools, type MeshView, type TrimView, type WrapView } from '../state/meshStore'
 import { reductionScale } from '../core/reduce'
 import { MeshPanel } from '../ui/MeshPanel'
@@ -112,7 +114,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   useEffect(() => tools.watch(), [tools])
   const { reduceField, reduceRgb, copyField, copyRgb } = tools
   const {
-    runReduce, applyReduction, discardReduction, removeIslands, deleteMarked, flipScan, cutScan, mirrorScan, fillScanHoles, smoothScan, densifyScan, offsetScan, shellScan, booleanScan, trimScan,
+    runReduce, applyReduction, discardReduction, removeIslands, deleteMarked, flipScan, cutScan, mirrorScan, stretchScan, fillScanHoles, smoothScan, densifyScan, offsetScan, shellScan, booleanScan, trimScan,
     wrap, cancelWrap, applyWrap, discardWrap, adoptEditedCopy, discardEditedCopy,
   } = useMeshWorkspace(tools)
   // The units on screen: the maps' figures and the status lines of the
@@ -138,6 +140,8 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
   // The edited copy against the scan in use — on offer whatever the tool,
   // and taking the stage from a view of the reduction when asked.
   const hasCopy = useMeshTools((s) => s.copyTriangles !== null)
+  // Stretch shows the part as it would leave it in the scan's place.
+  const stretchShown = useMeshTools((s) => s.tool === 'stretch' && s.stretchPreview !== null && !s.stretchDragging)
   const copyDeviation = useMeshTools((s) => s.copyDeviation)
   // The copy waiting while another workspace is on screen, which measures
   // the scan as it was: said there once for each state of the copy — hidden,
@@ -225,6 +229,44 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
     if (scene) meshSceneOf(scene).onHolePick = (index) => void fillScanHoles(index, { units })
   })
 
+  // Stretch's arrows dragged: the cut slid along the direction — on the part
+  // as it is, its outline following the hand once a frame, the stretch
+  // worked out once it lets go (see useMeshWorkspace) — and kept as one step
+  // of the undo history, not one for every move.
+  const stretchDrag = useRef<{ at: number; atAuto: boolean; value: number | null; frame: number } | null>(null)
+  const gripDrag = (side: GripSide, delta: number, phase: 'start' | 'move' | 'end'): boolean => {
+    if (side !== STRETCH_CUT_BACK && side !== STRETCH_CUT_ON) return false
+    const m = useMeshTools.getState()
+    if (phase === 'start') {
+      stretchDrag.current = { at: m.stretchPreview?.at ?? m.stretchAt, atAuto: m.stretchAtAuto, value: null, frame: 0 }
+      useMeshTools.setState({ stretchDragging: true })
+      return true
+    }
+    const drag = stretchDrag.current
+    const report = m.stretchPreview
+    if (!drag) return true
+    if (phase === 'move' && report) {
+      // How far along the arrow, which points back for the one and on for
+      // the other.
+      const along = side === STRETCH_CUT_BACK ? -delta : delta
+      drag.value = typedPlace(drag.at + along, report.extent.max - report.extent.min)
+      if (!drag.frame) {
+        drag.frame = requestAnimationFrame(() => {
+          drag.frame = 0
+          if (stretchDrag.current === drag && drag.value !== null) useMeshTools.setState({ stretchAt: drag.value, stretchAtAuto: false })
+        })
+      }
+      return true
+    }
+    if (phase === 'end') {
+      if (drag.frame) cancelAnimationFrame(drag.frame)
+      stretchDrag.current = null
+      useMeshTools.setState({ stretchAt: drag.at, stretchAtAuto: drag.atAuto, stretchDragging: false })
+      if (drag.value !== null && drag.value !== drag.at) m.setStretchAt(drag.value)
+    }
+    return true
+  }
+
   /** The map on show at a point of the part: the reduction's while Reduce
    *  mesh shows it, else the edited copy's while that is asked for. */
   const readingAt = (hit: PickHit) => {
@@ -243,8 +285,9 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
     readingAt,
     // The maps are read by hovering; they have no pins to set.
     pick: () => {},
+    gripDrag,
     hoverReadout: reduceMapShown || copyMapShown,
-    hideScan: showReduced || wrapShown === 'wrap' || (listing && !scanListed),
+    hideScan: showReduced || wrapShown === 'wrap' || (listing && !scanListed) || stretchShown,
     // The view bar's Scan key: with no tool in hand, the same switch as the
     // scan's eye in the parts list; with one, what is on the stage is the
     // tool's to say.
@@ -303,7 +346,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
     startPane: {
       title: 'Cleaning up and reducing a scan',
       blurb:
-        'Load a scan and clean it up — clear the stray islands, delete what is not the part, turn it the right way out, cut off the base it stood on, mirror it, fill its holes, smooth out the scatter, expand or shrink it, hollow it, wrap it in one closed skin — and reduce it to a light mesh to model over in CAD, held within a tolerance you set, measured against the scan to prove it, and exported where you aligned it. STL, PLY, OBJ or 3MF, in millimetres — everything stays in this browser.',
+        'Load a scan and clean it up — clear the stray islands, delete what is not the part, turn it the right way out, cut off the base it stood on, mirror it, stretch a band of it longer or shorter, fill its holes, smooth out the scatter, expand or shrink it, hollow it, wrap it in one closed skin — and reduce it to a light mesh to model over in CAD, held within a tolerance you set, measured against the scan to prove it, and exported where you aligned it. STL, PLY, OBJ or 3MF, in millimetres — everything stays in this browser.',
     },
     panel: (
       <MeshPanel
@@ -322,6 +365,7 @@ export function useMeshPlugin(host: PluginHost): PluginRuntime {
         }}
         onCut={() => void cutScan({ units })}
         onMirror={() => void mirrorScan({ units })}
+        onStretch={() => void stretchScan({ units })}
         onFillHoles={() => void fillScanHoles(undefined, { units })}
         onSmooth={() => void smoothScan(undefined, { units })}
         onDensify={() => void densifyScan({ units })}

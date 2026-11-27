@@ -216,7 +216,7 @@ export function TopBar({
                 .setError(
                   isTextureFile(file.name)
                     ? `${file.name} is part of a textured scan — open it together with its OBJ (select the OBJ, the .mtl and the image at once).`
-                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, STEP, PNG or JPEG.`,
+                    : `Unsupported file type — use a .${PROJECT_EXTENSION} project, STL, PLY, OBJ, 3MF, GLB, STEP, PNG or JPEG.`,
                 ),
         )
     }

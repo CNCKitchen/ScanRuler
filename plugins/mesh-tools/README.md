@@ -13,10 +13,11 @@ tool's key again, puts it away — and they are of the two kinds the
 workspace has:
 
 - **Remove islands**, **Delete marked**, **Flip normals**, **Cut**,
-  **Mirror**, **Fill holes**, **Smooth**, **Densify**, **Shrink/expand**, **Boolean** and
+  **Mirror**, **Stretch**, **Fill holes**, **Smooth**, **Densify**, **Shrink/expand**, **Boolean** and
   **Shell/hollow** edit a copy of the scan — the specks floating off it,
   what is not the part, a surface facing the wrong way, the
-  base it stood on, the other hand of the part or the side it lost, the holes the scanner left, the scatter on it, the
+  base it stood on, the other hand of the part or the side it lost, a
+  length that has to change, the holes the scanner left, the scatter on it, the
   long triangles of an STL exported from CAD, the
   spray it was scanned under, a bore it could not see to the bottom of, the
   inside a print does not need — which every workspace measures once it is
@@ -29,7 +30,7 @@ workspace has:
   mesh or the wrap the edited copy.
 
 A good order is the one the keys suggest: islands and marked surface off
-first, the normals turned the right way out, then the cut and a mirror, then the holes,
+first, the normals turned the right way out, then the cut, a mirror and a stretch, then the holes,
 smoothing, a shrink or an expansion, a boolean, the shell or a wrap, and the
 reduction last.
 
@@ -252,6 +253,80 @@ it touches the plane.
 
 Agents run it as `mesh.mirror`, with `plane`, `offset` (left out: through
 the middle of the part), `mode` (`whole` or `symmetric`) and `keep`.
+
+### Stretch
+
+The part cut across a direction at one place, everything past the cut moved
+out, and the cut's own cross-section extruded across the gap: a spacer
+lengthened without widening its ends, a bracket made longer without
+touching its screw holes, two holes moved apart without changing their
+size. A negative amount takes a slab that thick out past the cut instead,
+and closes the part up again.
+
+1. Pick **Stretch**, and what to stretch **Along**: **X**, **Y** or **Z**
+   — after a datum alignment, the datum's — or an element with a direction:
+   a plane's normal, the axis of a cylinder, cone or line, a circle's
+   normal. A tube standing at an angle is stretched along its own axis.
+2. The cut starts through the middle of the part, outlined on it in
+   magenta where the cross-section is. Click the part where it should be,
+   or drag either of the two arrows on it, one pointing each way along the
+   direction. The arrows only move the cut; the panel says where it is.
+   While an arrow is dragged the part is shown as it is, the outline of the
+   cut following the hand frame by frame — worked out on the spot from the
+   mesh on screen, quick enough to keep up on a million triangles — and the
+   stretch is worked out once, as the hand lets go.
+3. Type under **Extend by** how much to put in — negative to take out.
+4. While the tool is in hand the part is shown as the stretch will leave
+   it, in the scan's place, the section put in tinted magenta and outlined
+   at both ends — bold where the outline is in view, faint through the
+   part. The panel gives the part's reach along the direction, before and
+   after. **Stretch** (or **Enter**) makes it. It is one step of the undo
+   history, and so is each drag of an arrow; after it, **Extend by** is
+   back at nothing and the cut stays where it was, ready for the next.
+
+Cut where the part's cross-section does not change — the plain middle of a
+spacer, the solid span between two holes — and clear of the features that
+have to keep their size. A hole the cut goes through becomes a slot, a ball
+an egg; the panel names the measured cylinders, cones, spheres and circles
+it would put out of round. A bore that runs along the direction only gets
+longer, and a circle square to it only moves, so neither is named. Features
+not measured are not known of: look at the tinted section.
+
+Where the part past the cut falls into more than one piece — the legs of a
+U cut across, several pins — the panel offers **Only the piece clicked**,
+which moves only the piece you click and leaves the others where they are.
+With one piece past the cut there is nothing to pick, and it is not
+offered. A click on the part places the cut and picks the piece in one:
+the piece is the one the click is on. A face lying in the plane of the
+cut — the top of a base, between two legs that stand on it — stays with the
+base, and joins no leg to another.
+
+Lengthening, the mesh is split where the plane crosses it, so every
+triangle lies wholly on one side. The rim where the two sides meet is
+doubled: the side short of the cut keeps it, the side past it takes the copy
+along, and a ribbon of triangles joins each edge of the rim to its copy —
+the cross-section, extruded. Nothing else changes shape, so a closed part
+stays closed and every triangle faces the way it did. A point within a
+micrometre or so of the cut is put on it rather than leaving a sliver
+beside it. No vertex goes and none is renumbered — the copies come after
+them — so a marking stays where it was.
+
+Shortening, the mesh is split at the cut and again the amount past it; what
+lies between is flattened onto the cut, what lies past is moved back, and
+the edges the flattening shrank to nothing are collapsed — each only where
+that keeps the surface closed, with no edge shared three ways. Where the
+cross-section is the same at both ends of the slab, the two rims meet and
+the slab is simply gone; where it is not, what is left of it is a flat step
+on the cut between them. Taking out as much as the part reaches past the
+cut, or more, is refused.
+
+Agents run it as `mesh.stretch`, with `along` (`"X"`, `"Y"`, `"Z"` or an
+element), `at` (left out: through the middle — the one place the cut is
+typed rather than clicked or dragged), `amount` (negative takes
+out) and `piece` (a point on the piece to stretch alone). `preview: true`
+answers what it would do — where it cuts, the part's reach before and after
+— without editing. Either way the answer names, under `outOfRound`, the
+measured features the stretch puts out of round.
 
 ### Fill holes
 
@@ -824,6 +899,7 @@ tools `mesh_cut` and so on, registered from the plugin's `install()`
 | `mesh.show` | the parts list's eyes, and the copy's Deviation key — the tool put away; not a step of the history |
 | `mesh.inspect` | the mesh the tools work on in figures — triangles, bounds, open edges, the volume it encloses — and its islands and holes at a size, the middle of each; with `deviation`, the copy measured against the scan in use |
 | `mesh.cut_preview` | what a cut at a plane would close, bridge and leave open |
+| `mesh.stretch` | the mesh cut across an axis or an element's direction and the cut's section put in — or a slab taken out — the whole part past the cut, or one piece; with `preview`, what it would do without the edit; both name the measured features it would put out of round |
 | `mesh.mark` | a region marked on the part as the window, brush and lasso mark it, for Delete marked, Flip normals, Smooth or Shrink / expand — to look at before the edit, or for the person to put right |
 | `mesh.remove_islands`, `mesh.delete_marked`, `mesh.flip_normals`, `mesh.cut`, `mesh.fill_holes`, `mesh.smooth`, `mesh.densify`, `mesh.offset`, `mesh.boolean`, `mesh.shell` | the edits, each one step of the undo history — Flip normals turns the whole mesh over, or a region; Densify cuts the triangles down to `maxEdge`; Shell hollows a closed part or thickens an open one, as the panel's does |
 | `mesh.reduce`, `mesh.trim` | the reduced mesh and Trim to scan's piece, made beside the scan |
@@ -876,6 +952,7 @@ node plugins/mesh-tools/scripts/e2e-mesh-edits.mjs # Mesh Tools: fill holes, smo
 node plugins/mesh-tools/scripts/e2e-mesh-boolean.mjs # Mesh Tools: a cylinder modelled in Reverse engineer taken out of a closed scan, exported
 node plugins/mesh-tools/scripts/e2e-mesh-shell.mjs # Mesh Tools: shrink, expand a marked face, hollow, thicken a cut-open copy, undo
 node plugins/mesh-tools/scripts/e2e-mesh-flip.mjs  # Mesh Tools: flip a closed box inside-out and back, then a window-marked patch alone
+node plugins/mesh-tools/scripts/e2e-mesh-stretch.mjs # Mesh Tools: a block cut and 10 put in — an arrow and a click moving the cut, the preview, undo, a slab taken out, one piece waiting for its click
 node plugins/mesh-tools/scripts/e2e-mesh-trim.mjs  # Mesh Tools: a box modelled in Reverse engineer trimmed to a block's rough top
 node plugins/mesh-tools/scripts/e2e-agent-mesh.mjs # Mesh Tools through an MCP client: a cube cleaned up, cut and reduced; needs npm --prefix mcp ci
 ```

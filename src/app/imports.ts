@@ -12,7 +12,7 @@ import type { Rigid } from '../core/deviation/rigid'
 import type { SceneManager } from '../viewer/SceneManager'
 import { grayscaleOf } from '../core/flat/edgeClient'
 import { assertImageDecodable, imagePixelsPerMm } from '../core/flat/image'
-import { is3mfFile, isModelFile, isReferenceFile, isTextureFile } from '../core/formats'
+import { isModelFile, isReferenceFile, isTextureFile, saysOwnUnits } from '../core/formats'
 import type { MeshUnits } from '../core/meshUnits'
 import { useStore } from '../state/store'
 import { ImportQueue, type PreparedView } from './importQueue'
@@ -66,17 +66,17 @@ const NO_VIEW: PreparedView = { commit() {}, dispose() {} }
 
 /** `given` is what the file's coordinates are in; the worker reads it in
  *  millimetres, and the source remembers the units so a project or a worker
- *  restart reads the same bytes the same way. A 3MF says its own units, and
- *  the worker reads them there, so it is taken as it is whatever `given`
- *  says. The files that came with a textured OBJ (see scanFiles) are kept
+ *  restart reads the same bytes the same way. A 3MF or a GLB says its own
+ *  units, and the worker reads them there, so it is taken as it is whatever
+ *  `given` says. The files that came with a textured OBJ (see scanFiles) are kept
  *  in the source beside it, and the part wears the colours they give it —
- *  or that a 3MF's packed images give it. Without a viewport — a test, a
+ *  or that a 3MF's or a GLB's packed images give it. Without a viewport — a test, a
  *  headless run — the model goes to the worker alone. */
 export async function prepareScan(client: MeshWorkerClient, scene: SceneManager | null, file: File, crease: CreaseSetting, transform?: Rigid, given: MeshUnits = 'mm', scale = 1): Promise<PreparedScan> {
   if (!isModelFile(file.name)) throw new Error(isTextureFile(file.name)
     ? `${file.name} is part of a textured scan — open it together with its OBJ (pick or drop the OBJ, the .mtl and the image at once, or drop their folder).`
-    : 'Unsupported file type — use STL, PLY, OBJ, 3MF or STEP.')
-  const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
+    : 'Unsupported file type — use STL, PLY, OBJ, 3MF, GLB or STEP.')
+  const units = saysOwnUnits(file.name) ? 'mm' : given // units-ok: a 3MF or GLB is read in millimetres, a MeshUnits id
   const buffer = await file.arrayBuffer()
   const extras = await companionBytes(companionsOf(file))
   // A copy of the bytes is kept, or for a large scan the file itself (see
@@ -94,8 +94,8 @@ export async function prepareScan(client: MeshWorkerClient, scene: SceneManager 
 }
 
 export async function prepareNominal(client: MeshWorkerClient, scene: SceneManager | null, file: File, given: MeshUnits = 'mm'): Promise<PreparedNominal> {
-  if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, 3MF or STEP.')
-  const units = is3mfFile(file.name) ? 'mm' : given // units-ok: a 3MF file is in millimetres, a MeshUnits id
+  if (!isReferenceFile(file.name)) throw new Error('Unsupported file type — use STL, PLY, OBJ, 3MF, GLB or STEP.')
+  const units = saysOwnUnits(file.name) ? 'mm' : given // units-ok: a 3MF or GLB is read in millimetres, a MeshUnits id
   const buffer = await file.arrayBuffer()
   const source = { name: file.name, file: keptSource(file, buffer), units }
   const { id, mesh } = await client.prepareNominal(file.name, buffer, units)

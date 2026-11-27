@@ -3,12 +3,16 @@
 // wrap Wrap made with its bridges tinted, the
 // islands Remove islands would take, the rims Fill holes would close — a
 // click on a hole's ring fills that hole — the cap a cut would close the
-// part with, the part's mirror image Mirror would make, the solids Boolean and Trim to scan are offered, and the piece
+// part with, the part's mirror image Mirror would make, the part as Stretch
+// would leave it, the solids Boolean and Trim to scan are offered, and the piece
 // Trim to scan made. One layer of the SceneManager (src/viewer/sceneLayers.ts),
 // first in line: the rings are drawn through the part, so picked through it,
 // ahead of everything behind.
 
 import * as THREE from 'three'
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js'
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js'
 import type { SceneManager } from '../../../src/viewer/SceneManager'
 import type { SceneLayer, SceneLayerHost } from '../../../src/viewer/sceneLayers'
 import { rigidApplyToPoints } from '../../../src/core/deviation/rigid'
@@ -19,6 +23,8 @@ import { clipTree } from '../../../src/viewer/clipTree'
 import { refitAfterRigid } from '../../../src/viewer/bvh'
 import { paintField, type Colormap, type FieldScale } from '../../../src/core/field/colormap'
 import type { SectionFrame } from '../../../src/core/section/frame'
+import type { Vec3 } from '../../../src/core/types'
+import { unstretch } from '../core/stretch'
 
 /** The islands a removal would take: a warning orange, unlit, so it stands
  *  off the scan's grey under every scheme. */
@@ -45,6 +51,17 @@ const SOLID_OFFER_COLOR = 0x8b95a3
 /** The mirror image Mirror would make, and the plane it is made across: a
  *  violet none of the boolean's colours nor the markings' are. */
 const MIRROR_COLOR = 0x8e6bd8
+/** The band Stretch stretches, and its ends: a magenta none of the other
+ *  tools' colours nor the markings' are, and far from the surface's own
+ *  blue-grey under every scheme. */
+const STRETCH_COLOR = 0xd6409f
+/** How much of that magenta the section put in takes on. */
+const STRETCH_TINT = 0.5
+/** The outline of the cut on the part, px: where it is in view, and where
+ *  it is drawn faintly through the part. */
+const STRETCH_RIM_PX = 3
+const STRETCH_RIM_THROUGH_PX = 1.5
+
 /** Where the wrap bridges an opening rather than lying on the part: an amber
  *  that reads as surface made, not as a warning — and none of the
  *  markings' colours. */
@@ -100,6 +117,16 @@ export class MeshScene {
    *  from: drawn again whenever another mesh is on show (see tick). */
   private mirrorWanted: { frame: SectionFrame; symmetric: boolean } | null = null
   private mirrorSource: Float32Array | null = null
+  /** The part as Stretch would leave it, and how a point picked on it is
+   *  taken back to where it was — see setStretchPreview. */
+  private stretch: THREE.Group | null = null
+  private stretchMesh: THREE.Mesh | null = null
+  private stretchShown: StretchShown | null = null
+  /** The outline's line materials, sized to the canvas on every frame. */
+  private stretchLines: LineMaterial[] = []
+  /** The outline alone while the cut is dragged — see setStretchGuide. */
+  private stretchGuide: THREE.Group | null = null
+  private guideLines: LineMaterial[] = []
   /** The solids Boolean can make one with the mesh, those in hand and the
    *  one under the cursor — see setBooleanSolids. */
   private booleanSolids: DrawnSolid[] = []
@@ -122,6 +149,9 @@ export class MeshScene {
   onHolePick: ((index: number) => void) | null = null
   /** A click on one of the solids Boolean is offered, by its key. */
   onSolidPick: ((key: string) => void) | null = null
+  /** A click on the part as Stretch would leave it: the point clicked, taken
+   *  back to where it is on the mesh before the stretch, in its frame. */
+  onStretchPick: ((at: Vec3) => void) | null = null
 
   /** The viewport, for the mesh on show — see setMirrorPreview. */
   private manager: SceneManager
@@ -136,6 +166,13 @@ export class MeshScene {
     return {
       order: 10,
       click: (x, y) => {
+        if (this.stretchMesh && this.onStretchPick) {
+          const at = this.stretchAt(x, y)
+          if (at) {
+            this.onStretchPick(at)
+            return true
+          }
+        }
         const hole = this.holeAt(x, y)
         if (hole !== null) {
           this.onHolePick?.(hole)
@@ -171,6 +208,7 @@ export class MeshScene {
       },
       themeChanged: (theme) => {
         if (this.mirrorImage && this.mirrorSymmetric) this.dressMirrorImage(this.mirrorImage.material as THREE.MeshStandardMaterial, theme)
+        if (this.stretchMesh) this.dressStretch(this.stretchMesh.material as THREE.MeshStandardMaterial[], theme)
         for (const child of this.cutCap?.children ?? []) {
           if (child instanceof THREE.Mesh) this.dressCutCap(child.material as THREE.MeshStandardMaterial, theme)
         }
@@ -199,7 +237,9 @@ export class MeshScene {
         this.sectionPlanes = section ? planes : null
         this.dressSection()
       },
-      tick: () => {
+      tick: (width, height) => {
+        for (const m of this.stretchLines) m.resolution.set(width, height)
+        for (const m of this.guideLines) m.resolution.set(width, height)
         this.dressSection()
         // The mesh on show changed under the mirror image — an edit landed,
         // another scan opened: drawn again from the one now on show.
@@ -209,8 +249,10 @@ export class MeshScene {
       // moves with the scan, and the deviation measured between them is a
       // distance no rigid move changes. So do the islands marked on it.
       partMoved: (m) => {
-        // Moved in place: the mirror image is drawn again on the next frame.
+        // Moved in place: the mirror image is drawn again on the next frame,
+        // and the stretch asked for again in the new place.
         this.mirrorSource = null
+        this.disposeStretch()
         for (const made of [this.reducedMesh, this.piece, this.wrap]) {
           if (!made) continue
           const geometry = made.geometry as THREE.BufferGeometry
@@ -239,6 +281,8 @@ export class MeshScene {
         this.disposeHoles()
         this.disposeCutCap()
         this.disposeMirror()
+        this.disposeStretch()
+        this.disposeStretchGuide()
         this.disposeBooleanSolids()
       },
       // An orbit pivots on the reduced mesh while it stands in for the scan,
@@ -252,6 +296,8 @@ export class MeshScene {
         this.disposeHoles()
         this.disposeCutCap()
         this.disposeMirror()
+        this.disposeStretch()
+        this.disposeStretchGuide()
         this.disposeBooleanSolids()
         this.caps.dispose()
         this.islandRing?.dispose()
@@ -893,6 +939,189 @@ export class MeshScene {
     this.host.invalidate()
   }
 
+  /**
+   * The part as Stretch would leave it, drawn in the scan's place — the
+   * workspace hides the scan while it is shown: the mesh the worker worked
+   * out (core/stretch), the stretch's very result, the section put in tinted
+   * magenta, and the outline of the cut drawn on the part — and,
+   * lengthening, where the section put in ends: bold where it is in view,
+   * faint through the part. `shown` says how a point
+   * picked on it goes back to where it was before the stretch (see
+   * onStretchPick). Null takes it away. In scan coordinates; taken away when
+   * the part moves, for the workspace to ask for it again.
+   */
+  setStretchPreview(
+    mesh: { positions: Float32Array; indices: Uint32Array; slab: Uint8Array; rim: Float32Array } | null,
+    shown: StretchShown | null = null,
+  ): void {
+    this.disposeStretch()
+    if (!mesh || !shown) {
+      this.host.invalidate()
+      return
+    }
+    const triangles = mesh.slab.length
+    // The band's triangles drawn in a group of their own, after the rest:
+    // `order` says which triangle each drawn one is.
+    const order = new Uint32Array(triangles)
+    const indices = new Uint32Array(mesh.indices.length)
+    let at = 0
+    for (const inBand of [false, true]) {
+      for (let t = 0; t < triangles; t++) {
+        if ((mesh.slab[t] === 2) !== inBand) continue
+        order[at] = t
+        indices.set(mesh.indices.subarray(t * 3, t * 3 + 3), at * 3)
+        at++
+      }
+    }
+    let rest = 0
+    for (let t = 0; t < triangles; t++) if (mesh.slab[t] !== 2) rest++
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3))
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    geometry.addGroup(0, rest * 3, 0)
+    geometry.addGroup(rest * 3, (triangles - rest) * 3, 1)
+    geometry.computeBoundingBox()
+    geometry.computeBoundingSphere()
+    const materials = [0, 1].map(() => new THREE.MeshStandardMaterial({ flatShading: true, side: THREE.DoubleSide }))
+    this.dressStretch(materials, this.host.theme())
+    const part = new THREE.Mesh(geometry, materials)
+    part.userData.order = order
+    part.userData.slab = mesh.slab
+
+    const group = new THREE.Group()
+    group.add(part)
+    if (mesh.rim.length > 0) for (const lines of this.outline(mesh.rim, this.stretchLines)) group.add(lines)
+    this.stretch = group
+    this.stretchMesh = part
+    this.stretchShown = shown
+    this.host.partGroup.add(group)
+    this.host.invalidate()
+  }
+
+  /**
+   * The outline of the cut alone, on the part as it is, while the cut is
+   * dragged: where the plane meets the mesh on show, worked out frame by
+   * frame as the hand moves (core/stretch cutOutline) — the stretch itself is
+   * worked out once the hand lets go. The same lines in place each frame,
+   * on new points. Null takes it away.
+   */
+  setStretchGuide(segments: Float32Array | null): void {
+    if (!segments || segments.length === 0) {
+      this.disposeStretchGuide()
+      this.host.invalidate()
+      return
+    }
+    if (!this.stretchGuide) {
+      const group = new THREE.Group()
+      for (const lines of this.outline(segments, this.guideLines)) group.add(lines)
+      this.stretchGuide = group
+      this.host.partGroup.add(group)
+    } else {
+      const geometry = new LineSegmentsGeometry()
+      geometry.setPositions(segments)
+      const lines = this.stretchGuide.children as LineSegments2[]
+      lines[0].geometry.dispose()
+      for (const l of lines) l.geometry = geometry
+    }
+    this.host.invalidate()
+  }
+
+  private disposeStretchGuide(): void {
+    if (!this.stretchGuide) return
+    const lines = this.stretchGuide.children as LineSegments2[]
+    lines[0]?.geometry.dispose()
+    for (const l of lines) (l.material as THREE.Material).dispose()
+    this.host.partGroup.remove(this.stretchGuide)
+    this.stretchGuide = null
+    this.guideLines = []
+  }
+
+  /** An outline on the part, segments six floats each: bold where it is in
+   *  view, faint through the part — its materials kept in `materials` to be
+   *  sized to the canvas. */
+  private outline(segments: Float32Array, materials: LineMaterial[]): LineSegments2[] {
+    const geometry = new LineSegmentsGeometry()
+    geometry.setPositions(segments)
+    const size = this.host.canvas
+    return [true, false].map((inView) => {
+      const material = new LineMaterial({
+        color: STRETCH_COLOR,
+        linewidth: inView ? STRETCH_RIM_PX : STRETCH_RIM_THROUGH_PX,
+        transparent: true,
+        opacity: inView ? 1 : 0.35,
+        depthTest: inView,
+        depthWrite: false,
+        worldUnits: false,
+      })
+      // Over the surface it lies on, not into it.
+      material.polygonOffset = true
+      material.polygonOffsetFactor = -4
+      material.polygonOffsetUnits = -4
+      material.resolution.set(size.width, size.height)
+      materials.push(material)
+      const lines = new LineSegments2(geometry, material)
+      lines.renderOrder = inView ? 5 : 4
+      lines.raycast = () => {}
+      return lines
+    })
+  }
+
+  /** The part's surface as the scan's, and the band's with the stretch's
+   *  magenta in it. */
+  private dressStretch(materials: THREE.MeshStandardMaterial[], theme: ViewTheme): void {
+    materials.forEach((material, i) => {
+      setSurfaceColor(material.color, theme)
+      if (i === 1) material.color.lerp(new THREE.Color(STRETCH_COLOR), STRETCH_TINT)
+      applyFinish(material, theme)
+      material.needsUpdate = true
+    })
+  }
+
+  /** The point of the stretched part under a client point, taken back to
+   *  where it lies on the mesh before the stretch — null off it. */
+  private stretchAt(clientX: number, clientY: number): Vec3 | null {
+    const part = this.stretchMesh
+    const shown = this.stretchShown
+    if (!part || !shown) return null
+    const geometry = part.geometry as THREE.BufferGeometry
+    // Built on the first pick, not with every preview: most are never
+    // clicked.
+    if (!geometry.boundsTree) geometry.computeBoundsTree()
+    const rect = this.host.canvas.getBoundingClientRect()
+    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
+    this.host.partGroup.updateMatrixWorld(true)
+    this.raycaster.setFromCamera(ndc, this.host.camera())
+    const hit = this.raycaster.intersectObject(part, false)[0]
+    if (!hit || hit.faceIndex == null) return null
+    const order = part.userData.order as Uint32Array
+    const slab = (part.userData.slab as Uint8Array)[order[hit.faceIndex]]
+    const p = this.host.partGroup.worldToLocal(hit.point.clone())
+    const n = new THREE.Vector3(...shown.dir).normalize()
+    const s = p.clone().sub(new THREE.Vector3(...shown.origin)).dot(n)
+    const was = unstretch(s, slab, shown.at, shown.amount)
+    p.addScaledVector(n, was - s)
+    return [p.x, p.y, p.z]
+  }
+
+  private disposeStretch(): void {
+    if (!this.stretch) return
+    const geometries = new Set<THREE.BufferGeometry>()
+    for (const child of this.stretch.children as (THREE.Mesh | LineSegments2)[]) {
+      geometries.add(child.geometry as THREE.BufferGeometry)
+      for (const m of ([] as THREE.Material[]).concat(child.material as THREE.Material | THREE.Material[])) m.dispose()
+    }
+    for (const geometry of geometries) {
+      geometry.disposeBoundsTree?.()
+      geometry.dispose()
+    }
+    this.stretchLines = []
+    this.host.partGroup.remove(this.stretch)
+    this.stretch = null
+    this.stretchMesh = null
+    this.stretchShown = null
+    this.host.invalidate()
+  }
+
   /** The mirror image made solid, for Symmetric: the surface's colour with a
    *  touch of the mirror's violet in it, to say it is not the part's yet. */
   private dressMirrorImage(material: THREE.MeshStandardMaterial, theme: ViewTheme): void {
@@ -1039,4 +1268,14 @@ export function meshSceneOf(scene: SceneManager | null): MeshScene | null {
     scenes.set(scene, mesh)
   }
   return mesh
+}
+
+/** A stretch as the scene draws it: the direction, through `origin`, the
+ *  place it is cut, mm along it, and the length put in there (negative,
+ *  taken out) — what takes a point back to where it was. */
+export interface StretchShown {
+  origin: Vec3
+  dir: Vec3
+  at: number
+  amount: number
 }

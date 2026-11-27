@@ -14,6 +14,7 @@ import { parseSTL } from './parsers/stl'
 import { parsePLY } from './parsers/ply'
 import { parseOBJ } from './parsers/obj'
 import { parse3MF } from './parsers/threemf'
+import { glbNeedsMeshopt, parseGLB, type MeshoptDecoderLike } from './parsers/glb'
 import type { ObjCompanions } from './parsers/objTexture'
 import { parseSTEP, type StepInfo } from './parsers/step'
 import { extensionOf } from './formats'
@@ -172,7 +173,8 @@ function parseByName(name: string, buffer: ArrayBuffer, onProgress: (t: string) 
   if (ext === 'ply') return parsePLY(buffer, onProgress)
   if (ext === 'obj') return parseOBJ(buffer, onProgress, companions)
   if (ext === '3mf') return parse3MF(buffer, onProgress, companions)
-  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF or STEP.`)
+  if (ext === 'glb') return parseGLB(buffer, onProgress, companions, meshopt ?? undefined)
+  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF, GLB or STEP.`)
 }
 
 /** The scan: a mesh, or a CAD part opened in a scan's place — cut finer
@@ -199,10 +201,10 @@ function parseNominal(
     const imported = parseSTEP(buffer, onProgress)
     return { parsed: imported.mesh, step: imported.info }
   }
-  if (ext === 'stl' || ext === 'ply' || ext === 'obj' || ext === '3mf') {
+  if (ext === 'stl' || ext === 'ply' || ext === 'obj' || ext === '3mf' || ext === 'glb') {
     return { parsed: parseByName(name, buffer, onProgress) }
   }
-  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF or STEP.`)
+  throw new Error(`Unsupported file type ".${ext}" — use STL, PLY, OBJ, 3MF, GLB or STEP.`)
 }
 
 /**
@@ -264,11 +266,40 @@ function drainQueue(): void {
  *  no error the page hears of — and leave this request and every one queued
  *  behind it waiting forever. */
 function answer(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): void {
+  if (needsMeshopt(msg)) {
+    // The decoder is fetched the first time a file needs it, the queue held
+    // meanwhile so nothing sent after the file overtakes it.
+    holding = true
+    meshoptTried = true
+    import('meshoptimizer/decoder')
+      .then(async ({ MeshoptDecoder }) => {
+        await MeshoptDecoder.ready
+        meshopt = MeshoptDecoder
+      })
+      .catch(() => {}) // the parser says the decoder could not be loaded
+      .finally(() => {
+        holding = false
+        answer(msg)
+        drainQueue()
+      })
+    return
+  }
   try {
     handle(msg)
   } catch (e) {
     post({ type: 'error', requestId: msg.requestId, message: errorText(e) })
   }
+}
+
+/** The meshopt decoder a compressed GLB is read with, once loaded; and
+ *  whether loading it was tried, so a failure is reported, not retried
+ *  for ever. */
+let meshopt: MeshoptDecoderLike | null = null
+let meshoptTried = false
+
+function needsMeshopt(msg: Exclude<WorkerRequest, { type: 'align-abort' }>): boolean {
+  if (meshoptTried || (msg.type !== 'load' && msg.type !== 'load-nominal')) return false
+  return extensionOf(msg.name) === 'glb' && glbNeedsMeshopt(msg.buffer)
 }
 
 /** The scan prepared for closest-point queries — the same structure a

@@ -50,6 +50,15 @@ export interface MeshPart {
     keep: 'plus' | 'minus'
     mode: 'whole' | 'symmetric'
   }
+  /** Stretch's direction, cut and amount — not the piece picked, which is
+   *  a point on the mesh of the moment. Absent before the tool existed. */
+  stretch?: {
+    ref: 'x' | 'y' | 'z' | number
+    at: number
+    atAuto: boolean
+    amount: number
+    scope: 'all' | 'piece'
+  }
   fill?: { size: number; sizeAuto: boolean; mode: 'curved' | 'flat' }
   smooth?: { size: number; sizeAuto: boolean; limit: number; limitAuto: boolean; keepEdges: boolean; scope?: 'all' | 'marked' }
   /** Densify's longest edge. Absent before the tool existed. */
@@ -84,6 +93,7 @@ export type ScanEditJson =
   | { kind: 'flip'; triangles: number; region?: number }
   | { kind: 'cut'; plane: string; removed: number; capped: number; open: number }
   | { kind: 'mirror'; mode: 'whole' | 'symmetric'; plane: string; triangles: number }
+  | { kind: 'stretch'; axis: string; at: number; amount: number; piece?: boolean }
   | { kind: 'fill'; maxSize: number; mode: 'curved' | 'flat'; holes: number; triangles: number }
   | { kind: 'smooth'; size: number; limit: number; maxMove: number; region?: number }
   | { kind: 'densify'; maxEdge: number; added: number; triangles: number }
@@ -151,6 +161,13 @@ function validateMeshPart(raw: unknown): MeshPart {
     fields(r, 'offsetAuto', 'boolean', 'mesh.mirror')
     if (r.keep !== 'plus' && r.keep !== 'minus') invalid('mesh.mirror.keep')
     if (!MIRROR_MODES.includes(r.mode as string)) invalid('mesh.mirror.mode')
+  }
+  if (x.stretch !== undefined) {
+    const t = object(x.stretch, 'mesh.stretch')
+    if (!(t.ref === 'x' || t.ref === 'y' || t.ref === 'z' || (Number.isSafeInteger(t.ref) && (t.ref as number) >= 0))) invalid('mesh.stretch.ref')
+    fields(t, 'at amount', 'number', 'mesh.stretch')
+    fields(t, 'atAuto', 'boolean', 'mesh.stretch')
+    if (t.scope !== 'all' && t.scope !== 'piece') invalid('mesh.stretch.scope')
   }
   if (x.fill !== undefined) {
     const f = object(x.fill, 'mesh.fill')
@@ -220,6 +237,10 @@ function validateMeshPart(raw: unknown): MeshPart {
         fields(edit, 'plane', 'string', where)
         fields(edit, 'triangles', 'number', where)
         if (!MIRROR_MODES.includes(edit.mode as string)) invalid(`${where}.mode`)
+      } else if (edit.kind === 'stretch') {
+        fields(edit, 'axis', 'string', where)
+        fields(edit, 'at amount', 'number', where)
+        if (edit.piece !== undefined && typeof edit.piece !== 'boolean') invalid(`${where}.piece`)
       } else if (edit.kind === 'fill') {
         fields(edit, 'maxSize holes triangles', 'number', where)
         if (edit.mode !== 'curved' && edit.mode !== 'flat') invalid(`${where}.mode`)
@@ -274,6 +295,8 @@ function scanEditOf(e: ScanEditJson): ScanEdit {
       return { kind: e.kind, plane: e.plane, removed: e.removed, capped: e.capped, open: e.open }
     case 'mirror':
       return { kind: e.kind, mode: e.mode, plane: e.plane, triangles: e.triangles }
+    case 'stretch':
+      return { kind: e.kind, axis: e.axis, at: e.at, amount: e.amount, ...(e.piece !== undefined ? { piece: e.piece } : {}) }
     case 'fill':
       return { kind: e.kind, maxSize: e.maxSize, mode: e.mode, holes: e.holes, triangles: e.triangles }
     case 'smooth':
@@ -320,6 +343,15 @@ function meshPartState(p: MeshPart): Partial<ReturnType<typeof useMeshTools.getS
           mirrorMode: p.mirror.mode,
         }
       : {}),
+    ...(p.stretch
+      ? {
+          stretchRef: p.stretch.ref,
+          stretchAt: p.stretch.at,
+          stretchAtAuto: p.stretch.atAuto,
+          stretchAmount: p.stretch.amount,
+          stretchScope: p.stretch.scope,
+        }
+      : {}),
     ...(p.fill ? { holeSize: p.fill.size, holeSizeAuto: p.fill.sizeAuto, fillMode: p.fill.mode } : {}),
     ...(p.smooth
       ? {
@@ -357,6 +389,13 @@ export const meshSection: ProjectSection<MeshPart> = {
       pieceSizeAuto: x.pieceSizeAuto,
       cut: { ref: x.cutRef, offset: x.cutOffset, offsetAuto: x.cutOffsetAuto, keep: x.cutKeep, cap: x.cutCap },
       mirror: { ref: x.mirrorRef, offset: x.mirrorOffset, offsetAuto: x.mirrorOffsetAuto, keep: x.mirrorKeep, mode: x.mirrorMode },
+      stretch: {
+        ref: x.stretchRef,
+        at: x.stretchAt,
+        atAuto: x.stretchAtAuto,
+        amount: x.stretchAmount,
+        scope: x.stretchScope,
+      },
       fill: { size: x.holeSize, sizeAuto: x.holeSizeAuto, mode: x.fillMode },
       smooth: {
         size: x.smoothSize,

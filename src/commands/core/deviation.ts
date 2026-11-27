@@ -44,7 +44,7 @@ const openReference: Command<{ bytes: Uint8Array; name: string; units?: MeshUnit
   name: 'open_reference',
   title: 'Open the reference part',
   description:
-    'Open the nominal part the scan is compared with — STEP from CAD, or STL, PLY, OBJ or 3MF — in place of the one there is; any alignment and map against the old one go, the elements measured on the scan stay. Returns the deviation state. Not undoable: a new reference starts a new history.',
+    'Open the nominal part the scan is compared with — STEP from CAD, or STL, PLY, OBJ, 3MF or GLB — in place of the one there is; any alignment and map against the old one go, the elements measured on the scan stay. Returns the deviation state. Not undoable: a new reference starts a new history.',
   input: obj({ bytes: bytes('The file’s contents.'), name: fileNameSchema('"bracket.step"'), units: unitsSchema }, ['bytes', 'name']),
   history: false,
   run: async ({ bytes: data, name, units }) => {

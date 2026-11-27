@@ -21,10 +21,10 @@ const PLANE_OF_AXIS = { z: 'XY', x: 'YZ', y: 'XZ' } as const
 /** An edit as the list shows it: its line, its figure and what it holds. */
 export const editOut = (e: ScanEdit) => ({ ...e, text: scanEditText(e), figure: scanEditFigure(e) })
 
-/** What Cut or Mirror is taken across: a coordinate plane by name, or an
- *  element. */
-function cutPlaneOut(ref: MeshState['cutRef']): string | { element: number; name: string | null } {
-  if (typeof ref !== 'number') return PLANE_OF_AXIS[ref]
+/** What Cut or Mirror is taken across — a coordinate plane by name, or an
+ *  element — or, as an `axis`, what Stretch is taken along: X, Y or Z. */
+function cutPlaneOut(ref: MeshState['cutRef'], as: 'plane' | 'axis' = 'plane'): string | { element: number; name: string | null } {
+  if (typeof ref !== 'number') return as === 'axis' ? ref.toUpperCase() : PLANE_OF_AXIS[ref]
   return { element: ref, name: useStore.getState().elements.find((e) => e.id === ref)?.name ?? null }
 }
 
@@ -36,6 +36,15 @@ function settingsOut(m: MeshState = useMeshTools.getState()) {
     removeIslands: { size: m.pieceSize },
     cut: { plane: cutPlaneOut(m.cutRef), offset: m.cutOffsetAuto ? null : m.cutOffset, keep: m.cutKeep, cap: m.cutCap },
     mirror: { plane: cutPlaneOut(m.mirrorRef), offset: m.mirrorOffsetAuto ? null : m.mirrorOffset, mode: m.mirrorMode, keep: m.mirrorKeep },
+    stretch: {
+      along: cutPlaneOut(m.stretchRef, 'axis'),
+      at: m.stretchAtAuto ? null : m.stretchAt,
+      amount: m.stretchAmount,
+      scope: m.stretchScope,
+      piece: m.stretchPiece,
+      ...(m.stretchPreview ? { preview: m.stretchPreview } : {}),
+      ...(m.stretchError ? { error: m.stretchError } : {}),
+    },
     fillHoles: { size: m.holeSize, patch: m.fillMode },
     smooth: { size: m.smoothSize, limit: m.smoothLimit, keepEdges: m.smoothEdges, scope: m.smoothScope },
     densify: { maxEdge: m.densifyEdge },

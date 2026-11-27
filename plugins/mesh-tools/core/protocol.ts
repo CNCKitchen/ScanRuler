@@ -16,6 +16,7 @@ import type { OffsetReport, OffsetSettings, ThickenReport, ThickenSide } from '.
 import type { PieceSurvey } from './pieces'
 import type { ReduceReport, ReduceSettings } from './reduce'
 import type { SmoothReport, SmoothSettings } from './smooth'
+import type { StretchReport, StretchSettings } from './stretch'
 import type { DensifyReport } from './densify'
 import type { TrimReport, TrimSettings } from './trimToScan'
 
@@ -38,7 +39,8 @@ export type PieceCount = Omit<PieceSurvey, 'islandMask' | 'islandCentres'>
  *  mesh and the union of the solids — their triangles, in the scan's frame,
  *  and their names — one by `op` (core/boolean); Shrink / expand moves the
  *  surface along its normal (core/offset); Shell hollows a closed mesh
- *  (core/hollow) or thickens an open one into a solid (core/offset). */
+ *  (core/hollow) or thickens an open one into a solid (core/offset); Stretch
+ *  makes a band of it longer or shorter along a direction (core/stretch). */
 export type ScanEditRequest =
   | { type: 'delete-marked'; vertices: Uint32Array }
   | { type: 'flip'; vertices?: Uint32Array }
@@ -51,6 +53,7 @@ export type ScanEditRequest =
   | { type: 'offset'; settings: OffsetSettings }
   | { type: 'hollow'; thickness: number }
   | { type: 'thicken'; thickness: number; side: ThickenSide }
+  | { type: 'stretch'; settings: StretchSettings }
 
 /** What an edit did, tool by tool. */
 export type MeshEditReport =
@@ -65,6 +68,7 @@ export type MeshEditReport =
   | { kind: 'offset'; report: OffsetReport }
   | { kind: 'hollow'; report: HollowReport }
   | { kind: 'thicken'; report: ThickenReport }
+  | { kind: 'stretch'; report: StretchReport }
 
 /** The mesh as an edit leaves it, in scan coordinates, and every old
  *  vertex's new number — −1 for one that went. The worker's own mesh is left
@@ -153,6 +157,13 @@ export interface MeshToolsOps {
   /** The cap a cut at this plane would close the part with, and what of the
    *  cut it would leave open. Nothing changes. */
   'cut-preview': { payload: { origin: Vec3; normal: Vec3 }; result: CutPreview }
+  /** The mesh as a stretch would leave it — the very mesh the edit makes —
+   *  each triangle's slab and the outline of the cut (core/stretch), to show
+   *  it by. Nothing changes. */
+  'stretch-preview': {
+    payload: { settings: StretchSettings }
+    result: { positions: Float32Array; indices: Uint32Array; slab: Uint8Array; rim: Float32Array; report: StretchReport }
+  }
   /** How far the mesh is from closed, which a boolean needs it to be.
    *  Nothing changes. */
   closedness: { payload: Record<string, never>; result: Closedness }

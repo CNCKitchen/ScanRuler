@@ -77,7 +77,7 @@ This guide is the workflow and the judgement. **measure-reference** has every co
 
 ## 6. Deviation against a reference
 
-- `deviation_open_reference` with the reference part's path (STEP, STL, PLY, OBJ or 3MF; `units` for those without). It replaces any reference there was.
+- `deviation_open_reference` with the reference part's path (STEP, STL, PLY, OBJ, 3MF or GLB; `units` for those without). It replaces any reference there was.
 - **Align:** `deviation_align`.
   - `mode: "auto"` finds the pose on its own — a best fit over the whole part. It spreads a real error over everything: a shifted bore makes the whole part read slightly off.
   - `mode: "points"` starts from three or more pairs of the same point on scan and reference, then refines — for symmetric parts where auto may pick a wrong turn.

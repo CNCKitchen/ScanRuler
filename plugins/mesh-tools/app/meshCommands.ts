@@ -2,7 +2,7 @@
 // The Mesh Tools workspace's commands — what an agent cleans a scan up,
 // edits it and reduces it through (src/commands), registered from the
 // plugin's install() under `mesh`, the workspace's id: mesh.cut,
-// mesh.mirror, mesh.fill_holes, mesh.wrap and the rest. Each is the panel's own code path: the
+// mesh.mirror, mesh.stretch, mesh.fill_holes, mesh.wrap and the rest. Each is the panel's own code path: the
 // tool put in hand, its settings set through the store as the panel's
 // fields set them, and the verb the panel's button runs
 // (meshToolsSession.ts) run inside one step of the undo history
@@ -43,6 +43,7 @@ import {
   type MirrorMode,
   type OffsetDirection,
 } from '../state/meshStore'
+import { featuresCut, stretchSetupOf } from './stretchSetup'
 import { editedCopy } from '../state/editedCopy'
 import { booleanSolids } from './booleanSolids'
 import { buildEditedMesh } from './exportEdited'
@@ -527,6 +528,69 @@ const mirror: Command<{ plane: Ref; offset?: number; mode?: MirrorMode; keep?: C
   },
 }
 
+/** A direction to stretch along: a coordinate axis by name, or an element
+ *  with a direction by id or name. */
+function stretchRefOf(along: Ref): SectionRef {
+  if (typeof along === 'string' && /^[xyz]$/i.test(along.trim())) return along.trim().toLowerCase() as 'x' | 'y' | 'z'
+  const el = findElement(along)
+  if (!el.fit || !cutAxisOf(el.fit)) invalid(`${el.name} has no direction to stretch along — take a plane, a cylinder, a cone, a line or a circle.`)
+  return el.id
+}
+
+const stretch: Command<{ along: Ref; at?: number; amount: number; piece?: Vec3; preview?: boolean }> = {
+  name: 'stretch',
+  title: 'Stretch the mesh at a cut',
+  description:
+    'Cut the mesh across a direction at one place and move everything past the cut out by amount, the cut’s own cross-section extruded across the gap — a spacer lengthened without widening its ends, two holes moved apart without changing their size. A negative amount takes a slab that thick out past the cut instead and closes the part up again: where the cross-section is the same at both ends of the slab the rims meet, where it is not a flat step is left between them. Either way a closed part stays closed. Put the cut where the cross-section does not change, clear of features that must keep their size: a hole the cut goes through becomes a slot (the answer names the measured ones under outOfRound). at left out puts the cut through the middle of the part. piece moves only the piece of the part past the cut that point is on — one leg of a U — and leaves the others. preview answers what it would do — where it cuts, how far the part reaches along the direction before and after — without editing. Edits the copy. One undo step. Returns the edit and the mesh after it.',
+  input: obj(
+    {
+      along: oneOf(
+        [str('A coordinate axis — "X", "Y" or "Z" — or an element’s name.', { minLength: 1 }), int('An element’s id.', { minimum: 1 })],
+        'What to stretch along: a coordinate axis — after a datum alignment, the datum’s — or an element with a direction (a plane’s normal, a cylinder’s, cone’s or line’s axis, a circle’s normal).',
+      ),
+      at: num('Where the part is cut, mm along the direction: for an axis its coordinate; for an element, from its centre. Left out: through the middle of the part.'),
+      amount: num('How far the part past the cut moves out, mm — the length of the section put in; negative takes a slab that thick out past the cut.'),
+      piece: vec3('A point on the piece past the cut to stretch alone, in the scan’s frame, mm.'),
+      preview: bool('Answer what the stretch would do without making it.'),
+    },
+    ['along', 'amount'],
+  ),
+  history: false,
+  run: async ({ along, at, amount, piece, preview }) => {
+    requireScan()
+    const ref = stretchRefOf(along)
+    const elements = useStore.getState().elements
+    const setup = stretchSetupOf(
+      { stretchRef: ref, stretchAt: at ?? 0, stretchAtAuto: at === undefined, stretchAmount: amount, stretchScope: piece ? 'piece' : 'all', stretchPiece: piece ?? null },
+      elements,
+    )
+    if (!setup) invalid('That direction cannot be taken — its element has no direction.')
+    const { settings, axisName } = setup!
+    // Where the cut is — through the middle of the part, worked out on the
+    // mesh, when none is given — for the features it goes through to be
+    // named.
+    let seen
+    try {
+      seen = await client().stretchPreview(settings)
+    } catch (e) {
+      throw new CommandError('invalid_input', errorMessage(e))
+    }
+    const cut = seen.report.at
+    const outOfRound = featuresCut(elements, settings.origin, settings.dir, cut, amount < 0 ? cut - amount : cut)
+    if (preview) return { report: seen.report, outOfRound }
+    const landed = await step(`stretch along ${axisName}`, 'The stretch', async () => {
+      inHand('stretch')
+      m().setStretchRef(ref)
+      if (at !== undefined) m().setStretchAt(at)
+      m().setStretchScope(piece ? 'piece' : 'all')
+      if (piece) m().setStretchPiece(piece)
+      m().setStretchAmount(amount)
+      return session().stretchScan({ inStep: true })
+    }, true)
+    return { ...(await editAnswer(landed)), outOfRound }
+  },
+}
+
 const fillHoles: Command<{ size?: number; patch?: FillMode; at?: Vec3 }> = {
   name: 'fill_holes',
   title: 'Fill holes',
@@ -899,7 +963,7 @@ const exportPart: Command<{ part: 'edited' | 'reduced' | 'piece'; format?: MeshF
 
 /** The workspace's commands, in the order a cleanup goes: what is there,
  *  islands and marked surface off, the normals the right way, the cut, a
- *  mirror, the holes, smoothing, densifying, a shrink
+ *  mirror, a stretch, the holes, smoothing, densifying, a shrink
  *  or an expansion, a boolean, the shell, a wrap, and the reduction last. */
 export const meshCommands = [
   parts,
@@ -912,6 +976,7 @@ export const meshCommands = [
   flipNormals,
   cut,
   mirror,
+  stretch,
   fillHoles,
   smooth,
   densify,

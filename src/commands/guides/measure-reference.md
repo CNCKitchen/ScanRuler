@@ -29,7 +29,7 @@ Example: `{ calls: [{ tool: "element_fit", arguments: { kind: "cylinder", at: { 
 Example: `{}`
 Details: `project.name`; `project.unsaved` — changes not saved since the project was last saved or opened, as the top bar's "Unsaved changes" says (null with no page); `project.holds` — the work a new scan or project would replace, counted by what it is; what is open in the panels; `ui.units` — what the screen shows lengths in, `mm` or `in`. The screen may show inches; every answer of every tool is in millimetres, angles in degrees. Read the state before acting and after.
 
-**`scan_open`** `{ path, name?, units?: "mm" | "cm" | "m" | "in", discard?, wait? }` — an STL, PLY, OBJ, 3MF or STEP as the scan; answers name, units, counts, bounding box, centre, size. Refused over measurements unless `discard: true`. Not undoable.
+**`scan_open`** `{ path, name?, units?: "mm" | "cm" | "m" | "in", discard?, wait? }` — an STL, PLY, OBJ, 3MF, GLB or STEP as the scan; answers name, units, counts, bounding box, centre, size. Refused over measurements unless `discard: true`. Not undoable.
 Example: `{ path: "C:/scans/bracket.stl", units: "mm" }`
 Details: a STEP part is cut into triangles, a few hundred to the part's diagonal. `name` is what the session calls the model (the file's own name by default). `units` are the file's coordinates: an STL carries no units of its own; PLY and OBJ are taken in millimetres unless told otherwise; everything is measured in millimetres once read. Everything measured on the old scan goes with it — the refusal names what the session holds. A reference part opened from a file stays, its alignment and maps gone (`referenceKept` names it); one the app made from the session's own work goes with that work (`referenceDropped`). The answer's `bounds` are the box's min and max corners, `center` its centre, `size` its diagonal, mm. A new scan starts a new history.
 
@@ -232,7 +232,7 @@ Details: the image or section, the scale it rests on, the alignment, every eleme
 
 ### Deviation
 
-**`deviation_open_reference`** `{ path, name?, units?, wait? }` — STEP, STL, PLY, OBJ or 3MF as the reference; any alignment against the old one goes. Not undoable.
+**`deviation_open_reference`** `{ path, name?, units?, wait? }` — STEP, STL, PLY, OBJ, 3MF or GLB as the reference; any alignment against the old one goes. Not undoable.
 Example: `{ path: "C:/parts/bracket.step" }`
 Details: the nominal part the scan is compared with, STEP straight from CAD; the map against the old one goes with the alignment, the elements measured on the scan stay. `units` as `scan_open` takes them. Answers the deviation state; a new reference starts a new history.
 
